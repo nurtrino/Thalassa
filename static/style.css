@@ -341,6 +341,7 @@ button.small { font-size: 13px; padding: 6px 10px; background: #7a8ca0; }
 .nclue.left { justify-content: flex-end; align-items: center; padding-right: 6px; }
 .mgcell.nono { width: 40px; height: 40px; }
 .mgcell.nono.on { background: var(--ink); border-color: var(--ink); }
+.mgcell.nono.given { background: #b8863b; border-color: #8a6224; cursor: default; opacity: 1; }
 
 .simonpad { display: grid; grid-template-columns: repeat(3, 64px); gap: 8px; }
 .mgpad {

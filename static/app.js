@@ -16,7 +16,7 @@ const MG_LABEL = {
 };
 const MG_PROMPT = {
   tetromino: 'Fill the sigil completely with the given pieces. Tap a piece, rotate it, tap the grid to place. Tap a placed piece to lift it.',
-  nonogram: 'Paint cells so every row and column matches its clue numbers.',
+  nonogram: 'Paint cells so every row and column matches its clues. The bronze cells are given — work fast!',
   simon: 'Watch the tiles sing… then repeat the sequence from memory.',
   anagram: 'Unscramble the letters into a word.',
   ravens: 'Find the rule. Choose the missing ninth tile.',
@@ -723,7 +723,11 @@ function renderTetromino(board, m, mine, fresh) {
 
 /* nonogram */
 function renderNonogram(board, m, mine, fresh) {
-  if (fresh) mg.grid = Array(m.n * m.n).fill(0);
+  const given = new Set(m.given || []);
+  if (fresh) {
+    mg.grid = Array(m.n * m.n).fill(0);
+    for (const i of given) mg.grid[i] = 1;
+  }
   board.innerHTML = '';
   const wrap = document.createElement('div');
   wrap.className = 'nonowrap';
@@ -746,8 +750,9 @@ function renderNonogram(board, m, mine, fresh) {
     for (let c = 0; c < m.n; c++) {
       const i = r * m.n + c;
       const cell = document.createElement('button');
-      cell.className = 'mgcell nono' + (mg.grid[i] ? ' on' : '');
-      cell.disabled = !mine;
+      const isGiven = given.has(i);
+      cell.className = 'mgcell nono' + (mg.grid[i] ? ' on' : '') + (isGiven ? ' given' : '');
+      cell.disabled = !mine || isGiven;
       cell.onclick = () => {
         mg.grid[i] ^= 1;
         cell.classList.toggle('on', !!mg.grid[i]);
