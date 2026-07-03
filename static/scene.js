@@ -790,9 +790,98 @@ function bannerTexture(title, sub, colorHex, dark = false) {
   return tex;
 }
 
+/* ── regions: the archipelago transforms as you sail north ──────────────── */
+const REGIONS = [
+  { name: 'The Verdant Shallows', bands: [0, 1],
+    palette: { grass: 0x5cb04b, grass2: 0x3d7d3a, sand: 0xeadfae },
+    flora: 'palm', label: '#9fd6a8' },
+  { name: 'The Cyclade Whites', bands: [2, 3],
+    palette: { grass: 0xa8b06b, grass2: 0x7d9455, sand: 0xf6efdc, rock: 0xdad5c8 },
+    flora: 'olive', label: '#f0e8d0' },
+  { name: 'The Ashen Reaches', bands: [4, 5],
+    palette: { grass: 0x76804f, grass2: 0x4c553c, sand: 0xa89a80, rock: 0x46404c },
+    flora: 'dead', ember: true, label: '#e0a184' },
+  { name: 'The Mistral North', bands: [6, 7],
+    palette: { grass: 0x6f9a86, grass2: 0x4d7263, sand: 0xd9dfda, rock: 0xdfe8ee },
+    flora: 'cypress', snow: true, label: '#cfe4f2' },
+  { name: 'Isle of the Fleece', bands: [8],
+    palette: { grass: 0x7fc06f }, flora: 'palm', label: '#ffd98a' },
+];
+const regionFor = (band) => REGIONS.find((r) => r.bands.includes(band ?? 0)) || REGIONS[0];
+
+function makeOlive(rng, s = 1) {
+  const g = new THREE.Group();
+  const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.08 * s, 0.14 * s, 0.9 * s, 5), flat(0x7a6248));
+  trunk.position.y = 0.45 * s;
+  trunk.rotation.z = (rng() - 0.5) * 0.35;
+  g.add(trunk);
+  for (let i = 0; i < 3; i++) {
+    const puff = new THREE.Mesh(
+      displace(new THREE.IcosahedronGeometry((0.32 + rng() * 0.16) * s, 0), 0.06 * s, (seedFrom(rng))),
+      flat(0x8fa05a));
+    puff.position.set((rng() - 0.5) * 0.55 * s, (0.95 + rng() * 0.35) * s, (rng() - 0.5) * 0.55 * s);
+    puff.castShadow = true;
+    g.add(puff);
+  }
+  return g;
+}
+
+function makeDeadTree(rng, s = 1) {
+  const g = new THREE.Group();
+  const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.07 * s, 0.15 * s, 1.6 * s, 5), flat(0x3e3630));
+  trunk.position.y = 0.8 * s;
+  trunk.rotation.z = (rng() - 0.5) * 0.25;
+  g.add(trunk);
+  for (let i = 0; i < 3; i++) {
+    const br = new THREE.Mesh(new THREE.CylinderGeometry(0.03 * s, 0.05 * s, 0.9 * s, 4), flat(0x3e3630));
+    br.position.set((rng() - 0.5) * 0.4 * s, (1.15 + rng() * 0.55) * s, (rng() - 0.5) * 0.4 * s);
+    br.rotation.set((rng() - 0.5) * 1.5, rng() * 6.28, 0.5 + rng() * 0.8);
+    g.add(br);
+  }
+  return g;
+}
+
+function seedFrom(rng) { return Math.floor(rng() * 1e9); }
+
+function regionFlora(rng, region, s = 1) {
+  if (region.flora === 'palm') return makePalm(rng, s);
+  if (region.flora === 'olive') return makeOlive(rng, s);
+  if (region.flora === 'dead') return makeDeadTree(rng, s);
+  return makeCypress(rng, s);
+}
+
+/* scattered coast dressing so islands feel dense and hand-made */
+function dressIsland(g, rng, region, R, terrain) {
+  const n = 2 + Math.floor(rng() * 3);
+  for (let i = 0; i < n; i++) {
+    const a = rng() * 6.28;
+    const rr = 0.55 + rng() * 0.3;
+    const y = terrain.heightAt(rr);
+    if (y < 0.15) continue;
+    if (rng() < 0.6) {
+      const f = regionFlora(rng, region, 0.6 + rng() * 0.5);
+      f.position.set(Math.cos(a) * R * rr, y, Math.sin(a) * R * rr);
+      g.add(f);
+    } else {
+      const rk = makeRock(rng, 0.3 + rng() * 0.4, region.palette.rock ?? COL.rock);
+      rk.position.set(Math.cos(a) * R * rr, y + 0.1, Math.sin(a) * R * rr);
+      g.add(rk);
+    }
+  }
+  if (region.ember) {
+    const ember = new THREE.Mesh(
+      displace(new THREE.IcosahedronGeometry(0.4, 0), 0.12, seedFrom(rng)),
+      new THREE.MeshStandardMaterial({ color: 0x2c2430, flatShading: true,
+        emissive: 0xff4f26, emissiveIntensity: 0.85 }));
+    const a = rng() * 6.28;
+    ember.position.set(Math.cos(a) * R * 0.5, terrain.heightAt(0.5) + 0.2, Math.sin(a) * R * 0.5);
+    g.add(ember);
+  }
+}
+
 /* ── island assembly (keyed by view state) ──────────────────────────────── */
-const ISLE_R = { home: 6.2, shrine: 4.6, puzzle: 4.6, haven: 5.0,
-                 monster: 5.2, lair: 5.8, fleece: 7.2, sea: 1.5 };
+const ISLE_R = { home: 7.0, shrine: 5.2, puzzle: 5.2, haven: 5.6,
+                 monster: 5.8, lair: 6.6, fleece: 8.0, sea: 1.5 };
 
 function viewKey(node) {
   return [node.type, node.monster ? node.monster.hp : '-',
@@ -805,6 +894,7 @@ function buildIsland(node, domains) {
   const seed = hashStr(node.id);
   const rng0 = mulberry32(seed + 7);
   const R = (ISLE_R[node.type] ?? 4.8) * (node.type === 'sea' ? 1 : 0.88 + rng0() * 0.35);
+  const region = regionFor(node.band);
   let terrain;
 
   if (node.type === 'sea') {
@@ -826,11 +916,11 @@ function buildIsland(node, domains) {
         H: style < 0.33 ? 0.8 : 1.1,
         mode: style < 0.33 ? 'atoll' : 'hill',
         lobes: style > 0.66 ? 0.42 : 0,
-        palette: rng0() < 0.5 ? { sand: 0xf7ecc8 } : {},
+        palette: { ...region.palette, ...(rng0() < 0.5 ? { sand: 0xf7ecc8 } : {}) },
       });
       g.add(t.mesh);
       g.add(shallowDisc(13));
-      const flora = rng0() < 0.6 ? makePalm(rng0, 0.75) : makeCypress(rng0, 0.7);
+      const flora = regionFlora(rng0, region, 0.75);
       const fr = style < 0.33 ? 0.3 : 0.15;      // atolls grow on the ring
       flora.position.set(t.heightAt(fr) ? 0.8 : 0, Math.max(0.3, t.heightAt(fr)), 0);
       g.add(flora);
@@ -848,7 +938,7 @@ function buildIsland(node, domains) {
     g.position.set(node.x, 0, node.z);
     return { group: g, R: node.look === 'islet' ? 2.8 : node.look === 'rocks' ? 2.2 : R, plateauY: 0 };
   } else if (node.type === 'home') {
-    terrain = makeTerrain({ seed, R, H: 1.7, mode: 'mesa' });
+    terrain = makeTerrain({ seed, R, H: 1.7, mode: 'mesa', palette: { ...region.palette } });
     const dock = makeDock(6.0);
     dock.position.set(1.2, 0.4, R * 0.72);
     dock.rotation.y = Math.PI;
@@ -863,17 +953,18 @@ function buildIsland(node, domains) {
     }
   } else if (node.type === 'shrine') {
     const hex = DOMAIN_COLORS[node.domain] || '#d9a441';
-    terrain = makeTerrain({ seed, R, H: 2.2, mode: 'mesa' });
+    terrain = makeTerrain({ seed, R, H: 2.2, mode: 'mesa', palette: { ...region.palette } });
     const spent = (node.charges ?? 0) <= 0;
     const shrine = makeShrine(hex);
     shrine.position.y = terrain.heightAt(0);
     if (spent) shrine.traverse((o) => { if (o.material?.color) o.material = o.material.clone(), o.material.color.multiplyScalar(0.6); });
     g.add(shrine);
-    const cy = makeCypress(rng0, 1.0);
+    const cy = regionFlora(rng0, region, 1.0);
     cy.position.set(R * 0.45, terrain.heightAt(0.45), R * 0.2);
     g.add(cy);
   } else if (node.type === 'puzzle') {
-    terrain = makeTerrain({ seed, R, H: 2.4, mode: 'mesa', palette: { grass: 0x6fae8f } });
+    terrain = makeTerrain({ seed, R, H: 2.4, mode: 'mesa',
+      palette: { ...region.palette, grass: 0x6fae8f } });
     const ob = makeObelisk();
     ob.position.y = terrain.heightAt(0);
     if (node.solved) ob.children.forEach((ch) => { if (ch.isPointLight) ch.intensity = 0; });
@@ -882,7 +973,7 @@ function buildIsland(node, domains) {
     rk.position.set(-R * 0.4, terrain.heightAt(0.4) + 0.2, R * 0.3);
     g.add(rk);
   } else if (node.type === 'haven') {
-    terrain = makeTerrain({ seed, R, H: 1.8, mode: 'flat' });
+    terrain = makeTerrain({ seed, R, H: 1.8, mode: 'flat', palette: { ...region.palette } });
     const t = makeTents(rng0);
     t.position.y = terrain.heightAt(0.2);
     g.add(t);
@@ -890,13 +981,15 @@ function buildIsland(node, domains) {
     dock.position.set(0.5, 0.4, R * 0.8);
     dock.rotation.y = Math.PI;
     g.add(dock);
-    const palm = makePalm(rng0, 1.0);
+    const palm = regionFlora(rng0, region, 1.0);
     palm.position.set(-R * 0.5, terrain.heightAt(0.5), -R * 0.2);
     g.add(palm);
   } else if (node.type === 'monster' || node.type === 'lair') {
     const dark = node.type === 'lair';
     terrain = makeTerrain({ seed, R, H: dark ? 3.4 : 2.6, mode: 'peak',
-      palette: dark ? { grass: 0x74875e, grass2: 0x5a7050, rock: COL.basalt, sand: 0xcbb489 } : {} });
+      palette: dark
+        ? { grass: 0x74875e, grass2: 0x5a7050, rock: COL.basalt, sand: 0xcbb489 }
+        : { ...region.palette } });
     if (node.monster) {
       const beast = makeMonster(rng0, node.monster);
       beast.position.y = terrain.heightAt(0.25) + 0.55;   // clear of the slope
@@ -943,8 +1036,10 @@ function buildIsland(node, domains) {
       g.add(c);
     }
   } else {
-    terrain = makeTerrain({ seed, R, H: 2.0, mode: 'hill' });
+    terrain = makeTerrain({ seed, R, H: 2.0, mode: 'hill', palette: { ...region.palette } });
   }
+
+  if (node.type !== 'fleece') dressIsland(g, rng0, region, R, terrain);
 
   {
     g.add(terrain.mesh);
@@ -1124,6 +1219,34 @@ export function createWorld(container, onIslandClick) {
   const banners = {};      // id → {key, sprite}
   const ships = {};        // pid → {group, target, idx, phase, anim}
   const traders = [];      // neutral NPC ships drifting the lanes (set dressing)
+  const regionLabels = new THREE.Group();   // chart-style names on the water
+  scene.add(regionLabels);
+
+  function buildRegionLabels(nodes) {
+    regionLabels.clear();
+    for (const reg of REGIONS) {
+      const own = nodes.filter((n) => reg.bands.includes(n.band) && n.type !== 'sea');
+      if (!own.length || reg.bands.includes(8)) continue;    // the Fleece names itself
+      const cx = own.reduce((s, n) => s + n.x, 0) / own.length;
+      const cz = own.reduce((s, n) => s + n.z, 0) / own.length;
+      const c = document.createElement('canvas');
+      c.width = 1024; c.height = 128;
+      const ctx = c.getContext('2d');
+      ctx.font = 'italic 76px Georgia, serif';
+      ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.fillStyle = reg.label;
+      ctx.fillText(reg.name.toUpperCase(), 512, 64);
+      const tex = new THREE.CanvasTexture(c);
+      tex.colorSpace = THREE.SRGBColorSpace;
+      const plane = new THREE.Mesh(new THREE.PlaneGeometry(110, 13.75),
+        new THREE.MeshBasicMaterial({ map: tex, transparent: true, opacity: 0.38,
+          depthWrite: false }));
+      plane.rotation.x = -Math.PI / 2;
+      plane.position.set(cx, 0.12, cz + 26);   // just south of the region's isles
+      plane.renderOrder = 2;
+      regionLabels.add(plane);
+    }
+  }
   let laneGroup = new THREE.Group();
   let laneKey = '';
   let boardSig = '';
@@ -1305,6 +1428,7 @@ export function createWorld(container, onIslandClick) {
   }
 
   function clearBoard() {
+    regionLabels.clear();
     for (const tr of traders.splice(0)) scene.remove(tr.group);
     for (const id of Object.keys(islands)) {
       scene.remove(islands[id].group);
@@ -1340,6 +1464,7 @@ export function createWorld(container, onIslandClick) {
     const fullSig = `${homeNode?.x},${homeNode?.z}:${room.code}`;
     if (boardSig && boardSig !== fullSig) clearBoard();     // new sea (rematch)
     boardSig = fullSig;
+    if (!regionLabels.children.length) buildRegionLabels(nodes);
 
     const present = new Set();
     for (const node of nodes) {
