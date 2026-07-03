@@ -38,7 +38,7 @@ export const MONSTER_IDS = [
 ];
 
 export const BOSS_IDS = new Set(['stag_king', 'wyrm', 'colossus', 'matriarch', 'warden']);
-const FLOATERS = new Set(['wraith', 'shade', 'siren']);
+const FLOATERS = new Set(['wraith', 'shade', 'siren', 'warden']);
 const BOATS = new Set(['skiff']);
 
 const loader = new GLTFLoader();
