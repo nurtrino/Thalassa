@@ -50,10 +50,13 @@ function paintMute() {
 paintMute();
 muteBtn.onclick = () => { audio.init(); audio.toggleMuted(); paintMute(); };
 
+// first interaction of any kind wakes the audio context AND the menu music
 document.addEventListener('pointerdown', (e) => {
   audio.init();
+  audio.startMusic();
   if (e.target.closest('.act, .opt, .big, .small, .mgcell, .mgpad, .glyphopt')) audio.sfx.click();
 }, { passive: true });
+document.addEventListener('keydown', () => { audio.init(); audio.startMusic(); }, { passive: true });
 
 $('joinBtn').onclick = () => { audio.init(); audio.startMusic(); audio.sfx.join(); connect(); };
 $('nameInput').addEventListener('keydown', (e) => { if (e.key === 'Enter') $('joinBtn').click(); });
@@ -80,6 +83,7 @@ function connect() {
 }
 
 function send(obj) { if (ws?.readyState === 1) ws.send(JSON.stringify(obj)); }
+window.__send = send;                 // debug/testing handle
 
 /* ── message handling ────────────────────────────────────────────────────── */
 let lastLogLine = null;
@@ -113,7 +117,15 @@ function reactAudio(prev, next) {
   if (next.phase === 'reveal' && sfxPrevPhase !== 'reveal' && next.reveal) {
     const rv = next.reveal;
     if (rv.kind === 'battle') {
-      if (rv.was_correct) audio.sfx.hit(); else audio.sfx.hurt();
+      if (rv.was_correct) {
+        audio.sfx.hit();
+        flashScreen('gold');
+      } else {
+        audio.sfx.hurt();
+        flashScreen('red');
+        document.body.classList.add('shake');
+        setTimeout(() => document.body.classList.remove('shake'), 500);
+      }
       if (rv.battle_over && rv.was_correct) setTimeout(() => audio.sfx.laurel(), 450);
     } else if (rv.was_correct) audio.sfx.correct();
     else audio.sfx.wrong();
@@ -142,9 +154,17 @@ function reactAudio(prev, next) {
   else if (next.phase === 'finished' || next.fleece_revealed) scene = 'endgame';
   audio.setScene(scene);
 
-  // duck only under trivia cards (the puzzle scene has its own music)
-  audio.duck(next.phase === 'question' && !puzzleish && !battleish);
+  // duck under trivia cards — and under Simon, whose tones need the spotlight
+  audio.duck((next.phase === 'question' && !puzzleish && !battleish) ||
+             (next.phase === 'minigame' && next.minigame?.kind === 'simon'));
   sfxPrevPhase = next.phase;
+}
+
+function flashScreen(color) {
+  const f = $('flash');
+  f.className = color;
+  requestAnimationFrame(() => { f.className = color + ' fade'; });
+  setTimeout(() => { f.className = ''; }, 650);
 }
 
 /* ── rendering ───────────────────────────────────────────────────────────── */
@@ -205,7 +225,9 @@ function renderPlayers() {
   el.innerHTML = '';
   for (const p of room.players) {
     const div = document.createElement('div');
-    div.className = 'pchip' + (p.pid === room.turn ? ' turn' : '') + (p.connected ? '' : ' gone');
+    div.className = 'pchip' + (p.pid === room.turn ? ' turn' : '') +
+      (p.connected ? '' : ' gone') + (p.pid === you ? ' me' : '');
+    div.title = `hull ${p.hull}/${p.max_hull} — your ship's health; 0 = shipwreck`;
     div.innerHTML =
       `<span class="dot" style="background:${p.color}"></span>` +
       `<span class="pname">${p.bot ? '🤖 ' : ''}${esc(p.name)}</span>` +
@@ -305,26 +327,38 @@ function renderTray() {
   }
 }
 
-/* ── battle card ─────────────────────────────────────────────────────────── */
+/* ── battle screen (camera dives into the island; big bars; cine bars) ───── */
+function hpBar(cur, max, cls) {
+  const cells = Array.from({ length: max }, (_, i) =>
+    `<span class="hpcell ${i < cur ? 'on' : ''}"></span>`).join('');
+  return `<div class="hpbar ${cls}">${cells}</div>`;
+}
+
 function renderBattle() {
-  const card = $('battleCard');
+  const hud = $('battleHud');
   const b = room.battle;
   const show = b && ['battle', 'question', 'reveal'].includes(room.phase) &&
                (room.phase !== 'reveal' || room.reveal?.kind === 'battle');
-  card.classList.toggle('hidden', !show);
+  hud.classList.toggle('hidden', !show);
+  document.body.classList.toggle('battling', !!show);
+  world.setBattleFocus(show ? b.node : null);
   if (!show) return;
+
   const mine = room.turn === you;
-  const dcolor = DOMAIN_COLORS[b.domain] || '#888';
-  const me = room.players.find((p) => p.pid === room.turn);
-  const hp = '🔴'.repeat(Math.max(0, b.hp)) + '⚪'.repeat(Math.max(0, b.max_hp - b.hp));
-  card.innerHTML = `
-    <div class="mhead" style="border-color:${dcolor}">
-      <span class="mname">${b.is_fleece ? '🐉 ' : b.is_lair ? '⚱ ' : '⚔ '}${esc(b.name)}</span>
-      <span class="mdomain" style="color:${dcolor}">${room.board.domains[b.domain]?.field || ''}</span>
-    </div>
-    <div class="mstats">${hp} &nbsp;· power ${b.power} · asks tier ${TIER_ROMAN[b.tier] || b.tier}</div>
-    <div class="mactions"></div>`;
-  const actions = card.querySelector('.mactions');
+  const dcolor = DOMAIN_COLORS[b.domain] || '#c0392b';
+  const fighter = room.players.find((p) => p.pid === room.turn);
+
+  $('bmon').innerHTML = `
+    <div class="btitle">${b.is_fleece ? '🐉' : b.is_lair ? '⚱' : '⚔'} ${esc(b.name)}</div>
+    <div class="bsub" style="color:${dcolor}">${room.board.domains[b.domain]?.field || ''} · power ${b.power}${b.is_lair ? ' · guards a relic' : ''}</div>
+    ${hpBar(b.hp, b.max_hp, 'foe')}`;
+
+  $('bship').innerHTML = fighter ? `
+    <div class="bsub">${esc(fighter.name)}'s ship — hull</div>
+    ${hpBar(fighter.hull, fighter.max_hull, 'ally')}` : '';
+
+  const actions = $('bactions');
+  actions.innerHTML = '';
   if (room.phase === 'battle' && mine) {
     const mk = (label, cls, fn) => {
       const bt = document.createElement('button');
@@ -333,11 +367,11 @@ function renderBattle() {
       bt.onclick = fn;
       actions.appendChild(bt);
     };
-    mk('⚔ ATTACK<small>+1 dmg · miss hurts more</small>', 'tier hot', () => send({ type: 'stance', stance: 'attack' }));
-    mk('🛡 GUARD<small>−1 dmg · miss hurts less</small>', 'tier', () => send({ type: 'stance', stance: 'guard' }));
-    mk('🏃 FLEE<small>lose 1 hull, retreat</small>', 'ghost', () => send({ type: 'flee' }));
+    mk('⚔ STRIKE<small>easy question · 1 dmg</small>', 'battlebtn strike', () => send({ type: 'stance', stance: 'attack' }));
+    mk('✨ MAGIC<small>hard question · 3 dmg · backfire 1</small>', 'battlebtn magic', () => send({ type: 'stance', stance: 'magic' }));
+    mk('🏃 FLEE<small>lose 1 hull, retreat</small>', 'battlebtn ghost', () => send({ type: 'flee' }));
   } else if (room.phase === 'battle') {
-    actions.innerHTML = `<span class="hint">${esc(me?.name || '')} chooses a stance…</span>`;
+    actions.innerHTML = `<span class="hint">${esc(fighter?.name || '')} weighs their next move…</span>`;
   }
 }
 
@@ -350,6 +384,8 @@ function renderQuestion() {
   const modal = $('qmodal');
   const isQ = room.phase === 'question' || (room.phase === 'reveal' && room.reveal);
   modal.classList.toggle('hidden', !isQ);
+  const battleQ = (room.question?.kind ?? room.reveal?.kind) === 'battle';
+  modal.classList.toggle('clear', !!(isQ && battleQ));   // don't dim the battle scene
   if (!isQ) { cancelAnimationFrame(timerRAF); return; }
 
   const q = room.question;
@@ -636,50 +672,52 @@ function cluesMatch(m, grid) {
   return true;
 }
 
-/* simon */
+/* simon — 9 colored tiles, each with its own tone (classic Simon feel) */
+const SIMON_COLORS = ['#e4572e', '#2e86ab', '#f6ae2d', '#8e5572', '#33ca7f',
+                      '#6457a6', '#2e9e8f', '#d94f70', '#7d9c3e'];
+
 function renderSimon(board, m, mine, fresh) {
   if (!fresh) return;
   board.innerHTML = '';
   const pad = document.createElement('div');
   pad.className = 'simonpad';
   const tiles = [];
+  const flash = (tile, i) => {
+    tile.classList.add('lit');
+    audio.simonTone(i);
+    setTimeout(() => tile.classList.remove('lit'), 380);
+  };
   for (let i = 0; i < 9; i++) {
     const t = document.createElement('button');
     t.className = 'mgpad';
+    t.style.setProperty('--simoncol', SIMON_COLORS[i]);
     t.disabled = true;
     t.onclick = () => {
       if (!mine || !mg.watched) return;
-      flash(t);
-      audio.sfx.click();
+      flash(t, i);
       mg.taps.push(i);
+      $('mgnote').textContent = `${mg.taps.length} / ${m.seq.length}`;
       if (mg.taps.length === m.seq.length) {
         send({ type: 'solve', payload: mg.taps });
         mg.taps = [];
-        $('mgnote').textContent = '…';
       }
     };
     tiles.push(t);
     pad.appendChild(t);
   }
   board.appendChild(pad);
-  const flash = (tile) => {
-    tile.classList.add('lit');
-    setTimeout(() => tile.classList.remove('lit'), 320);
-  };
-  // playback
-  $('mgnote').textContent = 'Watch…';
+  $('mgnote').textContent = 'Watch and listen…';
   m.seq.forEach((tileIdx, k) => {
     setTimeout(() => {
-      flash(tiles[tileIdx]);
-      audio.sfx.click();
+      flash(tiles[tileIdx], tileIdx);
       if (k === m.seq.length - 1) {
         setTimeout(() => {
           mg.watched = true;
           tiles.forEach((t) => { t.disabled = !mine; });
-          $('mgnote').textContent = mine ? 'Now repeat the sequence.' : '';
-        }, 500);
+          $('mgnote').textContent = mine ? 'Now repeat the song. A miss costs a scroll!' : '';
+        }, 560);
       }
-    }, 700 + k * 620);
+    }, 800 + k * 700);
   });
 }
 
@@ -789,7 +827,7 @@ function renderModal() {
       <ol class="intro">
         <li><strong>Voyage</strong> — roll and sail the open chart. Farther isles are harder and richer.</li>
         <li><strong>Earn</strong> — shrines pay scrolls for trivia; puzzle isles grant ship upgrades.</li>
-        <li><strong>Fight</strong> — monsters guard relics: pick a stance, answer, roll damage. Hull 0 = shipwreck.</li>
+        <li><strong>Fight</strong> — monsters guard relics: STRIKE (easy question, 1 dmg) or MAGIC (hard, 3 dmg — a miss backfires). The ♥ hearts by your name are your <strong>hull</strong>: at 0 you shipwreck back to your last haven checkpoint.</li>
         <li><strong>Bank 3 relics</strong> at Home Port — cargo at sea can be lost!</li>
         <li><strong>Claim the Fleece</strong> — its isle appears once you bank 3. Slay the dragon. Win.</li>
       </ol>

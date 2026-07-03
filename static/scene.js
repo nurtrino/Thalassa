@@ -39,9 +39,28 @@ function mulberry32(seed) {
 const flat = (color, extra = {}) =>
   new THREE.MeshStandardMaterial({ color, flatShading: true, ...extra });
 
+/* displace vertices by a hash of their POSITION so shared/duplicated vertices
+ * move identically — organic jitter with no torn faces or holes */
+function displace(geo, amt, seed = 0) {
+  const p = geo.attributes.position;
+  const h = (x, y, z, k) => {
+    const s = Math.sin(x * 12.9898 + y * 78.233 + z * 37.719 + k * 91.7 + seed) * 43758.5453;
+    return s - Math.floor(s);
+  };
+  for (let i = 0; i < p.count; i++) {
+    const x = p.getX(i), y = p.getY(i), z = p.getZ(i);
+    p.setXYZ(i,
+      x + (h(x, y, z, 1) - 0.5) * amt,
+      y + (h(x, y, z, 2) - 0.5) * amt,
+      z + (h(x, y, z, 3) - 0.5) * amt);
+  }
+  geo.computeVertexNormals();
+  return geo;
+}
+
 /* ── sky / sun / water (unchanged aesthetics) ───────────────────────────── */
 function makeSky() {
-  const geo = new THREE.SphereGeometry(560, 24, 14);
+  const geo = new THREE.SphereGeometry(1000, 24, 14);
   const mat = new THREE.ShaderMaterial({
     side: THREE.BackSide, depthWrite: false,
     uniforms: {
@@ -82,7 +101,7 @@ function makeSunGlow() {
 }
 
 function makeWater(sunDir) {
-  const geo = new THREE.PlaneGeometry(1000, 1000, 110, 110);
+  const geo = new THREE.PlaneGeometry(1700, 1700, 128, 128);
   geo.rotateX(-Math.PI / 2);
   const mat = new THREE.ShaderMaterial({
     uniforms: {
@@ -154,16 +173,28 @@ function shallowDisc(radius) {
 function makeTerrain({ seed, R, H, mode = 'hill', palette = {} }) {
   const rng = mulberry32(seed);
   const SEG_A = 44, SEG_R = 13;
+  // every island drifts its own way: stretched, rugged, lush or parched
+  const ex = 0.78 + rng() * 0.55;             // east-west stretch
+  const ez = 0.78 + rng() * 0.55;             // north-south stretch
+  const rugged = 0.8 + rng() * (mode === 'mesa' ? 0.7 : 1.4);
+  const hueDrift = (c, dh, ds, dl) => {
+    const hsl = {};
+    c.getHSL(hsl);
+    c.setHSL((hsl.h + dh + 1) % 1, Math.min(1, Math.max(0, hsl.s + ds)),
+             Math.min(1, Math.max(0, hsl.l + dl)));
+    return c;
+  };
+  const gShift = (rng() - 0.5) * 0.06, sShift = (rng() - 0.5) * 0.03;
   const P = {
-    sand: new THREE.Color(palette.sand ?? COL.sand),
+    sand: hueDrift(new THREE.Color(palette.sand ?? COL.sand), sShift, 0, (rng() - 0.5) * 0.06),
     sandWet: new THREE.Color(palette.sandWet ?? COL.sandWet),
-    grass: new THREE.Color(palette.grass ?? COL.grass),
-    grass2: new THREE.Color(palette.grass2 ?? COL.grass2),
+    grass: hueDrift(new THREE.Color(palette.grass ?? COL.grass), gShift, (rng() - 0.5) * 0.1, 0),
+    grass2: hueDrift(new THREE.Color(palette.grass2 ?? COL.grass2), gShift, 0, (rng() - 0.5) * 0.08),
     rock: new THREE.Color(palette.rock ?? COL.rock),
   };
-  const h1a = 0.06 + rng() * 0.09, h1k = 2 + Math.floor(rng() * 2), h1p = rng() * 6.28;
-  const h2a = 0.04 + rng() * 0.07, h2k = 4 + Math.floor(rng() * 3), h2p = rng() * 6.28;
-  const h3a = 0.02 + rng() * 0.05, h3k = 7 + Math.floor(rng() * 4), h3p = rng() * 6.28;
+  const h1a = (0.07 + rng() * 0.12) * rugged, h1k = 2 + Math.floor(rng() * 2), h1p = rng() * 6.28;
+  const h2a = (0.05 + rng() * 0.09) * rugged, h2k = 4 + Math.floor(rng() * 3), h2p = rng() * 6.28;
+  const h3a = (0.02 + rng() * 0.07) * rugged, h3k = 7 + Math.floor(rng() * 5), h3p = rng() * 6.28;
   const edge = (a) => 1 + h1a * Math.sin(a * h1k + h1p) + h2a * Math.sin(a * h2k + h2p)
                         + h3a * Math.sin(a * h3k + h3p);
   const bump = (a, rr) => 1 + 0.16 * Math.sin(a * 3 + h1p + rr * 5) * rr;
@@ -196,7 +227,7 @@ function makeTerrain({ seed, R, H, mode = 'hill', palette = {} }) {
         y = -k * 1.15;
       }
       const wr = rr * R * edge(a);
-      pos.push(Math.cos(a) * wr, y, Math.sin(a) * wr);
+      pos.push(Math.cos(a) * wr * ex, y, Math.sin(a) * wr * ez);
       const c = new THREE.Color();
       const hFrac = y / Math.max(H, 0.001);
       if (ri > SEG_R) c.copy(ri === SEG_R + 1 ? P.sandWet : P.rock).multiplyScalar(0.75);
@@ -289,12 +320,8 @@ function makeCypress(rng, scale = 1) {
 }
 
 function makeRock(rng, r, color = COL.rock) {
-  const geo = new THREE.DodecahedronGeometry(r, 0);
-  const p = geo.attributes.position;
-  for (let i = 0; i < p.count; i++) {
-    p.setXYZ(i, p.getX(i) * (0.8 + rng() * 0.4), p.getY(i) * (0.6 + rng() * 0.5), p.getZ(i) * (0.8 + rng() * 0.4));
-  }
-  geo.computeVertexNormals();
+  const geo = displace(new THREE.DodecahedronGeometry(r, 0), r * 0.55, rng() * 100);
+  geo.scale(1, 0.65 + rng() * 0.3, 1);
   const rock = new THREE.Mesh(geo, flat(color));
   rock.castShadow = true;
   rock.rotation.y = rng() * 6.28;
@@ -408,14 +435,9 @@ function makeDock(len = 5.2) {
 function makeMonster(rng, m) {
   const g = new THREE.Group();
   const scale = 0.8 + m.max_hp * 0.22;
-  const body = new THREE.Mesh(new THREE.IcosahedronGeometry(0.9 * scale, 0), flat(COL.monster));
-  {
-    const p = body.geometry.attributes.position;
-    for (let i = 0; i < p.count; i++) {
-      p.setXYZ(i, p.getX(i) * (0.85 + rng() * 0.4), p.getY(i) * (0.9 + rng() * 0.4), p.getZ(i) * (0.85 + rng() * 0.4));
-    }
-    body.geometry.computeVertexNormals();
-  }
+  const body = new THREE.Mesh(
+    displace(new THREE.IcosahedronGeometry(0.9 * scale, 1), 0.42 * scale, rng() * 100),
+    flat(COL.monster));
   body.position.y = 0.95 * scale;
   body.castShadow = true;
   g.add(body);
@@ -599,9 +621,9 @@ function viewKey(node) {
 
 function buildIsland(node, domains) {
   const g = new THREE.Group();
-  const R = ISLE_R[node.type] ?? 4.8;
   const seed = hashStr(node.id);
   const rng0 = mulberry32(seed + 7);
+  const R = (ISLE_R[node.type] ?? 4.8) * (node.type === 'sea' ? 1 : 0.88 + rng0() * 0.35);
   let terrain;
 
   if (node.type === 'sea') {
@@ -732,10 +754,10 @@ function bannerFor(node, domains) {
 /* ── the world ──────────────────────────────────────────────────────────── */
 export function createWorld(container, onIslandClick) {
   const scene = new THREE.Scene();
-  scene.fog = new THREE.Fog(0xd6ecf5, 170, 520);
+  scene.fog = new THREE.Fog(0xd6ecf5, 260, 900);
 
-  const camera = new THREE.PerspectiveCamera(48, 1, 0.1, 1100);
-  camera.position.set(0, 96, 138);
+  const camera = new THREE.PerspectiveCamera(48, 1, 0.1, 2200);
+  camera.position.set(0, 44, 104);              // re-anchored to home on board load
 
   const renderer = new THREE.WebGLRenderer({ antialias: true });
   renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
@@ -749,8 +771,8 @@ export function createWorld(container, onIslandClick) {
   controls.enableDamping = true;
   controls.dampingFactor = 0.06;
   controls.maxPolarAngle = 1.26;
-  controls.minDistance = 22;
-  controls.maxDistance = 260;
+  controls.minDistance = 14;
+  controls.maxDistance = 380;
   controls.enablePan = true;
   controls.panSpeed = 0.6;
   controls.screenSpacePanning = false;
@@ -764,14 +786,16 @@ export function createWorld(container, onIslandClick) {
   const sun = new THREE.DirectionalLight(0xfff1d6, 1.75);
   sun.position.copy(sunPos);
   sun.castShadow = true;
-  sun.shadow.mapSize.set(2048, 2048);
-  sun.shadow.camera.left = -105; sun.shadow.camera.right = 105;
-  sun.shadow.camera.top = 105; sun.shadow.camera.bottom = -105;
-  sun.shadow.camera.far = 320;
+  sun.shadow.mapSize.set(4096, 4096);
+  sun.shadow.camera.left = -120; sun.shadow.camera.right = 120;
+  sun.shadow.camera.top = 120; sun.shadow.camera.bottom = -120;
+  sun.shadow.camera.far = 420;
   sun.shadow.bias = -0.0004;
+  sun.target.position.set(0, 0, -24);           // center of the long chart
+  scene.add(sun.target);
   scene.add(sun);
   const glow = makeSunGlow();
-  glow.position.copy(sunPos.clone().normalize().multiplyScalar(500));
+  glow.position.copy(sunPos.clone().normalize().multiplyScalar(700));
   scene.add(glow);
 
   const water = makeWater(sunPos);
@@ -820,6 +844,41 @@ export function createWorld(container, onIslandClick) {
   let boardSig = '';
   const highlights = new THREE.Group();
   scene.add(highlights, laneGroup);
+
+  // camera choreography: glide targets, battle focus, home anchor
+  let glideTo = null;                 // Vector3 the view is drifting toward
+  let battleFocus = null;             // { node } while a fight is on
+  let savedView = null;               // camera state to restore after battle
+  let cameraAnchored = false;
+  let lastFollowPid = null;
+
+  function anchorToHome() {
+    const home = islands.home;
+    if (!home || cameraAnchored) return;
+    cameraAnchored = true;
+    const hp = home.group.position;
+    controls.target.set(hp.x, 1.5, hp.z - 6);
+    camera.position.set(hp.x, 42, hp.z + 36);
+  }
+
+  function setBattleFocus(nodeId) {
+    if (nodeId && (!battleFocus || battleFocus.node !== nodeId)) {
+      if (!savedView) {
+        savedView = { pos: camera.position.clone(), target: controls.target.clone() };
+      }
+      battleFocus = { node: nodeId };
+      controls.enabled = false;
+      glideTo = null;
+    } else if (!nodeId && battleFocus) {
+      battleFocus = null;
+      controls.enabled = true;
+      if (savedView) {
+        camera.position.copy(savedView.pos);
+        controls.target.copy(savedView.target);
+        savedView = null;
+      }
+    }
+  }
 
   function clearBoard() {
     for (const id of Object.keys(islands)) {
@@ -929,7 +988,16 @@ export function createWorld(container, onIslandClick) {
 
   function update(room, you) {
     syncBoard(room);
-    controls.autoRotate = room.phase === 'lobby';
+    anchorToHome();
+    controls.autoRotate = room.phase === 'lobby' && !battleFocus;
+
+    // glide the view to whoever's turn is starting (unless a battle owns the camera)
+    if (!battleFocus && room.phase === 'roll' && room.turn && room.turn !== lastFollowPid) {
+      lastFollowPid = room.turn;
+      const p = room.players.find((x) => x.pid === room.turn);
+      const isle = p && islands[p.node];
+      if (isle) glideTo = isle.group.position.clone().setY(1.5);
+    }
 
     const playersByPid = Object.fromEntries(room.players.map((p) => [p.pid, p]));
     room.players.forEach((p, idx) => {
@@ -1075,12 +1143,39 @@ export function createWorld(container, onIslandClick) {
       const s = 1 + Math.sin(t * 3.5 + hi) * 0.035;
       ring.scale.set(s, s, 1);
     }
-    controls.update();
+
+    // camera choreography — while a battle owns the camera, OrbitControls
+    // must NOT update (its damping fights the cinematic and wins)
+    if (battleFocus) {
+      const isle = islands[battleFocus.node];
+      if (isle) {
+        const c = isle.group.position;
+        const R = isle.R;
+        const az = t * 0.14;
+        const want = new THREE.Vector3(
+          c.x + Math.sin(az) * (R * 2.7 + 6), R * 2.0 + 7, c.z + Math.cos(az) * (R * 2.7 + 6));
+        camera.position.lerp(want, 0.06);
+        camera.lookAt(c.x, 2.4, c.z);
+        controls.target.set(c.x, 2.4, c.z);
+      }
+    } else {
+      if (glideTo) {
+        const delta = glideTo.clone().sub(controls.target);
+        if (delta.length() < 0.6) {
+          glideTo = null;
+        } else {
+          delta.multiplyScalar(0.06);
+          controls.target.add(delta);
+          camera.position.add(delta);
+        }
+      }
+      controls.update();
+    }
     renderer.render(scene, camera);
   });
 
   // debug handle (used by dev tooling/screenshot scripts; harmless in prod)
   window.__thalassa = { scene, camera, controls, ships, islands };
 
-  return { update };
+  return { update, setBattleFocus };
 }

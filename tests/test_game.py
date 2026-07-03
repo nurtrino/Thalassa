@@ -42,9 +42,10 @@ def test_generation_counts_and_connectivity():
         for n in b.nodes.values():
             types[n["type"]] = types.get(n["type"], 0) + 1
         assert types["home"] == 1 and types["fleece"] == 1
-        assert types["lair"] == 6 and types["shrine"] == 6
-        assert types["puzzle"] == 3 and types["haven"] == 2
-        assert types["monster"] == 4
+        assert types["lair"] == 8 and types["shrine"] == 7
+        assert types["puzzle"] == 5 and types["haven"] == 4
+        assert types["monster"] == 6
+        assert types["sea"] >= 20                 # long routes between isles
         # connected: BFS from home touches everything
         seen, frontier = {"home"}, ["home"]
         while frontier:
@@ -56,7 +57,7 @@ def test_generation_counts_and_connectivity():
         assert seen == set(b.nodes)
         # every lair holds a distinct relic and a guardian
         relics = [b.nodes[nid]["relic"] for nid in b.lairs()]
-        assert sorted(relics) == [1, 2, 3, 4, 5, 6]
+        assert sorted(relics) == list(range(1, 9))
         assert all(b.alive_monster(nid) for nid in b.lairs())
 
 
@@ -172,18 +173,39 @@ def test_battle_win_takes_relic():
     assert g.current.pid == p1 and g.battle is None
 
 
-def test_battle_wrong_answer_hurts():
+def test_strike_miss_takes_monster_counter():
     g, (p0, p1) = make_game()
     mon = find_node(g, "monster")
     battle_at(g, p0, mon)
-    g.stance(p0, "guard")
+    g.stance(p0, "attack")
+    assert g.qctx["tier"] == 1                            # strikes ask easy questions
     put_question(g, correct=0)
     g.answer(p0, 3)
     p = g.player_by_pid(p0)
     power = g.board.nodes[mon]["monster"]["power"]
-    assert p.hull == G.MAX_HULL - max(1, power - 1)      # guard soaks 1
+    assert p.hull == G.MAX_HULL - power
     g.advance_after_reveal()
     assert g.phase == "battle"                            # fight continues
+
+
+def test_magic_hits_hard_and_backfires():
+    g, (p0, p1) = make_game()
+    mon = find_node(g, "monster")
+    g.board.nodes[mon]["monster"]["hp"] = 5
+    battle_at(g, p0, mon)
+    g.stance(p0, "magic")
+    assert g.qctx["tier"] == 3                            # magic asks hard questions
+    put_question(g, correct=1)
+    g.answer(p0, 1)                                       # correct → 3 damage
+    assert g.board.nodes[mon]["monster"]["hp"] == 2
+    g.advance_after_reveal()
+    assert g.phase == "battle"
+    g.stance(p0, "magic")
+    put_question(g, correct=0)
+    g.answer(p0, 2)                                       # miss → backfire 1
+    p = g.player_by_pid(p0)
+    assert p.hull == G.MAX_HULL - G.MAGIC_BACKFIRE
+    assert g.board.nodes[mon]["monster"]["hp"] == 2       # monster untouched
 
 
 def test_battle_rounds_until_dead_monster():
@@ -354,6 +376,7 @@ def test_minigame_flow_success_and_timeout(monkeypatch):
     assert len(g2.minigame["data"]["seq"]) == 6
     g2.minigame_timeout()
     assert not g2.board.nodes[pz2]["solved"]
+    assert g2.player_by_pid(q0).scrolls == 2              # simon failure tithe
     assert g2.current.pid == q1 and g2.phase == "roll"
 
 
@@ -400,9 +423,24 @@ def test_haven_repairs_for_scrolls():
     haven = find_node(g, "haven")
     force_land(g, p0, haven)
     assert g.phase == "haven"
+    assert p.checkpoint == haven                          # camp made
     g.repair(p0)
     assert p.hull == 5 and p.scrolls == 0
     assert g.current.pid == p1
+
+
+def test_shipwreck_respawns_at_checkpoint():
+    g, (p0, p1) = make_game()
+    p = g.player_by_pid(p0)
+    haven = find_node(g, "haven")
+    p.checkpoint = haven
+    p.hull = 1
+    mon = find_node(g, "monster")
+    battle_at(g, p0, mon)
+    g.stance(p0, "attack")
+    put_question(g, correct=0)
+    g.answer(p0, 1)                                       # counter-hit → sunk
+    assert p.node == haven and p.hull == p.max_hull
 
 
 def test_streak_pays_bonus():

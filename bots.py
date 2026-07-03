@@ -36,8 +36,8 @@ PHILOSOPHERS = [
     Skill("Diogenes", 0.55, 0.40, 0.30),
 ]
 
-UPGRADE_WISHLIST = ["hull_plates", "ram", "sandals", "star_chart",
-                    "owl", "aegis", "boar_spear", "lyre"]
+UPGRADE_WISHLIST = ["hull_plates", "trident", "ram", "sandals", "star_chart",
+                    "owl", "aegis", "lyre"]
 
 
 def _distances_from(board, start: str) -> dict[str, int]:
@@ -109,13 +109,14 @@ def decide_shrine_tier(g: G.Game, pid: str, skill: Skill, rng: random.Random) ->
 
 
 def decide_battle(g: G.Game, pid: str, rng: random.Random) -> str:
-    """'attack' | 'guard' | 'flee' for the stance phase."""
+    """'attack' | 'magic' | 'flee' for the stance phase."""
     p = g.player_by_pid(pid)
     m = g.board.alive_monster(g.battle["node"])
-    if p.hull <= 1 or (p.hull <= 2 and m["hp"] >= 3):
+    if p.hull <= 1 or (p.hull <= 2 and m["hp"] >= 4):
         return "flee"
-    if p.hull <= m["power"] + 1:
-        return "guard"
+    # magic when the monster is meaty or the miss is cheaper than its counter
+    if m["hp"] >= 3 or m["power"] > 1:
+        return "magic"
     return "attack"
 
 

@@ -35,31 +35,39 @@ ISLAND_NAMES = [
     "Thera", "Andros", "Tinos", "Serifos", "Sifnos", "Kea", "Kythnos",
     "Amorgos", "Folegandros", "Syros", "Chios", "Samos", "Kos", "Leros",
     "Patmos", "Astypalaia", "Karpathos", "Kasos", "Symi", "Tilos",
+    "Rhodos", "Kythera", "Ithaka", "Zakynthos", "Kefalonia", "Lefkada",
+    "Salamis", "Aegina", "Hydra", "Spetses", "Poros", "Skiathos",
 ]
 
 # (name, hp, power, tier) by rank — tier is the question difficulty asked.
-MINIONS = [("Harpies", 2, 1, 2), ("Satyr Brigands", 2, 1, 2), ("Stymphalian Birds", 2, 1, 2)]
+MINIONS = [("Harpies", 2, 1, 2), ("Satyr Brigands", 2, 1, 2),
+           ("Stymphalian Birds", 2, 1, 2), ("Sea Wolves", 2, 1, 2),
+           ("Brigand Skiffs", 2, 1, 2)]
 GUARDS = [("The Cyclops", 3, 2, 3), ("The Sirens", 3, 2, 3), ("The Hydra", 3, 2, 3),
-          ("The Minotaur", 3, 2, 3), ("The Sphinx", 3, 2, 3), ("The Gorgon", 3, 2, 3)]
-ELITES = [("Skylla", 4, 2, 3), ("The Chimera", 4, 2, 3), ("The Ketos", 4, 2, 3)]
-DRAGON = ("The Colchian Dragon", 5, 3, 3)
+          ("The Minotaur", 3, 2, 3), ("The Sphinx", 3, 2, 3), ("The Gorgon", 3, 2, 3),
+          ("The Empusa", 3, 2, 3), ("The Laestrygonians", 3, 2, 3)]
+ELITES = [("Skylla", 4, 2, 3), ("The Chimera", 4, 2, 3), ("The Ketos", 4, 2, 3),
+          ("Charybdis", 4, 3, 3), ("Typhon's Spawn", 4, 3, 3)]
+DRAGON = ("The Colchian Dragon", 6, 3, 3)
 
-RELICS_TOTAL = 6           # lairs on the map, one relic each
+RELICS_TOTAL = 8           # lairs on the map, one relic each
 RELICS_TO_WIN = 3
 SHRINE_CHARGES = 2
 
-# band z rows (south → north) and how many islands in each — spread wide;
+# band z rows (south → north) and how many islands in each — a LONG chart;
 # the space between is filled with sea waypoints at generation time
-_BAND_Z = [56, 34, 12, -10, -32, -54, -76]
-_BAND_N = [1, 4, 5, 5, 4, 3, 1]
-_WAYPOINT_EVERY = 11.0        # aim for a sea node roughly every N world units
+_BAND_Z = [64, 42, 20, -2, -24, -46, -68, -90, -112]
+_BAND_N = [1, 4, 5, 5, 5, 4, 4, 3, 1]
+_WAYPOINT_EVERY = 9.0         # aim for a sea node roughly every N world units
 _FLOTSAM_CHANCE = 0.28
 _BAND_TYPES = {
-    1: ["shrine", "shrine", "shrine", "puzzle"],
-    2: ["shrine", "shrine", "monster", "haven", "puzzle"],
-    3: ["lair", "lair", "monster", "shrine", "puzzle"],
-    4: ["lair", "lair", "monster", "haven"],
-    5: ["lair", "lair", "monster"],
+    1: ["shrine", "shrine", "puzzle", "shrine"],
+    2: ["shrine", "monster", "haven", "puzzle", "shrine"],
+    3: ["monster", "shrine", "lair", "puzzle", "haven"],
+    4: ["lair", "lair", "monster", "shrine", "puzzle"],
+    5: ["lair", "monster", "haven", "lair"],
+    6: ["lair", "monster", "lair", "puzzle"],
+    7: ["lair", "haven", "monster"],
 }
 
 
@@ -104,7 +112,8 @@ class Board:
 
         # assign types per band (shuffled), then decorate with payloads
         relic_no = 1
-        for bi in range(1, 6):
+        last_band = len(_BAND_Z) - 2
+        for bi in range(1, last_band + 1):
             types = _BAND_TYPES[bi][:]
             rng.shuffle(types)
             for nid, ntype in zip(bands[bi], types):
@@ -121,8 +130,8 @@ class Board:
                     m = pool.pop() if pool else ("Sea Wolves", 2, 1, 2)
                     node["monster"] = self._monster(m, rng)
                 elif ntype == "lair":
-                    pool = guards if bi <= 4 else elites
-                    m = pool.pop() if pool else elites.pop()
+                    pool = guards if bi <= 5 else elites
+                    m = pool.pop() if pool else (elites.pop() if elites else guards.pop())
                     node["monster"] = self._monster(m, rng)
                     node["relic"] = relic_no
                     relic_no += 1

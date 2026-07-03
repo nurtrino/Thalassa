@@ -41,21 +41,23 @@ MAX_PLAYERS = 6
 TIER_REWARD = {1: 1, 2: 2, 3: 3}   # scrolls for a correct shrine wager
 TIER3_PENALTY = 1
 MAX_HULL = 6
-DMG_TABLE = {1: 1, 2: 1, 3: 2, 4: 2, 5: 2, 6: 3}    # damage die → damage
-MONSTER_LOOT = {2: 2, 3: 3, 4: 4, 5: 0}             # scrolls by monster max_hp
+STRIKE_DMG = 1                     # easy question, reliable chip damage
+MAGIC_DMG = 3                      # hard question, big swing
+MAGIC_BACKFIRE = 1                 # a missed spell burns the caster
+MONSTER_LOOT = {2: 2, 3: 3, 4: 5, 6: 0}             # scrolls by monster max_hp
 STREAK_AT = 3                      # correct-answer streak that pays a bonus
 SIDE_REWARD = 1                    # scrolls for a correct side answer
 
 COLORS = ["#e4572e", "#2e86ab", "#f6ae2d", "#8e5572", "#33ca7f", "#6457a6"]
 
 UPGRADES = {
-    "ram":        {"name": "Bronze Ram",        "desc": "+1 damage on every strike"},
+    "ram":        {"name": "Bronze Ram",        "desc": "+1 STRIKE damage"},
     "hull_plates": {"name": "Oak Hull Plates",  "desc": "+2 max hull (and heal 2 now)"},
     "star_chart": {"name": "Star Chart",        "desc": "Roll two movement dice, sail with the higher"},
     "sandals":    {"name": "Hermes' Sandals",   "desc": "+1 to every movement roll"},
     "owl":        {"name": "Owl of Athena",     "desc": "Once per battle: remove 2 wrong options"},
     "lyre":       {"name": "Lyre of Orpheus",   "desc": "Once per battle: swap the question"},
-    "boar_spear": {"name": "Boar Spear",        "desc": "Critical hits on 5 and 6"},
+    "trident":    {"name": "Storm Trident",     "desc": "+1 MAGIC damage"},
     "aegis":      {"name": "Aegis Shard",       "desc": "The first hit you take each battle is halved"},
 }
 
@@ -77,6 +79,7 @@ class Player:
     def reset(self):
         self.node = "home"
         self.prev_node = "home"
+        self.checkpoint = "home"           # shipwrecks send you back here
         self.scrolls = 3                   # seed money for the first shrine misses
         self.hull = MAX_HULL
         self.max_hull = MAX_HULL
@@ -94,6 +97,7 @@ class Player:
             "node": self.node, "scrolls": self.scrolls,
             "hull": self.hull, "max_hull": self.max_hull,
             "cargo": len(self.cargo), "banked": self.banked,
+            "checkpoint": self.checkpoint,
             "upgrades": self.upgrades, "streak": self.streak,
             "connected": self.connected, "bot": self.is_bot,
         }
@@ -300,6 +304,9 @@ class Game:
                                         "correct": deal["correct"]}
                 self._bump("question")
         elif ntype == "haven":
+            if p.checkpoint != nid:
+                p.checkpoint = nid
+                self._say(f"⚓ {p.name} makes camp — checkpoint set at {node['name']}.")
             if p.hull < p.max_hull and p.scrolls > 0:
                 self._bump("haven")
             else:
@@ -352,12 +359,16 @@ class Game:
     # ── battle ───────────────────────────────────────────────────────────────
     def stance(self, pid: str, stance: str):
         self._require_turn(pid, "battle")
-        if stance not in ("attack", "guard"):
-            raise GameError("Choose ATTACK or GUARD.")
+        if stance not in ("attack", "magic"):
+            raise GameError("Choose STRIKE or MAGIC.")
         m = self.board.alive_monster(self.battle["node"])
+        if stance == "attack":
+            tier = 2 if m["max_hp"] >= 5 else 1     # bosses ask harder even for strikes
+        else:
+            tier = 3
         self.battle["stance"] = stance
         self.qctx = {"kind": "battle", "island": self.battle["node"],
-                     "tier": m["tier"], "domain": m["domain"]}
+                     "tier": tier, "domain": m["domain"]}
         self.question = None
         self.side_answers = {}
         self._bump("question")
@@ -409,10 +420,13 @@ class Game:
                     returned.append(node["name"])
         p.cargo = []
         p.scrolls //= 2
-        p.node = "home"
-        p.prev_node = "home"
+        if p.checkpoint not in self.board.nodes:
+            p.checkpoint = "home"
+        p.node = p.checkpoint
+        p.prev_node = p.checkpoint
         p.hull = p.max_hull
-        msg = f"☠ {p.name}'s ship goes down! The crew washes ashore at Home Port."
+        where = self.board.nodes[p.checkpoint]["name"]
+        msg = f"☠ {p.name}'s ship goes down! The crew washes ashore at {where}."
         if returned:
             msg += " Lost relics drift back to their lairs."
         self._say(msg)
@@ -504,17 +518,13 @@ class Game:
             stance = self.battle["stance"]
             if correct:
                 self._streak_bonus(p)
-                roll = self.rng.randint(1, 6)
-                crit_at = 5 if p.has("boar_spear") else 6
-                dmg = 3 if roll >= crit_at else DMG_TABLE[roll]
-                if p.has("ram"):
-                    dmg += 1
                 if stance == "attack":
-                    dmg += 1
+                    dmg = STRIKE_DMG + (1 if p.has("ram") else 0)
+                    note = f"⚔ Your blade bites for {dmg}!"
                 else:
-                    dmg = max(1, dmg - 1)
+                    dmg = MAGIC_DMG + (1 if p.has("trident") else 0)
+                    note = f"✨ Arcane fire sears {m['name']} for {dmg}!"
                 m["hp"] -= dmg
-                note = f"⚔ You strike for {dmg} (rolled {roll})!"
                 if m["hp"] <= 0:
                     battle_over = True
                     note += f" {m['name']} is defeated!"
@@ -526,20 +536,23 @@ class Game:
                     elif node.get("relic") and not node.get("taken"):
                         node["taken"] = True
                         p.cargo.append(node["relic"])
-                        note += f" The relic is aboard — sail it home!"
+                        note += " The relic is aboard — sail it home!"
                     if loot:
                         p.scrolls += loot
                         gained = loot
             else:
                 p.streak = 0
-                hit = m["power"] + (1 if stance == "attack" else -1)
-                hit = max(1, hit)
-                if p.has("aegis") and not self.battle["first_hit_taken"]:
-                    hit = max(1, hit // 2)
-                    self.battle["first_hit_taken"] = True
-                    note = "Your Aegis shard flares — "
+                if stance == "magic":
+                    hit = MAGIC_BACKFIRE
+                    note = f"🔥 The spell backfires — {hit} damage to your ship!"
+                else:
+                    hit = m["power"]
+                    if p.has("aegis") and not self.battle["first_hit_taken"]:
+                        hit = max(1, hit // 2)
+                        self.battle["first_hit_taken"] = True
+                        note = "Your Aegis shard flares — "
+                    note += f"💥 {m['name']} strikes for {hit}!"
                 p.hull -= hit
-                note += f"💥 {m['name']} strikes for {hit}!"
                 if p.hull <= 0:
                     battle_over = True
                     self._shipwreck(p)
@@ -634,8 +647,13 @@ class Game:
     def _puzzle_fail(self, nid: str):
         p = self.current
         p.streak = 0
+        kind = self.minigame["kind"] if self.minigame else None
         self.minigame = None
-        self._say(f"The puzzle of {self.board.nodes[nid]['name']} defeats {p.name} — it can be tried again.")
+        msg = f"The puzzle of {self.board.nodes[nid]['name']} defeats {p.name} — it can be tried again."
+        if kind == "simon" and p.scrolls > 0:
+            p.scrolls -= 1                 # the Muses take a tithe for a broken echo
+            msg += " The Muses take a scroll."
+        self._say(msg)
         self._next_turn()
 
     # ── upgrades ─────────────────────────────────────────────────────────────

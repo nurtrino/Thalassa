@@ -93,6 +93,16 @@ class ThalassaAudio {
     if (this.musicBus) this._ramp(this.musicBus.gain, on ? 0.16 : 0.5, 0.6);
   }
 
+  /* one clear tone per Simon tile — a pentatonic scale across two octaves */
+  simonTone(i) {
+    if (!this.enabled) return;
+    this._resume();
+    const freqs = [261.6, 293.7, 329.6, 392.0, 440.0, 523.3, 587.3, 659.3, 784.0];
+    const t = this.ctx.currentTime;
+    this._tone(freqs[i % 9], t, 0.34, 0.16, 'triangle', this.sfxBus, 0.25);
+    this._tone(freqs[i % 9] * 2, t, 0.2, 0.05, 'sine', this.sfxBus, 0.2);
+  }
+
   // ── low-level helpers ──────────────────────────────────────────────────
   _ramp(param, to, t) {
     const now = this.ctx.currentTime;

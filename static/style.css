@@ -398,3 +398,72 @@ button.small { font-size: 13px; padding: 6px 10px; background: #7a8ca0; }
   .mgpad { width: 54px; height: 54px; }
   #battleCard { bottom: 150px; }
 }
+
+/* ═══ battle screen ═══ */
+#battleHud { position: fixed; inset: 0; z-index: 15; pointer-events: none; }
+.cinebar { position: absolute; left: 0; right: 0; height: 84px; }
+.cinebar.top { top: 0; background: linear-gradient(rgba(8,6,12,.88), transparent); }
+.cinebar.bot { bottom: 0; background: linear-gradient(transparent, rgba(8,6,12,.88)); }
+
+#bmon {
+  position: absolute; top: 14px; left: 50%; transform: translateX(-50%);
+  text-align: center; color: #f3ead8; width: min(560px, 94vw);
+  text-shadow: 0 2px 8px rgba(0,0,0,.8);
+}
+.btitle { font-size: 30px; font-weight: bold; letter-spacing: 2px; }
+.bsub { font-size: 14px; font-style: italic; margin: 2px 0 6px; }
+
+.hpbar { display: flex; gap: 4px; justify-content: center; }
+.hpcell {
+  width: 34px; height: 14px; border-radius: 4px;
+  background: rgba(255,255,255,.14); border: 1px solid rgba(255,255,255,.35);
+  transition: background .3s;
+}
+.hpbar.foe .hpcell.on { background: #e03a2f; box-shadow: 0 0 8px rgba(224,58,47,.8); }
+.hpbar.ally .hpcell.on { background: #35c463; box-shadow: 0 0 8px rgba(53,196,99,.8); }
+.hpbar.ally .hpcell { width: 26px; height: 11px; }
+
+#bship {
+  position: absolute; bottom: 88px; left: 50%; transform: translateX(-50%);
+  text-align: center; color: #f3ead8; text-shadow: 0 2px 8px rgba(0,0,0,.8);
+}
+#bactions {
+  position: absolute; bottom: 16px; left: 50%; transform: translateX(-50%);
+  display: flex; gap: 12px; pointer-events: auto;
+}
+.battlebtn { font-size: 17px; padding: 12px 22px; letter-spacing: 1px; }
+.battlebtn.strike { background: #b3402f; }
+.battlebtn.magic { background: #6a3fb5; }
+.battlebtn.ghost { background: rgba(70, 80, 95, .8); }
+
+/* damage juice */
+#flash { position: fixed; inset: 0; z-index: 14; pointer-events: none; opacity: 0; }
+#flash.red { background: radial-gradient(circle, transparent 40%, rgba(220,40,30,.55)); opacity: .9; }
+#flash.gold { background: radial-gradient(circle, transparent 55%, rgba(255,210,90,.4)); opacity: .8; }
+#flash.fade { transition: opacity .6s; opacity: 0 !important; }
+body.shake #world { animation: shake .45s; }
+@keyframes shake {
+  0%, 100% { transform: none; }
+  20% { transform: translate(-9px, 4px); }
+  40% { transform: translate(8px, -5px); }
+  60% { transform: translate(-6px, -3px); }
+  80% { transform: translate(5px, 3px); }
+}
+
+/* colored, musical Simon */
+.mgpad { background: var(--simoncol, #4a6b8a); filter: brightness(.55) saturate(.8); }
+.mgpad.lit { background: var(--simoncol, #ffd75e); filter: brightness(1.45) saturate(1.2); transform: scale(1.07); }
+.mgpad:not(:disabled) { filter: brightness(.75); }
+.mgpad:not(:disabled):active { transform: scale(.94); }
+
+/* hull prominence */
+.pchip.me { border-width: 3px; box-shadow: 0 0 0 2px rgba(217,164,65,.35), 0 3px 10px rgba(10,40,60,.25); }
+.pchip.me .hearts { font-size: 16px; }
+.pchip .hearts { font-size: 14px; }
+
+/* while battling: clear the deck for the cinematic */
+body.battling #goal, body.battling #turnBanner, body.battling #tray,
+body.battling #dice, body.battling #toasts { display: none !important; }
+body.battling #players { opacity: .35; }
+.overlay.clear { background: rgba(10, 10, 18, .12); backdrop-filter: none; }
+.overlay.clear .qcard { box-shadow: 0 14px 50px rgba(0,0,0,.6); }
