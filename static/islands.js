@@ -1297,9 +1297,29 @@ export function makeShip(colorHex) {
   const hullGeo = new THREE.BufferGeometry();
   hullGeo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
   hullGeo.computeVertexNormals();
-  const hull = new THREE.Mesh(hullGeo, flat(COL.wood));
+  // DoubleSide so the interior walls render — otherwise the sea shows through
+  // the culled inner faces and looks like water sloshing inside the boat
+  const hull = new THREE.Mesh(hullGeo, flat(COL.wood, { side: THREE.DoubleSide }));
   hull.castShadow = true;
   g.add(hull);
+
+  // a planked deck lofted across the hull's interior, so you look down onto
+  // boards — never the water plane below
+  const deckPos = [];
+  const dq = (a, b, c, d) => { deckPos.push(...a, ...b, ...c, ...a, ...c, ...d); };
+  const DY = 0.5;
+  for (let i = 0; i < ST.length - 1; i++) {
+    const [x0, w0] = ST[i], [x1, w1] = ST[i + 1];
+    const iw0 = w0 * 0.9, iw1 = w1 * 0.9;
+    dq([x0, DY, iw0], [x1, DY, iw1], [x1, DY, -iw1], [x0, DY, -iw0]);
+  }
+  const deckGeo = new THREE.BufferGeometry();
+  deckGeo.setAttribute('position', new THREE.Float32BufferAttribute(deckPos, 3));
+  deckGeo.computeVertexNormals();
+  const deck = new THREE.Mesh(deckGeo,
+    flat(COL.woodDark, { side: THREE.DoubleSide }));
+  deck.receiveShadow = true;
+  g.add(deck);
 
   for (const side of [-1, 1]) {
     const railPts = ST.map(([x, w, ry]) => new THREE.Vector3(x, ry + 0.015, side * w));
@@ -1323,13 +1343,15 @@ export function makeShip(colorHex) {
   ram.position.set(2.02, 0.12, 0);
   g.add(ram);
 
+  // the classic bow eye — mounted proud of the hull (and the pupil proud of
+  // the white) so nothing z-fights and flickers as the ship rolls
   for (const side of [-1, 1]) {
-    const white = new THREE.Mesh(new THREE.CircleGeometry(0.085, 10),
+    const white = new THREE.Mesh(new THREE.CircleGeometry(0.09, 12),
       new THREE.MeshBasicMaterial({ color: 0xf4efe2 }));
-    const pupil = new THREE.Mesh(new THREE.CircleGeometry(0.04, 8),
+    const pupil = new THREE.Mesh(new THREE.CircleGeometry(0.042, 10),
       new THREE.MeshBasicMaterial({ color: 0x22303c }));
-    white.position.set(1.42, 0.52, side * 0.335);
-    pupil.position.set(1.435, 0.52, side * 0.345);
+    white.position.set(1.40, 0.53, side * 0.37);
+    pupil.position.set(1.405, 0.53, side * 0.40);
     white.rotation.y = side * (Math.PI / 2 + 0.25);
     pupil.rotation.y = side * (Math.PI / 2 + 0.25);
     g.add(white, pupil);
