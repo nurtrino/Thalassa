@@ -34,6 +34,15 @@ question floor starts at "hmm" and goes up from there.
 Reconnects (page refresh, phone lock) are seamless — identity is a token in
 localStorage. The host can skip a stuck player and call rematches.
 
+## Bot captains (for playtesting)
+
+In the lobby the host can **🤖 invite a philosopher** — AI opponents that
+roll, sail, wager, build, and consult the Oracle on their own. Each has a
+skill profile (Sokrates is sharp; Diogenes lives in a barrel): they answer
+questions correctly with a per-tier probability rather than actually reading
+them, so their difficulty is honest and tunable in `bots.py`. Kick them like
+any player. `BOT_TEMPO` scales their thinking time (lower = faster).
+
 ## Questions
 
 Live from [The Trivia API](https://the-trivia-api.com) — tiers map to
@@ -49,6 +58,7 @@ games playable (`TRIVIA_OFFLINE=1` forces this — handy for dev).
 | Board | `board.py` | Island graph (13 nodes), domains, BFS reachability. |
 | Engine | `game.py` | Pure rules state machine — phases, wagers, trials, economy, buildings, symposium. No IO; unit-tested. |
 | Questions | `questions.py` | The Trivia API v2 client: per-domain/difficulty prefetch pools, dedupe, rate limiting, offline fallback. |
+| Bots | `bots.py` | AI captains: sail/wager/build heuristics + per-tier answer accuracy, driven by the server. |
 | Server | `server.py` | FastAPI: the single shared table, WebSocket protocol, dice RNG, phase timers, broadcast. |
 | Client | `static/` | Vanilla JS + vendored Three.js: procedural 3D archipelago (water shader, temples, palms, triremes), CSS-3D dice, question cards. |
 
@@ -73,6 +83,7 @@ TRIVIA_OFFLINE=1 .venv/bin/uvicorn server:app --port 5070
 | `REVEAL_SECS` | `5` | How long the answer reveal stays up. |
 | `VOTE_SECS` | `25` | Symposium vote timeout (majority of cast votes wins). |
 | `ABANDON_RESET_SECS` | `300` | A deserted mid-game table resets to a fresh lobby after this long. |
+| `BOT_TEMPO` | `1.0` | Multiplier on bot thinking delays (0.2 = speed-chess philosophers). |
 
 ## Tests
 

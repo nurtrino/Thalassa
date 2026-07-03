@@ -97,17 +97,23 @@ function renderLobby() {
   ul.innerHTML = '';
   for (const p of room.players) {
     const li = document.createElement('li');
-    li.innerHTML = `<span class="dot" style="background:${p.color}"></span>${esc(p.name)}` +
-      (p.pid === room.host ? ' <em>(host)</em>' : '');
+    li.innerHTML = `<span class="dot" style="background:${p.color}"></span>${p.bot ? '🤖 ' : ''}${esc(p.name)}` +
+      (p.pid === room.host ? ' <em>(host)</em>' : '') +
+      (you === room.host && p.pid !== you ? ` <button class="kick" data-pid="${p.pid}">✕</button>` : '');
     ul.appendChild(li);
   }
+  ul.querySelectorAll('.kick').forEach((b) => {
+    b.onclick = () => send({ type: 'kick', pid: b.dataset.pid });
+  });
   const isHost = you === room.host;
   $('startBtn').classList.toggle('hidden', !isHost);
   $('startBtn').disabled = room.players.length < 2;
   $('startBtn').textContent = room.players.length < 2 ? 'NEED 2+ CAPTAINS' : 'SET SAIL';
+  $('addBotBtn').classList.toggle('hidden', !isHost || room.players.length >= 6);
   $('waitMsg').classList.toggle('hidden', isHost);
 }
 $('startBtn').onclick = () => send({ type: 'start' });
+$('addBotBtn').onclick = () => send({ type: 'add_bot' });
 $('copyLink').onclick = () => {
   navigator.clipboard?.writeText(location.href);
   $('copyLink').textContent = 'copied!';
@@ -126,7 +132,7 @@ function renderPlayers() {
       p.laurels.includes(d) ? `<span class="laurel" style="color:${DOMAIN_COLORS[d]}">🏆</span>` : '').join('');
     div.innerHTML =
       `<span class="dot" style="background:${p.color}"></span>` +
-      `<span class="pname">${esc(p.name)}</span>${laurels}<span class="scrolls">${scrolls}</span>` +
+      `<span class="pname">${p.bot ? '🤖 ' : ''}${esc(p.name)}</span>${laurels}<span class="scrolls">${scrolls}</span>` +
       (you === room.host && p.pid !== you ? `<button class="kick" data-pid="${p.pid}">✕</button>` : '');
     el.appendChild(div);
   }

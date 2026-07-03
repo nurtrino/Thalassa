@@ -5,25 +5,28 @@ around game.py.
 FastAPI + native WebSockets, one process, ONE game: everyone who opens the
 site lands in the same voyage. The first player to join is the host. The
 engine (game.py) owns the rules; this file owns IO: dice RNG, question
-fetching (questions.py), phase timers, broadcast.
+fetching (questions.py), phase timers, bots (bots.py), broadcast.
 
     GET  /              → the app (static/index.html)
     GET  /healthz       → ok (health check)
     WS   /ws            → game protocol (JSON messages)
 
-Client → server: hello{token,name} · start · roll · sail{node} · wager{tier}
-                 · trial · oracle · claim{domains[3]} · trade{give,get}
-                 · build{kind} · pass · answer{idx} · vote{domain}
-                 · skip · kick{pid} · rematch · ping
+Client → server: hello{token,name} · add_bot · start · roll · sail{node}
+                 · wager{tier} · trial · oracle · claim{domains[3]}
+                 · trade{give,get} · build{kind} · pass · answer{idx}
+                 · vote{domain} · skip · kick{pid} · rematch · ping
 Server → client: snapshot{you,room} · dice{pid,d1,d2} · error{msg} · pong
 
-If the table empties out mid-game it resets to a fresh lobby after a grace
-period, so a finished or abandoned voyage never blocks new players.
+Bot captains (added from the lobby by the host) are ordinary players in the
+engine; a background driver watches the game and plays their turns with
+human-ish delays. If the table empties out mid-game it resets to a fresh
+lobby after a grace period.
 """
 from __future__ import annotations
 
 import asyncio
 import os
+import random
 import secrets
 import time
 
@@ -31,6 +34,7 @@ from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
+import bots
 from game import Game, GameError
 from questions import QuestionBank
 
@@ -39,6 +43,7 @@ QUESTION_SECS = float(os.environ.get("QUESTION_SECS", "35"))
 REVEAL_SECS = float(os.environ.get("REVEAL_SECS", "5"))
 VOTE_SECS = float(os.environ.get("VOTE_SECS", "25"))
 ABANDON_RESET_SECS = float(os.environ.get("ABANDON_RESET_SECS", "300"))
+BOT_TEMPO = float(os.environ.get("BOT_TEMPO", "1.0"))   # scale bot thinking time
 
 
 class Table:
@@ -47,6 +52,9 @@ class Table:
     def __init__(self):
         self.game = Game("THALASSA")
         self.sockets: dict[WebSocket, str | None] = {}   # ws → pid (None = spectator)
+        self.bots: dict[str, bots.Skill] = {}            # pid → skill
+        self.bot_rng = random.Random()
+        self.acted: set[tuple] = set()                   # (nonce, tag) bot dedupe
         self.last_active = time.monotonic()
 
     def touch(self):
@@ -54,6 +62,8 @@ class Table:
 
     def reset(self):
         self.game = Game("THALASSA")
+        self.bots = {}
+        self.acted = set()
         for ws in self.sockets:
             self.sockets[ws] = None      # everyone rejoins via a fresh hello
 
@@ -154,11 +164,172 @@ def after_phase_change():
         schedule(vote_timer(g.nonce))
 
 
+# ── shared action dispatch (humans over WS, bots from the driver) ───────────
+async def dispatch(pid: str | None, kind: str, msg: dict) -> str | None:
+    """Apply one game action. Returns an error string, or None on success."""
+    g = table.game
+    try:
+        if kind == "start":
+            g.start(pid)
+            await broadcast()
+        elif kind == "add_bot":
+            if not g.players or g.players[0].pid != pid:
+                raise GameError("Only the host can invite philosophers.")
+            taken = {table.bots[b].name for b in table.bots}
+            free = [s for s in bots.PHILOSOPHERS if s.name not in taken]
+            if not free:
+                raise GameError("Every philosopher is already aboard.")
+            skill = table.bot_rng.choice(free[:3])
+            p = g.add_player(f"bot:{secrets.token_hex(4)}", skill.name, is_bot=True)
+            table.bots[p.pid] = skill
+            await broadcast()
+        elif kind == "roll":
+            d1, d2 = secrets.randbelow(6) + 1, secrets.randbelow(6) + 1
+            g.roll(pid, d1, d2)
+            await broadcast_event({"type": "dice", "pid": pid, "d1": d1, "d2": d2})
+            await broadcast()
+        elif kind == "sail":
+            g.sail(pid, str(msg.get("node", "")))
+            await broadcast()
+            after_phase_change()
+        elif kind == "wager":
+            g.wager(pid, int(msg.get("tier", 0)))
+            await broadcast()
+            after_phase_change()
+        elif kind == "trial":
+            g.trial(pid)
+            await broadcast()
+            after_phase_change()
+        elif kind == "oracle":
+            g.oracle_accept(pid)
+            await broadcast()
+            after_phase_change()
+        elif kind == "claim":
+            doms = [str(d) for d in (msg.get("domains") or [])]
+            g.oracle_claim(pid, doms)
+            await broadcast()
+        elif kind == "trade":
+            g.trade(pid, str(msg.get("give", "")), str(msg.get("get", "")))
+            await broadcast()
+        elif kind == "build":
+            g.build(pid, str(msg.get("kind", "")))
+            await broadcast()
+        elif kind == "pass":
+            g.pass_turn(pid)
+            await broadcast()
+        elif kind == "answer":
+            g.answer(pid, int(msg.get("idx", -1)))
+            await broadcast()
+            if g.phase == "reveal":
+                schedule(reveal_timer(g.nonce))
+        elif kind == "vote":
+            g.vote_domain(pid, str(msg.get("domain", "")))
+            if g.all_votes_in():
+                await finish_vote()
+            else:
+                await broadcast()
+        elif kind == "skip":
+            g.skip_turn(pid)
+            await broadcast()
+        elif kind == "kick":
+            g.remove_player(pid, str(msg.get("pid", "")))
+            table.bots = {b: s for b, s in table.bots.items()
+                          if g.player_by_pid(b) is not None}
+            await broadcast()
+        elif kind == "rematch":
+            g.rematch(pid)
+            await broadcast()
+        else:
+            return f"Unknown message: {kind}"
+    except GameError as e:
+        return str(e)
+    except (TypeError, ValueError):
+        return "Malformed message."
+    return None
+
+
+# ── bot driver ───────────────────────────────────────────────────────────────
+def _bot_delay(phase: str) -> float:
+    base = {"roll": 1.1, "sail": 1.6, "island": 1.3, "question": 3.5,
+            "oracle_claim": 1.2, "vote": 1.5}.get(phase, 1.0)
+    return (base + table.bot_rng.random() * base * 0.8) * BOT_TEMPO
+
+
+async def bot_move(nonce: int, tag: str, pid: str):
+    """One bot action, delayed to feel human, nonce-guarded like the timers."""
+    g = table.game
+    phase = g.phase
+    await asyncio.sleep(_bot_delay(tag if tag == "vote" else phase))
+    if table.game is not g or g.nonce != nonce:
+        return                                    # world moved on while thinking
+    rng = table.bot_rng
+    skill = table.bots.get(pid)
+    if skill is None:
+        return
+    err = None
+    if phase == "roll":
+        err = await dispatch(pid, "roll", {})
+    elif phase == "sail":
+        node = bots.decide_sail(g, pid, rng)
+        err = await dispatch(pid, "sail", {"node": node}) if node else "no move"
+    elif phase == "island":
+        kind, payload = bots.decide_island(g, pid, skill, rng)
+        err = await dispatch(pid, kind, payload)
+        if err:                                   # belt & braces: never stall a turn
+            err = await dispatch(pid, "pass", {})
+    elif phase == "question":
+        idx = bots.decide_answer(g, skill, rng)
+        err = await dispatch(pid, "answer", {"idx": idx})
+    elif phase == "oracle_claim":
+        err = await dispatch(pid, "claim", {"domains": bots.decide_claim(g, pid)})
+    elif phase == "symposium_vote":
+        err = await dispatch(pid, "vote", {"domain": bots.decide_vote(g, rng)})
+    if err:
+        print(f"[bot {pid}] {phase}: {err}")
+
+
+async def bot_driver():
+    """Watch the game; whenever a bot owes an action, schedule it exactly once."""
+    while True:
+        await asyncio.sleep(0.5)
+        g = table.game
+        if g.phase in ("lobby", "finished") or not table.bots:
+            table.acted.clear()
+            continue
+        if len(table.acted) > 512:
+            table.acted = {k for k in table.acted if k[0] >= g.nonce}
+
+        if g.phase == "symposium_vote":
+            for p in g.players:
+                if (p.pid in table.bots and p.pid != g.current.pid
+                        and p.pid not in g.votes):
+                    key = (g.nonce, f"vote:{p.pid}")
+                    if key not in table.acted:
+                        table.acted.add(key)
+                        schedule(bot_move(g.nonce, "vote", p.pid))
+            continue
+        if g.phase == "oracle_claim" and g.oracle_claim_due in table.bots:
+            key = (g.nonce, "claim")
+            if key not in table.acted:
+                table.acted.add(key)
+                schedule(bot_move(g.nonce, "claim", g.oracle_claim_due))
+            continue
+        if g.players and g.current.pid in table.bots \
+                and g.phase in ("roll", "sail", "island", "question"):
+            if g.phase == "question" and g.question is None:
+                continue                          # wait for the fetch
+            key = (g.nonce, g.phase)
+            if key not in table.acted:
+                table.acted.add(key)
+                schedule(bot_move(g.nonce, g.phase, g.current.pid))
+
+
 # ── HTTP ─────────────────────────────────────────────────────────────────────
 @app.get("/healthz")
 async def healthz():
     return {"ok": True, "phase": table.game.phase,
-            "players": len(table.game.players), "questions": bank.counts()}
+            "players": len(table.game.players), "bots": len(table.bots),
+            "questions": bank.counts()}
 
 
 @app.get("/")
@@ -206,70 +377,9 @@ async def ws_endpoint(ws: WebSocket):
                 await _send(ws, {"type": "error", "msg": "Say hello first."})
                 continue
 
-            try:
-                if kind == "start":
-                    g.start(pid)
-                    await broadcast()
-                elif kind == "roll":
-                    d1, d2 = secrets.randbelow(6) + 1, secrets.randbelow(6) + 1
-                    g.roll(pid, d1, d2)
-                    await broadcast_event({"type": "dice", "pid": pid, "d1": d1, "d2": d2})
-                    await broadcast()
-                elif kind == "sail":
-                    g.sail(pid, str(msg.get("node", "")))
-                    await broadcast()
-                    after_phase_change()
-                elif kind == "wager":
-                    g.wager(pid, int(msg.get("tier", 0)))
-                    await broadcast()
-                    after_phase_change()
-                elif kind == "trial":
-                    g.trial(pid)
-                    await broadcast()
-                    after_phase_change()
-                elif kind == "oracle":
-                    g.oracle_accept(pid)
-                    await broadcast()
-                    after_phase_change()
-                elif kind == "claim":
-                    doms = [str(d) for d in (msg.get("domains") or [])]
-                    g.oracle_claim(pid, doms)
-                    await broadcast()
-                elif kind == "trade":
-                    g.trade(pid, str(msg.get("give", "")), str(msg.get("get", "")))
-                    await broadcast()
-                elif kind == "build":
-                    g.build(pid, str(msg.get("kind", "")))
-                    await broadcast()
-                elif kind == "pass":
-                    g.pass_turn(pid)
-                    await broadcast()
-                elif kind == "answer":
-                    g.answer(pid, int(msg.get("idx", -1)))
-                    await broadcast()
-                    if g.phase == "reveal":
-                        schedule(reveal_timer(g.nonce))
-                elif kind == "vote":
-                    g.vote_domain(pid, str(msg.get("domain", "")))
-                    if g.all_votes_in():
-                        await finish_vote()
-                    else:
-                        await broadcast()
-                elif kind == "skip":
-                    g.skip_turn(pid)
-                    await broadcast()
-                elif kind == "kick":
-                    g.remove_player(pid, str(msg.get("pid", "")))
-                    await broadcast()
-                elif kind == "rematch":
-                    g.rematch(pid)
-                    await broadcast()
-                else:
-                    await _send(ws, {"type": "error", "msg": f"Unknown message: {kind}"})
-            except GameError as e:
-                await _send(ws, {"type": "error", "msg": str(e)})
-            except (TypeError, ValueError):
-                await _send(ws, {"type": "error", "msg": "Malformed message."})
+            err = await dispatch(pid, kind, msg)
+            if err:
+                await _send(ws, {"type": "error", "msg": err})
     except WebSocketDisconnect:
         pass
     finally:
@@ -295,4 +405,5 @@ async def abandoned_game_reset():
 @app.on_event("startup")
 async def startup():
     schedule(bank.refill_loop())
+    schedule(bot_driver())
     schedule(abandoned_game_reset())

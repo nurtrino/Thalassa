@@ -45,12 +45,13 @@ class GameError(Exception):
 
 
 class Player:
-    def __init__(self, pid: str, token: str, name: str, idx: int):
+    def __init__(self, pid: str, token: str, name: str, idx: int, is_bot: bool = False):
         self.pid = pid
         self.token = token
         self.name = name
         self.color = COLORS[idx % len(COLORS)]
         self.connected = True
+        self.is_bot = is_bot
         self.reset()
 
     def reset(self):
@@ -81,7 +82,7 @@ class Player:
         return {
             "pid": self.pid, "name": self.name, "color": self.color,
             "node": self.node, "scrolls": self.scrolls, "laurels": self.laurels,
-            "connected": self.connected,
+            "connected": self.connected, "bot": self.is_bot,
         }
 
 
@@ -140,14 +141,14 @@ class Game:
         return self._deck.pop()
 
     # ── lobby ────────────────────────────────────────────────────────────────
-    def add_player(self, token: str, name: str) -> Player:
+    def add_player(self, token: str, name: str, is_bot: bool = False) -> Player:
         if self.phase != "lobby":
             raise GameError("The voyage has already begun.")
         if len(self.players) >= MAX_PLAYERS:
             raise GameError("The fleet is full (6 captains).")
         name = (name or "").strip()[:16] or f"Captain {len(self.players) + 1}"
         pid = f"p{len(self.players) + 1}_{self.rng.randrange(16**4):04x}"
-        p = Player(pid, token, name, len(self.players))
+        p = Player(pid, token, name, len(self.players), is_bot=is_bot)
         self.players.append(p)
         return p
 
