@@ -555,8 +555,24 @@ export function createWorld(container, handlers = {}) {
     return path;
   }
 
+  function gateBerth(n, st, slotIdx) {
+    // Berth a ship on the channel centerline (the radial axis through the arch),
+    // on the side of the arch that belongs to the stage we're viewing — the hub
+    // side while approaching, the realm side once across — so you come at the
+    // pass head-on and pass THROUGH it, never around it. A small lateral fan
+    // lets two ships share the mouth without overlapping.
+    const rad = new THREE.Vector3(n.x, 0, n.z).normalize();   // outward (radial)
+    const side = (st && st.id !== 'hub') ? 1 : -1;            // realm past the arch
+    const along = 7;                                          // just at the mouth
+    const fan = ((slotIdx % 3) - 1) * 3.0;
+    return new THREE.Vector3(
+      n.x + rad.x * along * side - rad.z * fan, 0,
+      n.z + rad.z * along * side + rad.x * fan);
+  }
+
   function slotFor(nodeId, slotIdx, st) {
     const n = nodeById[nodeId];
+    if (n && n.type === 'gate') return gateBerth(n, st, slotIdx);
     const isle = st && st.islands[nodeId];
     const R = isle?.R ?? 4;
     const a = (slotIdx / 6) * Math.PI * 2 + 0.8;
@@ -698,6 +714,13 @@ export function createWorld(container, handlers = {}) {
       for (const nid of route.slice(1, -1)) {
         if (nodeById[nid]) raw.push(lanePoint(nid, raw[raw.length - 1], st));
       }
+    }
+    const dest = nodeById[toNode];
+    if (dest && dest.type === 'gate') {
+      // line the final leg up with the channel so we run straight at the arch
+      const rad = _vD.set(dest.x, 0, dest.z).normalize();
+      const side = st.id !== 'hub' ? 1 : -1;
+      raw.push(new THREE.Vector3(dest.x + rad.x * 34 * side, 0, dest.z + rad.z * 34 * side));
     }
     raw.push(slotFor(toNode, rec.idx, st));
     const pts = avoidIslands(raw, st);

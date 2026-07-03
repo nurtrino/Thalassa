@@ -814,15 +814,24 @@ function makeGatePortal(accentHex, seed, rockHex = 0x8a8f98) {
   const rng = mulberry32(seed);
   const CH = 9;                       // half-width of the sailing channel
 
-  // ── stone dais: the whole gate rises from a stepped platform on the water ──
-  for (let i = 0; i < 3; i++) {
-    const step = new THREE.Mesh(
-      new THREE.CylinderGeometry(16 - i * 3.3, 16.6 - i * 3.3, 1.15, 10),
-      flat(i % 2 ? rockDk : rock));
-    step.position.y = -0.3 + i * 0.85;
-    step.receiveShadow = true;
-    g.add(step);
+  // ── two stepped stone quays, one under each tower — the sailing channel
+  //    between them (|x| < CH) stays OPEN WATER so a ship passes straight
+  //    through the arch instead of fetching up against a solid dais ──
+  for (const qs of [-1, 1]) {
+    for (let i = 0; i < 3; i++) {
+      const step = new THREE.Mesh(
+        new THREE.BoxGeometry(15 - i * 2.4, 1.15, 27 - i * 3.2),
+        flat(i % 2 ? rockDk : rock));
+      step.position.set(qs * (CH + 5.5), -0.3 + i * 0.85, 0);
+      step.receiveShadow = true;
+      g.add(step);
+    }
   }
+  // a low threshold sill bridging the quays at the back of the arch, kept
+  // below the waterline so it reads as a submerged causeway, not a wall
+  const sill = new THREE.Mesh(new THREE.BoxGeometry(2 * CH + 2, 0.7, 3.2), flat(rockDk));
+  sill.position.set(0, -0.55, -6.5);
+  g.add(sill);
 
   for (const side of [-1, 1]) {
     const tx = side * (CH + 4);
@@ -872,17 +881,17 @@ function makeGatePortal(accentHex, seed, rockHex = 0x8a8f98) {
 
     // ── tall brazier plinth at the fore mouth ──
     const plinth = new THREE.Mesh(new THREE.CylinderGeometry(1.1, 1.5, 6.5, 8), flat(rockDk));
-    plinth.position.set(side * (CH - 2.4), 3.2, 7);
+    plinth.position.set(side * (CH + 0.8), 3.2, 7);
     g.add(plinth);
     const bowl = new THREE.Mesh(new THREE.CylinderGeometry(1.6, 0.9, 1.3, 8),
       flat(0x39343f, { emissive: accent, emissiveIntensity: 0.75 }));
-    bowl.position.set(side * (CH - 2.4), 6.7, 7);
+    bowl.position.set(side * (CH + 0.8), 6.7, 7);
     g.add(bowl);
     const fl = glowSprite(accent, 3.6, 'brazier');
-    fl.position.set(side * (CH - 2.4), 8.1, 7);
+    fl.position.set(side * (CH + 0.8), 8.1, 7);
     g.add(fl);
     const glow = new THREE.PointLight(accent, 7, 28, 2);
-    glow.position.set(side * (CH - 2.4), 8.1, 7);
+    glow.position.set(side * (CH + 0.8), 8.1, 7);
     g.add(glow);
 
     // ── guardian obelisk standing watch out front ──
