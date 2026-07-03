@@ -136,9 +136,11 @@ async def question_timer(nonce: int, limit: float):
 
 async def reveal_timer(nonce: int):
     g = table.game
-    # battle reveals run longer: the client plays your move, then the enemy's
-    extra = 2.6 if (g.reveal or {}).get("kind") == "battle" else 0
-    await asyncio.sleep(REVEAL_SECS + extra)
+    # battle reveals are snappy — the card flashes the answer then clears so
+    # the diorama plays your move and the enemy's, and the next stance is
+    # quick to arrive. Shrine/puzzle reveals get the full reading window.
+    dur = 3.4 if (g.reveal or {}).get("kind") == "battle" else REVEAL_SECS
+    await asyncio.sleep(dur)
     g = table.game
     if g.nonce == nonce and g.phase == "reveal":
         g.advance_after_reveal()

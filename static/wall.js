@@ -18,38 +18,85 @@ function vjit(x, y, z, seed) {
   return s - Math.floor(s);
 }
 
+// a fixed "sun" for baking mountain shading into vertex colors (the ring is
+// drawn unlit so it never blacks out in fog / at noon — the facet definition
+// and snow are painted in)
+const _SUN = new THREE.Vector3(0.45, 0.78, 0.32).normalize();
+const _vP = new THREE.Vector3(), _vQ = new THREE.Vector3(), _vR = new THREE.Vector3();
+const _e1 = new THREE.Vector3(), _e2 = new THREE.Vector3(), _fn = new THREE.Vector3();
+
 /*
  * One jagged peak: displaced cone, vertex-colored rock → snow.
  * Returned geometry is non-indexed, already transformed into world space.
  */
 function peakGeometry({ baseR, h, x, z, rotY, seed, rock, rockDark, snow,
                         snowline, haze = null, hazeAmt = 0 }) {
-  const geo = new THREE.ConeGeometry(baseR, h, 8, 3).toNonIndexed();
-  displace(geo, baseR * 0.55, seed);
-  // color in local space (cone spans y in [-h/2, h/2])
+  // A real mountain, not a smooth cone: many facets, a concave (steeper-up)
+  // profile, and RIDGED horizontal displacement — coherent spurs and gullies
+  // keyed by angle so the silhouette breaks into aretes and couloirs.
+  const geo = new THREE.ConeGeometry(baseR, h, 9, 6, true).toNonIndexed();
   const pos = geo.attributes.position;
+  const rr = mulberry32((seed | 0) >>> 0);
+  // per-peak ridge harmonics (a few random spurs around the massif)
+  const p1 = rr() * 6.28, p2 = rr() * 6.28, p3 = rr() * 6.28;
+  const lean = (rr() - 0.5) * 0.5, leanA = rr() * 6.28;
+  for (let i = 0; i < pos.count; i++) {
+    const vx = pos.getX(i), vy = pos.getY(i), vz = pos.getZ(i);
+    let frac = (vy + h / 2) / h;                 // 0 base .. 1 tip
+    frac = Math.max(0, Math.min(1, frac));
+    const th = Math.atan2(vz, vx);
+    // ridged radial field: alternating spurs/gullies, fading toward the peak
+    const ridge = (Math.sin(th * 3 + p1) * 0.6 +
+                   Math.sin(th * 6 + p2) * 0.28 +
+                   Math.sin(th * 11 + p3) * 0.14);
+    const gully = Math.max(0, -ridge);           // carve gullies deeper
+    const grow = 1 + ridge * 0.34 * (1 - frac) - gully * 0.22 * (1 - frac * 0.6);
+    // concave profile: pinch the upper third for a steeper summit
+    const prof = Math.pow(1 - frac, 0.28);
+    let nx = vx * grow * prof;
+    let nz = vz * grow * prof;
+    // a little coherent jag + a summit lean so no two peaks read the same
+    const j = vjit(vx, vy, vz, seed + 5) - 0.5;
+    nx += j * baseR * 0.16 + Math.cos(leanA) * lean * frac * frac * baseR;
+    nz += (vjit(vz, vx, vy, seed + 9) - 0.5) * baseR * 0.16 +
+          Math.sin(leanA) * lean * frac * frac * baseR;
+    const ny = vy + (vjit(vx, vz, vy, seed + 2) - 0.5) * h * 0.05;
+    pos.setXYZ(i, nx, ny, nz);
+  }
+
+  // bake flat-facet shading + snow into vertex colors (unlit material reads it)
+  const arr = pos.array;
   const col = new Float32Array(pos.count * 3);
   const c = new THREE.Color();
-  for (let i = 0; i < pos.count; i++) {
-    const frac = (pos.getY(i) + h / 2) / h;
-    const jit = vjit(pos.getX(i), pos.getY(i), pos.getZ(i), seed + 5);
-    const line = snowline + (jit - 0.5) * 0.14;
-    if (frac > line) {
-      const k = Math.min(1, (frac - line) / 0.08);
-      c.copy(rock).lerp(snow, 0.35 + k * 0.65);
-    } else {
-      c.copy(rockDark).lerp(rock, Math.min(1, frac * 1.8 + jit * 0.25));
+  for (let t = 0; t < pos.count; t += 3) {
+    _vP.set(arr[t * 3], arr[t * 3 + 1], arr[t * 3 + 2]);
+    _vQ.set(arr[t * 3 + 3], arr[t * 3 + 4], arr[t * 3 + 5]);
+    _vR.set(arr[t * 3 + 6], arr[t * 3 + 7], arr[t * 3 + 8]);
+    _e1.subVectors(_vQ, _vP); _e2.subVectors(_vR, _vP);
+    _fn.crossVectors(_e1, _e2).normalize();
+    if (_fn.y < 0) _fn.multiplyScalar(-1);        // outward/up
+    const lit = 0.42 + 0.58 * Math.max(0, _fn.dot(_SUN));   // sun + fill
+    for (let k = 0; k < 3; k++) {
+      const vy = arr[(t + k) * 3 + 1];
+      let frac = Math.max(0, Math.min(1, (vy + h / 2) / h));
+      const jit = vjit(arr[(t + k) * 3], vy, arr[(t + k) * 3 + 2], seed + 5);
+      const line = snowline + (jit - 0.5) * 0.13;
+      const upFace = _fn.y;                        // snow clings to flatter tops
+      if (frac > line && upFace > 0.25) {
+        const kk = Math.min(1, (frac - line) / 0.06);
+        c.copy(rock).lerp(snow, 0.45 + kk * 0.55);
+        c.multiplyScalar(0.9 + lit * 0.32);        // snow: bright, low contrast
+      } else {
+        c.copy(rockDark).lerp(rock, Math.min(1, frac * 1.5 + jit * 0.3));
+        c.multiplyScalar(lit);                     // rock: full facet contrast
+      }
+      if (haze && hazeAmt > 0) c.lerp(haze, Math.pow(1 - frac, 1.4) * hazeAmt);
+      col[(t + k) * 3] = c.r; col[(t + k) * 3 + 1] = c.g; col[(t + k) * 3 + 2] = c.b;
     }
-    if (haze && hazeAmt > 0) {
-      // distant-range treatment: bases dissolve into the horizon, peaks
-      // stay crisp — the wall reads through fog like real far mountains
-      c.lerp(haze, Math.pow(1 - frac, 1.3) * hazeAmt);
-    }
-    col[i * 3] = c.r; col[i * 3 + 1] = c.g; col[i * 3 + 2] = c.b;
   }
   geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
   geo.rotateY(rotY);
-  geo.translate(x, h / 2 - 3.5, z);   // roots sunk below the waterline
+  geo.translate(x, h / 2 - 4.5, z);   // roots sunk below the waterline
   return geo;
 }
 
@@ -197,9 +244,9 @@ export function buildMountainWall({ radius = 560, gates = [], theme }) {
     haze.position.set(26, 15, 0);
     haze.rotation.y = Math.PI / 2;
     gg.add(haze);
-    const gleam = glowSprite(accent, 34);
-    gleam.material.opacity = 0.3;
-    gleam.position.set(34, 10, 0);
+    const gleam = glowSprite(accent, 16);
+    gleam.material.opacity = 0.2;
+    gleam.position.set(38, 11, 0);
     gg.add(gleam);
 
     group.add(gg);

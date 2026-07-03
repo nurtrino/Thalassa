@@ -256,6 +256,9 @@ export function createWorld(container, handlers = {}) {
   let lobbyMode = false;
   let cameraAnchored = false;
   let preloadedCaptain = false;
+  let wasLobby = true;        // to catch the lobby → voyage transition
+  let cine = null;            // active establishing pan-over, or null
+  const seenStages = new Set();
 
   let activeBoardId = null;   // board stage currently shown (also under battle)
   let battleOn = false;
@@ -698,6 +701,7 @@ export function createWorld(container, handlers = {}) {
     }
     raw.push(slotFor(toNode, rec.idx, st));
     const pts = avoidIslands(raw, st);
+    rec.arrivalPending = true;
     let total = 0;
     const legs = [];
     for (let i = 1; i < pts.length; i++) {
@@ -876,9 +880,26 @@ export function createWorld(container, handlers = {}) {
     }
   }
 
+  /* true while the player whose turn it is has a ship still sailing to its
+   * landing node in the stage we're watching — the cue app.js uses to hold
+   * combat / puzzle cards until the boat actually arrives. */
+  function arriving(room) {
+    const mover = room?.turn;
+    const rec = mover && ships[mover];
+    return !!(rec && rec.anim && rec.stageId === activeBoardId);
+  }
+
+  function onShipArrive(pid) {
+    if (!lastRoom || pid !== lastRoom.turn) return;
+    // the boat has made landfall: now let the battle diorama / cards appear
+    requestStage(desiredTarget(lastRoom));
+    handlers.onArrive?.(pid);
+  }
+
   function desiredTarget(room) {
     if (!room) return activeBoardId || 'hub';
-    if (room.battle) return 'battle';
+    // hold the cut to the battle stage until the boat finishes sailing up
+    if (room.battle && !arriving(room)) return 'battle';
     return stageForViewer(room, myPid);
   }
 
@@ -902,6 +923,11 @@ export function createWorld(container, handlers = {}) {
       fading = false;
       pendingTarget = null;
       handlers.onStageChange?.(tgt);
+      /* first arrival in a realm gets its own establishing pan */
+      if (tgt !== 'battle' && tgt !== 'hub' && !seenStages.has(tgt) && stages[tgt]) {
+        seenStages.add(tgt);
+        startCinematic(stages[tgt]);
+      }
       /* the world may have moved on while the curtain was down */
       const want = desiredTarget(lastRoom);
       if (want !== (battleOn ? 'battle' : activeBoardId)) requestStage(want);
@@ -918,6 +944,9 @@ export function createWorld(container, handlers = {}) {
     activeBoardId = null;
     hiKey = '';
     cameraAnchored = false;
+    cine = null;
+    wasLobby = true;
+    seenStages.clear();
   }
 
   function update(room, you) {
@@ -948,7 +977,16 @@ export function createWorld(container, handlers = {}) {
     }
 
     /* which stage should the viewer be seeing? */
+    const beforeStage = activeBoardId;
     requestStage(desiredTarget(room));
+
+    /* establishing pan: once when the voyage begins, and each time you first
+     * cross into a new realm (never in the lobby, never mid-battle) */
+    if (wasLobby && !lobbyMode && activeBoardId && !battleOn) {
+      seenStages.add(activeBoardId);
+      startCinematic(stages[activeBoardId]);
+    }
+    wasLobby = lobbyMode;
 
     /* keep the visible board stage in sync (also under a battle, so the
      * return trip is instant) */
@@ -981,7 +1019,10 @@ export function createWorld(container, handlers = {}) {
   const ray = new THREE.Raycaster();
   const pointer = new THREE.Vector2();
   let downAt = null;
-  renderer.domElement.addEventListener('pointerdown', (e) => { downAt = [e.clientX, e.clientY]; });
+  renderer.domElement.addEventListener('pointerdown', (e) => {
+    downAt = [e.clientX, e.clientY];
+    skipCinematic();          // any touch cuts the establishing pan short
+  });
   renderer.domElement.addEventListener('pointerup', (e) => {
     if (!downAt) return;
     const moved = Math.hypot(e.clientX - downAt[0], e.clientY - downAt[1]);
@@ -1073,6 +1114,7 @@ export function createWorld(container, handlers = {}) {
   }
 
   function tickShips(st, t, now) {
+    let arrived = null;
     for (const pid in ships) {
       const rec = ships[pid];
       if (rec.stageId !== st.id) continue;
@@ -1098,7 +1140,10 @@ export function createWorld(container, handlers = {}) {
           rec.root.rotation.y += diff * 0.15;          // smooth helm turns
         }
         moving = true;
-        if (k >= 1) { rec.anim = null; moving = false; }
+        if (k >= 1) {
+          rec.anim = null; moving = false;
+          if (rec.arrivalPending) { rec.arrivalPending = false; arrived = rec.pid; }
+        }
         /* wake foam while the galley sails */
         if (moving && rec.galley.visible && now - rec.lastWake > 95) {
           rec.lastWake = now;
@@ -1123,6 +1168,7 @@ export function createWorld(container, handlers = {}) {
         marker.position.y = 4.6 + Math.sin(t * 2.6) * 0.18;
       }
     }
+    if (arrived) onShipArrive(arrived);
   }
 
   function tickHighlights(t) {
@@ -1134,8 +1180,51 @@ export function createWorld(container, handlers = {}) {
     }
   }
 
+  /* ── establishing pan-over: sweep the map, then swoop to your boat ───── */
+  function stageCentroid(st) {
+    let sx = 0, sz = 0, n = 0;
+    for (const id in st.islands) {
+      const nd = nodeById[id];
+      if (!nd) continue;
+      sx += nd.x; sz += nd.z; n++;
+    }
+    return n ? new THREE.Vector3(sx / n, 0, sz / n) : new THREE.Vector3();
+  }
+
+  function startCinematic(st) {
+    // orbit the arrival point (your boat), not the whole realm — keeps the
+    // boat framed and the camera clear of distant backdrop glows
+    const rec = viewFollowPid ? ships[viewFollowPid] : null;
+    const origin = (rec && rec.stageId === st.id)
+      ? rec.root.position.clone() : stageCentroid(st);
+    origin.y = 0;
+    const startAzi = Math.atan2(camera.position.z - origin.z,
+                                camera.position.x - origin.x);
+    cine = { t0: performance.now(), dur: 4400, origin, startAzi };
+  }
+
+  function skipCinematic() { cine = null; }
+
+  function tickCinematic(st, now) {
+    const k = (now - cine.t0) / cine.dur;
+    if (k >= 1) { cine = null; return false; }
+    const ease = k < 0.5 ? 2 * k * k : 1 - Math.pow(-2 * k + 2, 2) / 2;
+    const o = cine.origin;
+    const azi = cine.startAzi + 1.0 * ease;                 // slow orbit sweep
+    const radius = 132 - 106 * ease;                        // wide → chase
+    const height = 92 - 79 * ease;                          // high → low
+    camera.position.set(o.x + Math.cos(azi) * radius, height,
+                        o.z + Math.sin(azi) * radius);
+    controls.target.set(o.x, 1.6, o.z);                     // always on the boat
+    controls.update();
+    st.sun.position.copy(controls.target).addScaledVector(st.sunDir, 380);
+    st.sun.target.position.copy(controls.target);
+    return true;
+  }
+
   function tickCamera(st, t) {
-    controls.autoRotate = lobbyMode;
+    controls.autoRotate = lobbyMode && !cine;
+    if (cine) { if (tickCinematic(st, performance.now())) return; }
     if (!lobbyMode) {
       const rec = viewFollowPid ? ships[viewFollowPid] : null;
       if (rec && rec.stageId === st.id) {
@@ -1191,6 +1280,7 @@ export function createWorld(container, handlers = {}) {
     update,
     battlePlay,
     battleActive: () => battleOn,
+    arriving: () => arriving(lastRoom),
     currentStage: () => (battleOn ? 'battle' : (activeBoardId || 'hub')),
   };
 

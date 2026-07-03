@@ -325,7 +325,7 @@ def test_flee_gamble():
     battle_at(g, p0, mon)
     g.rng = _r.Random(1)                 # .random() → 0.134… (escape)
     g.flee(p0)
-    assert p.scrolls == 3 and p.hull == G.MAX_HULL
+    assert p.scrolls == 5 - G.FLEE_COST and p.hull == G.MAX_HULL
     assert p.node == start and g.current.pid == p1
 
     # failure branch — the front enemy lands a free hit, fight continues
@@ -337,11 +337,11 @@ def test_flee_gamble():
     battle_at(g2, q0, mon2)
     g2.rng = _r.Random(0)                # .random() → 0.844… (cut off)
     g2.flee(q0)
-    assert p2.scrolls == 3 and p2.hull == G.MAX_HULL - 1
+    assert p2.scrolls == 5 - G.FLEE_COST and p2.hull == G.MAX_HULL - 1
     assert g2.phase == "battle" and g2.current.pid == q0
 
     # broke captains cannot gamble
-    p2.scrolls = 1
+    p2.scrolls = 0
     with pytest.raises(GameError):
         g2.flee(q0)
 

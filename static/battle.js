@@ -440,6 +440,9 @@ export function createBattleStage(renderer) {
     if (h.kind === 'ship') {
       const ship = makeShip(heroColor || '#e4572e');
       ship.scale.setScalar(1.7);
+      // float the hull ON the diorama water (disc sits at y≈-0.08) instead
+      // of letting the keel sink through it
+      ship.position.y = 0.92;
       ship.traverse((o) => { if (o.isMesh) o.castShadow = true; });
       h.group = ship;
       h.holder.add(ship);

@@ -74,6 +74,7 @@ let bountiesOpen = false;
 let shopClosed = false;
 let mg = { key: null };          // minigame scratch
 let beatTimers = [];
+let revealCardDropped = false;   // battle reveal card auto-hides mid-beats
 let timerRAF = null;
 let dieTimeout = null;
 let lastLogSig = '';
@@ -103,6 +104,10 @@ world = createWorld($('world'), {
   },
   onStageChange(stageId) {
     applyStage(stageId);
+  },
+  onArrive() {
+    // the boat has reached its island — now reveal whatever waits there
+    if (room) render();
   },
 });
 
@@ -245,8 +250,12 @@ function reactAudio(prev, next) {
   if (next.phase === 'reveal' && sfxPrevPhase !== 'reveal' && next.reveal) {
     clearBeats();
     const rv = next.reveal;
-    if (rv.kind === 'battle') playBattleBeats(rv);
-    else if (rv.was_correct) audio.sfx.correct();
+    revealCardDropped = false;
+    if (rv.kind === 'battle') {
+      // flash the answer, then clear the card so the attack plays in the open
+      beat(1200, () => { revealCardDropped = true; renderQuestion(); renderBattle(); });
+      playBattleBeats(rv);
+    } else if (rv.was_correct) audio.sfx.correct();
     else audio.sfx.wrong();
   }
   if (next.phase === 'battle' && sfxPrevPhase !== 'battle' && sfxPrevPhase !== 'reveal') {
@@ -339,25 +348,25 @@ function playBattleBeats(rv) {
         return;
       }
       if (ep.evaded) {
-        beat(2600, () => {
+        beat(1500, () => {
           setBTurn(`${icon('flee', 16)} ENEMY MOVE — ${foe} lunges… <strong>you slip clear!</strong>`);
           world.battlePlay('enemy_miss');
           audio.sfx.sail();
         });
-        chargeAt = 3400;
+        chargeAt = 2400;
       } else if (ep.dmg > 0) {
         /* a boss answers every exchange */
-        beat(2200, () => {
+        beat(1400, () => {
           setBTurn(`ENEMY MOVE — ${foe} ${ep.heavy ? 'lands a <strong>HEAVY BLOW</strong>' : 'strikes'} for <strong>${ep.dmg}</strong>!`);
           world.battlePlay('enemy_attack', { dmg: ep.dmg, heavy: ep.heavy });
         });
-        beat(2600, () => {
+        beat(1750, () => {
           audio.sfx.hurt();
           if (ep.heavy) audio.sfx.roar();
           flashScreen('red');
           shake(ep.heavy);
         });
-        chargeAt = 3400;
+        chargeAt = 2400;
       }
     }
   } else if (ep.backfire) {
@@ -374,24 +383,24 @@ function playBattleBeats(rv) {
   } else if (ep.dmg > 0) {
     audio.sfx.wrong();
     setBTurn('YOUR MOVE — the answer escapes you…');
-    beat(1500, () => {
+    beat(1300, () => {
       setBTurn(`ENEMY MOVE — ${foe} ${ep.heavy ? 'lands a <strong>HEAVY BLOW</strong>' : 'strikes'} for <strong>${ep.dmg}</strong>!`);
       world.battlePlay('enemy_attack', { dmg: ep.dmg, heavy: ep.heavy });
     });
-    beat(2200, () => {
+    beat(1650, () => {
       audio.sfx.hurt();
       if (ep.heavy) audio.sfx.roar();
       flashScreen('red');
       shake(ep.heavy);
     });
     if (rv.battle_over) {
-      beat(2600, () => {
+      beat(2100, () => {
         world.battlePlay('defeat');
         setBTurn(`${icon('skull', 16)} <strong>SHIPWRECK…</strong> the sea takes you back.`);
       });
       return;
     }
-    chargeAt = 3200;
+    chargeAt = 2400;
   } else {
     /* a whiffed guard-read or blocked-by-aegis round: just the miss sting */
     audio.sfx.wrong();
@@ -819,6 +828,12 @@ function hpBar(cur, max, cls) {
   return `<div class="hpbar ${cls}">${cells}</div>`;
 }
 
+function heartRow(cur, max) {
+  const hearts = Array.from({ length: max }, (_, i) =>
+    `<span class="heart ${i < cur ? '' : 'lost'}">${icon('heart', 20)}</span>`).join('');
+  return `<div class="heartrow" title="Health ${cur}/${max}">${hearts}</div>`;
+}
+
 function battleView() {
   if (room.battle) { lastBattleSnap = room.battle; return room.battle; }
   /* the killing-blow reveal: room.battle is gone, keep showing the corpse */
@@ -847,8 +862,10 @@ function sendMove(stance, target) {
 function renderBattle() {
   const hud = $('battleHud');
   const b = battleView();
+  // hold the whole battle screen until the boat has sailed up to the island
   const show = b && ['battle', 'question', 'reveal'].includes(room.phase) &&
-    (room.phase !== 'reveal' || room.reveal?.kind === 'battle');
+    (room.phase !== 'reveal' || room.reveal?.kind === 'battle') &&
+    !world.arriving();
   hud.classList.toggle('hidden', !show);
   document.body.classList.toggle('battling', !!show);
   if (!show) { pendingMove = null; return; }
@@ -904,10 +921,10 @@ function renderBattle() {
     setBTurn(mine ? '' : `${esc(fighter?.name || '')} faces the question…`);
   }
 
-  /* hero hull */
+  /* hero health — hearts, so it never reads like the enemy's HP bar */
   $('bship').innerHTML = fighter ? `
-    <div class="bsub"><strong>${esc(fighter.name)}</strong> — hull</div>
-    ${hpBar(fighter.hull, fighter.max_hull, 'ally')}` : '';
+    <div class="bsub"><strong>${esc(fighter.name)}</strong></div>
+    ${heartRow(fighter.hull, fighter.max_hull)}` : '';
 
   /* stance dock */
   const actions = $('bactions');
@@ -970,7 +987,9 @@ function renderBattle() {
 /* ── question scroll ────────────────────────────────────────────────────── */
 function renderQuestion() {
   const modal = $('qmodal');
-  const isQ = room.phase === 'question' || (room.phase === 'reveal' && room.reveal);
+  // a battle reveal drops its card fast so the diorama attack plays clean
+  const isQ = (room.phase === 'question' && !world.arriving()) ||
+    (room.phase === 'reveal' && room.reveal && !revealCardDropped);
   modal.classList.toggle('hidden', !isQ);
   const battleQ = (room.question?.kind ?? room.reveal?.kind) === 'battle';
   modal.classList.toggle('clear', !!(isQ && battleQ));   // don't dim the diorama
@@ -1096,7 +1115,7 @@ function startTimerBar(deadline, barSel) {
 function renderMinigame() {
   const modal = $('mgmodal');
   const m = room.minigame;
-  const show = room.phase === 'minigame' && m;
+  const show = room.phase === 'minigame' && m && !world.arriving();
   modal.classList.toggle('hidden', !show);
   if (!show) { mg = { key: null }; return; }
 

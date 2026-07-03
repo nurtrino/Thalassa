@@ -49,6 +49,16 @@ window.__battle = (spec) => {
 };
 window.__endBattle = () => { room.battle = null; room.phase = 'roll'; world.update(room, you); };
 window.__play = (k, p) => world.battlePlay(k, p);
+// park the camera looking at a given node from a chase distance
+window.__lookAt = (nodeId, dist = 30, height = 12, azi = 0) => {
+  const n = room.board.nodes.find((x) => x.id === nodeId);
+  if (!n) return;
+  const t = window.__thalassa;
+  t.controls.target.set(n.x, 2, n.z);
+  const a = Math.atan2(n.z, n.x) + Math.PI + azi;   // look outward from center
+  t.camera.position.set(n.x + Math.cos(a) * dist, height, n.z + Math.sin(a) * dist);
+  t.controls.update();
+};
 window.__ready = true;
 </script>
 </body>

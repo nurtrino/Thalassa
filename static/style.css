@@ -966,6 +966,25 @@ input:focus-visible, select:focus-visible {
 #bship .bsub { margin-bottom: 4px; }
 #bship strong { color: var(--gilt); font-weight: 700; }
 
+/* hero health as hearts (distinct from the enemy HP bar) */
+.heartrow { display: flex; gap: 3px; justify-content: center; }
+.heart {
+  display: inline-flex; color: #e2493a;
+  filter: drop-shadow(0 1px 2px rgba(0, 0, 0, .6));
+  transition: transform .18s ease, opacity .18s ease;
+}
+.heart svg { fill: currentColor; stroke: #7a1d16; stroke-width: 1.2; }
+.heart.lost { color: #2a2f38; opacity: .8; }
+.heart.lost svg { fill: #20242c; stroke: #454c57; }
+@media (prefers-reduced-motion: no-preference) {
+  .heart:not(.lost) { animation: heartbeat 2.6s ease-in-out infinite; }
+}
+@keyframes heartbeat {
+  0%, 88%, 100% { transform: scale(1); }
+  92% { transform: scale(1.16); }
+  96% { transform: scale(1.02); }
+}
+
 /* stance dock */
 #bactions {
   position: absolute; bottom: 16px; left: 50%; transform: translateX(-50%);

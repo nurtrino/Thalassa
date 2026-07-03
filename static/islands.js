@@ -501,12 +501,13 @@ function makeLighthouse() {
   const band = new THREE.Mesh(new THREE.CylinderGeometry(0.5, 0.55, 0.5, 9), flat(COL.aegeanBlue));
   band.position.y = 1.4;
   const cage = new THREE.Mesh(new THREE.CylinderGeometry(0.3, 0.3, 0.5, 6),
-    flat(0xffd97a, { emissive: 0xb98a1a }));
+    flat(0xffe6a8, { emissive: 0xd9a441, emissiveIntensity: 0.7 }));
   cage.position.y = 3.65;
   const cap = new THREE.Mesh(new THREE.ConeGeometry(0.42, 0.5, 8), flat(COL.terracotta));
   cap.position.y = 4.15;
   cap.castShadow = true;
-  const light = new THREE.PointLight(0xffd97a, 8, 16);
+  // a warm glimmer, not a floodlight — was washing out Home Port
+  const light = new THREE.PointLight(0xffd9a0, 1.6, 9, 2);
   light.position.y = 3.7;
   g.add(tower, band, cage, cap, light);
   return g;
@@ -589,19 +590,22 @@ function makePharos() {
     col.position.set(Math.cos(a) * 7.7, 3.4, Math.sin(a) * 7.7);
     g.add(col);
   }
-  const fire = new THREE.Mesh(new THREE.SphereGeometry(1.5, 10, 8),
-    new THREE.MeshBasicMaterial({ color: 0xffe9a8 }));
+  const fire = new THREE.Mesh(new THREE.SphereGeometry(1.05, 10, 8),
+    new THREE.MeshBasicMaterial({ color: 0xffdf90 }));
   fire.position.y = 23.2;
   fire.name = 'pharosfire';
   const cap = new THREE.Mesh(new THREE.ConeGeometry(2.4, 2.6, 8), white(0.25));
   cap.position.y = 26.0;
-  const light = new THREE.PointLight(0xffe2a0, 42, 300, 1.6);
+  // a lit beacon, not a sun — the old 42-intensity/range-300 lamp bleached
+  // the whole hub white
+  const light = new THREE.PointLight(0xffe2a0, 6, 90, 2);
   light.position.y = 23.2;
   const beam = new THREE.Mesh(new THREE.CylinderGeometry(0.9, 2.8, 70, 10, 1, true),
-    new THREE.MeshBasicMaterial({ color: 0xffe9b0, transparent: true, opacity: 0.15,
+    new THREE.MeshBasicMaterial({ color: 0xffe9b0, transparent: true, opacity: 0.09,
       side: THREE.DoubleSide, depthWrite: false, blending: THREE.AdditiveBlending }));
   beam.position.y = 56;
-  const halo = glowSprite(0xffeecb, 52);
+  const halo = glowSprite(0xffeecb, 15);
+  halo.material.opacity = 0.4;
   halo.position.y = 23.2;
   g.add(fire, cap, light, beam, halo);
   return g;
@@ -778,40 +782,45 @@ function makeLairAltar(accentHex, rng) {
 
 /* the mountain-pass portal that replaces the legacy storm-gate pillars:
  * two rock bastions, a carved lintel, braziers burning in the realm's color */
-function makeGatePortal(accentHex, seed) {
+function makeGatePortal(accentHex, seed, rockHex = 0x8a8f98) {
   const g = new THREE.Group();
   const accent = new THREE.Color(accentHex);
+  const rock = new THREE.Color(rockHex);
+  const rockDk = rock.clone().multiplyScalar(0.62);
   const rng = mulberry32(seed);
   for (const side of [-1, 1]) {
+    // a leaning crag, not a black spike — themed to the realm's own stone
     const bastion = new THREE.Mesh(
-      displace(new THREE.ConeGeometry(3.6, 15, 7, 3), 1.7, seed + side * 3),
-      flat(0x4a4f58));
-    bastion.position.set(side * 7.5, 6.2, 0);
+      displace(new THREE.ConeGeometry(4.2, 13, 7, 3), 2.1, seed + side * 3),
+      flat(rock, { flatShading: true }));
+    bastion.position.set(side * 8.2, 5.4, 0);
+    bastion.rotation.z = side * 0.16;
     bastion.castShadow = true;
     g.add(bastion);
-    const foot = makeRock(rng, 1.5, 0x3c4048);
-    foot.position.set(side * 6.2, 0.4, 1.8);
+    const foot = makeRock(rng, 2.0, rockDk);
+    foot.position.set(side * 6.6, 0.4, 1.8);
     g.add(foot);
     // brazier pillar + flame
-    const pillar = new THREE.Mesh(new THREE.CylinderGeometry(0.32, 0.45, 3.4, 6), flat(0x3a3542));
+    const pillar = new THREE.Mesh(new THREE.CylinderGeometry(0.32, 0.45, 3.4, 6), flat(rockDk));
     pillar.position.set(side * 4.6, 1.7, 0);
     const bowl = new THREE.Mesh(new THREE.CylinderGeometry(0.5, 0.3, 0.5, 6),
       flat(0x55505e, { emissive: accent, emissiveIntensity: 0.55 }));
     bowl.position.set(side * 4.6, 3.55, 0);
-    const fl = glowSprite(accent, 3.2, 'brazier');
+    const fl = glowSprite(accent, 2.4, 'brazier');
     fl.position.set(side * 4.6, 4.2, 0);
-    const glow = new THREE.PointLight(accent, 12, 40, 1.7);
+    const glow = new THREE.PointLight(accent, 5, 20, 2);
     glow.position.set(side * 4.6, 4.4, 0);
     g.add(pillar, bowl, fl, glow);
   }
   // carved lintel spanning the pass
   const lintel = new THREE.Mesh(
-    displace(new THREE.BoxGeometry(13.5, 1.8, 2.4, 6, 1, 1), 0.5, seed + 11), flat(0x565b64));
-  lintel.position.y = 11.6;
+    displace(new THREE.BoxGeometry(15, 1.8, 2.4, 6, 1, 1), 0.5, seed + 11),
+    flat(rockDk.clone().multiplyScalar(1.15)));
+  lintel.position.y = 10.6;
   lintel.castShadow = true;
-  const carving = new THREE.Mesh(new THREE.BoxGeometry(12.4, 0.4, 2.5),
+  const carving = new THREE.Mesh(new THREE.BoxGeometry(13.6, 0.4, 2.5),
     flat(0x2e2a34, { emissive: accent, emissiveIntensity: 0.9 }));
-  carving.position.y = 11.1;
+  carving.position.y = 10.1;
   g.add(lintel, carving);
   // the realm glimmers through the pass
   const haze = new THREE.Mesh(new THREE.PlaneGeometry(11, 12),
@@ -954,9 +963,12 @@ export function buildIsland(node, theme, domains) {
 
   if (node.type === 'gate') {
     const accent = REALM_INFO[node.region]?.accent ?? '#d9a441';
-    g.add(makeGatePortal(accent, seed));
+    g.add(makeGatePortal(accent, seed, theme?.wall?.rock ?? 0x8a8f98));
     g.position.set(node.x, 0, node.z);
-    g.rotation.y = -Math.atan2(node.z, node.x);   // pillars flank the channel
+    // the channel must open RADIALLY (boat sails in from the isles, out to
+    // the realm); bastions flank it tangentially. π/2 − angle, not −angle,
+    // or a bastion sits square in the fairway.
+    g.rotation.y = Math.PI / 2 - Math.atan2(node.z, node.x);
     return { group: g, R: 8, plateauY: 0 };
   }
 
