@@ -78,7 +78,9 @@ let timerRAF = null;
 let dieTimeout = null;
 let lastLogSig = '';
 let lastBattleSnap = null;       // survives the killing-blow reveal
-let introDismissed = false;
+// persisted: seasoned captains don't get the rules card again (survives
+// reloads and reconnects; a fresh browser sees it once)
+let introDismissed = localStorage.getItem('thalassa_intro') === '1';
 
 function resetTransient() {
   clearBeats();
@@ -412,7 +414,6 @@ function render() {
   $('lobby').classList.toggle('hidden', !inLobby);
   $('hud').classList.toggle('hidden', inLobby);
   if (inLobby) {
-    introDismissed = false;
     lastStage = null;
     lastBattleSnap = null;
     $('modal').classList.add('hidden');
@@ -1459,7 +1460,12 @@ function renderModal() {
       <p class="tag">Hull 0 = shipwreck: back to your checkpoint, scrolls halved.
         Answer on rivals' turns to skim scrolls.</p>
       <button id="introGo" class="big">SET SAIL</button>`);
-    $('introGo').onclick = () => { introDismissed = true; modal.classList.add('hidden'); render(); };
+    $('introGo').onclick = () => {
+      introDismissed = true;
+      localStorage.setItem('thalassa_intro', '1');
+      modal.classList.add('hidden');
+      render();
+    };
     return;
   }
 
@@ -1491,7 +1497,7 @@ function renderModal() {
         ? '<button id="rematchGo" class="big">NEW VOYAGE — A NEW SEA</button>'
         : '<p class="tag">the host may launch a new voyage</p>'}`);
     const rg = $('rematchGo');
-    if (rg) rg.onclick = () => { introDismissed = false; send({ type: 'rematch' }); };
+    if (rg) rg.onclick = () => send({ type: 'rematch' });
     return;
   }
 

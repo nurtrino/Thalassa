@@ -325,8 +325,16 @@ export function createWorld(container, handlers = {}) {
     const n = nodeById[me.node];
     if (!n) return activeBoardId || 'hub';
     if (n.type === 'gate') {
+      // landing on a pass means you are CROSSING: face the side you came
+      // from the other of — arrive from the isles, behold the realm.
+      const rec = ships[you];
+      const prev = rec?.prevNode ? nodeById[rec.prevNode] : null;
+      if (prev && prev.type !== 'gate') {
+        const from = prev.region || 'hub';
+        return from === 'hub' ? (n.region || 'hub') : 'hub';
+      }
       if (activeBoardId && stageHasNode(activeBoardId, me.node)) return activeBoardId;
-      return 'hub';
+      return n.region || 'hub';
     }
     return n.region || 'hub';
   }
@@ -632,15 +640,64 @@ export function createWorld(container, handlers = {}) {
     }
   }
 
-  function startTravel(rec, toNode, st) {
-    const route = sailPath(rec.prevNode, toNode);
-    const pts = [rec.root.position.clone()];
-    if (route && route.length > 2) {
-      for (const nid of route.slice(1, -1)) {
-        if (nodeById[nid]) pts.push(lanePoint(nid, pts[pts.length - 1], st));
+  function avoidIslands(rawPts, st) {
+    /* Densify the route, then push every sample out of each island's
+       footprint — the hull arcs around land instead of cutting across it.
+       Endpoints (current position, destination slot) stay fixed. */
+    const solids = [];
+    for (const [nid, isle] of Object.entries(st.islands)) {
+      const n = nodeById[nid];
+      if (!n || n.type === 'sea' || n.type === 'gate') continue;
+      solids.push({ x: n.x, z: n.z, r: (isle.R ?? 8) * 1.3 + 1.6 });
+    }
+    const pts = [];
+    pts.push(rawPts[0].clone());
+    for (let i = 1; i < rawPts.length; i++) {
+      const a = rawPts[i - 1], b = rawPts[i];
+      const nSeg = Math.max(1, Math.ceil(a.distanceTo(b) / 3));
+      for (let s = 1; s <= nSeg; s++) {
+        pts.push(new THREE.Vector3().lerpVectors(a, b, s / nSeg));
       }
     }
-    pts.push(slotFor(toNode, rec.idx, st));
+    if (!solids.length || pts.length < 3) return pts;
+    const pushOut = () => {
+      for (let i = 1; i < pts.length - 1; i++) {
+        const p = pts[i];
+        for (const c of solids) {
+          const dx = p.x - c.x, dz = p.z - c.z;
+          const d = Math.hypot(dx, dz);
+          if (d >= c.r) continue;
+          if (d > 1e-4) {
+            const k = c.r / d;
+            p.x = c.x + dx * k;
+            p.z = c.z + dz * k;
+          } else {
+            p.x = c.x + c.r;                 // dead center: pick a side
+          }
+        }
+      }
+    };
+    pushOut();
+    for (let pass = 0; pass < 2; pass++) {   // soften the tangent kinks…
+      for (let i = 1; i < pts.length - 1; i++) {
+        pts[i].x = pts[i].x * 0.6 + (pts[i - 1].x + pts[i + 1].x) * 0.2;
+        pts[i].z = pts[i].z * 0.6 + (pts[i - 1].z + pts[i + 1].z) * 0.2;
+      }
+      pushOut();                             // …but never back onto land
+    }
+    return pts;
+  }
+
+  function startTravel(rec, toNode, st) {
+    const route = sailPath(rec.prevNode, toNode);
+    const raw = [rec.root.position.clone()];
+    if (route && route.length > 2) {
+      for (const nid of route.slice(1, -1)) {
+        if (nodeById[nid]) raw.push(lanePoint(nid, raw[raw.length - 1], st));
+      }
+    }
+    raw.push(slotFor(toNode, rec.idx, st));
+    const pts = avoidIslands(raw, st);
     let total = 0;
     const legs = [];
     for (let i = 1; i < pts.length; i++) {
@@ -649,9 +706,10 @@ export function createWorld(container, handlers = {}) {
       total += len;
     }
     const foot = rec.mode === 'foot';
+    // unhurried: a voyage should read as a voyage, not a teleport
     rec.anim = {
       pts, legs, total, t0: performance.now(),
-      dur: foot ? Math.min(6200, 700 + total * 42) : Math.min(5200, 500 + total * 26),
+      dur: foot ? Math.min(9000, 900 + total * 52) : Math.min(8000, 700 + total * 40),
     };
   }
 
@@ -705,8 +763,13 @@ export function createWorld(container, handlers = {}) {
     const st = stages[activeBoardId];
     if (!st) return;
     const myTurn = room.turn === you && room.phase === 'sail' && !room.battle;
+    // standing on a pass, destinations straddle the wall — show them ALL
+    // (rings past the pass mouth read as "through there"); everywhere else,
+    // only this stage's waters light up.
+    const onGate = nodeById[room.players?.find((p) => p.pid === you)?.node]?.type === 'gate';
     const ids = myTurn
-      ? Object.keys(room.reachable || {}).filter((id) => stageHasNode(activeBoardId, id)).sort()
+      ? Object.keys(room.reachable || {})
+          .filter((id) => onGate || stageHasNode(activeBoardId, id)).sort()
       : [];
     const key = activeBoardId + '#' + ids.join(',');
     if (key === hiKey) return;
@@ -724,7 +787,16 @@ export function createWorld(container, handlers = {}) {
       ring.rotation.x = -Math.PI / 2;
       ring.position.set(n?.x ?? 0, 0.35, n?.z ?? 0);
       ring.renderOrder = 5;
+      ring.userData.node = nid;
       highlights.add(ring);
+      // fat invisible disc so the ring itself is an easy click/tap target —
+      // and the only target for cross-wall destinations with no proxy here
+      const disc = new THREE.Mesh(new THREE.CircleGeometry(R * 1.6, 16),
+        new THREE.MeshBasicMaterial({ visible: false }));
+      disc.rotation.x = -Math.PI / 2;
+      disc.position.set(n?.x ?? 0, 0.4, n?.z ?? 0);
+      disc.userData.node = nid;
+      highlights.add(disc);
     }
   }
 
@@ -921,7 +993,9 @@ export function createWorld(container, handlers = {}) {
     pointer.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
     pointer.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
     ray.setFromCamera(pointer, camera);
-    const hit = ray.intersectObjects(st.proxyList, false)[0];
+    const hit = ray.intersectObjects(
+      [...st.proxyList, ...highlights.children], false)
+      .find((h) => h.object.userData.node);
     if (hit) handlers.onNodeClick?.(hit.object.userData.node);
   });
 

@@ -210,8 +210,15 @@ class Game:
         """EXACT-roll movement: the die is how far you sail — no fewer, no
         more. Walks may not double straight back (unless boxed in), so the
         chart's loops are how you tune where you land. Walls (the Pharos,
-        live trial guardians) can only be the final landfall."""
+        live trial guardians) can only be the final landfall.
+
+        MOUNTAIN PASSES HALT THE VOYAGE: any sail that reaches a gate ends
+        there, whatever the die said — you make landfall at the pass and
+        cross into (or out of) the realm on a later turn. Without this,
+        exact rolls near the wall strand you with destinations on the far
+        side of the mountains."""
         cur = {(p.node, None)}
+        stops: set[str] = set()
         for step in range(steps):
             last = step == steps - 1
             nxt = set()
@@ -223,11 +230,17 @@ class Game:
                 for nb in fwd:
                     if self._wall(p, nb) and (not last or not self._can_land(p, nb)):
                         continue
+                    if self.board.nodes[nb]["type"] == "gate":
+                        stops.add(nb)              # the pass halts the voyage
+                        continue
                     nxt.add((nb, node))
             cur = nxt
             if not cur:
                 break
-        return {node: steps for node, _ in cur if node != p.node}
+        out = {node: steps for node, _ in cur if node != p.node}
+        for g in stops:
+            out[g] = steps
+        return out
 
     def _pharos_ok(self, p: Player) -> bool:
         return self.pharos_open and p.banked >= RELICS_TO_WIN
@@ -381,32 +394,45 @@ class Game:
             self._say(f"👑 {node['monster']['name']} rises — {p.name}'s trial begins!")
             self._bump("battle")
             return
+        # drifting flotsam is grabbed the moment you arrive — even if
+        # something is about to rise out of the water after it
+        if ntype == "sea" and node.get("flotsam"):
+            node["flotsam"] = False
+            p.scrolls += 1
+            self._say(f"{p.name} hauls drifting flotsam aboard — +1 scroll.")
+
         monster = self.board.alive_monster(nid)
-        # inside a realm the dungeon curve sets the ambush odds: the deeper
-        # you push, the more surely something finds you. Hub hunting grounds
-        # are dangerous waters, not a toll booth — half the landings pass.
-        if node.get("depth"):
-            ambush = self.rng.random() < min(0.85, 0.45 + 0.1 * node["depth"])
+        # ambush odds: hunting grounds bite on half the landings (deeper in a
+        # realm, more surely); open water is never quite safe either — sea
+        # attacks find you on the way between islands.
+        if node.get("encounter"):
+            if node.get("depth"):
+                chance = min(0.85, 0.45 + 0.1 * node["depth"])
+            else:
+                chance = 0.5
+        elif ntype == "sea":
+            depth = node.get("depth", 0)
+            chance = min(0.5, 0.2 + 0.05 * depth) if depth else 0.15
         else:
-            ambush = self.rng.random() < 0.5
-        if node.get("encounter") and not monster and ambush:
+            chance = 0.0
+        if chance and not monster and self.rng.random() < chance:
             node["monster"] = self.board.random_pack(node, self.rng)
             monster = node["monster"]
-            self._say(f"⚔ {monster['name']} ambush {p.name}"
-                      + (" in the wilds!" if node.get("region") else " in open water!"))
+            if ntype == "sea":
+                self._say(f"⚔ {monster['name']} rise from the deep — "
+                          f"{p.name} is beset mid-crossing!")
+            else:
+                self._say(f"⚔ {monster['name']} ambush {p.name}"
+                          + (" in the wilds!" if node.get("region") else " in open water!"))
         if monster:
             self.battle = {"node": nid, "stance": None, "round": 0,
                            "charging": False,
                            "used_items": [], "first_hit_taken": False}
-            if not node.get("encounter"):
+            if not node.get("encounter") and ntype != "sea":
                 self._say(f"{monster['name']} bars {p.name}'s way!")
             self._bump("battle")
             return
         if ntype == "sea":
-            if node.get("flotsam"):
-                node["flotsam"] = False
-                p.scrolls += 1
-                self._say(f"{p.name} hauls drifting flotsam aboard — +1 scroll.")
             self._next_turn()
         elif ntype == "home":
             self._bank(p)
@@ -801,8 +827,8 @@ class Game:
                     p.scrolls += loot
                     gained = loot
                     self._bounty_event("slay", p, name=m["name"])
-                    if node.get("encounter"):
-                        node["monster"] = None     # the grounds fall quiet — for now
+                    if node.get("encounter") or node["type"] == "sea":
+                        node["monster"] = None     # the waters fall quiet — for now
             else:
                 # a wounded boss enrages — and the fury lands this very round
                 if boss and not m.get("enraged"):

@@ -19,11 +19,13 @@ storm the Pharos.
 2. Host hits **SET SAIL**. Ships start at Home Port in the shadow of the
    Pharos.
 3. On your turn, roll the d3 and sail **exactly** that far — the chart is a
-   lattice of loops, and steering them is the game. Islands do what islands
-   do: shrines wager trivia for scrolls (tier I/II/III — a missed III costs
-   you), puzzle spires deal minigames for ship fittings, havens set your
-   respawn checkpoint and patch the hull, market isles sell gear, hunting
-   grounds bite.
+   lattice of loops, and steering them is the game. A mountain pass **halts
+   the voyage**: reach one and you make landfall there, whatever the die
+   said. Islands do what islands do: shrines wager trivia for scrolls (tier
+   I/II/III — a missed III costs you), puzzle spires deal minigames for ship
+   fittings, havens set your respawn checkpoint and patch the hull, market
+   isles sell gear, hunting grounds bite — and open water is never quite
+   safe: **sea attacks** rise mid-crossing, the deeper the realm the surer.
 4. **The realms.** Four passes pierce the mountains. The desert is crossed
    *on foot* — you beach your ship at the pass. Every stop deeper raises the
    ambush odds and the packs' strength; a haven checkpoint waits mid-spine.

@@ -114,11 +114,13 @@ def test_board_has_loops_for_exact_rolls():
 
 
 def test_flotsam_pickup():
+    import random as _r
     g, (p0, p1) = make_game()
     sea = next(nid for nid, n in g.board.nodes.items()
                if n["type"] == "sea")
     g.board.nodes[sea]["flotsam"] = True
     p = g.player_by_pid(p0)
+    g.rng = _r.Random(0)                    # calm water: no ambush this landing
     force_land(g, p0, sea)
     assert p.scrolls == 4                             # 3 starting + 1 flotsam
     assert not g.board.nodes[sea]["flotsam"]
@@ -770,6 +772,52 @@ def test_realm_ambush_odds_rise_with_depth(monkeypatch):
     g.rng = __import__("random").Random(4)        # first random() ≈ 0.236 < odds
     force_land(g, p0, mon)
     assert g.phase == "battle"                    # deep wilds almost always bite
+
+
+def test_mountain_pass_halts_the_voyage():
+    g, (p0, p1) = make_game()
+    p = g.player_by_pid(p0)
+    gate = g.board.gates[0]
+    nbrs = g.board.neighbors[gate]
+    hub_side = next(n for n in nbrs if not g.board.nodes[n].get("region"))
+    realm_side = next(n for n in nbrs if g.board.nodes[n].get("region"))
+    p.node = hub_side
+    p.prev_node = hub_side
+    g.roll(p0, 3)
+    assert gate in g.reachable                 # the pass absorbs the roll...
+    assert realm_side not in g.reachable       # ...nothing beyond it in one sail
+    g.sail(p0, gate)
+    assert g.phase == "roll" and g.current.pid == p1   # a quiet landfall
+
+
+def test_sea_attacks_on_the_crossing():
+    import random as _r
+    g, (p0, p1) = make_game()
+    sea = next(nid for nid, n in g.board.nodes.items()
+               if n["type"] == "sea" and not n.get("region"))
+    g.board.nodes[sea]["flotsam"] = False
+    g.rng = _r.Random(1)                       # first random() ≈ 0.134 < 0.15
+    force_land(g, p0, sea)
+    assert g.phase == "battle"                 # beset mid-crossing
+    m = g.board.alive_monster(sea)
+    assert m and all(e["max_hp"] <= 3 for e in m["enemies"])
+    set_pack(g, sea, [1])
+    g.stance(p0, "attack")
+    put_question(g)
+    g.answer(p0, 0)
+    assert g.reveal["battle_over"]
+    assert g.board.nodes[sea]["monster"] is None   # the water falls quiet
+
+
+def test_open_water_is_usually_safe():
+    import random as _r
+    g, (p0, p1) = make_game()
+    sea = next(nid for nid, n in g.board.nodes.items()
+               if n["type"] == "sea" and not n.get("region"))
+    g.board.nodes[sea]["flotsam"] = False
+    g.rng = _r.Random(0)                       # first random() ≈ 0.844 > 0.15
+    force_land(g, p0, sea)
+    assert g.phase == "roll" and g.current.pid == p1
 
 
 # ── boss fights demand strategy ──────────────────────────────────────────────
