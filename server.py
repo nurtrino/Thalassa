@@ -13,9 +13,10 @@ is fogged per player — PER-VIEWER snapshots.
     WS   /ws            → game protocol (JSON messages)
 
 Client → server: hello{token,name} · add_bot · start · roll · sail{node}
-                 · wager{tier} · pass · repair · stance{stance} · flee
-                 · item{id} · answer{idx} (turn OR side answer) · pick{upgrade}
-                 · solve{payload} (minigame) · skip · kick{pid} · rematch · ping
+                 · wager{tier} · pass · repair · shop · hint · stance{stance,target}
+                 · flee · item{id} · answer{idx} (turn OR side answer)
+                 · pick{upgrade} · solve{payload} (minigame) · skip · kick{pid}
+                 · rematch · ping
 Server → client: snapshot{you,room} · dice{pid,value} · error{msg} · pong
 """
 from __future__ import annotations
@@ -195,6 +196,10 @@ async def dispatch(pid: str | None, kind: str, msg: dict) -> str | None:
             g.pass_turn(pid)
         elif kind == "repair":
             g.repair(pid)
+        elif kind == "shop":
+            g.shop(pid)
+        elif kind == "hint":
+            g.buy_hint(pid)
         elif kind == "stance":
             g.stance(pid, str(msg.get("stance", "")), int(msg.get("target", 0)))
         elif kind == "flee":

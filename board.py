@@ -14,6 +14,8 @@ so a voyage to a far lair takes real turns and real route planning.
     band 6   the Golden Fleece (locked until someone banks 3 relics)
 
 Node types: home · shrine · puzzle · haven · monster · lair · fleece · sea
+Lairs hold SOLO boss guardians and the relics; "monster" spots are hunting
+grounds where a fresh random pack ambushes whoever lands (never a wall).
 The engine owns per-game state (monster hp, shrine charges, relics), so a
 Board instance belongs to one Game and mutates freely.
 """
@@ -39,16 +41,35 @@ ISLAND_NAMES = [
     "Salamis", "Aegina", "Hydra", "Spetses", "Poros", "Skiathos",
 ]
 
-# (name, hp, power, tier) by rank — tier is the question difficulty asked.
-MINIONS = [("Harpies", 2, 1, 2), ("Satyr Brigands", 2, 1, 2),
-           ("Stymphalian Birds", 2, 1, 2), ("Sea Wolves", 2, 1, 2),
-           ("Brigand Skiffs", 2, 1, 2)]
-GUARDS = [("The Cyclops", 3, 2, 3), ("The Sirens", 3, 2, 3), ("The Hydra", 3, 2, 3),
-          ("The Minotaur", 3, 2, 3), ("The Sphinx", 3, 2, 3), ("The Gorgon", 3, 2, 3),
-          ("The Empusa", 3, 2, 3), ("The Laestrygonians", 3, 2, 3)]
-ELITES = [("Skylla", 4, 2, 3), ("The Chimera", 4, 2, 3), ("The Ketos", 4, 2, 3),
-          ("Charybdis", 4, 3, 3), ("Typhon's Spawn", 4, 3, 3)]
-DRAGON = ("The Colchian Dragon", 6, 3, 3)
+# Bosses are SOLO — one great guardian per lair, where the relics are.
+# (name, hp, power, tier) — tier is the question difficulty asked.
+BOSSES = [("The Cyclops", 5, 2, 3), ("The Siren Queen", 5, 2, 3),
+          ("The Hydra", 5, 2, 3), ("The Minotaur", 5, 2, 3),
+          ("The Sphinx", 5, 2, 3), ("The Gorgon", 5, 2, 3),
+          ("The Empusa", 5, 2, 3), ("The Laestrygonian King", 5, 2, 3)]
+ELITES = [("Skylla", 6, 2, 3), ("The Chimera", 6, 2, 3), ("The Ketos", 6, 2, 3),
+          ("Charybdis", 6, 3, 3), ("Typhon's Spawn", 6, 3, 3)]
+DRAGON = ("The Colchian Dragon", 8, 3, 3)
+
+# Random encounter table for hunting grounds ("monster" spots): a fresh pack
+# ambushes whoever LANDS there — they never wall off passage.
+# (pack name, unit name, unit hp, unit power)
+ENCOUNTERS_LIGHT = [
+    ("Harpies", "Harpy", 1, 1),
+    ("Sea Wolves", "Sea Wolf", 1, 1),
+    ("Satyr Brigands", "Satyr Brigand", 1, 1),
+    ("Stymphalian Birds", "Stymphalian Bird", 1, 1),
+    ("Brigand Skiffs", "Brigand Skiff", 2, 1),
+    ("Reef Serpents", "Reef Serpent", 2, 1),
+]
+ENCOUNTERS_HEAVY = [
+    ("Laestrygonian Raiders", "Laestrygonian Raider", 2, 2),
+    ("Cyclops Herdsmen", "Cyclops Herdsman", 3, 2),
+    ("Storm Harpies", "Storm Harpy", 2, 2),
+    ("The Drowned Crew", "Drowned Sailor", 2, 2),
+    ("Sirens' Kin", "Siren", 2, 2),
+    ("Deep Serpents", "Deep Serpent", 3, 2),
+]
 
 RELICS_TOTAL = 8           # lairs on the map, one relic each
 RELICS_TO_WIN = 3
@@ -89,8 +110,8 @@ class Board:
         rng = self.rng
         names = ISLAND_NAMES[:]
         rng.shuffle(names)
-        minions, guards, elites = MINIONS[:], GUARDS[:], ELITES[:]
-        rng.shuffle(minions); rng.shuffle(guards); rng.shuffle(elites)
+        bosses, elites = BOSSES[:], ELITES[:]
+        rng.shuffle(bosses); rng.shuffle(elites)
 
         bands: list[list[str]] = []
         for bi, (z, n) in enumerate(zip(_BAND_Z, _BAND_N)):
@@ -130,16 +151,15 @@ class Board:
                 elif ntype == "puzzle":
                     node["solved"] = False
                 elif ntype == "monster":
-                    pool = minions if bi <= 3 else guards
-                    m = pool.pop() if pool else ("Sea Wolves", 2, 1, 2)
-                    node["monster"] = self._monster(m, rng)
+                    node["monster"] = None       # hunting grounds: packs spawn on landing
+                    node["encounter"] = True
                 elif ntype == "lair":
-                    pool = guards if bi <= 5 else elites
-                    m = pool.pop() if pool else (elites.pop() if elites else guards.pop())
-                    node["monster"] = self._monster(m, rng)
+                    pool = bosses if bi <= 5 else elites
+                    m = pool.pop() if pool else (elites.pop() if elites else bosses.pop())
+                    node["monster"] = self._boss(m, rng)
                     node["relic"] = relic_no
                     relic_no += 1
-        self.nodes["fleece"]["monster"] = self._monster(DRAGON, rng)
+        self.nodes["fleece"]["monster"] = self._boss(DRAGON, rng)
 
         # edges: each node links to 1-2 nearest in the previous band
         for bi in range(1, len(bands)):
@@ -148,11 +168,12 @@ class Board:
                 self._link(nid, prev[0])
                 if len(prev) > 1 and rng.random() < 0.55:
                     self._link(nid, prev[1])
-        # lateral links inside a band for route choice
-        for bi in range(1, 6):
+        # lateral links inside a band — near-guaranteed, so the chart is full
+        # of LOOPS (exact-roll movement needs circuits to route around)
+        for bi in range(1, 8):
             row = sorted(bands[bi], key=lambda p: self.nodes[p]["x"])
             for a, b in zip(row, row[1:]):
-                if rng.random() < 0.6:
+                if rng.random() < 0.9:
                     self._link(a, b)
         # a few long skip-band passages so the chart isn't a ladder
         for bi in range(1, len(bands) - 3):
@@ -198,25 +219,23 @@ class Board:
                 self._link(u, v)
         self._build_neighbors()
 
-    def _monster(self, spec, rng) -> dict:
-        """A monster entry is a PACK: 1-3 enemies fought Paper-Mario style."""
+    def _boss(self, spec, rng) -> dict:
+        """A lair guardian: ONE great enemy — the boss battles of the voyage."""
         name, hp, power, tier = spec
-        domain = rng.choice(DOMAINS)
-        if hp <= 2:                             # minions hunt in packs
-            count = rng.choice([2, 3])
-            each_hp = 1 if count == 3 else 2
-            enemies = [{"name": f"{_singular(name)} {'ⅠⅡⅢ'[i]}", "hp": each_hp,
-                        "max_hp": each_hp, "power": power} for i in range(count)]
-        elif hp == 3 and rng.random() < 0.4:    # some guards come in pairs
-            enemies = [{"name": f"{name} {'ⅠⅡ'[i]}", "hp": 2, "max_hp": 2,
-                        "power": power} for i in range(2)]
-        elif name == DRAGON[0]:                 # the dragon has hatchlings
-            enemies = [{"name": name, "hp": hp, "max_hp": hp, "power": power},
-                       {"name": "Dragonling Ⅰ", "hp": 1, "max_hp": 1, "power": 1},
-                       {"name": "Dragonling Ⅱ", "hp": 1, "max_hp": 1, "power": 1}]
-        else:
-            enemies = [{"name": name, "hp": hp, "max_hp": hp, "power": power}]
-        return {"name": name, "tier": tier, "domain": domain, "enemies": enemies}
+        return {"name": name, "tier": tier, "domain": rng.choice(DOMAINS),
+                "boss": True,
+                "enemies": [{"name": name, "hp": hp, "max_hp": hp, "power": power}]}
+
+    def random_pack(self, band: int, rng: random.Random | None = None) -> dict:
+        """A fresh random encounter for a hunting-ground landing (1-3 enemies)."""
+        rng = rng or self.rng
+        pool = ENCOUNTERS_LIGHT if band <= 3 else ENCOUNTERS_HEAVY
+        name, unit, hp, power = rng.choice(pool)
+        count = rng.choice([2, 2, 3]) if hp <= 2 else rng.choice([1, 2])
+        enemies = [{"name": f"{unit} {'ⅠⅡⅢ'[i]}" if count > 1 else unit,
+                    "hp": hp, "max_hp": hp, "power": power} for i in range(count)]
+        return {"name": name, "tier": 2 if band <= 3 else 3,
+                "domain": rng.choice(DOMAINS), "enemies": enemies}
 
     def _dist(self, a: str, b: str) -> float:
         na, nb = self.nodes[a], self.nodes[b]
@@ -258,11 +277,3 @@ class Board:
     def alive_monster(self, nid: str) -> dict | None:
         m = self.nodes[nid].get("monster")
         return m if m and any(e["hp"] > 0 for e in m["enemies"]) else None
-
-
-def _singular(name: str) -> str:
-    for plural, single in (("Harpies", "Harpy"), ("Birds", "Bird"), ("Wolves", "Wolf"),
-                           ("Brigands", "Brigand"), ("Skiffs", "Skiff")):
-        if plural in name:
-            return name.replace(plural, single).replace("The ", "")
-    return name.replace("The ", "")

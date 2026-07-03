@@ -542,8 +542,8 @@ function makeFlotsam(rng) {
 function enemyArchetype(name) {
   const n = name.toLowerCase();
   if (/harp|bird/.test(n)) return 'wing';
-  if (/siren|empusa|gorgon|sphinx/.test(n)) return 'spirit';
-  if (/hydra|ketos|skylla|charybdis|typhon|dragon/.test(n)) return 'serpent';
+  if (/siren|empusa|gorgon|sphinx|drowned/.test(n)) return 'spirit';
+  if (/hydra|ketos|skylla|charybdis|typhon|dragon|serpent/.test(n)) return 'serpent';
   return 'brute';
 }
 
@@ -1204,7 +1204,8 @@ export function createWorld(container, onIslandClick) {
     nodeMeta = {};
     for (const n of nodes) {
       nodeMeta[n.id] = { x: n.x, z: n.z, type: n.type,
-                         blocked: n.type === 'fleece' || !!n.monster };
+                         blocked: n.type === 'fleece' ||
+                                  (n.type === 'lair' && !!n.monster) };
     }
     nbrs = {};
     for (const [a, b] of room.board.edges || []) {

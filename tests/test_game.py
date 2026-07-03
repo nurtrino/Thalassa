@@ -84,9 +84,31 @@ def test_sea_waypoints_pad_the_routes():
     seas = [n for n in g.board.nodes.values() if n["type"] == "sea"]
     assert len(seas) >= 15                            # real filler between isles
     assert any(n.get("flotsam") for n in seas)
-    # a single roll from home cannot reach any relic lair
-    g.roll(p0, 6)
-    assert not any(g.board.nodes[nid]["type"] == "lair" for nid in g.reachable)
+
+
+def test_exact_roll_movement():
+    g, (p0, p1) = make_game()
+    # roll 1: exactly the (non-wall) neighbours of home
+    g.roll(p0, 1)
+    nbrs = set(g.board.neighbors["home"])
+    assert set(g.reachable) <= nbrs and g.reachable
+    # a fresh game, roll 2: nothing 1 step away is a legal stop
+    g2, (q0, q1) = make_game(seed=21)
+    g2.roll(q0, 2)
+    one_step = set(g2.board.neighbors["home"])
+    # exact movement: adjacent stops only reachable via a 2-walk (loop), so
+    # any 1-step node in reach must have a second route or a bounce
+    for nid in g2.reachable:
+        if nid in one_step:
+            assert len(g2.board.neighbors[nid]) >= 1   # reached by walking on and turning
+    assert all(d == 2 for d in g2.reachable.values())
+
+
+def test_board_has_loops_for_exact_rolls():
+    for seed in range(6):
+        b = Board(seed)
+        # more edges than a tree = at least one loop; we want MANY
+        assert len(b.edges) >= len(b.nodes) + 4
 
 
 def test_flotsam_pickup():
@@ -101,21 +123,49 @@ def test_flotsam_pickup():
     assert g.current.pid == p1
 
 
-def test_monsters_block_passage():
+def test_lairs_wall_passage_but_take_landings():
     g, (p0, p1) = make_game()
     p = g.player_by_pid(p0)
-    mon = find_node(g, "monster")
-    # stand right next to the monster: it is a valid stop but not a corridor
-    nb = g.board.neighbors[mon][0]
+    lair = g.board.lairs()[0]
+    nb = g.board.neighbors[lair][0]
     p.node = nb
-    g.roll(p0, 6)
-    assert mon in g.reachable
-    beyond = [x for x in g.board.neighbors[mon] if x != nb]
-    for far in beyond:
-        if far in g.reachable:
-            # must be reachable by some path that avoids the monster
-            assert g.reachable[far] != g.reachable[mon] + 1 or \
-                len(g.board.neighbors[far]) > 1
+    g.roll(p0, 1)
+    assert lair in g.reachable                       # exact landfall = battle
+    # a 2-walk may not pass THROUGH the live guardian: nothing past the
+    # lair is reachable unless it has its own second approach
+    two = g._reachable_for(p, 2)
+    for far in (x for x in g.board.neighbors[lair] if x != nb):
+        if far in two:
+            assert len(g.board.neighbors[far]) > 1
+
+
+def test_hunting_grounds_spawn_random_packs():
+    g, (p0, p1) = make_game()
+    mon = find_node(g, "monster")
+    assert g.board.nodes[mon]["monster"] is None      # calm until someone lands
+    force_land(g, p0, mon)
+    assert g.phase == "battle"
+    m = g.board.alive_monster(mon)
+    assert m and 1 <= len(m["enemies"]) <= 3
+    assert all(e["max_hp"] <= 3 for e in m["enemies"])  # packs, not bosses
+    # win it → the grounds fall quiet again
+    set_pack(g, mon, [1])
+    g.stance(p0, "attack")
+    put_question(g)
+    g.answer(p0, 0)
+    assert g.reveal["battle_over"]
+    assert g.board.nodes[mon]["monster"] is None
+
+
+def test_lair_bosses_are_solo():
+    for seed in range(5):
+        b = Board(seed)
+        for nid in b.lairs():
+            m = b.nodes[nid]["monster"]
+            assert m["boss"] and len(m["enemies"]) == 1
+            assert m["enemies"][0]["max_hp"] >= 5
+    assert b.nodes["fleece"]["monster"]["boss"]
+    assert len(b.nodes["fleece"]["monster"]["enemies"]) == 1
 
 
 # ── shrine wagers ────────────────────────────────────────────────────────────
@@ -163,10 +213,14 @@ def pack(g, nid):
 
 
 def set_pack(g, nid, hps):
-    """Force a node's pack to exactly these hp values."""
-    m = g.board.nodes[nid]["monster"]
-    m["enemies"] = [{"name": f"E{i}", "hp": h, "max_hp": max(h, 1), "power": 1}
-                    for i, h in enumerate(hps)]
+    """Force a node's pack to exactly these hp values (creating one if calm)."""
+    node = g.board.nodes[nid]
+    if not node.get("monster"):
+        node["monster"] = {"name": "Test Pack", "tier": 2, "domain": "clio",
+                           "enemies": []}
+    node["monster"]["enemies"] = [
+        {"name": f"E{i}", "hp": h, "max_hp": max(h, 1), "power": 1}
+        for i, h in enumerate(hps)]
 
 
 def test_battle_win_takes_relic():
@@ -430,6 +484,63 @@ def test_owl_disables_two_wrong_options():
         g.answer(p0, g.question["disabled"][0])
     g.answer(p0, 2)
     assert g.reveal["was_correct"]
+
+
+# ── the scroll economy: hints & the haven shipwright ─────────────────────────
+def test_hint_burns_two_wrong_options_for_scrolls():
+    g, (p0, p1) = make_game()
+    p = g.player_by_pid(p0)
+    p.scrolls = 5
+    shrine = find_node(g, "shrine")
+    force_land(g, p0, shrine)
+    g.wager(p0, 2)
+    put_question(g, correct=1)
+    g.buy_hint(p0)
+    assert p.scrolls == 5 - G.HINT_COST
+    assert len(g.question["disabled"]) == 2 and 1 not in g.question["disabled"]
+    with pytest.raises(GameError):
+        g.buy_hint(p0)                                # once per question
+    g.answer(p0, 1)
+    assert g.reveal["was_correct"]
+
+
+def test_hint_needs_scrolls():
+    g, (p0, p1) = make_game()
+    p = g.player_by_pid(p0)
+    p.scrolls = 1
+    shrine = find_node(g, "shrine")
+    force_land(g, p0, shrine)
+    g.wager(p0, 1)
+    put_question(g)
+    with pytest.raises(GameError):
+        g.buy_hint(p0)
+
+
+def test_haven_shipwright_sells_upgrades():
+    g, (p0, p1) = make_game()
+    p = g.player_by_pid(p0)
+    p.scrolls = 9
+    haven = find_node(g, "haven")
+    force_land(g, p0, haven)
+    assert g.phase == "haven"                         # open even at full Health
+    g.shop(p0)
+    assert p.scrolls == 9 - G.SHOP_COST
+    assert g.phase == "upgrade_pick" and len(g.upgrade_offer) == 2
+    pick = g.upgrade_offer[0]
+    g.pick_upgrade(p0, pick)
+    assert pick in p.upgrades and g.current.pid == p1
+
+
+def test_haven_shipwright_wants_payment():
+    g, (p0, p1) = make_game()
+    p = g.player_by_pid(p0)
+    p.scrolls = 3
+    haven = find_node(g, "haven")
+    force_land(g, p0, haven)
+    with pytest.raises(GameError):
+        g.shop(p0)
+    g.pass_turn(p0)
+    assert g.current.pid == p1
 
 
 # ── haven, streaks, side answers ─────────────────────────────────────────────

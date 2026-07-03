@@ -17,16 +17,20 @@ Phases:
     puzzle success → upgrade_pick.   finished when someone claims the Fleece.
 
 The whole chart is visible from the first turn — the strategy is the route.
-Islands are far apart, connected by chains of open-sea waypoints (some carry
-flotsam worth a scroll); live monsters block passage, and the Fleece isle
-admits only captains with RELICS_TO_WIN banked relics.
+Movement is EXACT: the die is how far you sail, no fewer — the chart's
+loops are how you tune where you land. Lairs hold solo bosses (and the
+relics); "monster" spots are hunting grounds that spawn a fresh random
+pack for whoever lands there. Live lair guardians and the Fleece isle
+cannot be sailed through; the Fleece admits only captains with
+RELICS_TO_WIN banked relics.
 
-Battles are stance (strategy) → question (trivia) → damage die (luck):
-    ATTACK  correct → your die +1 damage   wrong → take power +1
-    GUARD   correct → your die −1 (min 1)  wrong → take power −1 (min 1)
-    FLEE    scrape away: lose 1 hull, retreat to the node you came from
-Hull 0 = shipwreck: unbanked relics return to their lairs (guardians rise
-again), scrolls halved, ship limps home. Never eliminated.
+Battles are Paper-Mario turns — stance, target, trivia:
+    STRIKE  tier-I/II question → 1 damage      miss → the front enemy hits
+    MAGIC   tier-III question  → 3 damage      miss → 1 backfire self-damage
+    FLEE    scrape away: lose 1 Health, retreat to the node you came from
+Scrolls are the economy: buy hints on any question (HINT_COST), repair or
+buy upgrades at havens (SHOP_COST). Health 0 = shipwreck: unbanked relics
+return to their lairs, scrolls halved, respawn at your haven checkpoint.
 """
 from __future__ import annotations
 
@@ -47,6 +51,8 @@ MAGIC_BACKFIRE = 1                 # a missed spell burns the caster
 BOUNTIES_PER_GAME = 3              # public race-goals posted at Home Port
 STREAK_AT = 3                      # correct-answer streak that pays a bonus
 SIDE_REWARD = 1                    # scrolls for a correct side answer
+HINT_COST = 2                      # scrolls to burn 2 wrong options off a question
+SHOP_COST = 8                      # scrolls the haven shipwright wants for an upgrade
 
 COLORS = ["#e4572e", "#2e86ab", "#f6ae2d", "#8e5572", "#33ca7f", "#6457a6"]
 
@@ -155,34 +161,42 @@ class Game:
             raise GameError("Not your turn.")
 
     # ── movement rules ───────────────────────────────────────────────────────
-    def _passable(self, p: Player, nid: str) -> bool:
-        """Can p sail THROUGH nid (not merely stop there)?"""
+    def _wall(self, p: Player, nid: str) -> bool:
+        """Nodes you cannot sail THROUGH — only (maybe) end a voyage on."""
         node = self.board.nodes[nid]
         if node["type"] == "fleece":
-            return False
-        if self.board.alive_monster(nid):
-            return False
+            return True
+        if node["type"] == "lair" and self.board.alive_monster(nid):
+            return True
+        return False
+
+    def _can_land(self, p: Player, nid: str) -> bool:
+        if self.board.nodes[nid]["type"] == "fleece":
+            return self._fleece_ok(p)
         return True
 
     def _reachable_for(self, p: Player, steps: int) -> dict[str, int]:
-        dist = {p.node: 0}
-        frontier = [p.node]
-        while frontier:
-            nxt = []
-            for nid in frontier:
-                d = dist[nid]
-                if d == steps or (nid != p.node and not self._passable(p, nid)):
-                    continue                       # stop-nodes end movement
-                for nb in self.board.neighbors[nid]:
-                    if nb in dist:
+        """EXACT-roll movement: the die is how far you sail — no fewer, no
+        more. Walks may not double straight back (unless boxed in), so the
+        chart's loops are how you tune where you land. Walls (the Fleece
+        isle, live lair guardians) can only be the final landfall."""
+        cur = {(p.node, None)}
+        for step in range(steps):
+            last = step == steps - 1
+            nxt = set()
+            for node, came in cur:
+                nbrs = self.board.neighbors[node]
+                fwd = [nb for nb in nbrs if nb != came] or list(nbrs)
+                if not last and all(self._wall(p, nb) for nb in fwd):
+                    fwd = list(nbrs)               # walled in: allowed to turn back
+                for nb in fwd:
+                    if self._wall(p, nb) and (not last or not self._can_land(p, nb)):
                         continue
-                    if self.board.nodes[nb]["type"] == "fleece" and not self._fleece_ok(p):
-                        continue
-                    dist[nb] = d + 1
-                    nxt.append(nb)
-            frontier = nxt
-        dist.pop(p.node, None)
-        return dist
+                    nxt.add((nb, node))
+            cur = nxt
+            if not cur:
+                break
+        return {node: steps for node, _ in cur if node != p.node}
 
     def _fleece_ok(self, p: Player) -> bool:
         return self.fleece_revealed and p.banked >= RELICS_TO_WIN
@@ -320,10 +334,15 @@ class Game:
         if ntype != "sea":
             self._bounty_event("land", p, band=node.get("band", 0))
         monster = self.board.alive_monster(nid)
+        if node.get("encounter") and not monster:
+            node["monster"] = self.board.random_pack(node["band"], self.rng)
+            monster = node["monster"]
+            self._say(f"⚔ {monster['name']} ambush {p.name} in open water!")
         if monster:
             self.battle = {"node": nid, "stance": None,
                            "used_items": [], "first_hit_taken": False}
-            self._say(f"{monster['name']} bars {p.name}'s way!")
+            if not node.get("encounter"):
+                self._say(f"{monster['name']} bars {p.name}'s way!")
             self._bump("battle")
             return
         if ntype == "sea":
@@ -356,10 +375,7 @@ class Game:
             if p.checkpoint != nid:
                 p.checkpoint = nid
                 self._say(f"⚓ {p.name} makes camp — checkpoint set at {node['name']}.")
-            if p.hull < p.max_hull and p.scrolls > 0:
-                self._bump("haven")
-            else:
-                self._next_turn()
+            self._bump("haven")        # repair, visit the shipwright, or pass
         else:
             self._next_turn()                 # cleared / spent / empty waters
 
@@ -403,8 +419,42 @@ class Game:
             raise GameError("Nothing to repair (or no scrolls).")
         p.scrolls -= spend
         p.hull += spend
-        self._say(f"{p.name} patches {spend} hull at the haven.")
+        self._say(f"{p.name} patches {spend} Health at the haven.")
         self._next_turn()
+
+    def shop(self, pid: str):
+        """The haven shipwright: SHOP_COST scrolls buys a choice of upgrades."""
+        self._require_turn(pid, "haven")
+        p = self.current
+        pool = [u for u in UPGRADES if not p.has(u)]
+        if not pool:
+            raise GameError("Your ship already carries every fitting.")
+        if p.scrolls < SHOP_COST:
+            raise GameError(f"The shipwright wants {SHOP_COST} scrolls.")
+        p.scrolls -= SHOP_COST
+        self.rng.shuffle(pool)
+        self.upgrade_offer = pool[:2]
+        self._say(f"{p.name} pays the shipwright {SHOP_COST} scrolls for new fittings.")
+        self._bump("upgrade_pick")
+
+    def buy_hint(self, pid: str):
+        """Any open question: HINT_COST scrolls burns away 2 wrong options."""
+        self._require_turn(pid, "question")
+        if self.question is None:
+            raise GameError("The question is still on its way.")
+        if self.question.get("disabled"):
+            raise GameError("The options are already narrowed.")
+        p = self.current
+        if p.scrolls < HINT_COST:
+            raise GameError(f"A hint costs {HINT_COST} scrolls.")
+        if len(self.question["options"]) <= 2:
+            raise GameError("Nothing left to narrow.")
+        p.scrolls -= HINT_COST
+        correct = self.question["correct"]
+        wrong = [i for i in range(len(self.question["options"])) if i != correct]
+        self.rng.shuffle(wrong)
+        self.question["disabled"] = sorted(wrong[:2])
+        self._say(f"📜 {p.name} consults the scrolls — two false answers burn away.")
 
     # ── battle (Paper-Mario turns: your move, then the enemies') ─────────────
     def stance(self, pid: str, stance: str, target: int = 0):
@@ -415,7 +465,7 @@ class Game:
         enemies = m["enemies"]
         if not (0 <= target < len(enemies)) or enemies[target]["hp"] <= 0:
             target = next(i for i, e in enumerate(enemies) if e["hp"] > 0)
-        boss = any(e["max_hp"] >= 5 for e in enemies)
+        boss = bool(m.get("boss")) or any(e["max_hp"] >= 5 for e in enemies)
         tier = (2 if boss else 1) if stance == "attack" else 3
         self.battle["stance"] = stance
         self.battle["target"] = target
@@ -605,6 +655,8 @@ class Game:
                         p.scrolls += loot
                         gained = loot
                         self._bounty_event("slay", p, name=m["name"])
+                        if node.get("encounter"):
+                            node["monster"] = None     # the grounds fall quiet — for now
                 else:
                     # your successful move also carries you clear of the counter
                     enemy_phase["evaded"] = True
@@ -791,8 +843,9 @@ class Game:
         if not m:
             return None
         node = self.board.nodes[self.battle["node"]]
-        boss = any(e["max_hp"] >= 5 for e in m["enemies"])
+        boss = bool(m.get("boss")) or any(e["max_hp"] >= 5 for e in m["enemies"])
         return {"name": m["name"], "tier": m["tier"], "domain": m["domain"],
+                "boss": boss,
                 "enemies": [{"name": e["name"], "hp": max(0, e["hp"]),
                              "max_hp": e["max_hp"], "power": e["power"]}
                             for e in m["enemies"]],
@@ -823,7 +876,10 @@ class Game:
                 "name": m["name"], "count": len(alive),
                 "hp": sum(e["hp"] for e in alive),
                 "max_hp": sum(e["max_hp"] for e in m["enemies"]),
-                "power": max(e["power"] for e in alive), "domain": m["domain"]}
+                "power": max(e["power"] for e in alive), "domain": m["domain"],
+                "boss": bool(m.get("boss"))}
+            if node["type"] == "monster":
+                base["encounter"] = True
             if node["type"] == "lair":
                 base["relic_taken"] = node.get("taken", False)
         return base
@@ -865,5 +921,6 @@ class Game:
             "winner": self.winner,
             "log": self.log,
             "config": {"relics_to_win": RELICS_TO_WIN, "tier_reward": TIER_REWARD,
-                       "streak_at": STREAK_AT, "max_hull": MAX_HULL},
+                       "streak_at": STREAK_AT, "max_hull": MAX_HULL,
+                       "hint_cost": HINT_COST, "shop_cost": SHOP_COST},
         }

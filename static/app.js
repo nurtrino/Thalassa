@@ -392,7 +392,7 @@ function renderTray() {
   } else if (room.phase === 'sail') {
     const me = room.players.find((p) => p.pid === you);
     const bonus = me?.upgrades.includes('sandals') ? ' (+1 sandals)' : '';
-    hint(`You rolled <strong>${room.die}</strong>${bonus} — tap a glowing stop. Monsters block the sea lanes.`);
+    hint(`You rolled <strong>${room.die}</strong>${bonus} — sail EXACTLY that far. Tap a glowing stop; use the loops to steer your landing.`);
   } else if (room.phase === 'shrine') {
     const me = room.players.find((p) => p.pid === you);
     const node = (room.board.nodes || []).find((n) => n.id === me.node);
@@ -407,8 +407,12 @@ function renderTray() {
     const me = room.players.find((p) => p.pid === you);
     const missing = me.max_hull - me.hull;
     const afford = Math.min(missing, me.scrolls);
+    const shopCost = room.config?.shop_cost ?? 8;
     hint('A quiet haven. Shipwrights work for scrolls.');
-    btn(`⚒ REPAIR<small>+${afford} hull · ${afford} scrolls</small>`, 'build', () => send({ type: 'repair' }));
+    btn(`⚒ REPAIR<small>+${afford} Health · ${afford} scrolls</small>`, 'build',
+        () => send({ type: 'repair' }), afford <= 0);
+    btn(`🛠 SHIPWRIGHT<small>upgrade · ${shopCost} scrolls</small>`, 'build',
+        () => send({ type: 'shop' }), me.scrolls < shopCost);
     btn('pass', 'ghost', () => send({ type: 'pass' }));
   }
 }
@@ -450,8 +454,8 @@ function renderBattle() {
       <div class="epow">power ${e.power}</div>
     </div>`).join('');
   $('bmon').innerHTML = `
-    <div class="btitle">${b.is_fleece ? '🐉' : b.is_lair ? '⚱' : '⚔'} ${esc(b.name)}</div>
-    <div class="bsub" style="color:${dcolor}">${room.board.domains[b.domain]?.field || ''}${b.is_lair ? ' · guards a relic' : ''}</div>
+    <div class="btitle">${b.is_fleece ? '🐉' : b.boss ? '👑' : b.is_lair ? '⚱' : '⚔'} ${esc(b.name)}</div>
+    <div class="bsub" style="color:${dcolor}">${b.boss ? 'BOSS · ' : ''}${room.board.domains[b.domain]?.field || ''}${b.is_lair ? ' · guards a relic' : ''}</div>
     <div class="erow">${cards}</div>
     <div id="bturn">${room.phase === 'battle'
       ? (pendingMove ? '🎯 CHOOSE A TARGET' : (mine ? '⚔ YOUR MOVE' : `${esc(fighter?.name || '')}'s move…`))
@@ -526,6 +530,17 @@ function renderQuestion() {
         itemsRow.appendChild(b);
       }
     }
+  }
+  // scroll-bought hint — works on ANY question you face
+  if (room.phase === 'question' && room.turn === you && me && q &&
+      !(q.disabled || []).length && (q.options || []).length > 2) {
+    const cost = room.config?.hint_cost ?? 2;
+    const b = document.createElement('button');
+    b.className = 'act small itembtn';
+    b.textContent = `📜 Hint: burn 2 wrong · ${cost} scrolls`;
+    b.disabled = me.scrolls < cost;
+    b.onclick = () => send({ type: 'hint' });
+    itemsRow.appendChild(b);
   }
 
   if (!q && !rv) {
@@ -941,9 +956,9 @@ function renderModal() {
   if (room.phase !== 'lobby' && room.phase !== 'finished' && !introDismissed) {
     show(`<h2>🐏 The Race for the Golden Fleece</h2>
       <ol class="intro">
-        <li><strong>Voyage</strong> — roll and sail the open chart. Farther isles are harder and richer.</li>
-        <li><strong>Earn</strong> — shrines pay scrolls for trivia; puzzle isles grant ship upgrades.</li>
-        <li><strong>Fight</strong> — monsters guard relics: STRIKE (easy question, 1 dmg) or MAGIC (hard, 3 dmg — a miss backfires). The ♥ hearts by your name are your <strong>Health</strong>: at 0 you shipwreck back to your last haven checkpoint.</li>
+        <li><strong>Voyage</strong> — roll and sail <strong>exactly</strong> that many stops. Use the chart's loops to steer your landing; farther isles are harder and richer.</li>
+        <li><strong>Earn</strong> — shrines pay scrolls for trivia; puzzle isles grant ship upgrades. Spend scrolls on question hints (📜 2) and at haven shipwrights (upgrade, 8).</li>
+        <li><strong>Fight</strong> — hunting grounds spring random ambushes; <strong>solo BOSSES</strong> guard the relics in their lairs. STRIKE (easier question, 1 dmg) or MAGIC (hard, 3 dmg — a miss backfires). ♥ hearts are your <strong>Health</strong>: at 0 you shipwreck back to your checkpoint.</li>
         <li><strong>Bank 3 relics</strong> at Home Port — cargo at sea can be lost!</li>
         <li><strong>Claim the Fleece</strong> — its isle appears once you bank 3. Slay the dragon. Win.</li>
       </ol>
