@@ -759,9 +759,27 @@ export function createWorld(container, handlers = {}) {
     for (const pid of Object.keys(ships)) {
       if (!playersByPid[pid]) removeShip(pid);
     }
-    // the camera follows whoever's turn it is, so everyone watches the
-    // current captain sail, land, and fight — you see exactly what they do
-    viewFollowPid = ships[room.turn] ? room.turn : (ships[you] ? you : room.turn);
+    // viewFollowPid is recomputed every frame in tickCamera (it depends on
+    // live sail-animation state, not just the snapshot).
+  }
+
+  /* whose ship is mid-voyage right now, if anyone's (turn-based → at most
+   * one). The camera stays glued to a moving ship even after the turn has
+   * advanced, so a captain finishes sailing on-screen before the view hands
+   * off to the next. */
+  function animatingPid() {
+    for (const pid in ships) {
+      if (ships[pid].anim) return pid;
+    }
+    return null;
+  }
+
+  function focusPid(room) {
+    const moving = animatingPid();
+    if (moving) return moving;                       // watch the sail finish
+    if (room && room.phase !== 'lobby' && room.phase !== 'finished'
+        && ships[room.turn]) return room.turn;        // then the active captain
+    return ships[myPid] ? myPid : (room ? room.turn : null);
   }
 
   /* ── reachable highlight rings ──────────────────────────────────────── */
@@ -892,20 +910,20 @@ export function createWorld(container, handlers = {}) {
   }
 
   function onShipArrive(pid) {
-    if (!lastRoom || pid !== lastRoom.turn) return;
-    // the boat has made landfall: now let the battle diorama / cards appear
+    if (!lastRoom) return;
+    // a boat just made landfall — re-home the view (the moving ship may have
+    // been carrying the camera; now hand off to the active captain / battle)
     requestStage(desiredTarget(lastRoom));
-    handlers.onArrive?.(pid);
+    if (pid === lastRoom.turn) handlers.onArrive?.(pid);
   }
 
   function desiredTarget(room) {
     if (!room) return activeBoardId || 'hub';
     // hold the cut to the battle stage until the boat finishes sailing up
     if (room.battle && !arriving(room)) return 'battle';
-    // ride with the active captain (or yourself in the lobby / when idle)
-    const focus = (room.phase !== 'lobby' && room.phase !== 'finished' && room.turn)
-      ? room.turn : myPid;
-    return stageForViewer(room, focus);
+    // stay in the stage of whoever is actually on the move (or the active
+    // captain once everyone's parked)
+    return stageForViewer(room, focusPid(room) || myPid);
   }
 
   function requestStage(target) {
@@ -1194,7 +1212,8 @@ export function createWorld(container, handlers = {}) {
   function startCinematic(st) {
     // orbit the arrival point (your boat), not the whole realm — keeps the
     // boat framed and the camera clear of distant backdrop glows
-    const rec = viewFollowPid ? ships[viewFollowPid] : null;
+    const fp = focusPid(lastRoom);
+    const rec = fp ? ships[fp] : null;
     const origin = (rec && rec.stageId === st.id)
       ? rec.root.position.clone() : stageCentroid(st);
     origin.y = 0;
@@ -1224,6 +1243,7 @@ export function createWorld(container, handlers = {}) {
 
   function tickCamera(st, t) {
     controls.autoRotate = lobbyMode && !cine;
+    viewFollowPid = focusPid(lastRoom);   // follow the mover, then the next captain
     if (cine) { if (tickCinematic(st, performance.now())) return; }
     if (!lobbyMode) {
       const rec = viewFollowPid ? ships[viewFollowPid] : null;
@@ -1288,6 +1308,8 @@ export function createWorld(container, handlers = {}) {
   window.__thalassa = {
     scene: () => (battleOn ? battleStage.scene : stages[activeBoardId]?.scene),
     camera, controls, ships, stages,
+    follow: () => viewFollowPid,
+    animating: () => animatingPid(),
   };
 
   return api;
