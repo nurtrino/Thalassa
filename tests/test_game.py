@@ -1,4 +1,4 @@
-"""Engine tests — the Race for the Golden Fleece."""
+"""Engine tests — the Race to the Pharos."""
 import pytest
 
 import game as G
@@ -41,10 +41,11 @@ def test_generation_counts_and_connectivity():
         types = {}
         for n in b.nodes.values():
             types[n["type"]] = types.get(n["type"], 0) + 1
-        assert types["home"] == 1 and types["fleece"] == 1
-        assert types["lair"] == 8 and types["shrine"] == 7
-        assert types["puzzle"] == 5 and types["haven"] == 4
-        assert types["monster"] == 6
+        assert types["home"] == 1 and types["pharos"] == 1
+        assert types["lair"] == 8 and types["shrine"] == 5
+        assert types["puzzle"] == 4 and types["haven"] == 2
+        assert types["shop"] == 3
+        assert types["monster"] == 4
         assert types["sea"] >= 20                 # long routes between isles
         # connected: BFS from home touches everything
         seen, frontier = {"home"}, ["home"]
@@ -75,8 +76,8 @@ def test_full_map_visible_from_turn_one():
     g, (p0, p1) = make_game()
     snap = g.to_dict(p0)
     shown = {n["id"] for n in snap["board"]["nodes"]}
-    assert shown == set(g.board.nodes)                # everything, fleece included
-    assert "fleece" in shown
+    assert shown == set(g.board.nodes)                # everything, pharos included
+    assert "pharos" in shown
 
 
 def test_sea_waypoints_pad_the_routes():
@@ -164,8 +165,8 @@ def test_lair_bosses_are_solo():
             m = b.nodes[nid]["monster"]
             assert m["boss"] and len(m["enemies"]) == 1
             assert m["enemies"][0]["max_hp"] >= 5
-    assert b.nodes["fleece"]["monster"]["boss"]
-    assert len(b.nodes["fleece"]["monster"]["enemies"]) == 1
+    assert b.nodes["pharos"]["monster"]["boss"]
+    assert len(b.nodes["pharos"]["monster"]["enemies"]) == 1
 
 
 # ── shrine wagers ────────────────────────────────────────────────────────────
@@ -292,16 +293,46 @@ def test_battle_rounds_until_dead_monster():
     assert pack(g, mon)[0]["hp"] < 99                     # damage accumulated
 
 
-def test_flee_costs_hull_and_retreats():
+def test_flee_gamble():
+    import random as _r
+    # success branch — seed whose first random() < 0.5
     g, (p0, p1) = make_game()
     mon = find_node(g, "monster")
     p = g.player_by_pid(p0)
     start = p.node
+    p.scrolls = 5
     battle_at(g, p0, mon)
+    g.rng = _r.Random(1)                 # .random() → 0.134… (escape)
     g.flee(p0)
-    assert p.hull == G.MAX_HULL - 1
-    assert p.node == start
-    assert g.current.pid == p1
+    assert p.scrolls == 3 and p.hull == G.MAX_HULL
+    assert p.node == start and g.current.pid == p1
+
+    # failure branch — the front enemy lands a free hit, fight continues
+    g2, (q0, q1) = make_game(seed=9)
+    mon2 = find_node(g2, "monster")
+    p2 = g2.player_by_pid(q0)
+    p2.scrolls = 5
+    set_pack(g2, mon2, [3])
+    battle_at(g2, q0, mon2)
+    g2.rng = _r.Random(0)                # .random() → 0.844… (cut off)
+    g2.flee(q0)
+    assert p2.scrolls == 3 and p2.hull == G.MAX_HULL - 1
+    assert g2.phase == "battle" and g2.current.pid == q0
+
+    # broke captains cannot gamble
+    p2.scrolls = 1
+    with pytest.raises(GameError):
+        g2.flee(q0)
+
+
+def test_no_retreat_from_trials():
+    g, (p0, p1) = make_game()
+    p = g.player_by_pid(p0)
+    p.scrolls = 9
+    lair = g.board.lairs()[0]
+    battle_at(g, p0, lair)
+    with pytest.raises(GameError):
+        g.flee(p0)
 
 
 def test_shipwreck_returns_relics_and_respawns_guardian():
@@ -327,14 +358,14 @@ def test_shipwreck_returns_relics_and_respawns_guardian():
 
 
 # ── relics, banking, the Fleece ──────────────────────────────────────────────
-def test_bank_and_fleece_reveal_and_win():
+def test_bank_and_pharos_open_and_win():
     g, (p0, p1) = make_game()
     p = g.player_by_pid(p0)
     p.cargo = [1, 2]
     p.banked = 1
     force_land(g, p0, "home")
     assert p.banked == 3 and p.cargo == []
-    assert g.fleece_revealed
+    assert g.pharos_open
     # p1 takes a turn
     g.roll(p1, 1)
     if g.phase == "sail":
@@ -350,11 +381,11 @@ def test_bank_and_fleece_reveal_and_win():
             g.advance_after_reveal()
         else:
             break
-    # p0 storms the fleece
-    p.node = "fleece"
+    # p0 storms the Pharos
+    p.node = "pharos"
     p.prev_node = "home"
-    set_pack(g, "fleece", [1])
-    g._land(p, "fleece")
+    set_pack(g, "pharos", [1])
+    g._land(p, "pharos")
     assert g.phase == "battle"
     g.stance(p.pid, "attack")
     put_question(g)
@@ -364,15 +395,15 @@ def test_bank_and_fleece_reveal_and_win():
     assert g.phase == "finished"
 
 
-def test_fleece_locked_without_relics():
+def test_pharos_locked_without_seals():
     g, (p0, p1) = make_game()
-    g.fleece_revealed = True
+    g.pharos_open = True
     p = g.player_by_pid(p0)
-    # place the player right next to the fleece with no banked relics
-    nb = g.board.neighbors["fleece"][0]
+    # right next to the Pharos with nothing banked
+    nb = g.board.neighbors["pharos"][0]
     p.node = nb
     g.roll(p0, 6)
-    assert "fleece" not in g.reachable
+    assert "pharos" not in g.reachable
 
 
 # ── puzzles & upgrades ───────────────────────────────────────────────────────
@@ -486,61 +517,98 @@ def test_owl_disables_two_wrong_options():
     assert g.reveal["was_correct"]
 
 
-# ── the scroll economy: hints & the haven shipwright ─────────────────────────
-def test_hint_burns_two_wrong_options_for_scrolls():
+# ── market isles & charms ────────────────────────────────────────────────────
+def test_shop_sells_consumables_and_fittings():
     g, (p0, p1) = make_game()
     p = g.player_by_pid(p0)
-    p.scrolls = 5
-    shrine = find_node(g, "shrine")
-    force_land(g, p0, shrine)
-    g.wager(p0, 2)
-    put_question(g, correct=1)
-    g.buy_hint(p0)
-    assert p.scrolls == 5 - G.HINT_COST
-    assert len(g.question["disabled"]) == 2 and 1 not in g.question["disabled"]
+    shop = find_node(g, "shop")
+    force_land(g, p0, shop)
+    assert g.phase == "shop"
+    p.scrolls = 25                                    # fund AFTER landing (bounties!)
+    g.shop_buy(p0, "hint")
+    g.shop_buy(p0, "gale")
+    g.shop_buy(p0, "aegis_charm")
+    g.shop_buy(p0, "horn")
+    assert p.items == {"hint": 1, "gale": 1, "aegis_charm": 1, "horn": 1}
+    assert p.scrolls == 25 - 2 - 3 - 4 - 5
+    assert g.phase == "shop"                          # keep browsing
     with pytest.raises(GameError):
-        g.buy_hint(p0)                                # once per question
-    g.answer(p0, 1)
-    assert g.reveal["was_correct"]
-
-
-def test_hint_needs_scrolls():
-    g, (p0, p1) = make_game()
-    p = g.player_by_pid(p0)
-    p.scrolls = 1
-    shrine = find_node(g, "shrine")
-    force_land(g, p0, shrine)
-    g.wager(p0, 1)
-    put_question(g)
-    with pytest.raises(GameError):
-        g.buy_hint(p0)
-
-
-def test_haven_shipwright_sells_upgrades():
-    g, (p0, p1) = make_game()
-    p = g.player_by_pid(p0)
-    p.scrolls = 9
-    haven = find_node(g, "haven")
-    force_land(g, p0, haven)
-    assert g.phase == "haven"                         # open even at full Health
-    g.shop(p0)
-    assert p.scrolls == 9 - G.SHOP_COST
+        g.shop_buy(p0, "ambrosia")                    # not stocked
+    g.shop_buy(p0, "fitting")                         # ends the visit
     assert g.phase == "upgrade_pick" and len(g.upgrade_offer) == 2
     pick = g.upgrade_offer[0]
     g.pick_upgrade(p0, pick)
     assert pick in p.upgrades and g.current.pid == p1
 
 
-def test_haven_shipwright_wants_payment():
+def test_shop_wants_payment():
     g, (p0, p1) = make_game()
     p = g.player_by_pid(p0)
-    p.scrolls = 3
-    haven = find_node(g, "haven")
-    force_land(g, p0, haven)
+    p.scrolls = 1
+    shop = find_node(g, "shop")
+    force_land(g, p0, shop)
     with pytest.raises(GameError):
-        g.shop(p0)
+        g.shop_buy(p0, "hint")
     g.pass_turn(p0)
     assert g.current.pid == p1
+
+
+def test_hint_stone_burns_two_wrong_options():
+    g, (p0, p1) = make_game()
+    p = g.player_by_pid(p0)
+    p.items["hint"] = 1
+    shrine = find_node(g, "shrine")
+    force_land(g, p0, shrine)
+    g.wager(p0, 2)
+    put_question(g, correct=1)
+    g.use_item_charm(p0, "hint")
+    assert p.items["hint"] == 0
+    assert len(g.question["disabled"]) == 2 and 1 not in g.question["disabled"]
+    with pytest.raises(GameError):
+        g.use_item_charm(p0, "hint")                  # none left / already narrowed
+    g.answer(p0, 1)
+    assert g.reveal["was_correct"]
+
+
+def test_gale_charm_extends_the_roll():
+    g, (p0, p1) = make_game()
+    p = g.player_by_pid(p0)
+    p.items["gale"] = 1
+    g.use_item_charm(p0, "gale")
+    assert p.items["gale"] == 0 and p.next_roll_bonus == G.GALE_BONUS
+    g.roll(p0, 1)
+    assert p.next_roll_bonus == 0
+    assert all(d == 1 + G.GALE_BONUS for d in g.reachable.values())
+
+
+def test_war_horn_boosts_next_strike():
+    g, (p0, p1) = make_game()
+    p = g.player_by_pid(p0)
+    p.items["horn"] = 1
+    mon = find_node(g, "monster")
+    set_pack(g, mon, [5])
+    battle_at(g, p0, mon)
+    g.use_item_charm(p0, "horn")
+    assert p.items["horn"] == 0 and g.battle["horn"]
+    g.stance(p0, "attack")
+    put_question(g)
+    g.answer(p0, 0)
+    assert pack(g, mon)[0]["hp"] == 5 - (G.STRIKE_DMG + G.HORN_BONUS)
+
+
+def test_aegis_charm_blocks_the_next_damage():
+    g, (p0, p1) = make_game()
+    p = g.player_by_pid(p0)
+    p.items["aegis_charm"] = 1
+    mon = find_node(g, "monster")
+    set_pack(g, mon, [3])
+    battle_at(g, p0, mon)
+    g.stance(p0, "attack")
+    put_question(g, correct=0)
+    g.answer(p0, 1)                                   # miss → counter → blocked
+    assert p.hull == G.MAX_HULL
+    assert p.items["aegis_charm"] == 0
+    assert g.reveal["enemy_phase"]["dmg"] == 0
 
 
 # ── haven, streaks, side answers ─────────────────────────────────────────────

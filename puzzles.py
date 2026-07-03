@@ -27,9 +27,9 @@ from __future__ import annotations
 import random
 
 # time limit (seconds) per kind — the server enforces these.
-# Every puzzle is tuned to be crackable in ~45s of real thinking.
-TIME_LIMITS = {"riddle": 45, "tetromino": 45, "nonogram": 30,
-               "simon": 45, "anagram": 45, "ravens": 45}
+# Every puzzle spire runs a hard 30-second countdown.
+TIME_LIMITS = {"riddle": 30, "tetromino": 30, "nonogram": 30,
+               "simon": 30, "anagram": 30, "ravens": 30}
 
 INTERACTIVE = ("tetromino", "nonogram", "simon", "anagram", "ravens")
 

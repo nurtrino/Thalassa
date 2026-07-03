@@ -60,8 +60,8 @@ def _target_score(g: G.Game, p, nid: str) -> float:
     node = g.board.nodes[nid]
     ntype = node["type"]
     monster = g.board.alive_monster(nid)
-    if ntype == "fleece":
-        return 500 if g._fleece_ok(p) else -1
+    if ntype == "pharos":
+        return 500 if g._pharos_ok(p) else -1
     if ntype == "home":
         return 40 + 90 * len(p.cargo) + (35 if p.hull <= 2 else 0) - 30
     if ntype == "lair" and monster and not node.get("taken"):

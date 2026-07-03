@@ -1,6 +1,6 @@
-/* Thalassa client — Race for the Golden Fleece.
+/* Thalassa client — Race to the Pharos.
  * Lobby, WebSocket protocol, HUD, battle/question/minigame UI.
- * The 3D fogged sea lives in scene.js; this file owns everything DOM. */
+ * The 3D sea lives in scene.js; this file owns everything DOM. */
 import { createWorld, DOMAIN_COLORS } from '/static/scene.js';
 import { audio } from '/static/audio.js';
 
@@ -15,11 +15,11 @@ const MG_LABEL = {
   ravens: 'The Pattern of Fate',
 };
 const MG_PROMPT = {
-  tetromino: 'Fill the sigil completely with the given pieces. Tap a piece, rotate it, tap the grid to place. Tap a placed piece to lift it.',
-  nonogram: 'Paint cells so every row and column matches its clues. The bronze cells are given — work fast!',
-  simon: 'Watch the tiles sing… then repeat the sequence from memory.',
-  anagram: 'Unscramble the letters into a word.',
-  ravens: 'Find the rule. Choose the missing ninth tile.',
+  tetromino: 'Fill the grid with the given pieces. Tap to select, tap again to rotate, tap the grid to place.',
+  nonogram: 'Match every row and column to its clue numbers. Bronze cells are given.',
+  simon: 'Watch the sequence. Repeat it from memory.',
+  anagram: 'Unscramble the word.',
+  ravens: 'Find the pattern. Pick the missing tile.',
 };
 const TIER_ROMAN = { 1: 'I', 2: 'II', 3: 'III' };
 
@@ -142,7 +142,7 @@ function reactAudio(prev, next) {
   if (next.phase === 'lobby') scene = 'lobby';
   else if (battleish) scene = 'battle';
   else if (puzzleish) scene = 'puzzle';
-  else if (next.phase === 'finished' || next.fleece_revealed) scene = 'endgame';
+  else if (next.phase === 'finished' || next.pharos_open) scene = 'endgame';
   audio.setScene(scene);
 
   // duck under trivia cards — and under Simon, whose tones need the spotlight
@@ -299,17 +299,28 @@ const UP_ICON = {
   owl: '🦉', lyre: '🎼', trident: '🔱', aegis: '💠',
 };
 
+const ITEM_ICON = { hint: '📜', gale: '🌬', aegis_charm: '🛡', horn: '📯' };
+
 function showUpgrades(p) {
   const panel = $('uppanel');
   const ups = p.upgrades || [];
-  panel.innerHTML = `<h3>${esc(p.name)}'s ship fittings</h3>` +
+  const stock = room.config?.shop_items || {};
+  const charms = Object.entries(p.items || {}).filter(([, n]) => n > 0);
+  panel.innerHTML = `<h3>${esc(p.name)}'s ship</h3>` +
     (ups.length
       ? ups.map((u) => {
           const info = room.upgrade_info[u] || { name: u, desc: '' };
           return `<div class="uprow"><span class="upic">${UP_ICON[u] || '⚙'}</span>
             <div><strong>${esc(info.name)}</strong><br><small>${esc(info.desc)}</small></div></div>`;
         }).join('')
-      : '<p class="tag">No upgrades yet — crack the puzzle isles!</p>') +
+      : '<p class="tag">No fittings yet — puzzle spires and shops sell them.</p>') +
+    (charms.length
+      ? '<h3>Charms</h3>' + charms.map(([id, n]) => {
+          const info = stock[id] || { name: id, desc: '' };
+          return `<div class="uprow"><span class="upic">${ITEM_ICON[id] || '◆'}</span>
+            <div><strong>${esc(info.name)} ×${n}</strong><br><small>${esc(info.desc)}</small></div></div>`;
+        }).join('')
+      : '') +
     '<button class="small" id="upclose">close</button>';
   panel.classList.remove('hidden');
   $('upclose').onclick = () => panel.classList.add('hidden');
@@ -333,15 +344,15 @@ function renderBounties() {
 function renderGoal() {
   const me = room.players.find((p) => p.pid === you);
   const el = $('goal');
-  if (!me) { el.innerHTML = '<strong>✦ Goal:</strong> bank 3 relics, then claim the Golden Fleece'; return; }
+  if (!me) { el.innerHTML = '<strong>✦ Goal:</strong> bank 3 seals, then take the Pharos'; return; }
   const n = room.config.relics_to_win;
   const pips = Array.from({ length: n }, (_, i) =>
     `<span class="pip ${i < me.banked ? 'on' : ''}">✦</span>`).join('');
   let hint;
   if (room.winner) hint = '';
-  else if (me.banked >= n) hint = '⚡ <strong>THE FLEECE AWAITS</strong> — sail to the golden isle and slay its guardian!';
-  else if (me.cargo > 0) hint = `⚱ Relic aboard — <strong>sail it home</strong> to bank it!`;
-  else hint = 'Defeat lair guardians for relics · shrines pay scrolls · puzzle isles grant upgrades';
+  else if (me.banked >= n) hint = '⚡ <strong>THE PHAROS IS OPEN</strong> — land on it and face the Warden.';
+  else if (me.cargo > 0) hint = '⚱ Seal aboard — <strong>sail it home</strong> to bank it.';
+  else hint = 'Beat trial bosses for seals · temples pay scrolls · shops sell charms and fittings';
   el.innerHTML = `${pips} <span class="goaltext">${hint}</span>`;
 }
 
@@ -376,7 +387,7 @@ function renderTray() {
 
   if (room.phase === 'finished') {
     const w = room.players.find((p) => p.pid === room.winner);
-    hint(`🐏 <strong>${esc(w?.name || '?')}</strong> holds the Golden Fleece!`);
+    hint(`🏛 <strong>${esc(w?.name || '?')}</strong> holds the Pharos!`);
     if (you === room.host) btn('NEW VOYAGE', 'gold', () => send({ type: 'rematch' }));
     return;
   }
@@ -389,16 +400,21 @@ function renderTray() {
 
   if (room.phase === 'roll') {
     btn('🎲 ROLL', 'gold big', () => send({ type: 'roll' }));
+    const me = room.players.find((p) => p.pid === you);
+    if ((me?.items?.gale || 0) > 0) {
+      btn(`🌬 GALE CHARM<small>+2 next roll · ×${me.items.gale}</small>`, 'ghost',
+          () => send({ type: 'use', item: 'gale' }));
+    }
   } else if (room.phase === 'sail') {
     const me = room.players.find((p) => p.pid === you);
     const bonus = me?.upgrades.includes('sandals') ? ' (+1 sandals)' : '';
-    hint(`You rolled <strong>${room.die}</strong>${bonus} — sail EXACTLY that far. Tap a glowing stop; use the loops to steer your landing.`);
+    hint(`Rolled <strong>${room.die}</strong>${bonus} — sail exactly that far. Tap a glowing stop.`);
   } else if (room.phase === 'shrine') {
     const me = room.players.find((p) => p.pid === you);
     const node = (room.board.nodes || []).find((n) => n.id === me.node);
     const dom = node?.domain;
     const dinfo = dom ? room.board.domains[dom] : null;
-    hint(`Shrine of <strong style="color:${DOMAIN_COLORS[dom]}">${dinfo?.field || '?'}</strong> · ${node?.charges} offering(s) left. Wager your wits:`);
+    hint(`Temple of <strong style="color:${DOMAIN_COLORS[dom]}">${dinfo?.field || '?'}</strong> · ${node?.charges} offering(s) left:`);
     btn('Tier I<small>+1 scroll</small>', 'tier', () => send({ type: 'wager', tier: 1 }));
     btn('Tier II<small>+2 scrolls</small>', 'tier', () => send({ type: 'wager', tier: 2 }));
     btn('Tier III<small>+3 / lose 1</small>', 'tier hot', () => send({ type: 'wager', tier: 3 }));
@@ -407,12 +423,20 @@ function renderTray() {
     const me = room.players.find((p) => p.pid === you);
     const missing = me.max_hull - me.hull;
     const afford = Math.min(missing, me.scrolls);
-    const shopCost = room.config?.shop_cost ?? 8;
-    hint('A quiet haven. Shipwrights work for scrolls.');
+    hint('A quiet haven — checkpoint set. Repairs cost 1 scroll per Health.');
     btn(`⚒ REPAIR<small>+${afford} Health · ${afford} scrolls</small>`, 'build',
         () => send({ type: 'repair' }), afford <= 0);
-    btn(`🛠 SHIPWRIGHT<small>upgrade · ${shopCost} scrolls</small>`, 'build',
-        () => send({ type: 'shop' }), me.scrolls < shopCost);
+    btn('pass', 'ghost', () => send({ type: 'pass' }));
+  } else if (room.phase === 'shop') {
+    const me = room.players.find((p) => p.pid === you);
+    const stock = room.config?.shop_items || {};
+    const ICON = { fitting: '🛠', hint: '📜', gale: '🌬', aegis_charm: '🛡', horn: '📯' };
+    hint('A market isle. Buy what you can carry, then pass.');
+    for (const [id, it] of Object.entries(stock)) {
+      const owned = id === 'fitting' ? '' : ` · have ${me.items?.[id] ?? 0}`;
+      btn(`${ICON[id] || '◆'} ${esc(it.name).toUpperCase()}<small>${esc(it.desc)} · ${it.cost}📜${owned}</small>`,
+          'build', () => send({ type: 'shop_buy', item: id }), me.scrolls < it.cost);
+    }
     btn('pass', 'ghost', () => send({ type: 'pass' }));
   }
 }
@@ -454,8 +478,8 @@ function renderBattle() {
       <div class="epow">power ${e.power}</div>
     </div>`).join('');
   $('bmon').innerHTML = `
-    <div class="btitle">${b.is_fleece ? '🐉' : b.boss ? '👑' : b.is_lair ? '⚱' : '⚔'} ${esc(b.name)}</div>
-    <div class="bsub" style="color:${dcolor}">${b.boss ? 'BOSS · ' : ''}${room.board.domains[b.domain]?.field || ''}${b.is_lair ? ' · guards a relic' : ''}</div>
+    <div class="btitle">${b.is_pharos ? '🏛' : b.boss ? '👑' : b.is_lair ? '⚱' : '⚔'} ${esc(b.name)}</div>
+    <div class="bsub" style="color:${dcolor}">${b.boss ? 'BOSS · ' : ''}${room.board.domains[b.domain]?.field || ''}${b.is_lair ? ' · holds a seal' : ''}</div>
     <div class="erow">${cards}</div>
     <div id="bturn">${room.phase === 'battle'
       ? (pendingMove ? '🎯 CHOOSE A TARGET' : (mine ? '⚔ YOUR MOVE' : `${esc(fighter?.name || '')}'s move…`))
@@ -483,9 +507,17 @@ function renderBattle() {
       else sendMove(stance, b.enemies.findIndex((e) => e.hp > 0));
     };
     const st = TIER_ROMAN[b.strike_tier] || 'I';
+    const me = room.players.find((p) => p.pid === you);
+    const fleeCost = room.config?.flee_cost ?? 2;
     mk(`⚔ STRIKE<small>tier ${st} question · 1 dmg</small>`, 'battlebtn strike', () => move('attack'));
     mk('✨ MAGIC<small>tier III question · 3 dmg · backfire 1</small>', 'battlebtn magic', () => move('magic'));
-    mk('🏃 FLEE<small>lose 1 Health, retreat</small>', 'battlebtn ghost', () => send({ type: 'flee' }));
+    if (!b.boss) {
+      mk(`🏃 FLEE<small>${fleeCost}📜 · 50/50 escape</small>`, 'battlebtn ghost', () => send({ type: 'flee' }));
+    }
+    if ((me?.items?.horn || 0) > 0 && !b.horn) {
+      mk(`📯 WAR HORN<small>+2 next STRIKE · ×${me.items.horn}</small>`, 'battlebtn ghost small',
+         () => send({ type: 'use', item: 'horn' }));
+    }
     if (pendingMove) mk('cancel', 'battlebtn ghost small', () => { pendingMove = null; renderBattle(); });
   }
 }
@@ -531,15 +563,14 @@ function renderQuestion() {
       }
     }
   }
-  // scroll-bought hint — works on ANY question you face
-  if (room.phase === 'question' && room.turn === you && me && q &&
+  // a carried Hint Stone works on ANY question you face
+  if (room.phase === 'question' && room.turn === you && me &&
+      (me.items?.hint || 0) > 0 && q &&
       !(q.disabled || []).length && (q.options || []).length > 2) {
-    const cost = room.config?.hint_cost ?? 2;
     const b = document.createElement('button');
     b.className = 'act small itembtn';
-    b.textContent = `📜 Hint: burn 2 wrong · ${cost} scrolls`;
-    b.disabled = me.scrolls < cost;
-    b.onclick = () => send({ type: 'hint' });
+    b.textContent = `📜 Hint Stone: remove 2 wrong · ×${me.items.hint}`;
+    b.onclick = () => send({ type: 'use', item: 'hint' });
     itemsRow.appendChild(b);
   }
 
@@ -954,16 +985,16 @@ function renderModal() {
   const show = (html) => { modal.classList.remove('hidden'); body.innerHTML = html; };
 
   if (room.phase !== 'lobby' && room.phase !== 'finished' && !introDismissed) {
-    show(`<h2>🐏 The Race for the Golden Fleece</h2>
+    show(`<h2>🏛 Race to the Pharos</h2>
       <ol class="intro">
-        <li><strong>Voyage</strong> — roll and sail <strong>exactly</strong> that many stops. Use the chart's loops to steer your landing; farther isles are harder and richer.</li>
-        <li><strong>Earn</strong> — shrines pay scrolls for trivia; puzzle isles grant ship upgrades. Spend scrolls on question hints (📜 2) and at haven shipwrights (upgrade, 8).</li>
-        <li><strong>Fight</strong> — hunting grounds spring random ambushes; <strong>solo BOSSES</strong> guard the relics in their lairs. STRIKE (easier question, 1 dmg) or MAGIC (hard, 3 dmg — a miss backfires). ♥ hearts are your <strong>Health</strong>: at 0 you shipwreck back to your checkpoint.</li>
-        <li><strong>Bank 3 relics</strong> at Home Port — cargo at sea can be lost!</li>
-        <li><strong>Claim the Fleece</strong> — its isle appears once you bank 3. Slay the dragon. Win.</li>
+        <li><strong>Sail</strong> — the roll is your move, exactly. Steer with the chart's loops.</li>
+        <li><strong>Earn</strong> — temples pay scrolls for trivia. Puzzle spires grant fittings — 30 seconds on the clock.</li>
+        <li><strong>Spend</strong> — market isles sell hint stones, charms, and fittings. Repairs at havens.</li>
+        <li><strong>Fight</strong> — trial bosses hold the seals. STRIKE is safe; MAGIC hits hard but backfires on a miss. Fleeing a regular fight: 2 scrolls, even odds.</li>
+        <li><strong>Win</strong> — bank 3 seals at Home Port, then land on the Pharos and beat the Warden.</li>
       </ol>
-      <p class="tag">Answer on rivals' turns too — a correct side answer skims a scroll. Streaks of 3+ pay bonus scrolls.</p>
-      <button id="introGo" class="big">TO THE SHIPS</button>`);
+      <p class="tag">Shipwreck sends you to your last checkpoint — cargo lost. Answer on rivals' turns for a scroll.</p>
+      <button id="introGo" class="big">SET SAIL</button>`);
     $('introGo').onclick = () => { introDismissed = true; modal.classList.add('hidden'); render(); };
     return;
   }
@@ -989,9 +1020,9 @@ function renderModal() {
 
   if (room.phase === 'finished') {
     const w = room.players.find((p) => p.pid === room.winner);
-    show(`<h2>🐏 The Golden Fleece</h2>
+    show(`<h2>🏛 The Pharos</h2>
       <p><strong style="color:${w?.color}">${esc(w?.name || '?')}</strong> has slain the dragon and
-      claimed the Fleece. The Aegean sings their name.</p>
+      taken the Pharos. The Aegean sings their name.</p>
       ${you === room.host ? '<button id="rematchGo" class="big">NEW VOYAGE (new sea)</button>' : '<p class="tag">the host may launch a new voyage</p>'}`);
     const rg = $('rematchGo');
     if (rg) rg.onclick = () => { introDismissed = false; send({ type: 'rematch' }); };

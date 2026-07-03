@@ -1,7 +1,7 @@
 /*
  * Thalassa 3D world — a fogged frontier archipelago, fully procedural.
  * The board is dynamic: islands appear as you explore (mist silhouettes →
- * real isles), monsters fall, shrines spend out, the Fleece isle emerges.
+ * real isles), monsters fall, shrines spend out, the Pharos burns at center.
  * Each island group is keyed by its view-state and rebuilt on change.
  */
 import * as THREE from 'three';
@@ -458,21 +458,74 @@ function makeRelicBeacon() {
   return g;
 }
 
-function makeFleeceTree() {
+function makePharos() {
   const g = new THREE.Group();
-  const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.22, 0.34, 2.2, 7), flat(COL.woodDark));
-  trunk.position.y = 1.1;
-  trunk.castShadow = true;
-  const canopy = new THREE.Mesh(new THREE.IcosahedronGeometry(1.3, 0), flat(0x3f9e58));
-  canopy.position.y = 2.6;
-  canopy.castShadow = true;
-  const fleece = new THREE.Mesh(new THREE.IcosahedronGeometry(0.5, 0),
-    flat(COL.gold, { emissive: 0xb98a1a, emissiveIntensity: 0.8 }));
-  fleece.position.set(0.9, 1.9, 0.4);
-  fleece.name = 'fleece';
-  const glow = new THREE.PointLight(0xffd97a, 10, 16);
-  glow.position.y = 2.2;
-  g.add(trunk, canopy, fleece, glow);
+  const white = (e) => new THREE.MeshStandardMaterial({
+    color: 0xf7f4ea, flatShading: true, emissive: 0xfff3d0, emissiveIntensity: e });
+  const tiers = [
+    [7.4, 8.8, 3.4, 1.7, 10],
+    [5.2, 6.6, 5.4, 6.0, 10],
+    [3.1, 4.3, 7.0, 12.0, 9],
+    [1.7, 2.6, 6.6, 18.6, 8],
+  ];
+  for (const [rt, rb, h, y, segs] of tiers) {
+    const tier = new THREE.Mesh(new THREE.CylinderGeometry(rt, rb, h, segs), white(0.12 + y * 0.006));
+    tier.position.y = y;
+    tier.castShadow = true;
+    g.add(tier);
+  }
+  for (let i = 0; i < 10; i++) {                     // colonnade on the first tier
+    const a = (i / 10) * Math.PI * 2;
+    const col = makeColumn(3.0, 0.3);
+    col.position.set(Math.cos(a) * 7.7, 3.4, Math.sin(a) * 7.7);
+    g.add(col);
+  }
+  const fire = new THREE.Mesh(new THREE.SphereGeometry(1.5, 10, 8),
+    new THREE.MeshBasicMaterial({ color: 0xffe9a8 }));
+  fire.position.y = 23.2;
+  fire.name = 'pharosfire';
+  const cap = new THREE.Mesh(new THREE.ConeGeometry(2.4, 2.6, 8), white(0.25));
+  cap.position.y = 26.0;
+  const light = new THREE.PointLight(0xffe2a0, 42, 300, 1.6);
+  light.position.y = 23.2;
+  const beam = new THREE.Mesh(new THREE.CylinderGeometry(0.9, 2.8, 70, 10, 1, true),
+    new THREE.MeshBasicMaterial({ color: 0xffe9b0, transparent: true, opacity: 0.15,
+      side: THREE.DoubleSide, depthWrite: false, blending: THREE.AdditiveBlending }));
+  beam.position.y = 56;
+  const halo = makeSunGlow();
+  halo.scale.set(52, 52, 1);
+  halo.position.y = 23.2;
+  g.add(fire, cap, light, beam, halo);
+  return g;
+}
+
+function makeMarket(rng) {
+  const g = new THREE.Group();
+  const hut = new THREE.Mesh(new THREE.BoxGeometry(2.6, 1.8, 2.2), flat(0xf1e8d2));
+  hut.position.y = 0.9;
+  hut.castShadow = true;
+  const roof = new THREE.Mesh(new THREE.ConeGeometry(2.2, 1.3, 4), flat(0xc0392b));
+  roof.position.y = 2.45;
+  roof.rotation.y = Math.PI / 4;
+  const awn = new THREE.Mesh(new THREE.PlaneGeometry(2.8, 1.4, 4, 1),
+    flat(0xd9a441, { side: THREE.DoubleSide }));
+  awn.position.set(0, 1.75, 1.95);
+  awn.rotation.x = -0.55;
+  g.add(hut, roof, awn);
+  for (let i = 0; i < 3; i++) {
+    const crate = new THREE.Mesh(new THREE.BoxGeometry(0.7, 0.7, 0.7), flat(0x9a7448));
+    crate.rotation.y = rng() * 0.8;
+    crate.position.set(-1.7 + i * 0.9, 0.35, 1.9 + (i % 2) * 0.6);
+    g.add(crate);
+  }
+  const amph = new THREE.Mesh(new THREE.SphereGeometry(0.45, 8, 6), flat(0xb1543a));
+  amph.scale.y = 1.5;
+  amph.position.set(1.8, 0.65, 1.6);
+  const sign = new THREE.Mesh(new THREE.CylinderGeometry(0.5, 0.5, 0.12, 12),
+    flat(0xd9a441, { emissive: 0x7a5a10 }));
+  sign.rotation.x = Math.PI / 2;
+  sign.position.set(0, 2.1, 1.35);
+  g.add(amph, sign);
   return g;
 }
 
@@ -792,20 +845,15 @@ function bannerTexture(title, sub, colorHex, dark = false) {
 
 /* ── regions: the archipelago transforms as you sail north ──────────────── */
 const REGIONS = [
-  { name: 'The Verdant Shallows', bands: [0, 1],
+  { name: 'The Inner Isles', bands: [0, 1],
     palette: { grass: 0x5cb04b, grass2: 0x3d7d3a, sand: 0xeadfae },
     flora: 'palm', label: '#9fd6a8' },
-  { name: 'The Cyclade Whites', bands: [2, 3],
+  { name: 'The Middle Waters', bands: [2],
     palette: { grass: 0xa8b06b, grass2: 0x7d9455, sand: 0xf6efdc, rock: 0xdad5c8 },
     flora: 'olive', label: '#f0e8d0' },
-  { name: 'The Ashen Reaches', bands: [4, 5],
-    palette: { grass: 0x76804f, grass2: 0x4c553c, sand: 0xa89a80, rock: 0x46404c },
-    flora: 'dead', ember: true, label: '#e0a184' },
-  { name: 'The Mistral North', bands: [6, 7],
-    palette: { grass: 0x6f9a86, grass2: 0x4d7263, sand: 0xd9dfda, rock: 0xdfe8ee },
-    flora: 'cypress', snow: true, label: '#cfe4f2' },
-  { name: 'Isle of the Fleece', bands: [8],
-    palette: { grass: 0x7fc06f }, flora: 'palm', label: '#ffd98a' },
+  { name: 'The Outer Shoals', bands: [3],
+    palette: { grass: 0x63985a, grass2: 0x40684a, sand: 0xdccf9f, rock: 0x8a8474 },
+    flora: 'cypress', label: '#cfe4d2' },
 ];
 const regionFor = (band) => REGIONS.find((r) => r.bands.includes(band ?? 0)) || REGIONS[0];
 
@@ -880,8 +928,8 @@ function dressIsland(g, rng, region, R, terrain) {
 }
 
 /* ── island assembly (keyed by view state) ──────────────────────────────── */
-const ISLE_R = { home: 7.0, shrine: 5.2, puzzle: 5.2, haven: 5.6,
-                 monster: 5.8, lair: 6.6, fleece: 8.0, sea: 1.5 };
+const ISLE_R = { home: 13.0, shrine: 10.0, puzzle: 10.0, haven: 11.0,
+                 shop: 10.0, monster: 11.0, lair: 13.0, pharos: 17.0, sea: 1.5 };
 
 function viewKey(node) {
   return [node.type, node.monster ? node.monster.hp : '-',
@@ -900,27 +948,29 @@ function buildIsland(node, domains) {
   if (node.type === 'sea') {
     // open-water stops come in flavors: cargo, buoys, rocks, tiny islets, ripples
     if (node.flotsam) {
-      g.add(makeFlotsam(rng0));
+      const fl = makeFlotsam(rng0);
+      fl.scale.setScalar(1.6);
+      g.add(fl);
     } else if (node.look === 'rocks') {
       for (let i = 0; i < 2 + Math.floor(rng0() * 2); i++) {
-        const rk = makeRock(rng0, 0.5 + rng0() * 0.6, rng0() < 0.4 ? 0xd8d4c8 : COL.rock);
+        const rk = makeRock(rng0, 0.9 + rng0() * 1.1, rng0() < 0.4 ? 0xd8d4c8 : COL.rock);
         const a = rng0() * 6.28;
-        rk.position.set(Math.cos(a) * rng0() * 1.3, 0.25, Math.sin(a) * rng0() * 1.3);
+        rk.position.set(Math.cos(a) * rng0() * 2.4, 0.35, Math.sin(a) * rng0() * 2.4);
         g.add(rk);
       }
-      g.add(shallowDisc(9));
+      g.add(shallowDisc(15));
     } else if (node.look === 'islet') {
       const style = rng0();
       const t = makeTerrain({
-        seed, R: 2.6 + rng0() * 1.4,
+        seed, R: 4.6 + rng0() * 2.6,
         H: style < 0.33 ? 0.8 : 1.1,
         mode: style < 0.33 ? 'atoll' : 'hill',
         lobes: style > 0.66 ? 0.42 : 0,
         palette: { ...region.palette, ...(rng0() < 0.5 ? { sand: 0xf7ecc8 } : {}) },
       });
       g.add(t.mesh);
-      g.add(shallowDisc(13));
-      const flora = regionFlora(rng0, region, 0.75);
+      g.add(shallowDisc(22));
+      const flora = regionFlora(rng0, region, 1.0);
       const fr = style < 0.33 ? 0.3 : 0.15;      // atolls grow on the ring
       flora.position.set(t.heightAt(fr) ? 0.8 : 0, Math.max(0.3, t.heightAt(fr)), 0);
       g.add(flora);
@@ -933,10 +983,12 @@ function buildIsland(node, domains) {
       ripple.name = 'foam';
       g.add(ripple);
     } else {
-      g.add(makeBuoy(rng0));
+      const buoy = makeBuoy(rng0);
+      buoy.scale.setScalar(1.7);
+      g.add(buoy);
     }
     g.position.set(node.x, 0, node.z);
-    return { group: g, R: node.look === 'islet' ? 2.8 : node.look === 'rocks' ? 2.2 : R, plateauY: 0 };
+    return { group: g, R: node.look === 'islet' ? 5.2 : node.look === 'rocks' ? 3.6 : R, plateauY: 0 };
   } else if (node.type === 'home') {
     terrain = makeTerrain({ seed, R, H: 1.7, mode: 'mesa', palette: { ...region.palette } });
     const dock = makeDock(6.0);
@@ -1020,26 +1072,34 @@ function buildIsland(node, domains) {
       rk.position.set(Math.cos(a) * R * 0.7, terrain.heightAt(0.7) + 0.15, Math.sin(a) * R * 0.7);
       g.add(rk);
     }
-  } else if (node.type === 'fleece') {
-    terrain = makeTerrain({ seed, R, H: 3.2, mode: 'mesa', palette: { grass: 0x7fc06f } });
-    const tree = makeFleeceTree();
-    tree.position.y = terrain.heightAt(0);
-    g.add(tree);
-    if (node.monster) {
-      const beast = makeMonster(mulberry32(seed + 13), node.monster);
-      beast.position.set(R * 0.35, terrain.heightAt(0.4), R * 0.2);
-      g.add(beast);
-    }
-    for (const a of [1.0, 2.8, 4.6]) {
-      const c = makeColumn(1.4, 0.12);
-      c.position.set(Math.cos(a) * R * 0.6, terrain.heightAt(0.6), Math.sin(a) * R * 0.6);
+  } else if (node.type === 'pharos') {
+    terrain = makeTerrain({ seed, R, H: 3.0, mode: 'mesa',
+      palette: { grass: 0xdfd9c6, grass2: 0xcfc7b2, sand: 0xf6efdc, rock: 0xe8e2d2 } });
+    const ph = makePharos();
+    ph.position.y = terrain.heightAt(0);
+    g.add(ph);
+    for (const a of [0.6, 1.9, 3.2, 4.5, 5.8]) {
+      const c = makeColumn(1.6, 0.14);
+      c.position.set(Math.cos(a) * R * 0.72, terrain.heightAt(0.72), Math.sin(a) * R * 0.72);
       g.add(c);
     }
+  } else if (node.type === 'shop') {
+    terrain = makeTerrain({ seed, R, H: 1.6, mode: 'flat', palette: { ...region.palette } });
+    const stall = makeMarket(rng0);
+    stall.position.y = terrain.heightAt(0.15);
+    g.add(stall);
+    const dock = makeDock(4.4);
+    dock.position.set(0.8, 0.4, R * 0.86);
+    dock.rotation.y = Math.PI;
+    g.add(dock);
+    const fl = regionFlora(rng0, region, 1.0);
+    fl.position.set(-R * 0.45, terrain.heightAt(0.45), -R * 0.25);
+    g.add(fl);
   } else {
     terrain = makeTerrain({ seed, R, H: 2.0, mode: 'hill', palette: { ...region.palette } });
   }
 
-  if (node.type !== 'fleece') dressIsland(g, rng0, region, R, terrain);
+  if (node.type !== 'pharos') dressIsland(g, rng0, region, R, terrain);
 
   {
     g.add(terrain.mesh);
@@ -1071,8 +1131,11 @@ function bannerFor(node, domains) {
       ? bannerTexture(node.monster.name, `ambush at ${node.name || '?'}`, '#c0392b', true)
       : bannerTexture(node.name || 'Hunting Grounds', '⚔ chance of ambush', '#b1543a', true);
   }
-  if (node.type === 'fleece') {
-    return bannerTexture('The Golden Fleece', node.monster ? 'guarded by the dragon' : '', '#d9a441');
+  if (node.type === 'pharos') {
+    return bannerTexture('THE PHAROS', node.monster ? 'bank 3 seals to enter' : '', '#d9a441');
+  }
+  if (node.type === 'shop') {
+    return bannerTexture(node.name || 'Market', '🪙 charms & fittings', '#c9a227');
   }
   if (node.type === 'haven') return bannerTexture(node.name || 'Haven', '⚓ repairs & shipwright', '#2e9e8f');
   if (node.type === 'puzzle' && !node.solved) return bannerTexture(node.name || 'Puzzle Isle', '🧩 upgrades await', '#7d5ba6');
@@ -1124,27 +1187,26 @@ export function createWorld(container, onIslandClick) {
   controls.enableDamping = true;
   controls.dampingFactor = 0.06;
   controls.maxPolarAngle = 1.26;
-  controls.minDistance = 14;
-  controls.maxDistance = 1100;
-  controls.enablePan = true;
-  controls.panSpeed = 0.6;
-  controls.screenSpacePanning = false;
+  controls.minDistance = 16;
+  controls.maxDistance = 950;                   // zoom out to the storm wall, not past it
+  controls.enablePan = false;                   // the camera belongs to your boat
   controls.autoRotate = true;
   controls.autoRotateSpeed = 0.45;
   controls.target.set(0, 1.5, -10);
 
-  scene.add(makeSky());
+  const sky = makeSky();
+  scene.add(sky);
   scene.add(new THREE.HemisphereLight(0xd6ecff, 0x3e7d5a, 0.85));
   const sunPos = new THREE.Vector3(300, 420, 150);
   const sun = new THREE.DirectionalLight(0xfff1d6, 1.75);
   sun.position.copy(sunPos);
   sun.castShadow = true;
   sun.shadow.mapSize.set(4096, 4096);
-  sun.shadow.camera.left = -360; sun.shadow.camera.right = 360;
-  sun.shadow.camera.top = 360; sun.shadow.camera.bottom = -360;
-  sun.shadow.camera.far = 1400;
+  sun.shadow.camera.left = -640; sun.shadow.camera.right = 640;
+  sun.shadow.camera.top = 640; sun.shadow.camera.bottom = -640;
+  sun.shadow.camera.far = 1800;
   sun.shadow.bias = -0.0004;
-  sun.target.position.set(0, 0, -70);           // center of the grand chart
+  sun.target.position.set(0, 0, 0);             // the Pharos at world center
   scene.add(sun.target);
   scene.add(sun);
   const glow = makeSunGlow();
@@ -1172,6 +1234,42 @@ export function createWorld(container, onIslandClick) {
     clouds.push(cl);
     scene.add(cl);
   }
+
+  // the storm wall — a ring of boiling dark cloud that seals the region
+  const WALL_R = 640;
+  const storm = new THREE.Group();
+  {
+    const puffMat = new THREE.MeshStandardMaterial({ color: 0x3a3542, flatShading: true,
+      transparent: true, opacity: 0.94 });
+    const puffMat2 = new THREE.MeshStandardMaterial({ color: 0x4a4456, flatShading: true,
+      transparent: true, opacity: 0.9 });
+    for (let i = 0; i < 72; i++) {
+      const a = (i / 72) * Math.PI * 2;
+      const puff = new THREE.Mesh(
+        new THREE.IcosahedronGeometry(24 + Math.random() * 34, 0),
+        Math.random() < 0.5 ? puffMat : puffMat2);
+      const r = WALL_R + (Math.random() - 0.5) * 60;
+      puff.position.set(Math.cos(a) * r, 4 + Math.random() * 62, Math.sin(a) * r);
+      puff.scale.y = 0.55 + Math.random() * 0.5;
+      puff.userData = { bob: Math.random() * 6.28, y0: puff.position.y };
+      storm.add(puff);
+    }
+    const veil = new THREE.Mesh(
+      new THREE.CylinderGeometry(WALL_R - 34, WALL_R - 34, 150, 72, 1, true),
+      new THREE.MeshBasicMaterial({ color: 0x2c2836, transparent: true, opacity: 0.4,
+        side: THREE.DoubleSide, depthWrite: false }));
+    veil.position.y = 60;
+    veil.name = 'veil';
+    storm.add(veil);
+  }
+  scene.add(storm);
+  const SKY_DAY = { zenith: new THREE.Color(0x5fb0e6), mid: new THREE.Color(0xa5d9ef),
+                    horizon: new THREE.Color(0xfdeed3) };
+  const SKY_STORM = { zenith: new THREE.Color(0x3f4456), mid: new THREE.Color(0x5c6070),
+                      horizon: new THREE.Color(0x8a8494) };
+  const FOG_DAY = new THREE.Color(0xd6ecf5);
+  const FOG_STORM = new THREE.Color(0x767283);
+  let stormF = 0;
 
   const birds = [];
   for (let i = 0; i < 6; i++) {
@@ -1205,8 +1303,8 @@ export function createWorld(container, onIslandClick) {
       d.userData = { off: j * 1.9 };
       pod.add(d);
     }
-    pod.userData = { cx: -190 + Math.random() * 380, cz: -330 + Math.random() * 540,
-                     r: 12 + Math.random() * 20, speed: 0.09 + Math.random() * 0.07,
+    pod.userData = { cx: -420 + Math.random() * 840, cz: -420 + Math.random() * 840,
+                     r: 16 + Math.random() * 26, speed: 0.09 + Math.random() * 0.07,
                      ph: Math.random() * 6.28 };
     dolphinPods.push(pod);
     scene.add(pod);
@@ -1226,9 +1324,10 @@ export function createWorld(container, onIslandClick) {
     regionLabels.clear();
     for (const reg of REGIONS) {
       const own = nodes.filter((n) => reg.bands.includes(n.band) && n.type !== 'sea');
-      if (!own.length || reg.bands.includes(8)) continue;    // the Fleece names itself
-      const cx = own.reduce((s, n) => s + n.x, 0) / own.length;
-      const cz = own.reduce((s, n) => s + n.z, 0) / own.length;
+      if (!own.length) continue;
+      const rr = own.reduce((s, n) => s + Math.hypot(n.x, n.z), 0) / own.length;
+      const cx = 0;
+      const cz = rr > 40 ? rr - 46 : 118;
       const c = document.createElement('canvas');
       c.width = 1024; c.height = 128;
       const ctx = c.getContext('2d');
@@ -1242,7 +1341,7 @@ export function createWorld(container, onIslandClick) {
         new THREE.MeshBasicMaterial({ map: tex, transparent: true, opacity: 0.38,
           depthWrite: false }));
       plane.rotation.x = -Math.PI / 2;
-      plane.position.set(cx, 0.12, cz + 26);   // just south of the region's isles
+      plane.position.set(cx, 0.12, cz + 26);   // along the ring's southern arc
       plane.renderOrder = 2;
       regionLabels.add(plane);
     }
@@ -1260,6 +1359,7 @@ export function createWorld(container, onIslandClick) {
   let cameraAnchored = false;
   let lastFollowPid = null;
   let followShip = null;              // pid whose sailing ship the camera tracks
+  let myPid = null;                   // the viewer's own captain
 
   /* ── the battle arena: a Paper-Mario stage far off the chart ───────────── */
   const ARENA = new THREE.Vector3(1500, 0, 420);
@@ -1450,7 +1550,7 @@ export function createWorld(container, onIslandClick) {
     nodeMeta = {};
     for (const n of nodes) {
       nodeMeta[n.id] = { x: n.x, z: n.z, type: n.type,
-                         blocked: n.type === 'fleece' ||
+                         blocked: n.type === 'pharos' ||
                                   (n.type === 'lair' && !!n.monster) };
     }
     nbrs = {};
@@ -1574,7 +1674,7 @@ export function createWorld(container, onIslandClick) {
     const ids = Object.keys(nodeMeta).filter((id) => !nodeMeta[id].blocked);
     for (let i = 0; i < 3; i++) {
       const g = makeShip('#9aa3ad');
-      g.scale.setScalar(0.62);
+      g.scale.setScalar(1.15);
       const at = ids[Math.floor(Math.random() * ids.length)];
       g.position.set(nodeMeta[at].x, 0, nodeMeta[at].z);
       scene.add(g);
@@ -1587,7 +1687,7 @@ export function createWorld(container, onIslandClick) {
     const meta = nodeMeta[nid];
     const p = new THREE.Vector3(meta.x, 0, meta.z);
     if (meta.type !== 'sea') {
-      const r = (islands[nid]?.R ?? 5) + 2.5;
+      const r = (islands[nid]?.R ?? 8) * 1.25 + 3.5;
       const dir = p.clone().sub(fromPos).normalize();
       p.add(new THREE.Vector3(-dir.z, 0, dir.x).multiplyScalar(r));
     }
@@ -1624,6 +1724,7 @@ export function createWorld(container, onIslandClick) {
   }
 
   function update(room, you) {
+    myPid = you;
     syncBoard(room);
     ensureTraders();
     syncArena(room);
@@ -1642,7 +1743,10 @@ export function createWorld(container, onIslandClick) {
     room.players.forEach((p, idx) => {
       if (!ships[p.pid]) {
         const group = makeShip(p.color);
-        group.add(nameSprite(p.name, p.color));
+        group.scale.setScalar(2);                 // doubled world, doubled boats
+        const tag = nameSprite(p.name, p.color);
+        tag.scale.set(4.4, 1.1, 1);
+        group.add(tag);
         group.position.copy(slotFor(p.node, idx));
         scene.add(group);
         ships[p.pid] = { group, target: p.node, idx, phase: Math.random() * 6, anim: null };
@@ -1655,8 +1759,7 @@ export function createWorld(container, onIslandClick) {
         const pts = [sh.group.position.clone()];
         if (route && route.length > 2) {
           for (const nid of route.slice(1, -1)) {
-            const meta = nodeMeta[nid];
-            if (meta) pts.push(new THREE.Vector3(meta.x, 0, meta.z));
+            if (nodeMeta[nid]) pts.push(traderPoint(nid, pts[pts.length - 1]));
           }
         }
         pts.push(slotFor(p.node, idx));
@@ -1783,10 +1886,10 @@ export function createWorld(container, onIslandClick) {
       if (beast) beast.position.y += Math.sin(t * 2 + isle.group.position.z) * 0.0035;
       const beacon = isle.group.getObjectByName('beacon');
       if (beacon) beacon.rotation.y = t * 0.5;
-      const fleece = isle.group.getObjectByName('fleece');
-      if (fleece) {
-        fleece.rotation.y = t * 0.8;
-        fleece.position.y = 1.9 + Math.sin(t * 1.6) * 0.12;
+      const fire = isle.group.getObjectByName('pharosfire');
+      if (fire) {
+        const pulse = 1 + Math.sin(t * 2.2) * 0.16;
+        fire.scale.set(pulse, pulse, pulse);
       }
     }
     for (const [pid, sh] of Object.entries(ships)) {
@@ -1845,13 +1948,16 @@ export function createWorld(container, onIslandClick) {
       camera.lookAt(look);
       controls.target.copy(look);
     } else {
-      const chase = followShip && ships[followShip]?.anim ? ships[followShip] : null;
-      if (chase) {
-        // the camera sails with the boat
-        const delta = chase.group.position.clone().setY(1.5).sub(controls.target);
-        delta.multiplyScalar(0.09);
-        controls.target.add(delta);
-        camera.position.add(delta);
+      const mine = myPid && ships[myPid];
+      if (mine) {
+        // the camera belongs to your boat — it goes where you go
+        const want = mine.group.position.clone().setY(1.5);
+        const delta = want.sub(controls.target);
+        if (delta.lengthSq() > 0.0001) {
+          delta.multiplyScalar(mine.anim ? 0.09 : 0.06);
+          controls.target.add(delta);
+          camera.position.add(delta);
+        }
         glideTo = null;
       } else if (glideTo) {
         const delta = glideTo.clone().sub(controls.target);
@@ -1864,6 +1970,25 @@ export function createWorld(container, onIslandClick) {
         }
       }
       controls.update();
+    }
+
+    // the storm broods: sky and light darken as your boat nears the wall
+    storm.rotation.y = t * 0.006;
+    for (const puff of storm.children) {
+      if (puff.userData.y0 !== undefined) {
+        puff.position.y = puff.userData.y0 + Math.sin(t * 0.4 + puff.userData.bob) * 2.2;
+      }
+    }
+    {
+      const mine = myPid && ships[myPid];
+      const d = mine ? Math.hypot(mine.group.position.x, mine.group.position.z) / WALL_R : 0;
+      const target = THREE.MathUtils.smoothstep(d, 0.5, 0.92);
+      stormF += (target - stormF) * 0.03;
+      sky.material.uniforms.zenith.value.lerpColors(SKY_DAY.zenith, SKY_STORM.zenith, stormF);
+      sky.material.uniforms.mid.value.lerpColors(SKY_DAY.mid, SKY_STORM.mid, stormF);
+      sky.material.uniforms.horizon.value.lerpColors(SKY_DAY.horizon, SKY_STORM.horizon, stormF);
+      scene.fog.color.lerpColors(FOG_DAY, FOG_STORM, stormF);
+      sun.intensity = 1.75 * (1 - 0.45 * stormF);
     }
     renderer.render(scene, camera);
   });

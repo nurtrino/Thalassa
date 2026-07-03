@@ -13,10 +13,10 @@ is fogged per player — PER-VIEWER snapshots.
     WS   /ws            → game protocol (JSON messages)
 
 Client → server: hello{token,name} · add_bot · start · roll · sail{node}
-                 · wager{tier} · pass · repair · shop · hint · stance{stance,target}
-                 · flee · item{id} · answer{idx} (turn OR side answer)
-                 · pick{upgrade} · solve{payload} (minigame) · skip · kick{pid}
-                 · rematch · ping
+                 · wager{tier} · pass · repair · shop_buy{item} · use{item}
+                 · stance{stance,target} · flee · item{id}
+                 · answer{idx} (turn OR side answer) · pick{upgrade}
+                 · solve{payload} (minigame) · skip · kick{pid} · rematch · ping
 Server → client: snapshot{you,room} · dice{pid,value} · error{msg} · pong
 """
 from __future__ import annotations
@@ -196,10 +196,10 @@ async def dispatch(pid: str | None, kind: str, msg: dict) -> str | None:
             g.pass_turn(pid)
         elif kind == "repair":
             g.repair(pid)
-        elif kind == "shop":
-            g.shop(pid)
-        elif kind == "hint":
-            g.buy_hint(pid)
+        elif kind == "shop_buy":
+            g.shop_buy(pid, str(msg.get("item", "")))
+        elif kind == "use":
+            g.use_item_charm(pid, str(msg.get("item", "")))
         elif kind == "stance":
             g.stance(pid, str(msg.get("stance", "")), int(msg.get("target", 0)))
         elif kind == "flee":
@@ -276,10 +276,14 @@ async def bot_move(nonce: int, tag: str, pid: str):
         err = await dispatch(pid, "repair", {})
         if err:
             err = await dispatch(pid, "pass", {})
+    elif phase == "shop":
+        err = await dispatch(pid, "pass", {})
     elif phase == "battle":
         choice = bots.decide_battle(g, pid, rng)
         if choice == "flee":
             err = await dispatch(pid, "flee", {})
+            if err:                                    # broke, or it's a trial
+                err = await dispatch(pid, "stance", {"stance": "attack"})
         else:
             err = await dispatch(pid, "stance", {"stance": choice})
     elif phase == "question":
@@ -323,7 +327,7 @@ async def bot_driver():
 
         if not g.players or g.current.pid not in table.bots:
             continue
-        if g.phase in ("roll", "sail", "shrine", "haven", "battle",
+        if g.phase in ("roll", "sail", "shrine", "haven", "shop", "battle",
                        "question", "minigame", "upgrade_pick"):
             if g.phase == "question" and g.question is None:
                 continue

@@ -1,36 +1,35 @@
 """
-Thalassa rules engine — the Race for the Golden Fleece. Pure state machine.
+Thalassa rules engine — the Race to the Pharos. Pure state machine.
 
 The server owns dice RNG, question fetching, and timers; this module owns
 the rules. Every mutation either succeeds or raises GameError.
 
-The voyage: a fog-covered procedural archipelago. Sail out, answer trivia at
-shrines for scrolls, solve brain-teaser puzzles for ship upgrades, and fight
-the monsters guarding relic lairs. Haul relics HOME to bank them — cargo is
-lost if your ship goes down. Bank RELICS_TO_WIN relics and the Isle of the
-Fleece appears: beat the Colchian Dragon there and the Fleece — and the
-game — is yours.
+The voyage: a ringed sea sealed by a storm wall, the Pharos blazing at its
+center. Sail out from Home Port, answer trivia at temples for scrolls,
+crack puzzle spires, buy charms at market isles, and beat the solo boss of
+each trial lair for its relic seal. Haul seals HOME to bank them — cargo is
+lost if your ship goes down. Bank RELICS_TO_WIN seals and the Pharos opens:
+defeat the Warden inside and the game is yours.
 
 Phases:
-    lobby → roll → sail → (shrine | haven | battle | question …) → reveal → …
+    lobby → roll → sail → (shrine | haven | shop | battle | question …) → reveal
                                      battle: stance → question → reveal → stance…
-    puzzle success → upgrade_pick.   finished when someone claims the Fleece.
+    puzzle success → upgrade_pick.   finished when someone takes the Pharos.
 
-The whole chart is visible from the first turn — the strategy is the route.
 Movement is EXACT: the die is how far you sail, no fewer — the chart's
-loops are how you tune where you land. Lairs hold solo bosses (and the
-relics); "monster" spots are hunting grounds that spawn a fresh random
-pack for whoever lands there. Live lair guardians and the Fleece isle
-cannot be sailed through; the Fleece admits only captains with
-RELICS_TO_WIN banked relics.
+loops are how you tune where you land. Live trial guardians and the Pharos
+cannot be sailed through; the Pharos admits only captains with
+RELICS_TO_WIN banked seals.
 
-Battles are Paper-Mario turns — stance, target, trivia:
+Battles are stance, target, trivia:
     STRIKE  tier-I/II question → 1 damage      miss → the front enemy hits
     MAGIC   tier-III question  → 3 damage      miss → 1 backfire self-damage
-    FLEE    scrape away: lose 1 Health, retreat to the node you came from
-Scrolls are the economy: buy hints on any question (HINT_COST), repair or
-buy upgrades at havens (SHOP_COST). Health 0 = shipwreck: unbanked relics
-return to their lairs, scrolls halved, respawn at your haven checkpoint.
+    FLEE    2 scrolls, 50/50: slip away clean, or take a free hit (no
+            retreat from a trial or the Warden)
+Scrolls are the economy: temples pay them, shops spend them — hint stones,
+gale charms, aegis charms, war horns, permanent ship fittings. Health 0 =
+shipwreck: unbanked seals return to their lairs, scrolls halved, respawn
+at your haven checkpoint.
 """
 from __future__ import annotations
 
@@ -51,20 +50,35 @@ MAGIC_BACKFIRE = 1                 # a missed spell burns the caster
 BOUNTIES_PER_GAME = 3              # public race-goals posted at Home Port
 STREAK_AT = 3                      # correct-answer streak that pays a bonus
 SIDE_REWARD = 1                    # scrolls for a correct side answer
-HINT_COST = 2                      # scrolls to burn 2 wrong options off a question
-SHOP_COST = 8                      # scrolls the haven shipwright wants for an upgrade
+FLEE_COST = 2                      # scrolls to gamble on escaping a battle
+GALE_BONUS = 2                     # extra movement from a Gale Charm
+HORN_BONUS = 2                     # extra STRIKE damage from a War Horn
 
 COLORS = ["#e4572e", "#2e86ab", "#f6ae2d", "#8e5572", "#33ca7f", "#6457a6"]
 
 UPGRADES = {
     "ram":        {"name": "Bronze Ram",        "desc": "+1 STRIKE damage"},
-    "hull_plates": {"name": "Oak Hull Plates",  "desc": "+2 max hull (and heal 2 now)"},
-    "star_chart": {"name": "Star Chart",        "desc": "Roll two movement dice, sail with the higher"},
-    "sandals":    {"name": "Hermes' Sandals",   "desc": "+1 to every movement roll"},
+    "hull_plates": {"name": "Oak Hull Plates",  "desc": "+2 max Health, heal 2 now"},
+    "star_chart": {"name": "Star Chart",        "desc": "Roll two dice, sail the higher"},
+    "sandals":    {"name": "Hermes' Sandals",   "desc": "+1 to every roll"},
     "owl":        {"name": "Owl of Athena",     "desc": "Once per battle: remove 2 wrong options"},
     "lyre":       {"name": "Lyre of Orpheus",   "desc": "Once per battle: swap the question"},
     "trident":    {"name": "Storm Trident",     "desc": "+1 MAGIC damage"},
-    "aegis":      {"name": "Aegis Shard",       "desc": "The first hit you take each battle is halved"},
+    "aegis":      {"name": "Aegis Shard",       "desc": "First hit each battle is halved"},
+}
+
+# market-isle stock — consumables plus the shipwright's permanent fittings
+SHOP_ITEMS = {
+    "fitting": {"name": "Ship Fitting", "cost": 8,
+                "desc": "Pick one of two permanent upgrades"},
+    "hint":    {"name": "Hint Stone",   "cost": 2,
+                "desc": "Removes 2 wrong answers on any question"},
+    "gale":    {"name": "Gale Charm",   "cost": 3,
+                "desc": f"+{GALE_BONUS} on your next roll"},
+    "aegis_charm": {"name": "Aegis Charm", "cost": 4,
+                "desc": "Blocks the next damage you take"},
+    "horn":    {"name": "War Horn",     "cost": 5,
+                "desc": f"+{HORN_BONUS} on your next STRIKE"},
 }
 
 
@@ -89,9 +103,11 @@ class Player:
         self.scrolls = 3                   # seed money for the first shrine misses
         self.hull = MAX_HULL
         self.max_hull = MAX_HULL
-        self.cargo: list[int] = []         # relic numbers aboard (not yet safe)
+        self.cargo: list[int] = []         # relic seals aboard (not yet safe)
         self.banked = 0
         self.upgrades: list[str] = []
+        self.items = {"hint": 0, "gale": 0, "aegis_charm": 0, "horn": 0}
+        self.next_roll_bonus = 0           # armed Gale Charms
         self.streak = 0
         self.puzzles_solved = 0
 
@@ -105,7 +121,8 @@ class Player:
             "hull": self.hull, "max_hull": self.max_hull,
             "cargo": len(self.cargo), "banked": self.banked,
             "checkpoint": self.checkpoint,
-            "upgrades": self.upgrades, "streak": self.streak,
+            "upgrades": self.upgrades, "items": self.items,
+            "streak": self.streak,
             "connected": self.connected, "bot": self.is_bot,
         }
 
@@ -130,7 +147,7 @@ class Game:
         self.minigame: dict | None = None  # {kind, island, data, limit, deadline}
         self.upgrade_offer: list[str] | None = None
         self.used_puzzles: set[int] = set()
-        self.fleece_revealed = False
+        self.pharos_open = False
         self.winner: str | None = None
         self.log: list[str] = []
         self.bounties: list[dict] = self._make_bounties()
@@ -164,22 +181,22 @@ class Game:
     def _wall(self, p: Player, nid: str) -> bool:
         """Nodes you cannot sail THROUGH — only (maybe) end a voyage on."""
         node = self.board.nodes[nid]
-        if node["type"] == "fleece":
+        if node["type"] == "pharos":
             return True
         if node["type"] == "lair" and self.board.alive_monster(nid):
             return True
         return False
 
     def _can_land(self, p: Player, nid: str) -> bool:
-        if self.board.nodes[nid]["type"] == "fleece":
-            return self._fleece_ok(p)
+        if self.board.nodes[nid]["type"] == "pharos":
+            return self._pharos_ok(p)
         return True
 
     def _reachable_for(self, p: Player, steps: int) -> dict[str, int]:
         """EXACT-roll movement: the die is how far you sail — no fewer, no
         more. Walks may not double straight back (unless boxed in), so the
-        chart's loops are how you tune where you land. Walls (the Fleece
-        isle, live lair guardians) can only be the final landfall."""
+        chart's loops are how you tune where you land. Walls (the Pharos,
+        live trial guardians) can only be the final landfall."""
         cur = {(p.node, None)}
         for step in range(steps):
             last = step == steps - 1
@@ -198,8 +215,8 @@ class Game:
                 break
         return {node: steps for node, _ in cur if node != p.node}
 
-    def _fleece_ok(self, p: Player) -> bool:
-        return self.fleece_revealed and p.banked >= RELICS_TO_WIN
+    def _pharos_ok(self, p: Player) -> bool:
+        return self.pharos_open and p.banked >= RELICS_TO_WIN
 
     # ── bounties: public race-goals, first captain to do it gets paid ────────
     def _make_bounties(self) -> list[dict]:
@@ -214,7 +231,7 @@ class Game:
             {"kind": "bank1", "text": "First to bank a relic", "reward": 4},
             {"kind": "bank2", "text": "First to bank 2 relics", "reward": 6},
             {"kind": "puzzles2", "text": "First to crack 2 puzzle isles", "reward": 5},
-            {"kind": "far", "text": "First to reach the Far Reaches", "reward": 5},
+            {"kind": "far", "text": "First to reach the Outer Shoals", "reward": 5},
             {"kind": "scrolls12", "text": "First to hold 12 scrolls", "reward": 5},
         ]
         self.rng.shuffle(pool)
@@ -238,7 +255,7 @@ class Game:
                 (b["kind"] == "bank1" and event == "bank" and p.banked >= 1) or
                 (b["kind"] == "bank2" and event == "bank" and p.banked >= 2) or
                 (b["kind"] == "puzzles2" and event == "puzzle" and p.puzzles_solved >= 2) or
-                (b["kind"] == "far" and event == "land" and data.get("band", 0) >= 6) or
+                (b["kind"] == "far" and event == "land" and data.get("band", 0) >= 3) or
                 (b["kind"] == "scrolls12" and p.scrolls >= 12)
             )
             if hit:
@@ -309,7 +326,10 @@ class Game:
         self._require_turn(pid, "roll")
         p = self.current
         self.die = die
-        steps = die + (1 if p.has("sandals") else 0)
+        steps = die + (1 if p.has("sandals") else 0) + p.next_roll_bonus
+        if p.next_roll_bonus:
+            self._say(f"🌬 A gale fills {p.name}'s sails — +{p.next_roll_bonus}.")
+            p.next_roll_bonus = 0
         self.reachable = self._reachable_for(p, steps)
         if not self.reachable:
             self._say(f"{p.name} is boxed in and waits out the tide.")
@@ -375,7 +395,9 @@ class Game:
             if p.checkpoint != nid:
                 p.checkpoint = nid
                 self._say(f"⚓ {p.name} makes camp — checkpoint set at {node['name']}.")
-            self._bump("haven")        # repair, visit the shipwright, or pass
+            self._bump("haven")        # repair or pass
+        elif ntype == "shop":
+            self._bump("shop")         # browse the trader's stall
         else:
             self._next_turn()                 # cleared / spent / empty waters
 
@@ -384,12 +406,12 @@ class Game:
             n = len(p.cargo)
             p.banked += n
             p.cargo = []
-            self._say(f"{p.name} banks {n} relic{'s' if n > 1 else ''}! ({p.banked}/{RELICS_TO_WIN})")
+            self._say(f"{p.name} banks {n} seal{'s' if n > 1 else ''}. ({p.banked}/{RELICS_TO_WIN})")
             self._bounty_event("bank", p)
         p.hull = p.max_hull
-        if p.banked >= RELICS_TO_WIN and not self.fleece_revealed:
-            self.fleece_revealed = True
-            self._say(f"⚡ {p.name} has three relics — the way to the Fleece is open to them!")
+        if p.banked >= RELICS_TO_WIN and not self.pharos_open:
+            self.pharos_open = True
+            self._say(f"⚡ Three seals banked — the Pharos opens for {p.name}.")
 
     # ── shrine wagers ────────────────────────────────────────────────────────
     def wager(self, pid: str, tier: int):
@@ -406,7 +428,7 @@ class Game:
         self._bump("question")
 
     def pass_turn(self, pid: str):
-        self._require_turn(pid, "shrine", "haven")
+        self._require_turn(pid, "shrine", "haven", "shop")
         self._next_turn()
 
     # ── haven ────────────────────────────────────────────────────────────────
@@ -416,45 +438,87 @@ class Game:
         missing = p.max_hull - p.hull
         spend = min(missing, p.scrolls)
         if spend <= 0:
-            raise GameError("Nothing to repair (or no scrolls).")
+            raise GameError("Nothing to repair — or no scrolls to pay with.")
         p.scrolls -= spend
         p.hull += spend
         self._say(f"{p.name} patches {spend} Health at the haven.")
         self._next_turn()
 
-    def shop(self, pid: str):
-        """The haven shipwright: SHOP_COST scrolls buys a choice of upgrades."""
-        self._require_turn(pid, "haven")
+    # ── market isles ─────────────────────────────────────────────────────────
+    def shop_buy(self, pid: str, item: str):
+        """Buy from the trader's stall. Consumables stack; a fitting ends
+        the visit with an upgrade choice."""
+        self._require_turn(pid, "shop")
         p = self.current
-        pool = [u for u in UPGRADES if not p.has(u)]
-        if not pool:
-            raise GameError("Your ship already carries every fitting.")
-        if p.scrolls < SHOP_COST:
-            raise GameError(f"The shipwright wants {SHOP_COST} scrolls.")
-        p.scrolls -= SHOP_COST
-        self.rng.shuffle(pool)
-        self.upgrade_offer = pool[:2]
-        self._say(f"{p.name} pays the shipwright {SHOP_COST} scrolls for new fittings.")
-        self._bump("upgrade_pick")
+        stock = SHOP_ITEMS.get(item)
+        if not stock:
+            raise GameError("The trader doesn't stock that.")
+        if p.scrolls < stock["cost"]:
+            raise GameError(f"{stock['name']} costs {stock['cost']} scrolls.")
+        if item == "fitting":
+            pool = [u for u in UPGRADES if not p.has(u)]
+            if not pool:
+                raise GameError("Your ship already carries every fitting.")
+            p.scrolls -= stock["cost"]
+            self.rng.shuffle(pool)
+            self.upgrade_offer = pool[:2]
+            self._say(f"{p.name} pays the shipwright {stock['cost']} scrolls.")
+            self._bump("upgrade_pick")
+            return
+        p.scrolls -= stock["cost"]
+        p.items[item] = p.items.get(item, 0) + 1
+        self.nonce += 1
+        self._say(f"{p.name} buys a {stock['name']}.")
 
-    def buy_hint(self, pid: str):
-        """Any open question: HINT_COST scrolls burns away 2 wrong options."""
-        self._require_turn(pid, "question")
-        if self.question is None:
-            raise GameError("The question is still on its way.")
-        if self.question.get("disabled"):
-            raise GameError("The options are already narrowed.")
-        p = self.current
-        if p.scrolls < HINT_COST:
-            raise GameError(f"A hint costs {HINT_COST} scrolls.")
-        if len(self.question["options"]) <= 2:
-            raise GameError("Nothing left to narrow.")
-        p.scrolls -= HINT_COST
-        correct = self.question["correct"]
-        wrong = [i for i in range(len(self.question["options"])) if i != correct]
-        self.rng.shuffle(wrong)
-        self.question["disabled"] = sorted(wrong[:2])
-        self._say(f"📜 {p.name} consults the scrolls — two false answers burn away.")
+    # ── consumables ──────────────────────────────────────────────────────────
+    def use_item_charm(self, pid: str, item: str):
+        """Spend a carried consumable: hint (during your question), gale
+        (before rolling), horn (before picking a battle stance).
+        Aegis Charms trigger on their own when you take damage."""
+        p = self.player_by_pid(pid)
+        if not p or self.current.pid != pid:
+            raise GameError("Not your turn.")
+        if p.items.get(item, 0) <= 0:
+            raise GameError("You don't carry one.")
+        if item == "hint":
+            if self.phase != "question" or self.question is None:
+                raise GameError("No question to narrow.")
+            if self.question.get("disabled"):
+                raise GameError("The options are already narrowed.")
+            if len(self.question["options"]) <= 2:
+                raise GameError("Nothing left to narrow.")
+            p.items["hint"] -= 1
+            correct = self.question["correct"]
+            wrong = [i for i in range(len(self.question["options"])) if i != correct]
+            self.rng.shuffle(wrong)
+            self.question["disabled"] = sorted(wrong[:2])
+            self._say(f"📜 {p.name}'s hint stone burns away two false answers.")
+        elif item == "gale":
+            if self.phase != "roll":
+                raise GameError("Use it before you roll.")
+            p.items["gale"] -= 1
+            p.next_roll_bonus += GALE_BONUS
+            self.nonce += 1
+            self._say(f"🌬 {p.name} cracks a gale charm — +{GALE_BONUS} to the coming roll.")
+        elif item == "horn":
+            if self.phase != "battle":
+                raise GameError("Sound it in battle, before your move.")
+            if self.battle.get("horn"):
+                raise GameError("The horn already sounds.")
+            p.items["horn"] -= 1
+            self.battle["horn"] = True
+            self.nonce += 1
+            self._say(f"📯 {p.name} sounds the war horn — the next STRIKE lands harder.")
+        else:
+            raise GameError("That charm works on its own.")
+
+    def _absorb(self, p: Player, dmg: int) -> tuple[int, bool]:
+        """Aegis Charms eat the next damage automatically."""
+        if dmg > 0 and p.items.get("aegis_charm", 0) > 0:
+            p.items["aegis_charm"] -= 1
+            self._say(f"🛡 {p.name}'s aegis charm shatters — the blow is turned aside.")
+            return 0, True
+        return dmg, False
 
     # ── battle (Paper-Mario turns: your move, then the enemies') ─────────────
     def stance(self, pid: str, stance: str, target: int = 0):
@@ -476,17 +540,33 @@ class Game:
         self._bump("question")
 
     def flee(self, pid: str):
+        """FLEE_COST scrolls buys a coin flip: slip away clean, or the front
+        enemy lands a free hit and the fight goes on. Trials allow no retreat."""
         self._require_turn(pid, "battle")
         p = self.current
-        p.hull -= 1
         m = self.board.alive_monster(self.battle["node"])
-        self._say(f"{p.name} breaks off from {m['name']}, Health scraped.")
+        if m.get("boss"):
+            raise GameError("There is no retreat from a trial.")
+        if p.scrolls < FLEE_COST:
+            raise GameError(f"Fleeing costs {FLEE_COST} scrolls.")
+        p.scrolls -= FLEE_COST
+        if self.rng.random() < 0.5:
+            p.node = p.prev_node
+            self.battle = None
+            self._say(f"🏃 {p.name} slips away from {m['name']}.")
+            self._next_turn()
+            return
+        front = next(e for e in m["enemies"] if e["hp"] > 0)
+        hit, blocked = self._absorb(p, front["power"])
+        p.hull -= hit
+        self._say(f"✗ {m['name']} cuts off the escape — "
+                  + ("the aegis holds." if blocked else f"{front['name']} strikes for {hit}."))
         if p.hull <= 0:
             self._shipwreck(p)
+            self.battle = None
+            self._next_turn()
         else:
-            p.node = p.prev_node
-        self.battle = None
-        self._next_turn()
+            self.nonce += 1        # still in the fight — choose again
 
     def use_item(self, pid: str, item: str):
         """Owl / Lyre, usable while a battle question is up."""
@@ -629,7 +709,11 @@ class Game:
                 self._streak_bonus(p)
                 if stance == "attack":
                     dmg = STRIKE_DMG + (1 if p.has("ram") else 0)
-                    note = f"⚔ Your blade bites {tgt['name']} for {dmg}!"
+                    horn = self.battle.get("horn")
+                    if horn:
+                        dmg += HORN_BONUS
+                        self.battle["horn"] = False
+                    note = f"{'📯 ' if horn else ''}⚔ Your blade bites {tgt['name']} for {dmg}!"
                 else:
                     dmg = MAGIC_DMG + (1 if p.has("trident") else 0)
                     note = f"✨ Arcane fire sears {tgt['name']} for {dmg}!"
@@ -642,15 +726,15 @@ class Game:
                 if not alive:
                     battle_over = True
                     node = self.board.nodes[self.battle["node"]]
-                    if node["type"] == "fleece":
+                    if node["type"] == "pharos":
                         self.winner = p.pid
-                        note = f"🏆 The last guardian falls — {p.name} seizes the GOLDEN FLEECE!"
+                        note = f"🏆 The Warden falls — {p.name} takes the PHAROS!"
                     else:
                         note += f" {m['name']} — defeated!"
                         if node.get("relic") and not node.get("taken"):
                             node["taken"] = True
                             p.cargo.append(node["relic"])
-                            note += " The relic is aboard — sail it home!"
+                            note += " Seal aboard — sail it home."
                         loot = sum(e["max_hp"] for e in enemies)
                         p.scrolls += loot
                         gained = loot
@@ -664,20 +748,24 @@ class Game:
             else:
                 p.streak = 0
                 if stance == "magic":
-                    hit = MAGIC_BACKFIRE
+                    hit, blocked = self._absorb(p, MAGIC_BACKFIRE)
                     enemy_phase["backfire"] = True
                     enemy_phase["dmg"] = hit
-                    note = f"🔥 The spell backfires — {hit} damage to your ship!"
+                    note = ("🛡 The aegis charm eats the backfire."
+                            if blocked else f"🔥 The spell backfires — {hit} damage!")
                 else:
                     front = next(e for e in enemies if e["hp"] > 0)
-                    hit = front["power"]
-                    if p.has("aegis") and not self.battle["first_hit_taken"]:
+                    hit, blocked = self._absorb(p, front["power"])
+                    if blocked:
+                        note = "🛡 The aegis charm turns the blow. "
+                    elif p.has("aegis") and not self.battle["first_hit_taken"]:
                         hit = max(1, hit // 2)
                         self.battle["first_hit_taken"] = True
                         note = "Your Aegis shard flares — "
                     enemy_phase["attacker"] = front["name"]
                     enemy_phase["dmg"] = hit
-                    note += f"💥 {front['name']} strikes for {hit}!"
+                    if not blocked:
+                        note += f"💥 {front['name']} strikes for {hit}!"
                 p.hull -= hit
                 if p.hull <= 0:
                     battle_over = True
@@ -828,7 +916,7 @@ class Game:
         for p in self.players:
             p.reset()
         self.winner = None
-        self.fleece_revealed = False
+        self.pharos_open = False
         self.bounties = self._make_bounties()
         self.used_puzzles = set()
         self.log = []
@@ -851,8 +939,9 @@ class Game:
                             for e in m["enemies"]],
                 "strike_tier": 2 if boss else 1,
                 "node": self.battle["node"], "is_lair": node["type"] == "lair",
-                "is_fleece": node["type"] == "fleece",
+                "is_pharos": node["type"] == "pharos",
                 "target": self.battle.get("target", 0),
+                "horn": bool(self.battle.get("horn")),
                 "used_items": self.battle["used_items"]}
 
     def _node_view(self, nid: str) -> dict:
@@ -869,7 +958,7 @@ class Game:
             base["tier"] = node["tier"]
         elif node["type"] == "puzzle":
             base["solved"] = node.get("solved", False)
-        elif node["type"] in ("monster", "lair", "fleece"):
+        elif node["type"] in ("monster", "lair", "pharos"):
             m = node.get("monster")
             alive = [e for e in (m["enemies"] if m else []) if e["hp"] > 0]
             base["monster"] = None if not alive else {
@@ -916,11 +1005,11 @@ class Game:
                          if self.phase == "minigame" and self.minigame else None),
             "upgrade_offer": self.upgrade_offer if self.phase == "upgrade_pick" else None,
             "upgrade_info": UPGRADES,
-            "fleece_revealed": self.fleece_revealed,
+            "pharos_open": self.pharos_open,
             "bounties": self.bounties,
             "winner": self.winner,
             "log": self.log,
             "config": {"relics_to_win": RELICS_TO_WIN, "tier_reward": TIER_REWARD,
                        "streak_at": STREAK_AT, "max_hull": MAX_HULL,
-                       "hint_cost": HINT_COST, "shop_cost": SHOP_COST},
+                       "flee_cost": FLEE_COST, "shop_items": SHOP_ITEMS},
         }
