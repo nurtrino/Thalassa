@@ -516,3 +516,8 @@ body.battling #players { opacity: .35; }
 .breward { white-space: nowrap; }
 body.battling #bounties { display: none !important; }
 @media (max-width: 700px) { #bounties { top: auto; bottom: 170px; font-size: 11px; } }
+
+/* tetromino drag */
+.dragghost { position: fixed; z-index: 400; pointer-events: none; left: -999px; top: -999px; }
+.mgcell.drop-ok { background: #b9e5c1 !important; border-color: #33ca7f !important; }
+.mgcell.drop-bad { border-color: #e4572e !important; }

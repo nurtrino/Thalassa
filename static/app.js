@@ -15,9 +15,9 @@ const MG_LABEL = {
   ravens: 'The Pattern of Fate',
 };
 const MG_PROMPT = {
-  tetromino: 'Fill the grid with the given pieces. Tap to select, tap again to rotate, tap the grid to place.',
+  tetromino: 'Drag each piece onto the grid. No rotating — they fit as given.',
   nonogram: 'Match every row and column to its clue numbers. Bronze cells are given.',
-  simon: 'Watch the sequence. Repeat it from memory.',
+  simon: 'Watch the sequence, then repeat it. One wrong note fails it.',
   anagram: 'Unscramble the word.',
   ravens: 'Find the pattern. Pick the missing tile.',
 };
@@ -631,8 +631,13 @@ function renderQuestion() {
 function startTimerBar(deadline, barId) {
   cancelAnimationFrame(timerRAF);
   const bar = document.querySelector(barId);
+  bar.parentElement.style.display = deadline ? '' : 'none';
   if (!deadline) { bar.style.width = '100%'; return; }
-  const total = deadline - Date.now() / 1000;
+  if (bar.dataset.deadline !== String(deadline)) {
+    bar.dataset.deadline = String(deadline);
+    bar.dataset.total = String(Math.max(0.001, deadline - Date.now() / 1000));
+  }
+  const total = parseFloat(bar.dataset.total);
   const tick = () => {
     const left = deadline - Date.now() / 1000;
     const pct = Math.max(0, Math.min(1, left / total));
@@ -678,20 +683,13 @@ function renderMinigame() {
   else if (m.kind === 'ravens') renderRavens(board, m, mine, fresh);
 }
 
-/* tetromino — Talos-style sigil fill */
+/* tetromino — Talos-style sigil fill: drag to place, no rotation */
 const PIECE_COLORS = ['#e4572e', '#2e86ab', '#f6ae2d', '#8e5572', '#33ca7f', '#6457a6', '#c9a227'];
-
-function rotForm(form, times) {
-  let cur = form.map(([x, y]) => [x, y]);
-  for (let i = 0; i < times; i++) cur = cur.map(([x, y]) => [y, -x]);
-  const xs = Math.min(...cur.map((c) => c[0])), ys = Math.min(...cur.map((c) => c[1]));
-  return cur.map(([x, y]) => [x - xs, y - ys]);
-}
 
 function renderTetromino(board, m, mine, fresh) {
   if (fresh) {
     mg.cells = Array(m.w * m.h).fill(-1);
-    mg.placed = {};                               // pieceIdx → cells
+    mg.placed = {};
   }
   board.innerHTML = '';
   const grid = document.createElement('div');
@@ -700,34 +698,17 @@ function renderTetromino(board, m, mine, fresh) {
   for (let i = 0; i < m.w * m.h; i++) {
     const c = document.createElement('button');
     c.className = 'mgcell';
+    c.dataset.cell = i;
     const v = mg.cells[i];
     if (v >= 0) c.style.background = PIECE_COLORS[v % PIECE_COLORS.length];
     c.disabled = !mine;
     c.onclick = () => {
-      if (mg.cells[i] >= 0) {                     // lift a placed piece
+      if (mg.cells[i] >= 0) {                     // tap a placed piece to lift it
         const idx = mg.cells[i];
         for (const j of mg.placed[idx]) mg.cells[j] = -1;
         delete mg.placed[idx];
-      } else if (mg.sel !== null && !(mg.sel in mg.placed)) {
-        const form = rotForm(m.shapes[m.pieces[mg.sel]], mg.rot);
-        const x0 = i % m.w, y0 = Math.floor(i / m.w);
-        const cells = [];
-        for (const [dx, dy] of form) {
-          const x = x0 + dx, y = y0 + dy;
-          if (x >= m.w || y >= m.h || mg.cells[y * m.w + x] >= 0) { cells.length = 0; break; }
-          cells.push(y * m.w + x);
-        }
-        if (cells.length === 4) {
-          for (const j of cells) mg.cells[j] = mg.sel;
-          mg.placed[mg.sel] = cells;
-          if (Object.keys(mg.placed).length === m.pieces.length) {
-            send({ type: 'solve', payload: mg.cells });
-          }
-        } else {
-          $('mgnote').textContent = 'It does not fit there.';
-        }
+        renderTetromino(board, m, mine, false);
       }
-      renderTetromino(board, m, mine, false);
     };
     grid.appendChild(c);
   }
@@ -735,15 +716,14 @@ function renderTetromino(board, m, mine, fresh) {
 
   const palette = document.createElement('div');
   palette.className = 'mgpalette';
-  m.pieces.forEach((name, idx) => {
+  m.pieces.forEach((form, idx) => {
     const used = idx in (mg.placed || {});
     const pbtn = document.createElement('button');
-    pbtn.className = 'mgpiece' + (mg.sel === idx ? ' sel' : '') + (used ? ' used' : '');
+    pbtn.className = 'mgpiece' + (used ? ' used' : '');
     pbtn.disabled = !mine || used;
-    const form = rotForm(m.shapes[name], mg.sel === idx ? mg.rot : 0);
     const pw = Math.max(...form.map((c) => c[0])) + 1;
     const ph = Math.max(...form.map((c) => c[1])) + 1;
-    pbtn.style.gridTemplateColumns = `repeat(${pw}, 8px)`;
+    pbtn.style.gridTemplateColumns = `repeat(${pw}, 10px)`;
     for (let y = 0; y < ph; y++) {
       for (let x = 0; x < pw; x++) {
         const dot = document.createElement('i');
@@ -753,18 +733,75 @@ function renderTetromino(board, m, mine, fresh) {
         pbtn.appendChild(dot);
       }
     }
-    pbtn.onclick = () => {
-      if (mg.sel === idx) mg.rot = (mg.rot + 1) % 4;    // tap again = rotate
-      else { mg.sel = idx; mg.rot = 0; }
-      renderTetromino(board, m, mine, false);
-    };
+    pbtn.addEventListener('pointerdown', (e) => {
+      if (!mine || (idx in mg.placed)) return;
+      e.preventDefault();
+      dragPiece(e, board, grid, m, form, idx, mine);
+    });
     palette.appendChild(pbtn);
   });
   const tip = document.createElement('span');
   tip.className = 'hint';
-  tip.textContent = 'tap selected piece again to rotate';
+  tip.textContent = 'drag a piece onto the grid · tap a placed piece to lift it';
   palette.appendChild(tip);
   board.appendChild(palette);
+}
+
+function dragPiece(e0, board, grid, m, form, idx, mine) {
+  const cellRect = grid.querySelector('.mgcell').getBoundingClientRect();
+  const cellPx = cellRect.width + 4;
+  const ghost = document.createElement('div');
+  ghost.className = 'dragghost';
+  for (const [x, y] of form) {
+    const b = document.createElement('div');
+    b.style.cssText = `position:absolute;left:${x * cellPx}px;top:${y * cellPx}px;` +
+      `width:${cellPx - 4}px;height:${cellPx - 4}px;border-radius:8px;` +
+      `background:${PIECE_COLORS[idx % PIECE_COLORS.length]};opacity:.88`;
+    ghost.appendChild(b);
+  }
+  document.body.appendChild(ghost);
+  let hoverCells = null;
+
+  const move = (e) => {
+    ghost.style.left = (e.clientX - cellPx * 0.4) + 'px';
+    ghost.style.top = (e.clientY - cellPx * 0.4) + 'px';
+    [...grid.children].forEach((c) => c.classList.remove('drop-ok', 'drop-bad'));
+    hoverCells = null;
+    const el = document.elementFromPoint(e.clientX, e.clientY);
+    const cell = el && el.closest ? el.closest('.mgcell') : null;
+    if (!cell) return;
+    const anchor = parseInt(cell.dataset.cell, 10);
+    const x0 = anchor % m.w, y0 = Math.floor(anchor / m.w);
+    const cells = [];
+    for (const [dx, dy] of form) {
+      const x = x0 + dx, y = y0 + dy;
+      if (x >= m.w || y >= m.h || mg.cells[y * m.w + x] >= 0) { cells.length = 0; break; }
+      cells.push(y * m.w + x);
+    }
+    if (cells.length === 4) {
+      hoverCells = cells;
+      cells.forEach((i) => grid.children[i].classList.add('drop-ok'));
+    } else {
+      cell.classList.add('drop-bad');
+    }
+  };
+  const up = () => {
+    document.removeEventListener('pointermove', move);
+    document.removeEventListener('pointerup', up);
+    ghost.remove();
+    [...grid.children].forEach((c) => c.classList.remove('drop-ok', 'drop-bad'));
+    if (hoverCells) {
+      for (const j of hoverCells) mg.cells[j] = idx;
+      mg.placed[idx] = hoverCells;
+      if (Object.keys(mg.placed).length === m.pieces.length) {
+        send({ type: 'solve', payload: mg.cells });
+      }
+    }
+    renderTetromino(board, m, mine, false);
+  };
+  document.addEventListener('pointermove', move);
+  document.addEventListener('pointerup', up);
+  move(e0);
 }
 
 /* nonogram */
@@ -858,6 +895,13 @@ function renderSimon(board, m, mine, fresh) {
       if (!mine || !mg.watched) return;
       flash(t, i);
       mg.taps.push(i);
+      if (i !== m.seq[mg.taps.length - 1]) {
+        // one wrong note ends the echo — no clock, no second chances
+        send({ type: 'solve', payload: mg.taps });
+        mg.taps = [];
+        $('mgnote').textContent = 'A wrong note…';
+        return;
+      }
       $('mgnote').textContent = `${mg.taps.length} / ${m.seq.length}`;
       if (mg.taps.length === m.seq.length) {
         send({ type: 'solve', payload: mg.taps });
@@ -876,7 +920,7 @@ function renderSimon(board, m, mine, fresh) {
         setTimeout(() => {
           mg.watched = true;
           tiles.forEach((t) => { t.disabled = !mine; });
-          $('mgnote').textContent = mine ? 'Now repeat the song. A miss costs a scroll!' : '';
+          $('mgnote').textContent = mine ? 'Repeat the song. One wrong note fails it (−1 scroll).' : '';
         }, 560);
       }
     }, 800 + k * 700);

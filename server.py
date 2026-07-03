@@ -142,8 +142,8 @@ async def reveal_timer(nonce: int):
     g = table.game
     if g.nonce == nonce and g.phase == "reveal":
         g.advance_after_reveal()
-        await broadcast()
         after_phase_change()
+        await broadcast()
 
 
 async def minigame_timer(nonce: int, limit: float):
@@ -161,8 +161,9 @@ def after_phase_change():
         schedule(fetch_question(g.nonce))
     elif g.phase == "minigame" and g.minigame and g.minigame["deadline"] is None:
         limit = g.minigame["limit"]
-        g.minigame["deadline"] = time.time() + limit
-        schedule(minigame_timer(g.nonce, limit))
+        if limit:                            # simon runs without a clock
+            g.minigame["deadline"] = time.time() + limit
+            schedule(minigame_timer(g.nonce, limit))
 
 
 # ── shared action dispatch (humans over WS, bots from the driver) ───────────
@@ -234,8 +235,8 @@ async def dispatch(pid: str | None, kind: str, msg: dict) -> str | None:
         return str(e)
     except (TypeError, ValueError):
         return "Malformed message."
+    after_phase_change()          # set deadlines BEFORE the snapshot goes out
     await broadcast()
-    after_phase_change()
     return None
 
 
@@ -294,8 +295,8 @@ async def bot_move(nonce: int, tag: str, pid: str):
     elif phase == "minigame":
         p_solve = min(0.85, skill.t3 + 0.25)
         g.resolve_minigame(rng.random() < p_solve)
-        await broadcast()
         after_phase_change()
+        await broadcast()
     elif phase == "upgrade_pick":
         err = await dispatch(pid, "pick", {"upgrade": bots.decide_upgrade(g, pid)})
     if err:

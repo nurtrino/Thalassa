@@ -839,6 +839,8 @@ class Game:
         mg = self.minigame
         if puzzles.check(mg["kind"], mg["data"], payload):
             self._puzzle_success(mg["island"])
+        elif mg["kind"] == "simon":
+            self._puzzle_fail(mg["island"])       # one wrong note ends the echo
         else:
             raise GameError("Not solved yet — the isle waits.")
 

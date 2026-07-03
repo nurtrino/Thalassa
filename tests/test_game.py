@@ -493,12 +493,15 @@ def test_minigame_flow_success_and_timeout(monkeypatch):
     assert g.phase == "upgrade_pick"
     assert g.board.nodes[pz]["solved"]
 
-    # timeout path — a fresh game, timer expires on a simon sequence
+    # simon: no clock — but ONE wrong note is an instant fail (and the tithe)
     g2, (q0, q1) = make_game(seed=14)
     pz2 = land_on_puzzle(g2, q0, monkeypatch, force_kind="simon")
     assert g2.phase == "minigame"
-    assert len(g2.minigame["data"]["seq"]) == 6
-    g2.minigame_timeout()
+    assert g2.minigame["limit"] is None                   # untimed
+    seq = g2.minigame["data"]["seq"]
+    assert len(seq) == 6
+    wrong = seq[:2] + [(seq[2] + 1) % 9]
+    g2.minigame_submit(q0, wrong)                         # wrong third note
     assert not g2.board.nodes[pz2]["solved"]
     assert g2.player_by_pid(q0).scrolls == 2              # simon failure tithe
     assert g2.current.pid == q1 and g2.phase == "roll"

@@ -129,6 +129,58 @@ function puffTexture(r, g, b) {
   return tex;
 }
 
+/* seamlessly tiling 3D value-noise fbm, baked once into a Data3DTexture —
+   hardware trilinear filtering beats per-fragment hash noise for both
+   quality and speed, which is what lets the wall raymarch densely */
+function makeNoiseTexture3D(N = 64) {
+  const data = new Uint8Array(N * N * N * 2);
+  const hash = (x, y, z) => {
+    let n = Math.imul(x, 374761393) ^ Math.imul(y, 668265263) ^ Math.imul(z, 1274126177);
+    n = Math.imul(n ^ (n >>> 13), 1103515245);
+    return ((n ^ (n >>> 16)) >>> 0) / 4294967295;
+  };
+  const sm = (v) => v * v * (3 - 2 * v);
+  const vnoise = (fx, fy, fz, f) => {
+    const x0 = Math.floor(fx), y0 = Math.floor(fy), z0 = Math.floor(fz);
+    const tx = sm(fx - x0), ty = sm(fy - y0), tz = sm(fz - z0);
+    let acc = 0;
+    for (let c = 0; c < 8; c++) {
+      const cx = c & 1, cy = (c >> 1) & 1, cz = (c >> 2) & 1;
+      const w = (cx ? tx : 1 - tx) * (cy ? ty : 1 - ty) * (cz ? tz : 1 - tz);
+      acc += w * hash((x0 + cx) % f, (y0 + cy) % f, (z0 + cz) % f);
+    }
+    return acc;
+  };
+  for (let z = 0; z < N; z++) {
+    for (let y = 0; y < N; y++) {
+      for (let x = 0; x < N; x++) {
+        const u = x / N, v = y / N, w = z / N;
+        let base = 0, amp = 0.55;
+        for (const f of [4, 8, 16]) {
+          base += amp * vnoise(u * f, v * f, w * f, f);
+          amp *= 0.5;
+        }
+        let det = 0;
+        amp = 0.6;
+        for (const f of [8, 16, 32]) {
+          det += amp * vnoise(u * f + 3, v * f + 7, w * f + 11, f);
+          amp *= 0.5;
+        }
+        const i = (z * N * N + y * N + x) * 2;
+        data[i] = Math.min(255, base * 268) | 0;
+        data[i + 1] = Math.min(255, det * 235) | 0;
+      }
+    }
+  }
+  const tex = new THREE.Data3DTexture(data, N, N, N);
+  tex.format = THREE.RGFormat;
+  tex.minFilter = THREE.LinearFilter;
+  tex.magFilter = THREE.LinearFilter;
+  tex.wrapS = tex.wrapT = tex.wrapR = THREE.RepeatWrapping;
+  tex.needsUpdate = true;
+  return tex;
+}
+
 /* ── the storm wall: RAYMARCHED volumetric cloud ─────────────────────────
    One bounding cylinder; each fragment marches a 3D noise density field
    through the wall's volume with sun scattering and self-shadowing. The
@@ -143,52 +195,45 @@ const STORM_VERT = `
   }`;
 const STORM_FRAG = `
   precision highp float;
+  precision highp sampler3D;
+  layout(location = 0) out vec4 fragOut;
   varying vec3 vW;
   uniform float t;
+  uniform sampler3D uNoise;
   uniform vec3 sunD; uniform vec3 cA; uniform vec3 cB; uniform vec3 cC;
   uniform vec4 uGates;
   uniform float boltA; uniform float boltI;
 
-  float hash(vec3 p) {
-    p = fract(p * 0.3183099 + 0.1);
-    p *= 17.0;
-    return fract(p.x * p.y * p.z * (p.x + p.y + p.z));
-  }
-  float vnoise(vec3 x) {
-    vec3 i = floor(x); vec3 f = fract(x);
-    f = f * f * (3.0 - 2.0 * f);
-    return mix(mix(mix(hash(i), hash(i + vec3(1,0,0)), f.x),
-                   mix(hash(i + vec3(0,1,0)), hash(i + vec3(1,1,0)), f.x), f.y),
-               mix(mix(hash(i + vec3(0,0,1)), hash(i + vec3(1,0,1)), f.x),
-                   mix(hash(i + vec3(0,1,1)), hash(i + vec3(1,1,1)), f.x), f.y), f.z);
-  }
-  float fbm(vec3 p) {
-    float v = 0.0; float a = 0.55;
-    for (int i = 0; i < 4; i++) { v += a * vnoise(p); p = p * 2.11 + 13.7; a *= 0.5; }
-    return v;
-  }
+  const float R_IN = 510.0;
+  const float R_OUT = 790.0;
+  const float R_MID = 640.0;
 
-  const float R_IN = 520.0;
-  const float R_OUT = 780.0;
-
-  float density(vec3 p) {
-    if (p.y < -6.0 || p.y > 330.0) return 0.0;
-    float r = length(p.xz);
-    float radial = smoothstep(R_IN, 596.0, r) * (1.0 - smoothstep(700.0, R_OUT, r));
-    if (radial <= 0.001) return 0.0;
-    vec3 q = p * 0.0085;
-    q.y *= 0.55;
-    float n = fbm(q + vec3(0.0, -t * 0.028, t * 0.012));
-    float crown = 1.0 - smoothstep(140.0 + n * 150.0, 325.0, p.y);
-    float d = smoothstep(0.30, 0.58, n * 0.82 + 0.22) * radial * crown;
-    // the four gate channels: arched clear passages through the wall
+  float gateCut(vec3 p) {
     float ang = atan(p.z, p.x);
+    float m = 1.0;
     for (int i = 0; i < 4; i++) {
       float dd = abs(mod(ang - uGates[i] + 3.14159265, 6.2831853) - 3.14159265);
       float w0 = 0.085 * (1.0 - smoothstep(8.0, 64.0, p.y));
-      d *= smoothstep(w0 * 0.45, w0, dd);
+      m *= smoothstep(w0 * 0.45, w0, dd);
     }
-    return d;
+    return m;
+  }
+
+  float density(vec3 p) {
+    if (p.y < -6.0 || p.y > 460.0) return 0.0;
+    float r = length(p.xz);
+    float radial = smoothstep(R_IN, 596.0, r) * (1.0 - smoothstep(690.0, R_OUT, r));
+    if (radial <= 0.002) return 0.0;
+    // base billows — big tiling fbm, drifting slowly
+    vec2 nz = texture(uNoise, p * 0.0022 + vec3(0.0, -t * 0.0035, t * 0.0016)).rg;
+    // towering columns: squash the sampling vertically
+    float base = texture(uNoise, vec3(p.x, p.y * 0.45, p.z) * 0.0042
+                                 + vec3(t * 0.002, -t * 0.005, 0.0)).r;
+    float shape = radial * (1.0 - smoothstep(150.0 + base * 260.0, 460.0, p.y));
+    float d = smoothstep(0.40, 0.62, base * 0.72 + nz.x * 0.28) * shape;
+    // detail erosion carves the cauliflower edges
+    d = max(0.0, d - (1.0 - nz.y) * 0.32 * (1.0 - d));
+    return d * gateCut(p);
   }
 
   vec2 cylT(vec3 o, vec3 d, float r) {
@@ -201,6 +246,12 @@ const STORM_FRAG = `
     return vec2((-b - sq) / (2.0 * a), (-b + sq) / (2.0 * a));
   }
 
+  float hash1(vec3 p) {
+    p = fract(p * 0.3183099 + 0.1);
+    p *= 17.0;
+    return fract(p.x * p.y * p.z * (p.x + p.y + p.z));
+  }
+
   void main() {
     vec3 o = cameraPosition;
     vec3 d = normalize(vW - o);
@@ -208,43 +259,51 @@ const STORM_FRAG = `
     vec2 tin = cylT(o, d, R_IN);
     vec2 tout = cylT(o, d, R_OUT);
     float t0; float t1;
-    if (rc < R_IN) {                 // inside the Safe Isles, looking out
-      t0 = max(tin.y, 0.0);
-      t1 = tout.y;
-    } else if (rc <= R_OUT) {        // inside the wall itself
-      t0 = 0.0;
-      t1 = (tin.x > 0.0) ? tin.x : tout.y;
-    } else {                         // out in the wild regions
-      t0 = max(tout.x, 0.0);
-      t1 = (tin.x > 0.0) ? tin.x : tout.y;
-    }
+    if (rc < R_IN) { t0 = max(tin.y, 0.0); t1 = tout.y; }
+    else if (rc <= R_OUT) { t0 = 0.0; t1 = (tin.x > 0.0) ? tin.x : tout.y; }
+    else { t0 = max(tout.x, 0.0); t1 = (tin.x > 0.0) ? tin.x : tout.y; }
     if (t1 <= t0) discard;
-    t1 = min(t1, t0 + 520.0);
-    const int N = 22;
+    t1 = min(t1, t0 + 560.0);
+
+    const int N = 40;
     float span = (t1 - t0) / float(N);
-    float tt = t0 + span * hash(vW * 0.37);
+    float tt = t0 + span * hash1(vW * 0.61 + t);
     float T = 1.0;
     vec3 acc = vec3(0.0);
+    float mu = max(dot(d, sunD), 0.0);
+    vec3 sunCol = vec3(1.0, 0.92, 0.78);
     for (int i = 0; i < N; i++) {
       vec3 p = o + d * tt;
       float de = density(p);
-      if (de > 0.004) {
-        float a = 1.0 - exp(-de * span * 0.085);
-        float dl = density(p + sunD * 30.0);
-        float lit = exp(-dl * 2.4);
-        float h = clamp(p.y / 300.0, 0.0, 1.0);
-        vec3 col = mix(cA, mix(cB, cC, h), lit);
+      if (de > 0.006) {
+        // short light march toward the sun: self-shadowing
+        float dl = 0.0;
+        dl += density(p + sunD * 18.0);
+        dl += density(p + sunD * 42.0) * 0.7;
+        dl += density(p + sunD * 80.0) * 0.4;
+        float beer = exp(-dl * 2.8);
+        float powder = 1.0 - exp(-de * 9.0);
+        float above = density(p + vec3(0.0, 30.0, 0.0));
+        float skyAO = exp(-above * 2.0);
+        float h = clamp(p.y / 400.0, 0.0, 1.0);
+        vec3 ambient = mix(cA, cB, h) * (0.35 + 0.6 * skyAO);
+        vec3 direct = sunCol * beer * mix(0.75, 1.35, powder) * 0.95;
+        vec3 col = ambient + direct * mix(cB, cC, h);
+        // silver lining when looking toward the sun through thin cloud
+        col += sunCol * pow(mu, 8.0) * exp(-dl * 4.0) * 0.55;
+        // lightning glowing inside the cloud
         float gd = abs(mod(atan(p.z, p.x) - boltA + 3.14159265, 6.2831853) - 3.14159265);
-        col += vec3(0.72, 0.78, 1.0) * boltI * exp(-4.5 * gd) * de * 1.8;
+        col += vec3(0.72, 0.78, 1.0) * boltI * exp(-4.5 * gd) * de * 2.2;
+        float a = 1.0 - exp(-de * span * 0.11);
         acc += T * a * col;
         T *= 1.0 - a;
-        if (T < 0.03) break;
+        if (T < 0.02) break;
       }
       tt += span;
     }
     float alpha = 1.0 - T;
     if (alpha < 0.01) discard;
-    gl_FragColor = vec4(acc / max(alpha, 0.06), alpha);
+    fragOut = vec4(acc / max(alpha, 0.05), alpha);
   }`;
 const TEX_CLOUD = puffTexture(255, 255, 255);
 const TEX_MIST = puffTexture(226, 236, 240);
@@ -1624,13 +1683,15 @@ export function createWorld(container, onIslandClick) {
   const WALL_R = 640;
   const storm = new THREE.Group();
   const stormMat = new THREE.ShaderMaterial({
+    glslVersion: THREE.GLSL3,
     transparent: true, depthWrite: false, side: THREE.DoubleSide,
     uniforms: {
       t: { value: 0 },
+      uNoise: { value: makeNoiseTexture3D(64) },
       sunD: { value: new THREE.Vector3(0.45, 0.62, 0.22).normalize() },
-      cA: { value: new THREE.Color(0x232030) },
-      cB: { value: new THREE.Color(0x8a8496) },
-      cC: { value: new THREE.Color(0xb9b2c4) },
+      cA: { value: new THREE.Color(0x2c2838) },
+      cB: { value: new THREE.Color(0x686275) },
+      cC: { value: new THREE.Color(0xd8d2de) },
       uGates: { value: new THREE.Vector4(99, 99, 99, 99) },
       boltA: { value: 0 }, boltI: { value: 0 },
     },
@@ -1639,8 +1700,8 @@ export function createWorld(container, onIslandClick) {
   });
   {
     const bound = new THREE.Mesh(
-      new THREE.CylinderGeometry(780, 780, 400, 96, 1, true), stormMat);
-    bound.position.y = 200;
+      new THREE.CylinderGeometry(780, 780, 580, 96, 1, true), stormMat);
+    bound.position.y = 260;
     bound.renderOrder = 4;
     storm.add(bound);
   }

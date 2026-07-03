@@ -26,7 +26,8 @@ def test_tetromino_generation_and_check():
         data = puzzles.gen_tetromino(rng)
         w, h, pieces = data["w"], data["h"], data["pieces"]
         assert len(pieces) == (w * h) // 4
-        # re-tile with the same multiset of pieces (guaranteed possible)
+        # NO rotation: translate each given form as-is; the generator's own
+        # tiling guarantees a translation-only solution exists
         grid = [-1] * (w * h)
         remaining = list(range(len(pieces)))
 
@@ -46,26 +47,27 @@ def test_tetromino_generation_and_check():
                 return True
             y0, x0 = divmod(i, w)
             for idx in list(remaining):
-                for form in puzzles.ROTATIONS[pieces[idx]]:
-                    for ax, ay in form:
-                        cells = fit([(dx - ax, dy - ay) for dx, dy in form], x0, y0)
-                        if cells:
-                            for x, y in cells:
-                                grid[y * w + x] = idx
-                            remaining.remove(idx)
-                            if solve():
-                                return True
-                            for x, y in cells:
-                                grid[y * w + x] = -1
-                            remaining.append(idx)
+                form = [tuple(c) for c in pieces[idx]]
+                for ax, ay in form:
+                    cells = fit([(dx - ax, dy - ay) for dx, dy in form], x0, y0)
+                    if cells:
+                        for x, y in cells:
+                            grid[y * w + x] = idx
+                        remaining.remove(idx)
+                        if solve():
+                            return True
+                        for x, y in cells:
+                            grid[y * w + x] = -1
+                        remaining.append(idx)
             return False
 
-        assert solve(), "generated region cannot be re-tiled"
+        assert solve(), "translation-only tiling must exist"
         assert puzzles.check_tetromino(data, grid)
         bad = grid[:]
         b = next(i for i in range(len(bad)) if bad[i] != bad[0])
         bad[0], bad[b] = bad[b], bad[0]
         assert not puzzles.check_tetromino(data, bad)
+
 
 
 # ── nonogram ─────────────────────────────────────────────────────────────────
