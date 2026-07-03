@@ -800,28 +800,61 @@ export function createWorld(container, handlers = {}) {
     hiKey = key;
     disposeDeep(highlights);
     highlights.clear();
-    for (const nid of ids) {
-      const isle = st.islands[nid];
-      const n = nodeById[nid];
-      const R = isle?.R ?? 5;
-      const ring = new THREE.Mesh(new THREE.RingGeometry(R * 1.34, R * 1.52, 40),
-        new THREE.MeshBasicMaterial({
-          color: GOLD, transparent: true, opacity: 0.9,
-          side: THREE.DoubleSide, depthWrite: false, fog: false }));
-      ring.rotation.x = -Math.PI / 2;
-      ring.position.set(n?.x ?? 0, 0.35, n?.z ?? 0);
-      ring.renderOrder = 5;
-      ring.userData.node = nid;
-      highlights.add(ring);
-      // fat invisible disc so the ring itself is an easy click/tap target —
-      // and the only target for cross-wall destinations with no proxy here
-      const disc = new THREE.Mesh(new THREE.CircleGeometry(R * 1.6, 16),
-        new THREE.MeshBasicMaterial({ visible: false }));
-      disc.rotation.x = -Math.PI / 2;
-      disc.position.set(n?.x ?? 0, 0.4, n?.z ?? 0);
-      disc.userData.node = nid;
-      highlights.add(disc);
-    }
+    for (const nid of ids) addBeacon(nid, nodeById[nid], st.islands[nid]?.R ?? 5);
+  }
+
+  /* A bold "you can land here" beacon: a bright ring on the water, a shaft of
+   * gold light, and a big downward chevron hovering over the spot. Unmistakable
+   * from the low chase camera, and steady (gentle bob, no harsh flicker).
+   * Every piece is a click target and carries userData.node. */
+  const HL_BRIGHT = 0xffe27a;
+  function addBeacon(nid, n, R) {
+    const x = n?.x ?? 0, z = n?.z ?? 0;
+    const rr = Math.max(3.6, R);
+    const bmat = () => new THREE.MeshBasicMaterial({ color: HL_BRIGHT,
+      transparent: true, side: THREE.DoubleSide, depthWrite: false, fog: false });
+
+    const ring = new THREE.Mesh(new THREE.RingGeometry(rr * 1.25, rr * 1.55, 44), bmat());
+    ring.material.opacity = 0.85;
+    ring.rotation.x = -Math.PI / 2;
+    ring.position.set(x, 0.32, z);
+    ring.renderOrder = 6;
+    ring.userData = { node: nid, role: 'ring' };
+
+    // a soft second ring for a halo so it reads on bright sand too
+    const halo = new THREE.Mesh(new THREE.RingGeometry(rr * 0.2, rr * 1.25, 40), bmat());
+    halo.material.opacity = 0.14;
+    halo.material.blending = THREE.AdditiveBlending;
+    halo.rotation.x = -Math.PI / 2;
+    halo.position.set(x, 0.28, z);
+    halo.renderOrder = 5;
+    halo.userData = { node: nid, role: 'halo' };
+
+    // a slim shaft of light — narrow enough to leave the island readable
+    const beam = new THREE.Mesh(
+      new THREE.CylinderGeometry(rr * 0.28, rr * 0.5, 13, 20, 1, true), bmat());
+    beam.material.opacity = 0.12;
+    beam.material.blending = THREE.AdditiveBlending;
+    beam.position.set(x, 7.5, z);
+    beam.renderOrder = 6;
+    beam.userData = { node: nid, role: 'beam' };
+
+    // a bright downward chevron floating well above the spot
+    const chSize = Math.min(rr * 0.5, 2.6);
+    const chev = new THREE.Mesh(new THREE.ConeGeometry(chSize, chSize * 1.5, 4), bmat());
+    chev.material.opacity = 1;
+    chev.rotation.x = Math.PI;                       // point down at the spot
+    chev.position.set(x, 9, z);
+    chev.renderOrder = 8;
+    chev.userData = { node: nid, role: 'chev', ph: (hashStr(nid) % 628) / 100 };
+
+    const disc = new THREE.Mesh(new THREE.CircleGeometry(rr * 1.8, 16),
+      new THREE.MeshBasicMaterial({ visible: false }));
+    disc.rotation.x = -Math.PI / 2;
+    disc.position.set(x, 0.4, z);
+    disc.userData = { node: nid, role: 'disc' };
+
+    highlights.add(ring, halo, beam, chev, disc);
   }
 
   /* ── stage switching (with the ink fade) ────────────────────────────── */
@@ -1190,11 +1223,18 @@ export function createWorld(container, handlers = {}) {
   }
 
   function tickHighlights(t) {
-    let hi = 0;
-    for (const ring of highlights.children) {
-      ring.material.opacity = 0.55 + Math.sin(t * 3.5 + hi++) * 0.25;
-      const s = 1 + Math.sin(t * 3.5 + hi) * 0.035;
-      ring.scale.set(s, s, 1);
+    for (const o of highlights.children) {
+      const role = o.userData.role;
+      if (role === 'ring') {
+        o.material.opacity = 0.7 + Math.sin(t * 2.0) * 0.15;   // steady breathe
+      } else if (role === 'halo') {
+        o.material.opacity = 0.1 + Math.sin(t * 2.0 + 0.6) * 0.05;
+      } else if (role === 'beam') {
+        o.material.opacity = 0.12 + Math.sin(t * 2.0 + 1.0) * 0.05;
+      } else if (role === 'chev') {
+        o.position.y = 8.6 + Math.sin(t * 2.4 + o.userData.ph) * 0.45;  // gentle bob
+        o.rotation.y = t * 1.4;                                  // slow spin
+      }
     }
   }
 

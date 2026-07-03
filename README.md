@@ -26,11 +26,15 @@ storm the Pharos.
    fittings, havens set your respawn checkpoint and patch the hull, market
    isles sell gear, hunting grounds bite — and open water is never quite
    safe: **sea attacks** rise mid-crossing, the deeper the realm the surer.
-4. **The realms.** Four passes pierce the mountains. The desert is crossed
-   *on foot* — you beach your ship at the pass. Every stop deeper raises the
-   ambush odds and the packs' strength; a haven checkpoint waits mid-spine.
-   At the end: the realm's **boss**, a personal trial (everyone faces their
-   own, fresh).
+4. **The realms.** Four passes pierce the mountains, and each realm **forks**
+   into two roads to the boss: a **perilous road** — short and straight, but
+   every stop is an elite pack in deep water — and a **long road** — a wide
+   safe arc of many stops with a haven to camp and a shrine for scrolls, and
+   only a couple of weak packs. Race the gauntlet or plod the safe way; the
+   wilds are fine-grained, so a d3 only nudges you a spot or two per turn — a
+   careful crawl, not a sprint. The desert is crossed *on foot* — you beach
+   your ship at the pass. At the far end: the realm's **boss**, a personal
+   trial (everyone faces their own, fresh).
 5. **Battles** are stance + trivia, and bosses fight like bosses:
    | Stance | Question | Effect |
    |---|---|---|

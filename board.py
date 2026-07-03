@@ -149,7 +149,9 @@ _RING_R = [150.0, 265.0, 380.0]
 _HOME_R = 70.0                # Home Port, just south of the Pharos
 WALL_R = 490.0                # the mountain wall that seals the Safe Isles
 _WAYPOINT_EVERY = 60.0        # aim for a sea node roughly every N world units
-_MAX_WAYPOINTS = 1            # per lane — tuned for exact-roll d3 sailing
+_MAX_WAYPOINTS = 1            # per HUB lane — tuned for exact-roll d3 sailing
+_WAYPOINT_EVERY_REALM = 42.0  # realms are finer-grained: a real crawl
+_MAX_WAYPOINTS_REALM = 2      # per REALM lane
 _FLOTSAM_CHANCE = 0.25
 _SEA_LOOKS = ["buoy", "buoy", "buoy", "rocks", "rocks", "islet", "islet", "none"]
 # The Isles of Peace are exactly that — no hunting grounds, no ambushes. All
@@ -261,57 +263,100 @@ class Board:
         self._insert_waypoints(rng)
 
     def _grow_region(self, gi: int, theme: str, ang: float, rings, names, rng):
-        """A pass through the mountain wall, then a dungeon spine: almost
-        every stop can spawn an ambush, and the packs grow with DEPTH —
-        depth 1 by the pass, the boss at the far end. One haven checkpoint
-        and one shrine break the gauntlet. The desert realm is crossed on
-        foot; its 'sea' stops are dune trail, not water."""
+        """A pass through the mountain wall, then a FORK: two ways to the boss.
+
+          · The PERILOUS road — short and straight, but every stop is an elite
+            hunting ground in deep water. Race it if your ship can take the
+            beating.
+          · The LONG road — a wide arc of many stops, mostly quiet sailing with
+            a haven to camp and a shrine for scrolls, and only a couple of weak
+            packs. Slow, but survivable.
+
+        Both rejoin at a junction just short of the boss altar. The desert
+        realm is crossed on foot; its 'sea' stops are dune trail, not water."""
         info = REGION_POOL[theme]
         mode = info.get("mode", "sail")
+        trail = "Dune Trail" if mode == "foot" else "Open Sea"
+        R0 = WALL_R + 10
+
         gate_id = f"gate{gi}"
-        gx = math.cos(ang) * (WALL_R + 10)
-        gz = math.sin(ang) * (WALL_R + 10)
         self.nodes[gate_id] = {"id": gate_id, "name": f"Pass of {info['name']}",
                                "type": "gate", "band": 4, "region": theme,
                                "gate_angle": round(ang, 4),
-                               "x": round(gx, 2), "z": round(gz, 2)}
+                               "x": round(math.cos(ang) * R0, 2),
+                               "z": round(math.sin(ang) * R0, 2)}
         self.gates.append(gate_id)
         near = min(rings[3], key=lambda p: self._dist(gate_id, p))
         self._link(gate_id, near)
 
-        # the spine marches outward with a slow bend
-        n_spine = rng.randint(*_REGION_SPINE)
-        spine = [gate_id]
-        bend = rng.uniform(-0.055, 0.055)
-        for i in range(1, n_spine + 1):
-            a = ang + bend * i + rng.uniform(-0.03, 0.03)
-            r = (WALL_R + 10) + i * rng.uniform(56, 72)
-            nid = f"r{gi}_{i}"
-            node = {"id": nid, "name": "Open Sea", "type": "sea",
-                    "band": 4, "region": theme, "depth": i, "mode": mode,
-                    "x": round(math.cos(a) * r, 2),
-                    "z": round(math.sin(a) * r, 2),
-                    "flotsam": rng.random() < 0.3,
-                    "look": rng.choice(_SEA_LOOKS)}
-            if mode == "foot":
-                node["name"] = "Dune Trail"
+        def place(nid, radius, a, depth):
+            node = {"id": nid, "name": trail, "type": "sea", "band": 4,
+                    "region": theme, "depth": depth, "mode": mode,
+                    "x": round(math.cos(a) * radius, 2),
+                    "z": round(math.sin(a) * radius, 2),
+                    "flotsam": rng.random() < 0.3, "look": rng.choice(_SEA_LOOKS)}
             self.nodes[nid] = node
-            self._link(spine[-1], nid)
-            spine.append(nid)
+            return node
 
-        # promote spine stops into the dungeon: hunting grounds all along,
-        # one haven checkpoint mid-way, one shrine — the rest stays wild.
-        interior = spine[1:-1]
-        haven_at = interior[len(interior) // 2]
-        shrine_at = rng.choice([n for n in interior if n != haven_at])
-        for nid in interior:
-            node = self.nodes[nid]
-            if nid == haven_at:
+        def make_monster(node, elite, depth):
+            node["type"] = "monster"
+            node["monster"] = None
+            node["encounter"] = True
+            node["depth"] = depth
+            node["elite"] = elite
+            node["name"] = names.pop()
+            node.pop("look", None)
+            node.pop("flotsam", None)
+
+        # ── the boss altar, at the radial far end ────────────────────────────
+        lair_id = f"r{gi}_L"
+        lair = place(lair_id, R0 + 470, ang + rng.uniform(-0.03, 0.03), 9)
+        lair.pop("flotsam", None)
+        lair.pop("look", None)
+        lair["type"] = "lair"
+        lair["name"] = info["name"]
+        lair["boss_spec"] = list(info["boss"])
+        lair["monster"] = None
+        lair["defeated"] = []
+        lair["stash"] = []
+
+        # a junction node both roads share, just before the altar
+        junc_id = f"r{gi}_j"
+        place(junc_id, R0 + 360, ang + rng.uniform(-0.03, 0.03), 8)
+        self._link(junc_id, lair_id)
+
+        # ── the PERILOUS road: 3 elite grounds, straight and deep ────────────
+        hard = [gate_id]
+        for i in range(1, 4):
+            nid = f"r{gi}_h{i}"
+            a = ang + rng.uniform(-0.04, 0.04)
+            make_monster(place(nid, R0 + i * 88, a, 4 + i), elite=True, depth=4 + i)
+            hard.append(nid)
+        hard.append(junc_id)
+        for u, v in zip(hard, hard[1:]):
+            self._link(u, v)
+
+        # ── the LONG road: a wide safe arc with a haven and a shrine ─────────
+        side = rng.choice([-1, 1])
+        plan = ["sea", "weak", "haven", "sea", "weak", "shrine", "sea"]
+        rng2 = plan[:]
+        long = [gate_id]
+        n = len(plan)
+        for i, kind in enumerate(plan):
+            t = (i + 1) / (n + 1)
+            radius = R0 + 55 + t * (360 - 55)
+            a = ang + side * 0.62 * math.sin(math.pi * t)     # bow out, then back
+            depth = 1 + i // 3                                 # shallow: 1,1,1,2,2,2,3
+            nid = f"r{gi}_e{i}"
+            node = place(nid, radius, a, depth)
+            if kind == "weak":
+                make_monster(node, elite=False, depth=min(2, depth))
+            elif kind == "haven":
                 node["type"] = "haven"
                 node["name"] = names.pop()
                 node.pop("flotsam", None)
                 node.pop("look", None)
-            elif nid == shrine_at:
+            elif kind == "shrine":
                 node["type"] = "shrine"
                 node["name"] = names.pop()
                 node["domain"] = rng.choice(DOMAINS)
@@ -319,55 +364,10 @@ class Board:
                 node["tier"] = 2
                 node.pop("flotsam", None)
                 node.pop("look", None)
-            else:
-                node["type"] = "monster"
-                node["name"] = names.pop() if rng.random() < 0.5 else node["name"]
-                node["monster"] = None
-                node["encounter"] = True
-                node.pop("look", None)
-
-        # the boss altar at the spine's end
-        end = spine[-1]
-        node = self.nodes[end]
-        node.pop("flotsam", None)
-        node.pop("look", None)
-        node["type"] = "lair"
-        node["name"] = info["name"]
-        node["region"] = theme
-        node["depth"] = len(spine)
-        node["boss_spec"] = list(info["boss"])
-        node["monster"] = None            # a fresh boss spawns per challenger
-        node["defeated"] = []             # pids who have beaten their trial
-        node["stash"] = []                # pids with a fragment waiting here
-
-        # 1-2 side loops for exact-roll steering
-        for _ in range(rng.randint(1, 2)):
-            if len(spine) < 4:
-                break
-            i0 = rng.randint(1, len(spine) - 3)
-            i1 = i0 + rng.randint(1, 2)
-            if i1 >= len(spine) - 1:
-                i1 = len(spine) - 2
-            if i0 >= i1:
-                continue
-            side = rng.choice([-1, 1])
-            a0 = math.atan2(self.nodes[spine[i0]]["z"], self.nodes[spine[i0]]["x"])
-            mid_r = (math.hypot(self.nodes[spine[i0]]["x"], self.nodes[spine[i0]]["z"]) +
-                     math.hypot(self.nodes[spine[i1]]["x"], self.nodes[spine[i1]]["z"])) / 2
-            nid = f"r{gi}_s{i0}"
-            if nid in self.nodes:
-                continue
-            aa = a0 + side * 0.14
-            self.nodes[nid] = {"id": nid,
-                               "name": "Dune Trail" if mode == "foot" else "Open Sea",
-                               "type": "sea", "band": 4, "region": theme,
-                               "depth": i0 + 1, "mode": mode,
-                               "x": round(math.cos(aa) * mid_r, 2),
-                               "z": round(math.sin(aa) * mid_r, 2),
-                               "flotsam": rng.random() < 0.4,
-                               "look": rng.choice(_SEA_LOOKS)}
-            self._link(spine[i0], nid)
-            self._link(nid, spine[i1])
+            long.append(nid)
+        long.append(junc_id)
+        for u, v in zip(long, long[1:]):
+            self._link(u, v)
 
     def _insert_waypoints(self, rng):
         """Split every island-to-island edge into a chain of open-sea nodes,
@@ -377,8 +377,15 @@ class Board:
         wp = 0
         for a, b in island_edges:
             length = self._dist(a, b)
-            n_way = min(_MAX_WAYPOINTS, max(1, round(length / _WAYPOINT_EVERY) - 1))
             na, nb = self.nodes[a], self.nodes[b]
+            # Realm lanes get MORE waypoints so a d3 only nudges you a spot or
+            # two through the wilds — the trial is a careful crawl, not a
+            # sprint. Hub lanes stay coarse so the Isles of Peace sail quickly.
+            if na.get("region") and nb.get("region"):
+                n_way = min(_MAX_WAYPOINTS_REALM,
+                            max(2, round(length / _WAYPOINT_EVERY_REALM) - 1))
+            else:
+                n_way = min(_MAX_WAYPOINTS, max(1, round(length / _WAYPOINT_EVERY) - 1))
             chain = [a]
             for k in range(1, n_way + 1):
                 t = k / (n_way + 1)

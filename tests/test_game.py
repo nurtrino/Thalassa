@@ -767,6 +767,48 @@ def test_desert_realm_is_crossed_on_foot():
         assert all(n.get("mode") == "sail" for n in sailing)
 
 
+def test_realms_fork_into_a_hard_and_an_easy_road():
+    import collections
+    for seed in range(5):
+        b = Board(seed)
+        for theme in b.regions:
+            gate = next(nid for nid, n in b.nodes.items()
+                        if n["type"] == "gate" and n.get("region") == theme)
+            lair = next(nid for nid, n in b.nodes.items()
+                        if n["type"] == "lair" and n["region"] == theme)
+
+            # the PERILOUS road exists: elite grounds in deep water
+            hard = [n for nid, n in b.nodes.items()
+                    if "_h" in nid and n.get("region") == theme
+                    and n["type"] == "monster"]
+            assert len(hard) == 3
+            assert all(n.get("elite") and n["depth"] >= 5 for n in hard)
+
+            # the LONG road exists: a haven, a shrine, and only weak packs
+            easy_mon = [n for nid, n in b.nodes.items()
+                        if "_e" in nid and n.get("region") == theme
+                        and n["type"] == "monster"]
+            assert easy_mon and all(not n.get("elite") and n["depth"] <= 2
+                                    for n in easy_mon)
+            realm = [n for n in b.nodes.values() if n.get("region") == theme]
+            assert any(n["type"] == "haven" for n in realm)
+            assert any(n["type"] == "shrine" for n in realm)
+
+            # both roads reach the boss; the wilds are a real crawl (not a
+            # 2-roll sprint) — shortest approach is many exact steps
+            def bfs(s, t):
+                q = collections.deque([(s, 0)]); seen = {s}
+                while q:
+                    cur, d = q.popleft()
+                    if cur == t:
+                        return d
+                    for nb in b.neighbors[cur]:
+                        if nb not in seen:
+                            seen.add(nb); q.append((nb, d + 1))
+                return -1
+            assert bfs(gate, lair) >= 10
+
+
 def test_realm_spines_carry_depth():
     b = Board(3)
     for theme in b.regions:
