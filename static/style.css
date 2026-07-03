@@ -259,3 +259,142 @@ button.small { font-size: 13px; padding: 6px 10px; background: #7a8ca0; }
   .face.right  { transform: rotateY(90deg) translateZ(22px); }
   .face.left   { transform: rotateY(-90deg) translateZ(22px); }
 }
+
+/* ═══ Race for the Golden Fleece — adventure UI ═══ */
+
+/* goal ribbon */
+#goal {
+  top: 54px; left: 50%; transform: translateX(-50%);
+  background: rgba(247, 244, 236, .93);
+  border: 2px solid var(--gold); border-radius: 999px;
+  padding: 5px 18px; font-size: 14px; white-space: nowrap;
+  max-width: 94vw; overflow: hidden; text-overflow: ellipsis;
+}
+#goal .pip { color: #c8bfa8; margin-right: 2px; }
+#goal .pip.on { color: var(--gold); text-shadow: 0 0 6px rgba(217,164,65,.8); }
+.goaltext { margin-left: 6px; }
+
+/* player chips: hearts & stats */
+.hearts { color: #d64545; font-size: 12px; letter-spacing: 1px; }
+.hearts .dim { color: #c9c2b0; }
+.stat { font-size: 12px; background: #eee5cf; border-radius: 6px; padding: 1px 5px; }
+.stat.cargo { background: #f3d9a4; }
+.stat.banked { background: #e9d18a; font-weight: bold; }
+.streak { font-size: 12px; }
+
+/* battle card */
+#battleCard {
+  bottom: 84px; left: 50%; transform: translateX(-50%);
+  background: rgba(30, 24, 34, .93); color: #f3ead8;
+  border: 2px solid #6b5b7a; border-radius: 14px;
+  padding: 12px 16px; min-width: min(430px, 92vw);
+  box-shadow: 0 10px 30px rgba(0,0,0,.5);
+  text-align: center;
+}
+.mhead { display: flex; justify-content: space-between; gap: 12px;
+  border-bottom: 2px solid; padding-bottom: 6px; margin-bottom: 6px; }
+.mname { font-size: 18px; font-weight: bold; letter-spacing: 1px; }
+.mdomain { font-size: 12px; font-style: italic; align-self: center; }
+.mstats { font-size: 13px; margin-bottom: 8px; letter-spacing: 1px; }
+.mactions { display: flex; gap: 8px; justify-content: center; flex-wrap: wrap; }
+
+/* question extras */
+#qitems { display: flex; gap: 8px; justify-content: center; padding: 6px 0 0; }
+.itembtn { background: #7d5ba6; }
+.opt.ruled { opacity: .3; text-decoration: line-through; }
+.opt.picked { border-color: var(--gold); box-shadow: 0 0 0 2px var(--gold) inset; }
+
+/* minigame card */
+.qcard.mg { width: min(600px, 96vw); }
+#mghead {
+  display: flex; justify-content: space-between; align-items: center;
+  color: #fff; padding: 12px 18px; font-weight: bold; letter-spacing: 1px;
+  background: #7d5ba6;
+}
+#mgisle { font-size: 13px; font-weight: normal; font-style: italic; }
+#mgtimer { height: 6px; background: #e3dcc8; }
+#mgtimerBar { height: 100%; width: 100%; background: var(--gold); }
+#mgprompt { padding: 14px 20px 4px; font-size: 15px; line-height: 1.35; }
+#mgboard { padding: 12px 20px; display: flex; flex-direction: column; gap: 12px; align-items: center; }
+#mgnote { min-height: 1.4em; padding: 0 20px 16px; text-align: center; font-style: italic; }
+
+.mggrid { display: grid; gap: 4px; }
+.mgcell {
+  width: 44px; height: 44px; border-radius: 8px;
+  background: #efe7d2; border: 2px solid #c9bfa3; padding: 0;
+}
+.mgcell:not(:disabled):hover { border-color: var(--blue); }
+
+.mgpalette { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; justify-content: center; }
+.mgpiece {
+  display: grid; gap: 2px; padding: 6px;
+  background: #fff; border: 2px solid #c9bfa3; border-radius: 8px;
+}
+.mgpiece i { width: 8px; height: 8px; border-radius: 2px; display: block; }
+.mgpiece.sel { border-color: var(--gold); box-shadow: 0 0 0 2px var(--gold); }
+.mgpiece.used { opacity: .25; }
+
+.nonowrap { overflow-x: auto; max-width: 100%; }
+.nonogrid { display: grid; gap: 3px; }
+.nclue { font-size: 12px; font-weight: bold; color: #6b5b3e;
+  display: flex; align-items: flex-end; justify-content: center; line-height: 1.1; }
+.nclue.left { justify-content: flex-end; align-items: center; padding-right: 6px; }
+.mgcell.nono { width: 40px; height: 40px; }
+.mgcell.nono.on { background: var(--ink); border-color: var(--ink); }
+
+.simonpad { display: grid; grid-template-columns: repeat(3, 64px); gap: 8px; }
+.mgpad {
+  width: 64px; height: 64px; border-radius: 12px;
+  background: #4a6b8a; border: 0; transition: filter .1s, transform .1s;
+}
+.mgpad.lit { background: #ffd75e; filter: brightness(1.3); transform: scale(1.06); }
+.mgpad:not(:disabled):active { transform: scale(.95); }
+
+.agletters { display: flex; gap: 6px; flex-wrap: wrap; justify-content: center; }
+.agtile {
+  width: 42px; height: 46px; border-radius: 8px;
+  background: #fff; border: 2px solid var(--gold);
+  font-size: 24px; font-weight: bold; display: inline-flex;
+  align-items: center; justify-content: center;
+}
+.agrow { display: flex; gap: 8px; width: 100%; max-width: 380px; }
+.aginput { flex: 1; text-transform: uppercase; letter-spacing: 4px; font-weight: bold; }
+
+.ravgrid { display: grid; grid-template-columns: repeat(3, 62px); gap: 6px; }
+.ravcell {
+  width: 62px; height: 62px; background: #fff;
+  border: 2px solid #c9bfa3; border-radius: 8px;
+  display: flex; align-items: center; justify-content: center;
+}
+.ravcell.missing { font-size: 30px; font-weight: bold; color: #b0a68c; background: #efe7d2; }
+.ravopts { display: flex; gap: 10px; flex-wrap: wrap; justify-content: center; }
+.glyphopt {
+  background: #fff; border: 2px solid #c9bfa3; border-radius: 10px; padding: 6px;
+}
+.glyphopt:not(:disabled):hover { border-color: var(--gold); box-shadow: 0 0 0 2px var(--gold); }
+
+/* upgrade cards */
+.upgrades { display: flex; gap: 12px; justify-content: center; flex-wrap: wrap; margin: 14px 0; }
+.upcard {
+  display: flex; flex-direction: column; gap: 6px;
+  background: #fff; color: var(--ink);
+  border: 2px solid var(--gold); border-radius: 12px;
+  padding: 16px 18px; width: 180px; font-size: 14px;
+}
+.upcard:hover { box-shadow: 0 0 0 3px var(--gold); }
+.upcard strong { font-size: 16px; }
+
+/* intro list */
+.intro { text-align: left; margin: 12px 0 12px 20px; line-height: 1.5; font-size: 15px; }
+
+/* single die, centered near tray */
+#dice { bottom: 96px; right: 18px; perspective: 500px; }
+
+@media (max-width: 700px) {
+  #goal { top: auto; bottom: 118px; font-size: 12px; }
+  .mgcell { width: 36px; height: 36px; }
+  .mgcell.nono { width: 32px; height: 32px; }
+  .simonpad { grid-template-columns: repeat(3, 54px); }
+  .mgpad { width: 54px; height: 54px; }
+  #battleCard { bottom: 150px; }
+}

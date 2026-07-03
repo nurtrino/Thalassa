@@ -778,7 +778,8 @@ class Game:
             "reveal": self.reveal if self.phase == "reveal" else None,
             "battle": self._battle_public(),
             "minigame": ({k: v for k, v in {**self.minigame,
-                          **self.minigame["data"]}.items() if k != "data"}
+                          **self.minigame["data"]}.items()
+                          if k not in ("data", "secret")}
                          if self.phase == "minigame" and self.minigame else None),
             "upgrade_offer": self.upgrade_offer if self.phase == "upgrade_pick" else None,
             "upgrade_info": UPGRADES,

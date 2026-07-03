@@ -225,8 +225,24 @@ class ThalassaAudio {
   startMusic() {
     if (!this.enabled || this.musicOn) return;
     this.musicOn = true;
-    this._nextBar = this.ctx.currentTime + 0.3;
-    this._loop();
+    // if the repo ships a static/music.mp3, loop that instead of the
+    // procedural lyre (drop a file in — zero code changes needed)
+    fetch('/static/music.mp3', { method: 'HEAD' }).then((r) => {
+      if (r.ok) {
+        const el = new Audio('/static/music.mp3');
+        el.loop = true;
+        const src = this.ctx.createMediaElementSource(el);
+        src.connect(this.musicBus);
+        el.play().catch(() => {});
+        this._musicEl = el;
+      } else {
+        this._nextBar = this.ctx.currentTime + 0.3;
+        this._loop();
+      }
+    }).catch(() => {
+      this._nextBar = this.ctx.currentTime + 0.3;
+      this._loop();
+    });
   }
 
   _loop() {
@@ -328,6 +344,26 @@ class ThalassaAudio {
         [72, 76, 79, 83, 88].forEach((m, i) =>
           A._tone(midiToFreq(m) * (1 + (Math.random() - 0.5) * 0.01),
             t + i * 0.06, 1.4 - i * 0.1, 0.06, 'sine', A.sfxBus, 0.5));
+      }),
+
+      hit: guard(() => {                               // your blade lands
+        const t = at();
+        A._noise(t, 0.09, 0.2, { type: 'highpass', freq: 2400 });
+        A._tone(660, t, 0.07, 0.1, 'square', A.sfxBus, 0.1, 440);
+        A._tone(180, t + 0.02, 0.16, 0.16, 'sine', A.sfxBus, 0.1, 90);
+      }),
+
+      hurt: guard(() => {                              // the monster strikes you
+        const t = at();
+        A._tone(140, t, 0.3, 0.18, 'sawtooth', A.sfxBus, 0.2, 70);
+        A._noise(t, 0.28, 0.16, { type: 'lowpass', freq: 500, sweepTo: 160 });
+      }),
+
+      roar: guard(() => {                              // a guardian appears
+        const t = at();
+        A._tone(90, t, 0.7, 0.16, 'sawtooth', A.sfxBus, 0.3, 55);
+        A._tone(135, t + 0.05, 0.6, 0.1, 'square', A.sfxBus, 0.3, 80);
+        A._noise(t, 0.65, 0.12, { type: 'bandpass', freq: 300, q: 1.2, sweepTo: 120 });
       }),
 
       victory: guard(() => {                           // full fanfare

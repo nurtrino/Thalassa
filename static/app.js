@@ -1,15 +1,27 @@
-/* Thalassa client — lobby, WebSocket protocol, HUD, and question UI.
- * The 3D board lives in scene.js; this file owns everything DOM. */
+/* Thalassa client — Race for the Golden Fleece.
+ * Lobby, WebSocket protocol, HUD, battle/question/minigame UI.
+ * The 3D fogged sea lives in scene.js; this file owns everything DOM. */
 import { createWorld, DOMAIN_COLORS } from '/static/scene.js';
 import { audio } from '/static/audio.js';
 
 const $ = (id) => document.getElementById(id);
-const DOMAIN_ORDER = ['clio', 'athena', 'apollo', 'dionysos'];
 const KIND_LABEL = {
-  wager: 'Wager', trial: 'THE TRIAL', tuition: 'Tuition Challenge',
-  oracle: 'THE PYTHIA SPEAKS', symposium: 'THE SYMPOSIUM OF DELOS',
+  shrine: 'Shrine Wager', battle: 'BATTLE', puzzle: 'Riddle of the Isle',
+  riddle: 'Riddle of the Isle',
 };
-const TIER_ROMAN = { 1: 'I', 2: 'II', 3: 'III', 4: 'IV' };
+const MG_LABEL = {
+  tetromino: 'Sigil of the Isle', nonogram: 'The Weaver’s Grid',
+  simon: 'Echoes of the Muses', anagram: 'The Scattered Letters',
+  ravens: 'The Pattern of Fate',
+};
+const MG_PROMPT = {
+  tetromino: 'Fill the sigil completely with the given pieces. Tap a piece, rotate it, tap the grid to place. Tap a placed piece to lift it.',
+  nonogram: 'Paint cells so every row and column matches its clue numbers.',
+  simon: 'Watch the tiles sing… then repeat the sequence from memory.',
+  anagram: 'Unscramble the letters into a word.',
+  ravens: 'Find the rule. Choose the missing ninth tile.',
+};
+const TIER_ROMAN = { 1: 'I', 2: 'II', 3: 'III' };
 
 let ws = null;
 let you = null;
@@ -30,7 +42,6 @@ world = createWorld($('world'), (node) => {
 
 $('nameInput').value = localStorage.getItem('thalassa_name') || '';
 
-// mute button (always visible; state persisted in audio.js)
 const muteBtn = $('muteBtn');
 function paintMute() {
   muteBtn.textContent = audio.isMuted() ? '🔇' : '🔊';
@@ -39,10 +50,9 @@ function paintMute() {
 paintMute();
 muteBtn.onclick = () => { audio.init(); audio.toggleMuted(); paintMute(); };
 
-// soft click on any game button; first gesture also wakes the audio context
 document.addEventListener('pointerdown', (e) => {
   audio.init();
-  if (e.target.closest('.act, .opt, .big, .small')) audio.sfx.click();
+  if (e.target.closest('.act, .opt, .big, .small, .mgcell, .mgpad, .glyphopt')) audio.sfx.click();
 }, { passive: true });
 
 $('joinBtn').onclick = () => { audio.init(); audio.startMusic(); audio.sfx.join(); connect(); };
@@ -79,64 +89,44 @@ function handle(msg) {
     const prev = room;
     you = msg.you;
     room = msg.room;
+    window.__room = room;                 // debug/testing handle
     render();
     reactAudio(prev, room);
   } else if (msg.type === 'dice') {
     audio.sfx.dice();
-    animateDice(msg.d1, msg.d2);
+    animateDie(msg.value);
   } else if (msg.type === 'error') {
     toast(msg.msg, true);
-  } else if (msg.type === 'fatal') {
-    showLobbyErr(msg.msg);
-    $('lobby').classList.remove('hidden');
-    $('hud').classList.add('hidden');
   }
 }
 
-/* ── sound reactions (fired by diffing consecutive snapshots) ────────────── */
-let sfxLastTurn = null, sfxPrevPhase = null, sfxPlotCount = 0,
-    sfxAnnouncedWin = false, sfxOracleArmed = false;
+/* ── sound reactions ─────────────────────────────────────────────────────── */
+let sfxLastTurn = null, sfxPrevPhase = null, sfxAnnouncedWin = false;
 
 function reactAudio(prev, next) {
   if (!next) return;
-
-  // your turn begins
   if (next.phase === 'roll' && next.turn === you && sfxLastTurn !== next.turn) {
     audio.sfx.turn();
   }
   sfxLastTurn = next.phase === 'lobby' ? null : next.turn;
 
-  // answer reveal (once, on the transition into 'reveal')
   if (next.phase === 'reveal' && sfxPrevPhase !== 'reveal' && next.reveal) {
-    if (next.reveal.was_correct) audio.sfx.correct(); else audio.sfx.wrong();
-    if (next.reveal.note && /laurel/i.test(next.reveal.note)) {
-      setTimeout(() => audio.sfx.laurel(), 480);
-    }
+    const rv = next.reveal;
+    if (rv.kind === 'battle') {
+      if (rv.was_correct) audio.sfx.hit(); else audio.sfx.hurt();
+      if (rv.battle_over && rv.was_correct) setTimeout(() => audio.sfx.laurel(), 450);
+    } else if (rv.was_correct) audio.sfx.correct();
+    else audio.sfx.wrong();
   }
-
-  // the Oracle's question arriving
-  if (next.phase === 'question' && next.question &&
-      next.question.kind === 'oracle' && !sfxOracleArmed) {
-    audio.sfx.oracle();
-    sfxOracleArmed = true;
+  if (next.phase === 'battle' && sfxPrevPhase !== 'battle' && sfxPrevPhase !== 'reveal') {
+    audio.sfx.roar();
   }
-  if (next.phase !== 'question') sfxOracleArmed = false;
-
-  // a building went up
-  const plotCount = Object.values(next.plots || {}).filter(Boolean).length;
-  if (plotCount > sfxPlotCount) audio.sfx.build();
-  sfxPlotCount = plotCount;
-
-  // victory
   if (next.phase === 'finished' && !sfxAnnouncedWin) {
     audio.sfx.victory();
     sfxAnnouncedWin = true;
   }
   if (next.phase !== 'finished') sfxAnnouncedWin = false;
-
-  // duck the music under a question card
-  audio.duck(next.phase === 'question' || next.phase === 'reveal');
-
+  audio.duck(['question', 'reveal', 'minigame'].includes(next.phase));
   sfxPrevPhase = next.phase;
 }
 
@@ -149,9 +139,12 @@ function render() {
   if (inLobby) return renderLobby();
 
   renderPlayers();
+  renderGoal();
   renderTurnBanner();
   renderTray();
+  renderBattle();
   renderQuestion();
+  renderMinigame();
   renderModal();
   renderLog();
 }
@@ -173,8 +166,8 @@ function renderLobby() {
   });
   const isHost = you === room.host;
   $('startBtn').classList.toggle('hidden', !isHost);
-  $('startBtn').disabled = room.players.length < 2;
-  $('startBtn').textContent = room.players.length < 2 ? 'NEED 2+ CAPTAINS' : 'SET SAIL';
+  $('startBtn').disabled = room.players.length < 1;
+  $('startBtn').textContent = 'SET SAIL';
   $('addBotBtn').classList.toggle('hidden', !isHost || room.players.length >= 6);
   $('waitMsg').classList.toggle('hidden', isHost);
 }
@@ -186,19 +179,24 @@ $('copyLink').onclick = () => {
   setTimeout(() => { $('copyLink').textContent = 'copy invite link'; }, 1200);
 };
 
+function hearts(p) {
+  return '♥'.repeat(p.hull) + '<span class="dim">' + '♥'.repeat(Math.max(0, p.max_hull - p.hull)) + '</span>';
+}
+
 function renderPlayers() {
   const el = $('players');
   el.innerHTML = '';
   for (const p of room.players) {
     const div = document.createElement('div');
     div.className = 'pchip' + (p.pid === room.turn ? ' turn' : '') + (p.connected ? '' : ' gone');
-    const scrolls = DOMAIN_ORDER.map((d) =>
-      `<span class="scroll" style="background:${DOMAIN_COLORS[d]}" title="${d}">${p.scrolls[d]}</span>`).join('');
-    const laurels = DOMAIN_ORDER.map((d) =>
-      p.laurels.includes(d) ? `<span class="laurel" style="color:${DOMAIN_COLORS[d]}">🏆</span>` : '').join('');
     div.innerHTML =
       `<span class="dot" style="background:${p.color}"></span>` +
-      `<span class="pname">${p.bot ? '🤖 ' : ''}${esc(p.name)}</span>${laurels}<span class="scrolls">${scrolls}</span>` +
+      `<span class="pname">${p.bot ? '🤖 ' : ''}${esc(p.name)}</span>` +
+      (p.streak >= 2 ? `<span class="streak">🔥${p.streak}</span>` : '') +
+      `<span class="hearts">${hearts(p)}</span>` +
+      `<span class="stat">📜${p.scrolls}</span>` +
+      (p.cargo ? `<span class="stat cargo">⚱${p.cargo}</span>` : '') +
+      `<span class="stat banked">✦${p.banked}/${room.config.relics_to_win}</span>` +
       (you === room.host && p.pid !== you ? `<button class="kick" data-pid="${p.pid}">✕</button>` : '');
     el.appendChild(div);
   }
@@ -207,12 +205,26 @@ function renderPlayers() {
   });
 }
 
+function renderGoal() {
+  const me = room.players.find((p) => p.pid === you);
+  const el = $('goal');
+  if (!me) { el.innerHTML = '<strong>✦ Goal:</strong> bank 3 relics, then claim the Golden Fleece'; return; }
+  const n = room.config.relics_to_win;
+  const pips = Array.from({ length: n }, (_, i) =>
+    `<span class="pip ${i < me.banked ? 'on' : ''}">✦</span>`).join('');
+  let hint;
+  if (room.winner) hint = '';
+  else if (me.banked >= n) hint = '⚡ <strong>THE FLEECE AWAITS</strong> — sail to the golden isle and slay its guardian!';
+  else if (me.cargo > 0) hint = `⚱ Relic aboard — <strong>sail it home</strong> to bank it!`;
+  else hint = 'Defeat lair guardians for relics · shrines pay scrolls · puzzle isles grant upgrades';
+  el.innerHTML = `${pips} <span class="goaltext">${hint}</span>`;
+}
+
 function renderTurnBanner() {
   const p = room.players.find((x) => x.pid === room.turn);
   const el = $('turnBanner');
   if (!p || room.phase === 'finished') { el.textContent = ''; return; }
-  const mine = room.turn === you;
-  el.innerHTML = mine ? '<strong>Your turn, captain</strong>' : `${esc(p.name)}'s turn`;
+  el.innerHTML = room.turn === you ? '<strong>Your turn, captain</strong>' : `${esc(p.name)}'s turn`;
   el.style.borderColor = p.color;
 }
 
@@ -220,7 +232,6 @@ function renderTray() {
   const tray = $('tray');
   tray.innerHTML = '';
   const mine = room.turn === you;
-  const cfg = room.config;
 
   const btn = (label, cls, onclick, disabled = false) => {
     const b = document.createElement('button');
@@ -240,8 +251,8 @@ function renderTray() {
 
   if (room.phase === 'finished') {
     const w = room.players.find((p) => p.pid === room.winner);
-    hint(`🏛️ <strong>${esc(w?.name || '?')}</strong> rules the Aegean!`);
-    if (you === room.host) btn('REMATCH', 'gold', () => send({ type: 'rematch' }));
+    hint(`🐏 <strong>${esc(w?.name || '?')}</strong> holds the Golden Fleece!`);
+    if (you === room.host) btn('NEW VOYAGE', 'gold', () => send({ type: 'rematch' }));
     return;
   }
   if (!mine) {
@@ -254,82 +265,104 @@ function renderTray() {
   if (room.phase === 'roll') {
     btn('🎲 ROLL', 'gold big', () => send({ type: 'roll' }));
   } else if (room.phase === 'sail') {
-    const [d1, d2] = room.dice;
-    hint(`You rolled <strong>${d1}</strong> & <strong>${d2}</strong> — sail up to <strong>${Math.max(d1, d2)}</strong> lanes. Tap a glowing isle.`);
-  } else if (room.phase === 'island') {
-    const acts = room.actions || [];
     const me = room.players.find((p) => p.pid === you);
-    const node = me.node;
-    const isLib = acts.some((a) => a.startsWith('wager'));
-    if (isLib) {
-      const dom = room.library_domains[node];
-      hint(`The library studies <strong style="color:${DOMAIN_COLORS[dom]}">${room.board.domains[dom].field}</strong>. Wager your wits:`);
-      btn(`Tier I<small>+1 scroll</small>`, 'tier', () => send({ type: 'wager', tier: 1 }));
-      btn(`Tier II<small>+2 scrolls</small>`, 'tier', () => send({ type: 'wager', tier: 2 }));
-      btn(`Tier III<small>+3 / lose 1</small>`, 'tier hot', () => send({ type: 'wager', tier: 3 }));
-      if (acts.includes('trial')) {
-        btn(`⚜ TRIAL<small>${cfg.trial_cost} scrolls → laurel</small>`, 'gold', () => send({ type: 'trial' }));
-      }
-    }
-    if (acts.includes('oracle')) {
-      hint('The Pythia will speak — for a price.');
-      btn(`CONSULT<small>pay 1 scroll · answer → take ${cfg.oracle_reward}</small>`, 'oracle', () => send({ type: 'oracle' }));
-    }
-    if (acts.includes('trade')) {
-      hint('The merchants trade 3 scrolls for 1.');
-      const row = document.createElement('div');
-      row.className = 'tradeRow';
-      const give = domainSelect('give');
-      const get = domainSelect('get');
-      const go = document.createElement('button');
-      go.className = 'act';
-      go.textContent = 'TRADE 3→1';
-      go.onclick = () => send({ type: 'trade', give: give.value, get: get.value });
-      row.append(give, document.createTextNode('→'), get, go);
-      tray.appendChild(row);
-    }
-    if (acts.includes('academy')) {
-      btn(`🏛 ACADEMY<small>${cfg.academy_cost} scrolls · earn tuition</small>`, 'build', () => send({ type: 'build', kind: 'academy' }));
-    }
-    if (acts.includes('harbor')) {
-      btn(`⚓ HARBOR<small>${cfg.harbor_cost} scrolls · new home port</small>`, 'build', () => send({ type: 'build', kind: 'harbor' }));
-    }
+    const bonus = me?.upgrades.includes('sandals') ? ' (+1 sandals)' : '';
+    hint(`You rolled <strong>${room.die}</strong>${bonus} — tap a glowing isle. Grey silhouettes are unexplored.`);
+  } else if (room.phase === 'shrine') {
+    const me = room.players.find((p) => p.pid === you);
+    const node = (room.board.nodes || []).find((n) => n.id === me.node);
+    const dom = node?.domain;
+    const dinfo = dom ? room.board.domains[dom] : null;
+    hint(`Shrine of <strong style="color:${DOMAIN_COLORS[dom]}">${dinfo?.field || '?'}</strong> · ${node?.charges} offering(s) left. Wager your wits:`);
+    btn('Tier I<small>+1 scroll</small>', 'tier', () => send({ type: 'wager', tier: 1 }));
+    btn('Tier II<small>+2 scrolls</small>', 'tier', () => send({ type: 'wager', tier: 2 }));
+    btn('Tier III<small>+3 / lose 1</small>', 'tier hot', () => send({ type: 'wager', tier: 3 }));
+    btn('pass', 'ghost', () => send({ type: 'pass' }));
+  } else if (room.phase === 'haven') {
+    const me = room.players.find((p) => p.pid === you);
+    const missing = me.max_hull - me.hull;
+    const afford = Math.min(missing, me.scrolls);
+    hint('A quiet haven. Shipwrights work for scrolls.');
+    btn(`⚒ REPAIR<small>+${afford} hull · ${afford} scrolls</small>`, 'build', () => send({ type: 'repair' }));
     btn('pass', 'ghost', () => send({ type: 'pass' }));
   }
 }
 
-function domainSelect(name) {
-  const sel = document.createElement('select');
-  sel.name = name;
-  for (const d of DOMAIN_ORDER) {
-    const o = document.createElement('option');
-    o.value = d;
-    o.textContent = room.board.domains[d].name;
-    sel.appendChild(o);
+/* ── battle card ─────────────────────────────────────────────────────────── */
+function renderBattle() {
+  const card = $('battleCard');
+  const b = room.battle;
+  const show = b && ['battle', 'question', 'reveal'].includes(room.phase) &&
+               (room.phase !== 'reveal' || room.reveal?.kind === 'battle');
+  card.classList.toggle('hidden', !show);
+  if (!show) return;
+  const mine = room.turn === you;
+  const dcolor = DOMAIN_COLORS[b.domain] || '#888';
+  const me = room.players.find((p) => p.pid === room.turn);
+  const hp = '🔴'.repeat(Math.max(0, b.hp)) + '⚪'.repeat(Math.max(0, b.max_hp - b.hp));
+  card.innerHTML = `
+    <div class="mhead" style="border-color:${dcolor}">
+      <span class="mname">${b.is_fleece ? '🐉 ' : b.is_lair ? '⚱ ' : '⚔ '}${esc(b.name)}</span>
+      <span class="mdomain" style="color:${dcolor}">${room.board.domains[b.domain]?.field || ''}</span>
+    </div>
+    <div class="mstats">${hp} &nbsp;· power ${b.power} · asks tier ${TIER_ROMAN[b.tier] || b.tier}</div>
+    <div class="mactions"></div>`;
+  const actions = card.querySelector('.mactions');
+  if (room.phase === 'battle' && mine) {
+    const mk = (label, cls, fn) => {
+      const bt = document.createElement('button');
+      bt.className = 'act ' + cls;
+      bt.innerHTML = label;
+      bt.onclick = fn;
+      actions.appendChild(bt);
+    };
+    mk('⚔ ATTACK<small>+1 dmg · miss hurts more</small>', 'tier hot', () => send({ type: 'stance', stance: 'attack' }));
+    mk('🛡 GUARD<small>−1 dmg · miss hurts less</small>', 'tier', () => send({ type: 'stance', stance: 'guard' }));
+    mk('🏃 FLEE<small>lose 1 hull, retreat</small>', 'ghost', () => send({ type: 'flee' }));
+  } else if (room.phase === 'battle') {
+    actions.innerHTML = `<span class="hint">${esc(me?.name || '')} chooses a stance…</span>`;
   }
-  return sel;
 }
 
 /* ── question card ───────────────────────────────────────────────────────── */
 let timerRAF = null;
+let mySideAnswer = null;
+let sideKey = null;
 
 function renderQuestion() {
   const modal = $('qmodal');
-  const isQ = room.phase === 'question' || room.phase === 'reveal';
+  const isQ = room.phase === 'question' || (room.phase === 'reveal' && room.reveal);
   modal.classList.toggle('hidden', !isQ);
   if (!isQ) { cancelAnimationFrame(timerRAF); return; }
 
   const q = room.question;
-  const rv = room.reveal;
+  const rv = room.phase === 'reveal' ? room.reveal : null;
   const ctxDomain = q?.domain ?? rv?.domain;
   const ctxKind = q?.kind ?? rv?.kind;
-  const dcolor = DOMAIN_COLORS[ctxDomain] || '#888';
-  const dinfo = room.board.domains[ctxDomain];
+  const dcolor = ctxDomain ? DOMAIN_COLORS[ctxDomain] : '#7d5ba6';
+  const dinfo = ctxDomain ? room.board.domains[ctxDomain] : null;
 
   $('qhead').style.background = dcolor;
-  $('qkind').textContent = ctxKind === 'wager'
-    ? `Wager · Tier ${TIER_ROMAN[q?.tier] || ''}` : (KIND_LABEL[ctxKind] || '');
-  $('qdomain').textContent = dinfo ? `${dinfo.name} · ${dinfo.field}` : '';
+  $('qkind').textContent = ctxKind === 'shrine'
+    ? `${KIND_LABEL.shrine} · Tier ${TIER_ROMAN[q?.tier ?? 1] || ''}`
+    : (KIND_LABEL[ctxKind] || 'Challenge');
+  $('qdomain').textContent = dinfo ? `${dinfo.name} · ${dinfo.field}` : 'Wits & Logic';
+
+  // battle items (owl / lyre)
+  const itemsRow = $('qitems');
+  itemsRow.innerHTML = '';
+  const me = room.players.find((p) => p.pid === you);
+  if (room.phase === 'question' && ctxKind === 'battle' && room.turn === you && me && room.battle) {
+    for (const item of ['owl', 'lyre']) {
+      if (me.upgrades.includes(item) && !room.battle.used_items.includes(item)) {
+        const b = document.createElement('button');
+        b.className = 'act small itembtn';
+        b.textContent = item === 'owl' ? '🦉 Owl: 50/50' : '🎼 Lyre: new question';
+        b.onclick = () => send({ type: 'item', id: item });
+        itemsRow.appendChild(b);
+      }
+    }
+  }
 
   if (!q && !rv) {
     $('qtext').textContent = 'A herald fetches the question…';
@@ -339,22 +372,34 @@ function renderQuestion() {
   }
 
   const mine = room.turn === you;
+  const amPlayer = !!me;
   if (room.phase === 'question') {
+    const qkey = `${q.text}`.slice(0, 40);
+    if (sideKey !== qkey) { sideKey = qkey; mySideAnswer = null; }
     $('qtext').textContent = q.text;
-    $('qnote').textContent = mine ? '' :
-      `${esc(room.players.find((p) => p.pid === room.turn)?.name || '')} is answering…`;
     const opts = $('qopts');
     opts.innerHTML = '';
+    const alreadySide = (room.side_answered || []).includes(you) || mySideAnswer !== null;
     q.options.forEach((opt, i) => {
       const b = document.createElement('button');
       b.className = 'opt';
       b.textContent = opt;
-      b.disabled = !mine;
-      b.onclick = () => { send({ type: 'answer', idx: i }); };
+      if ((q.disabled || []).includes(i)) b.classList.add('ruled');
+      if (mySideAnswer === i) b.classList.add('picked');
+      b.disabled = (q.disabled || []).includes(i) ||
+        (mine ? false : (!amPlayer || alreadySide));
+      b.onclick = () => {
+        if (mine) send({ type: 'answer', idx: i });
+        else { mySideAnswer = i; send({ type: 'answer', idx: i }); render(); }
+      };
       opts.appendChild(b);
     });
-    startTimerBar(q.deadline);
-  } else {                                    // reveal
+    $('qnote').textContent = mine ? '' :
+      (amPlayer
+        ? (alreadySide ? 'Answer locked in — right = +1 scroll.' : 'Answer too! Correct = +1 scroll.')
+        : `${esc(room.players.find((p) => p.pid === room.turn)?.name || '')} is answering…`);
+    startTimerBar(q.deadline, '#qtimerBar');
+  } else {
     cancelAnimationFrame(timerRAF);
     $('qtimerBar').style.width = '0%';
     const opts = $('qopts');
@@ -362,114 +407,419 @@ function renderQuestion() {
       b.disabled = true;
       if (i === rv.correct) b.classList.add('good');
       else if (i === rv.chosen) b.classList.add('bad');
+      if (mySideAnswer === i && i !== rv.correct) b.classList.add('bad');
     });
-    let note = rv.was_correct ? '✓ Correct!' : (rv.chosen === -1 ? '⏳ Time expired.' : '✗ Wrong.');
-    if (rv.note) note += ' ' + rv.note;
-    const gained = Object.entries(rv.gained || {});
-    if (gained.length) {
-      note += ' ' + gained.map(([d, n]) => `+${n} ${room.board.domains[d].name}`).join(', ');
-    }
+    let note = rv.was_correct ? '✓ Correct! ' : (rv.chosen === -1 ? '⏳ Time expired. ' : '✗ Wrong. ');
+    note += rv.note || '';
+    const sideMine = rv.side?.[you];
+    if (sideMine) note += sideMine.ok ? ' (Your side answer: +1 scroll!)' : ' (Your side answer missed.)';
     $('qnote').textContent = note;
+    mySideAnswer = null;
   }
 }
 
-function startTimerBar(deadline) {
+function startTimerBar(deadline, barId) {
   cancelAnimationFrame(timerRAF);
-  if (!deadline) { $('qtimerBar').style.width = '100%'; return; }
+  const bar = document.querySelector(barId);
+  if (!deadline) { bar.style.width = '100%'; return; }
   const total = deadline - Date.now() / 1000;
   const tick = () => {
     const left = deadline - Date.now() / 1000;
     const pct = Math.max(0, Math.min(1, left / total));
-    $('qtimerBar').style.width = (pct * 100) + '%';
-    $('qtimerBar').style.background = pct < 0.25 ? '#e4572e' : '';
-    if (pct > 0 && room.phase === 'question') timerRAF = requestAnimationFrame(tick);
+    bar.style.width = (pct * 100) + '%';
+    bar.style.background = pct < 0.25 ? '#e4572e' : '';
+    if (pct > 0 && (room.phase === 'question' || room.phase === 'minigame')) {
+      timerRAF = requestAnimationFrame(tick);
+    }
   };
   tick();
 }
 
-/* ── modal: symposium vote · oracle claim ───────────────────────────────── */
-let claimPick = [];
+/* ── minigames ───────────────────────────────────────────────────────────── */
+let mg = { key: null };          // client-side minigame scratch state
+
+function renderMinigame() {
+  const modal = $('mgmodal');
+  const m = room.minigame;
+  const show = room.phase === 'minigame' && m;
+  modal.classList.toggle('hidden', !show);
+  if (!show) { mg = { key: null }; return; }
+
+  const mine = room.turn === you;
+  const key = `${m.island}:${m.kind}:${m.deadline}`;
+  const fresh = mg.key !== key;
+  if (fresh) mg = { key, sel: null, rot: 0, cells: null, taps: [], watched: false, grid: null };
+
+  $('mgkind').textContent = MG_LABEL[m.kind] || 'Trial';
+  $('mgisle').textContent = (room.board.nodes.find((n) => n.id === m.island) || {}).name || '';
+  $('mgprompt').textContent = mine ? MG_PROMPT[m.kind]
+    : `${esc(room.players.find((p) => p.pid === room.turn)?.name || 'A rival')} attempts the trial…`;
+  startTimerBar(m.deadline, '#mgtimerBar');
+  $('mgnote').textContent = '';
+
+  const board = $('mgboard');
+  if (!fresh && !mine) return;                    // spectators: static board
+  if (fresh) board.innerHTML = '';
+
+  if (m.kind === 'tetromino') renderTetromino(board, m, mine, fresh);
+  else if (m.kind === 'nonogram') renderNonogram(board, m, mine, fresh);
+  else if (m.kind === 'simon') renderSimon(board, m, mine, fresh);
+  else if (m.kind === 'anagram') renderAnagram(board, m, mine, fresh);
+  else if (m.kind === 'ravens') renderRavens(board, m, mine, fresh);
+}
+
+/* tetromino — Talos-style sigil fill */
+const PIECE_COLORS = ['#e4572e', '#2e86ab', '#f6ae2d', '#8e5572', '#33ca7f', '#6457a6', '#c9a227'];
+
+function rotForm(form, times) {
+  let cur = form.map(([x, y]) => [x, y]);
+  for (let i = 0; i < times; i++) cur = cur.map(([x, y]) => [y, -x]);
+  const xs = Math.min(...cur.map((c) => c[0])), ys = Math.min(...cur.map((c) => c[1]));
+  return cur.map(([x, y]) => [x - xs, y - ys]);
+}
+
+function renderTetromino(board, m, mine, fresh) {
+  if (fresh) {
+    mg.cells = Array(m.w * m.h).fill(-1);
+    mg.placed = {};                               // pieceIdx → cells
+  }
+  board.innerHTML = '';
+  const grid = document.createElement('div');
+  grid.className = 'mggrid';
+  grid.style.gridTemplateColumns = `repeat(${m.w}, 1fr)`;
+  for (let i = 0; i < m.w * m.h; i++) {
+    const c = document.createElement('button');
+    c.className = 'mgcell';
+    const v = mg.cells[i];
+    if (v >= 0) c.style.background = PIECE_COLORS[v % PIECE_COLORS.length];
+    c.disabled = !mine;
+    c.onclick = () => {
+      if (mg.cells[i] >= 0) {                     // lift a placed piece
+        const idx = mg.cells[i];
+        for (const j of mg.placed[idx]) mg.cells[j] = -1;
+        delete mg.placed[idx];
+      } else if (mg.sel !== null && !(mg.sel in mg.placed)) {
+        const form = rotForm(m.shapes[m.pieces[mg.sel]], mg.rot);
+        const x0 = i % m.w, y0 = Math.floor(i / m.w);
+        const cells = [];
+        for (const [dx, dy] of form) {
+          const x = x0 + dx, y = y0 + dy;
+          if (x >= m.w || y >= m.h || mg.cells[y * m.w + x] >= 0) { cells.length = 0; break; }
+          cells.push(y * m.w + x);
+        }
+        if (cells.length === 4) {
+          for (const j of cells) mg.cells[j] = mg.sel;
+          mg.placed[mg.sel] = cells;
+          if (Object.keys(mg.placed).length === m.pieces.length) {
+            send({ type: 'solve', payload: mg.cells });
+          }
+        } else {
+          $('mgnote').textContent = 'It does not fit there.';
+        }
+      }
+      renderTetromino(board, m, mine, false);
+    };
+    grid.appendChild(c);
+  }
+  board.appendChild(grid);
+
+  const palette = document.createElement('div');
+  palette.className = 'mgpalette';
+  m.pieces.forEach((name, idx) => {
+    const used = idx in (mg.placed || {});
+    const pbtn = document.createElement('button');
+    pbtn.className = 'mgpiece' + (mg.sel === idx ? ' sel' : '') + (used ? ' used' : '');
+    pbtn.disabled = !mine || used;
+    const form = rotForm(m.shapes[name], mg.sel === idx ? mg.rot : 0);
+    const pw = Math.max(...form.map((c) => c[0])) + 1;
+    const ph = Math.max(...form.map((c) => c[1])) + 1;
+    pbtn.style.gridTemplateColumns = `repeat(${pw}, 8px)`;
+    for (let y = 0; y < ph; y++) {
+      for (let x = 0; x < pw; x++) {
+        const dot = document.createElement('i');
+        if (form.some(([fx, fy]) => fx === x && fy === y)) {
+          dot.style.background = PIECE_COLORS[idx % PIECE_COLORS.length];
+        }
+        pbtn.appendChild(dot);
+      }
+    }
+    pbtn.onclick = () => {
+      if (mg.sel === idx) mg.rot = (mg.rot + 1) % 4;    // tap again = rotate
+      else { mg.sel = idx; mg.rot = 0; }
+      renderTetromino(board, m, mine, false);
+    };
+    palette.appendChild(pbtn);
+  });
+  const tip = document.createElement('span');
+  tip.className = 'hint';
+  tip.textContent = 'tap selected piece again to rotate';
+  palette.appendChild(tip);
+  board.appendChild(palette);
+}
+
+/* nonogram */
+function renderNonogram(board, m, mine, fresh) {
+  if (fresh) mg.grid = Array(m.n * m.n).fill(0);
+  board.innerHTML = '';
+  const wrap = document.createElement('div');
+  wrap.className = 'nonowrap';
+  const table = document.createElement('div');
+  table.className = 'nonogrid';
+  table.style.gridTemplateColumns = `auto repeat(${m.n}, 1fr)`;
+  // corner + column clues
+  table.appendChild(Object.assign(document.createElement('div'), { className: 'nclue' }));
+  for (let c = 0; c < m.n; c++) {
+    const d = document.createElement('div');
+    d.className = 'nclue top';
+    d.innerHTML = m.cols[c].join('<br>');
+    table.appendChild(d);
+  }
+  for (let r = 0; r < m.n; r++) {
+    const rc = document.createElement('div');
+    rc.className = 'nclue left';
+    rc.textContent = m.rows[r].join(' ');
+    table.appendChild(rc);
+    for (let c = 0; c < m.n; c++) {
+      const i = r * m.n + c;
+      const cell = document.createElement('button');
+      cell.className = 'mgcell nono' + (mg.grid[i] ? ' on' : '');
+      cell.disabled = !mine;
+      cell.onclick = () => {
+        mg.grid[i] ^= 1;
+        cell.classList.toggle('on', !!mg.grid[i]);
+        if (cluesMatch(m, mg.grid)) send({ type: 'solve', payload: mg.grid });
+      };
+      table.appendChild(cell);
+    }
+  }
+  wrap.appendChild(table);
+  board.appendChild(wrap);
+}
+
+function lineClues(line) {
+  const out = [];
+  let run = 0;
+  for (const v of line) {
+    if (v) run++;
+    else if (run) { out.push(run); run = 0; }
+  }
+  if (run) out.push(run);
+  return out.length ? out : [0];
+}
+
+function cluesMatch(m, grid) {
+  for (let r = 0; r < m.n; r++) {
+    if (JSON.stringify(lineClues(grid.slice(r * m.n, (r + 1) * m.n))) !== JSON.stringify(m.rows[r])) return false;
+  }
+  for (let c = 0; c < m.n; c++) {
+    const col = [];
+    for (let r = 0; r < m.n; r++) col.push(grid[r * m.n + c]);
+    if (JSON.stringify(lineClues(col)) !== JSON.stringify(m.cols[c])) return false;
+  }
+  return true;
+}
+
+/* simon */
+function renderSimon(board, m, mine, fresh) {
+  if (!fresh) return;
+  board.innerHTML = '';
+  const pad = document.createElement('div');
+  pad.className = 'simonpad';
+  const tiles = [];
+  for (let i = 0; i < 9; i++) {
+    const t = document.createElement('button');
+    t.className = 'mgpad';
+    t.disabled = true;
+    t.onclick = () => {
+      if (!mine || !mg.watched) return;
+      flash(t);
+      audio.sfx.click();
+      mg.taps.push(i);
+      if (mg.taps.length === m.seq.length) {
+        send({ type: 'solve', payload: mg.taps });
+        mg.taps = [];
+        $('mgnote').textContent = '…';
+      }
+    };
+    tiles.push(t);
+    pad.appendChild(t);
+  }
+  board.appendChild(pad);
+  const flash = (tile) => {
+    tile.classList.add('lit');
+    setTimeout(() => tile.classList.remove('lit'), 320);
+  };
+  // playback
+  $('mgnote').textContent = 'Watch…';
+  m.seq.forEach((tileIdx, k) => {
+    setTimeout(() => {
+      flash(tiles[tileIdx]);
+      audio.sfx.click();
+      if (k === m.seq.length - 1) {
+        setTimeout(() => {
+          mg.watched = true;
+          tiles.forEach((t) => { t.disabled = !mine; });
+          $('mgnote').textContent = mine ? 'Now repeat the sequence.' : '';
+        }, 500);
+      }
+    }, 700 + k * 620);
+  });
+}
+
+/* anagram */
+function renderAnagram(board, m, mine, fresh) {
+  if (!fresh) return;
+  board.innerHTML = '';
+  const letters = document.createElement('div');
+  letters.className = 'agletters';
+  for (const ch of m.letters) {
+    const t = document.createElement('span');
+    t.className = 'agtile';
+    t.textContent = ch;
+    letters.appendChild(t);
+  }
+  board.appendChild(letters);
+  if (mine) {
+    const row = document.createElement('div');
+    row.className = 'agrow';
+    const input = document.createElement('input');
+    input.className = 'aginput';
+    input.maxLength = m.length;
+    input.placeholder = `${m.length} letters`;
+    input.autocomplete = 'off';
+    const go = document.createElement('button');
+    go.className = 'act';
+    go.textContent = 'ANSWER';
+    const submit = () => {
+      if (input.value.trim().length === m.length) send({ type: 'solve', payload: input.value.trim() });
+      else $('mgnote').textContent = `Needs ${m.length} letters.`;
+    };
+    go.onclick = submit;
+    input.addEventListener('keydown', (e) => { if (e.key === 'Enter') submit(); });
+    row.append(input, go);
+    board.appendChild(row);
+    setTimeout(() => input.focus(), 100);
+  }
+}
+
+/* raven's matrix */
+function glyphSVG(g, size = 54) {
+  const s = size, pad = 6;
+  const cell = (s - pad * 2);
+  const spots = { 1: [[0.5, 0.5]], 2: [[0.3, 0.3], [0.7, 0.7]],
+                  3: [[0.25, 0.25], [0.5, 0.5], [0.75, 0.75]],
+                  4: [[0.3, 0.3], [0.7, 0.3], [0.3, 0.7], [0.7, 0.7]] }[g.count] || [[0.5, 0.5]];
+  const r = cell * (g.count === 1 ? 0.3 : 0.16);
+  let inner = '';
+  for (const [fx, fy] of spots) {
+    const cx = pad + fx * cell, cy = pad + fy * cell;
+    const fill = g.fill === 'full' ? '#16344a' : g.fill === 'half' ? 'url(#half)' : 'none';
+    if (g.shape === 'circle') {
+      inner += `<circle cx="${cx}" cy="${cy}" r="${r}" fill="${fill}" stroke="#16344a" stroke-width="2.5"/>`;
+    } else if (g.shape === 'square') {
+      inner += `<rect x="${cx - r}" y="${cy - r}" width="${r * 2}" height="${r * 2}" fill="${fill}" stroke="#16344a" stroke-width="2.5"/>`;
+    } else if (g.shape === 'triangle') {
+      inner += `<polygon points="${cx},${cy - r} ${cx + r},${cy + r} ${cx - r},${cy + r}" fill="${fill}" stroke="#16344a" stroke-width="2.5"/>`;
+    } else {
+      inner += `<polygon points="${cx},${cy - r} ${cx + r},${cy} ${cx},${cy + r} ${cx - r},${cy}" fill="${fill}" stroke="#16344a" stroke-width="2.5"/>`;
+    }
+  }
+  return `<svg width="${s}" height="${s}" viewBox="0 0 ${s} ${s}">
+    <defs><linearGradient id="half" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="50%" stop-color="#16344a"/><stop offset="50%" stop-color="transparent"/>
+    </linearGradient></defs>${inner}</svg>`;
+}
+
+function renderRavens(board, m, mine, fresh) {
+  if (!fresh) return;
+  board.innerHTML = '';
+  const grid = document.createElement('div');
+  grid.className = 'ravgrid';
+  m.grid.forEach((g) => {
+    const d = document.createElement('div');
+    d.className = 'ravcell';
+    d.innerHTML = glyphSVG(g);
+    grid.appendChild(d);
+  });
+  const q = document.createElement('div');
+  q.className = 'ravcell missing';
+  q.textContent = '?';
+  grid.appendChild(q);
+  board.appendChild(grid);
+  const opts = document.createElement('div');
+  opts.className = 'ravopts';
+  m.options.forEach((g, i) => {
+    const b = document.createElement('button');
+    b.className = 'glyphopt';
+    b.disabled = !mine;
+    b.innerHTML = glyphSVG(g, 46);
+    b.onclick = () => send({ type: 'solve', payload: i });
+    opts.appendChild(b);
+  });
+  board.appendChild(opts);
+}
+
+/* ── modal: upgrades · intro · winner ────────────────────────────────────── */
+let introDismissed = false;
 
 function renderModal() {
   const modal = $('modal');
   const body = $('modalBody');
   const show = (html) => { modal.classList.remove('hidden'); body.innerHTML = html; };
 
-  if (room.phase === 'symposium_vote') {
-    const challenger = room.players.find((p) => p.pid === room.turn);
-    if (you !== room.turn && room.players.some((p) => p.pid === you)) {
-      show(`<h2>⚖ The Symposium</h2>
-        <p><strong>${esc(challenger?.name)}</strong> stands before the gods of Delos.
-        Choose the domain of their final question:</p><div class="domBtns"></div>
-        <p class="tag">${room.votes_in} vote(s) cast</p>`);
-      const btns = body.querySelector('.domBtns');
-      for (const d of DOMAIN_ORDER) {
-        const b = document.createElement('button');
-        b.className = 'act';
-        b.style.background = DOMAIN_COLORS[d];
-        b.textContent = room.board.domains[d].field;
-        b.onclick = () => send({ type: 'vote', domain: d });
-        btns.appendChild(b);
-      }
-    } else {
-      show(`<h2>⚖ The Symposium</h2><p>Your rivals choose your final domain…</p>
-        <p class="tag">${room.votes_in} vote(s) cast</p>`);
-    }
+  if (room.phase !== 'lobby' && room.phase !== 'finished' && !introDismissed) {
+    show(`<h2>🐏 The Race for the Golden Fleece</h2>
+      <ol class="intro">
+        <li><strong>Explore</strong> — roll and sail into the fog. Farther isles are harder and richer.</li>
+        <li><strong>Earn</strong> — shrines pay scrolls for trivia; puzzle isles grant ship upgrades.</li>
+        <li><strong>Fight</strong> — monsters guard relics: pick a stance, answer, roll damage. Hull 0 = shipwreck.</li>
+        <li><strong>Bank 3 relics</strong> at Home Port — cargo at sea can be lost!</li>
+        <li><strong>Claim the Fleece</strong> — its isle appears once you bank 3. Slay the dragon. Win.</li>
+      </ol>
+      <p class="tag">Answer on rivals' turns too — a correct side answer skims a scroll. Streaks of 3+ pay bonus scrolls.</p>
+      <button id="introGo" class="big">TO THE SHIPS</button>`);
+    $('introGo').onclick = () => { introDismissed = true; modal.classList.add('hidden'); render(); };
     return;
   }
 
-  if (room.phase === 'oracle_claim' && room.oracle_claim_due === you) {
-    show(`<h2>🔮 The Oracle's Boon</h2>
-      <p>Choose ${room.config.oracle_reward} scrolls (tap domains, repeats allowed):</p>
-      <div class="domBtns"></div><p id="claimList" class="tag"></p>
-      <button id="claimGo" class="big" disabled>CLAIM</button>`);
-    const btns = body.querySelector('.domBtns');
-    for (const d of DOMAIN_ORDER) {
-      const b = document.createElement('button');
-      b.className = 'act';
-      b.style.background = DOMAIN_COLORS[d];
-      b.textContent = room.board.domains[d].name;
-      b.onclick = () => {
-        claimPick.push(d);
-        claimPick = claimPick.slice(-room.config.oracle_reward);
-        $('claimList').textContent = claimPick.map((x) => room.board.domains[x].name).join(' · ');
-        $('claimGo').disabled = claimPick.length !== room.config.oracle_reward;
-      };
-      btns.appendChild(b);
+  if (room.phase === 'upgrade_pick') {
+    if (room.turn === you && room.upgrade_offer) {
+      show('<h2>⚙ Choose your prize</h2><div class="upgrades"></div>');
+      const wrap = body.querySelector('.upgrades');
+      for (const id of room.upgrade_offer) {
+        const info = room.upgrade_info[id];
+        const b = document.createElement('button');
+        b.className = 'upcard';
+        b.innerHTML = `<strong>${esc(info.name)}</strong><span>${esc(info.desc)}</span>`;
+        b.onclick = () => send({ type: 'pick', upgrade: id });
+        wrap.appendChild(b);
+      }
+    } else {
+      const p = room.players.find((x) => x.pid === room.turn);
+      show(`<h2>⚙ Spoils</h2><p>${esc(p?.name || '')} chooses an upgrade…</p>`);
     }
-    $('claimGo').onclick = () => {
-      send({ type: 'claim', domains: claimPick });
-      claimPick = [];
-    };
-    return;
-  }
-  if (room.phase === 'oracle_claim') {
-    const p = room.players.find((x) => x.pid === room.oracle_claim_due);
-    show(`<h2>🔮 The Oracle's Boon</h2><p>${esc(p?.name)} claims their reward…</p>`);
     return;
   }
 
   if (room.phase === 'finished') {
     const w = room.players.find((p) => p.pid === room.winner);
-    show(`<h2>🏛️ Victory</h2>
-      <p><strong style="color:${w?.color}">${esc(w?.name || '?')}</strong> has triumphed at the
-      Symposium of Delos and rules the Aegean.</p>
-      ${you === room.host ? '<button id="rematchGo" class="big">REMATCH</button>' : '<p class="tag">the host may call a rematch</p>'}`);
+    show(`<h2>🐏 The Golden Fleece</h2>
+      <p><strong style="color:${w?.color}">${esc(w?.name || '?')}</strong> has slain the dragon and
+      claimed the Fleece. The Aegean sings their name.</p>
+      ${you === room.host ? '<button id="rematchGo" class="big">NEW VOYAGE (new sea)</button>' : '<p class="tag">the host may launch a new voyage</p>'}`);
     const rg = $('rematchGo');
-    if (rg) rg.onclick = () => send({ type: 'rematch' });
+    if (rg) rg.onclick = () => { introDismissed = false; send({ type: 'rematch' }); };
     return;
   }
 
   modal.classList.add('hidden');
 }
 
-/* ── dice ────────────────────────────────────────────────────────────────── */
-const PIP_ROT = {
-  1: 'rotateX(0deg) rotateY(0deg)', 2: 'rotateX(-90deg) rotateY(0deg)',
-  3: 'rotateY(-90deg)', 4: 'rotateY(90deg)',
-  5: 'rotateX(90deg)', 6: 'rotateX(180deg)',
+/* ── single die ──────────────────────────────────────────────────────────── */
+const DIE_ROT = {
+  1: [0, 0], 2: [-90, 0], 3: [0, -90], 4: [0, 90], 5: [90, 0], 6: [180, 0],
 };
-let diceTimeout = null;
+let dieTimeout = null;
 
 function buildCube(el) {
   if (el.dataset.built) return;
@@ -484,21 +834,20 @@ function buildCube(el) {
   }
 }
 
-function animateDice(d1, d2) {
+function animateDie(value) {
   const box = $('dice');
   box.classList.remove('hidden');
-  [['die1', d1], ['die2', d2]].forEach(([id, val], i) => {
-    const cube = $(id).querySelector('.cube');
-    buildCube(cube);
-    cube.style.transition = 'none';
-    cube.style.transform = `rotateX(${720 + Math.random() * 360}deg) rotateY(${720 + Math.random() * 360}deg)`;
-    requestAnimationFrame(() => requestAnimationFrame(() => {
-      cube.style.transition = `transform ${0.9 + i * 0.18}s cubic-bezier(.2,.7,.3,1.05)`;
-      cube.style.transform = PIP_ROT[val];
-    }));
-  });
-  clearTimeout(diceTimeout);
-  diceTimeout = setTimeout(() => box.classList.add('hidden'), 4200);
+  const cube = $('die1').querySelector('.cube');
+  buildCube(cube);
+  // deterministic tumble: reset flat with no transition, then spin to the face
+  cube.style.transition = 'none';
+  cube.style.transform = 'rotateX(0deg) rotateY(0deg)';
+  void cube.offsetWidth;                              // force reflow
+  const [rx, ry] = DIE_ROT[value];
+  cube.style.transition = 'transform 1.05s cubic-bezier(.25,.65,.3,1.02)';
+  cube.style.transform = `rotateX(${720 + rx}deg) rotateY(${720 + ry}deg)`;
+  clearTimeout(dieTimeout);
+  dieTimeout = setTimeout(() => box.classList.add('hidden'), 4000);
 }
 
 /* ── toasts & log ────────────────────────────────────────────────────────── */
@@ -507,7 +856,7 @@ function toast(msg, isErr = false) {
   t.className = 'toast' + (isErr ? ' err' : '');
   t.textContent = msg;
   $('toasts').appendChild(t);
-  setTimeout(() => t.remove(), 4000);
+  setTimeout(() => t.remove(), 4200);
 }
 
 function renderLog() {

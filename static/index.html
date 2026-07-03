@@ -3,9 +3,9 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
-<title>THALASSA — an Aegean voyage of wits</title>
+<title>THALASSA — Race for the Golden Fleece</title>
 <link rel="stylesheet" href="/static/style.css">
-<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🏛️</text></svg>">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🐏</text></svg>">
 <script type="importmap">
 { "imports": { "three": "/static/vendor/three.module.min.js" } }
 </script>
@@ -20,7 +20,7 @@
 <div id="lobby" class="overlay">
   <div class="panel">
     <h1>THALASSA</h1>
-    <p class="tag">Sail the isles · wager your wits · earn the laurels</p>
+    <p class="tag">Race for the Golden Fleece · sail · fight · solve</p>
     <div id="joinForm">
       <input id="nameInput" maxlength="16" placeholder="Your name, captain" autocomplete="off">
       <button id="joinBtn" class="big">JOIN THE VOYAGE</button>
@@ -39,11 +39,12 @@
 <!-- ── in-game HUD ──────────────────────────────────────────────────────── -->
 <div id="hud" class="hidden">
   <div id="players"></div>
+  <div id="goal"></div>
   <div id="turnBanner"></div>
   <div id="dice" class="hidden">
     <div class="die" id="die1"><div class="cube"></div></div>
-    <div class="die" id="die2"><div class="cube"></div></div>
   </div>
+  <div id="battleCard" class="hidden"></div>
   <div id="tray"></div>
   <div id="toasts"></div>
 </div>
@@ -54,12 +55,24 @@
     <div id="qhead"><span id="qkind"></span><span id="qdomain"></span></div>
     <div id="qtimer"><div id="qtimerBar"></div></div>
     <p id="qtext"></p>
+    <div id="qitems"></div>
     <div id="qopts"></div>
     <p id="qnote"></p>
   </div>
 </div>
 
-<!-- ── modal for votes / oracle claim / winner ──────────────────────────── -->
+<!-- ── minigame card ────────────────────────────────────────────────────── -->
+<div id="mgmodal" class="overlay hidden">
+  <div class="qcard mg">
+    <div id="mghead"><span id="mgkind"></span><span id="mgisle"></span></div>
+    <div id="mgtimer"><div id="mgtimerBar"></div></div>
+    <p id="mgprompt"></p>
+    <div id="mgboard"></div>
+    <p id="mgnote"></p>
+  </div>
+</div>
+
+<!-- ── modal: upgrades · intro · winner ─────────────────────────────────── -->
 <div id="modal" class="overlay hidden">
   <div class="panel" id="modalBody"></div>
 </div>

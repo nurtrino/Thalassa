@@ -331,44 +331,28 @@ def test_puzzle_mc_wrong_leaves_node_open(monkeypatch):
 
 
 def test_minigame_flow_success_and_timeout(monkeypatch):
-    import puzzles as P
-    # success path — lights out, solved by replaying a found solution
+    # success path — anagram, solved with the secret word
     g, (p0, p1) = make_game(seed=13)
-    pz = land_on_puzzle(g, p0, monkeypatch, force_kind="lightsout")
+    pz = land_on_puzzle(g, p0, monkeypatch, force_kind="anagram")
     assert g.phase == "minigame"
     mg = g.minigame
-    assert mg["kind"] == "lightsout" and mg["limit"] == P.TIME_LIMITS["lightsout"]
+    assert mg["kind"] == "anagram" and mg["limit"] == P.TIME_LIMITS["anagram"]
     snap = g.to_dict(p0)
-    assert snap["minigame"]["kind"] == "lightsout"
+    assert snap["minigame"]["kind"] == "anagram"
+    assert "secret" not in snap["minigame"]           # solution never leaks
     # a wrong submission keeps the phase alive
     with pytest.raises(GameError):
-        g.minigame_submit(p0, [])
+        g.minigame_submit(p0, "WRONGGUESS")
     assert g.phase == "minigame"
-    # find a real solution (chase-light) and submit it
-    w, h = mg["data"]["w"], mg["data"]["h"]
-    solution = None
-    for mask in range(2 ** w):
-        grid = mg["data"]["grid"][:]
-        presses = [c for c in range(w) if mask >> c & 1]
-        for c in presses:
-            P._toggle(grid, c, w, h)
-        for r in range(1, h):
-            for c in range(w):
-                if grid[(r - 1) * w + c]:
-                    i = r * w + c
-                    P._toggle(grid, i, w, h)
-                    presses.append(i)
-        if not any(grid):
-            solution = presses
-            break
-    g.minigame_submit(p0, solution)
+    g.minigame_submit(p0, mg["data"]["secret"]["word"])
     assert g.phase == "upgrade_pick"
     assert g.board.nodes[pz]["solved"]
 
-    # timeout path — a fresh game, timer expires
+    # timeout path — a fresh game, timer expires on a simon sequence
     g2, (q0, q1) = make_game(seed=14)
-    pz2 = land_on_puzzle(g2, q0, monkeypatch, force_kind="sliding")
+    pz2 = land_on_puzzle(g2, q0, monkeypatch, force_kind="simon")
     assert g2.phase == "minigame"
+    assert len(g2.minigame["data"]["seq"]) == 6
     g2.minigame_timeout()
     assert not g2.board.nodes[pz2]["solved"]
     assert g2.current.pid == q1 and g2.phase == "roll"

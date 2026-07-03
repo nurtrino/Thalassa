@@ -1,115 +1,32 @@
-"""Puzzle generators — every generated instance must be solvable & checkable."""
+"""Puzzle generators — every generated instance must be solvable & checkable,
+and no solution may leak outside the 'secret' field."""
 import random
 
 import puzzles
 
 
-def test_sequence_options_contain_one_correct():
-    rng = random.Random(1)
-    for _ in range(60):
-        q = puzzles.gen_sequence(rng)
-        assert len(q["options"]) == 4
-        assert len(set(q["options"])) == 4          # no duplicate options
-        assert 0 <= q["correct"] < 4
+def test_deal_covers_all_kinds_and_hides_secrets():
+    rng = random.Random(5)
+    used = set()
+    kinds = set()
+    for _ in range(120):
+        d = puzzles.deal(rng, used)
+        kinds.add(d["kind"])
+        assert d["limit"] == puzzles.TIME_LIMITS[d["kind"]]
+        if d["kind"] in puzzles.INTERACTIVE:
+            assert "secret" in d                     # present server-side…
+    assert set(puzzles.INTERACTIVE) <= kinds
+    assert "riddle" in kinds
 
 
-def _inversions(tiles):
-    seq = [t for t in tiles if t != 0]
-    return sum(1 for i in range(len(seq)) for j in range(i + 1, len(seq))
-               if seq[i] > seq[j])
-
-
-def test_sliding_scrambles_are_solvable_by_parity():
-    # a 3x3 eight-puzzle is solvable iff its inversion count is even —
-    # cheap to verify for many scrambles
-    rng = random.Random(2)
-    for _ in range(40):
-        data = puzzles.gen_sliding(rng)
-        tiles = data["tiles"]
-        assert sorted(tiles) == list(range(9))
-        assert tiles != list(range(1, 9)) + [0]     # never starts solved
-        assert _inversions(tiles) % 2 == 0, "unsolvable scramble generated"
-
-
-def test_sliding_replay_checker_accepts_a_real_solution():
-    # small scramble → tiny BFS finds the solution fast; replay must validate
-    from collections import deque
-    rng = random.Random(6)
-    data = puzzles.gen_sliding(rng, scramble=10)
-    goal = tuple(list(range(1, 9)) + [0])
-    start = tuple(data["tiles"])
-    seen = {start: None}
-    dq = deque([start])
-    while dq and goal not in seen:
-        cur = dq.popleft()
-        b = cur.index(0)
-        r, c = divmod(b, 3)
-        for m in (b - 3, b + 3, b - 1, b + 1):
-            if not 0 <= m < 9:
-                continue
-            mr, mc = divmod(m, 3)
-            if abs(mr - r) + abs(mc - c) != 1:
-                continue
-            nxt = list(cur)
-            nxt[b], nxt[m] = nxt[m], nxt[b]
-            nxt = tuple(nxt)
-            if nxt not in seen:
-                seen[nxt] = (cur, m)
-                dq.append(nxt)
-    assert goal in seen
-    moves = []
-    cur = goal
-    while seen[cur] is not None:
-        prev, m = seen[cur]
-        moves.append(m)
-        cur = prev
-    moves.reverse()
-    assert puzzles.check_sliding(data, moves)
-
-
-def test_sliding_rejects_illegal_moves():
-    data = {"tiles": [1, 2, 3, 4, 5, 6, 7, 0, 8]}
-    assert not puzzles.check_sliding(data, [0])          # not adjacent to blank
-    assert puzzles.check_sliding(data, [8])              # slide the 8 left → solved
-
-
-def test_lightsout_generated_grids_check_out():
-    rng = random.Random(3)
-    for _ in range(30):
-        data = puzzles.gen_lightsout(rng)
-        assert any(data["grid"])                          # never starts solved
-        # lights out is self-inverse: pressing every lit-generating press again solves.
-        # find a solution by brute force over 2^16 (fine at 4x4… use linearity: chase)
-        w, h = data["w"], data["h"]
-        best = None
-        for mask in range(2 ** w):                        # chase-light method
-            grid = data["grid"][:]
-            presses = []
-            for c in range(w):
-                if mask >> c & 1:
-                    puzzles._toggle(grid, c, w, h)
-                    presses.append(c)
-            for r in range(1, h):
-                for c in range(w):
-                    if grid[(r - 1) * w + c]:
-                        i = r * w + c
-                        puzzles._toggle(grid, i, w, h)
-                        presses.append(i)
-            if not any(grid):
-                best = presses
-                break
-        assert best is not None, "unsolvable lights-out generated"
-        assert puzzles.check_lightsout(data, best)
-
-
+# ── tetromino ────────────────────────────────────────────────────────────────
 def test_tetromino_generation_and_check():
     rng = random.Random(4)
     for _ in range(10):
         data = puzzles.gen_tetromino(rng)
-        assert len(data["pieces"]) == (data["w"] * data["h"]) // 4
-        # rebuild a correct assignment by re-tiling with the exact same pieces
-        # (the generator guarantees one exists; find it by backtracking)
         w, h, pieces = data["w"], data["h"], data["pieces"]
+        assert len(pieces) == (w * h) // 4
+        # re-tile with the same multiset of pieces (guaranteed possible)
         grid = [-1] * (w * h)
         remaining = list(range(len(pieces)))
 
@@ -143,18 +60,107 @@ def test_tetromino_generation_and_check():
                             remaining.append(idx)
             return False
 
-        assert solve(), "generated tetromino region cannot be re-tiled"
+        assert solve(), "generated region cannot be re-tiled"
         assert puzzles.check_tetromino(data, grid)
-        # sabotage: swapping two cells of different pieces must fail
         bad = grid[:]
-        a = 0
-        b = next(i for i in range(len(bad)) if bad[i] != bad[a])
-        bad[a], bad[b] = bad[b], bad[a]
+        b = next(i for i in range(len(bad)) if bad[i] != bad[0])
+        bad[0], bad[b] = bad[b], bad[0]
         assert not puzzles.check_tetromino(data, bad)
 
 
-def test_deal_covers_all_kinds():
-    rng = random.Random(5)
-    used = set()
-    kinds = {puzzles.deal(rng, used)["kind"] for _ in range(80)}
-    assert {"sliding", "lightsout", "tetromino", "sequence"} <= kinds
+# ── nonogram ─────────────────────────────────────────────────────────────────
+def test_nonogram_clues_roundtrip():
+    rng = random.Random(7)
+    for _ in range(25):
+        data = puzzles.gen_nonogram(rng)
+        n = data["n"]
+        assert len(data["rows"]) == n and len(data["cols"]) == n
+        # the generator's own grid satisfies its clues — reconstruct one by
+        # brute force over rows that match row clues, then check col clues
+        # (5×5 → each row has ≤ 32 candidates; quick)
+        from itertools import product
+        row_cands = []
+        for r in range(n):
+            cands = [bits for bits in product((0, 1), repeat=n)
+                     if puzzles._clues(bits) == data["rows"][r]]
+            assert cands, "row clue with no candidates"
+            row_cands.append(cands)
+
+        def search(rows_done, cols):
+            if len(rows_done) == n:
+                return [v for row in rows_done for v in row] \
+                    if [puzzles._clues(col) for col in cols] == data["cols"] else None
+            r = len(rows_done)
+            for cand in row_cands[r]:
+                ncols = [cols[c] + (cand[c],) for c in range(n)]
+                # prune: partial columns must be a prefix-compatible
+                ok = all(_prefix_ok(ncols[c], data["cols"][c], n) for c in range(n))
+                if ok:
+                    res = search(rows_done + [cand], ncols)
+                    if res:
+                        return res
+            return None
+
+        def _prefix_ok(partial, clue, n):
+            runs = puzzles._clues(partial)
+            if runs == [0]:
+                runs = []
+            cl = clue if clue != [0] else []
+            if len(runs) > len(cl):
+                return False
+            for i, r in enumerate(runs[:-1] if partial and partial[-1] else runs):
+                if i < len(cl) and r > cl[i]:
+                    return False
+            return True
+
+        solution = search([], [() for _ in range(n)])
+        assert solution is not None, "unsolvable nonogram"
+        assert puzzles.check_nonogram(data, solution)
+        assert not puzzles.check_nonogram(data, [0] * (n * n)) or sum(solution) == 0
+
+
+# ── simon ────────────────────────────────────────────────────────────────────
+def test_simon_sequences():
+    rng = random.Random(8)
+    for _ in range(30):
+        data = puzzles.gen_simon(rng)
+        seq = data["seq"]
+        assert len(seq) == 6                          # starts at memorizing 6
+        assert all(0 <= t < 9 for t in seq)
+        assert all(a != b for a, b in zip(seq, seq[1:]))
+        assert puzzles.check_simon(data, seq[:])
+        assert not puzzles.check_simon(data, seq[:-1])
+        assert not puzzles.check_simon(data, seq[:-1] + [(seq[-1] + 1) % 9])
+
+
+# ── anagram ──────────────────────────────────────────────────────────────────
+def test_anagram_scramble_and_check():
+    rng = random.Random(9)
+    for _ in range(40):
+        data = puzzles.gen_anagram(rng)
+        word = data["secret"]["word"]
+        assert sorted(data["letters"]) == sorted(word)
+        assert data["letters"] != word
+        assert puzzles.check_anagram(data, word.lower())     # case-insensitive
+        assert puzzles.check_anagram(data, f"  {word}  ")    # whitespace ok
+        assert not puzzles.check_anagram(data, word[::-1] if word[::-1] != word else "XX")
+        assert not puzzles.check_anagram(data, data["letters"]
+                                         if data["letters"] not in puzzles._WORD_SET else "QQQ")
+
+
+# ── raven's matrix ───────────────────────────────────────────────────────────
+def test_ravens_unique_correct_option():
+    rng = random.Random(10)
+    for _ in range(40):
+        data = puzzles.gen_ravens(rng)
+        assert len(data["grid"]) == 8
+        opts = data["options"]
+        assert len(opts) == 4
+        correct = data["secret"]["correct"]
+        assert 0 <= correct < 4
+        # correct option appears exactly once
+        assert opts.count(opts[correct]) == 1
+        assert puzzles.check_ravens(data, correct)
+        for i in range(4):
+            if i != correct:
+                assert not puzzles.check_ravens(data, i)
