@@ -999,6 +999,8 @@ export function createWorld(container, onIslandClick) {
 
   // dynamic board state
   const islands = {};      // id → {key, group, proxy, R}
+  let nbrs = {};           // id → [ids] (for sail-path routing)
+  let nodeMeta = {};       // id → {x, z, type, blocked}
   const banners = {};      // id → {key, sprite}
   const ships = {};        // pid → {group, target, idx, phase, anim}
   let laneGroup = new THREE.Group();
@@ -1013,6 +1015,7 @@ export function createWorld(container, onIslandClick) {
   let savedView = null;               // camera state to restore after battle
   let cameraAnchored = false;
   let lastFollowPid = null;
+  let followShip = null;              // pid whose sailing ship the camera tracks
 
   /* ── the battle arena: a Paper-Mario stage far off the chart ───────────── */
   const ARENA = new THREE.Vector3(1500, 0, 420);
@@ -1037,6 +1040,11 @@ export function createWorld(container, onIslandClick) {
       rk.position.set(x, 0.3, z);
       g.add(rk);
     }
+    // the combat shoal: solid ground under the enemy line
+    const shoal = makeTerrain({ seed: 88, R: 14, H: 0.9, mode: 'flat',
+      palette: { sand: 0xf2e4bb } });
+    shoal.mesh.position.set(10, 0, 1);
+    g.add(shoal.mesh);
     g.add(shallowDisc(70));
     const light = new THREE.DirectionalLight(0xfff1d6, 0.9);
     light.position.set(-20, 30, 20);
@@ -1073,7 +1081,7 @@ export function createWorld(container, onIslandClick) {
       arena.ship = ship;
       b.enemies.forEach((e, i) => {
         const model = makeEnemy(e.name, e.max_hp);
-        const home = new THREE.Vector3(5 + i * 5.5, 0, -1 + (i % 2) * 3.5);
+        const home = new THREE.Vector3(5.5 + i * 4.8, 0.82, -0.5 + (i % 2) * 3);
         model.position.copy(home);
         model.rotation.y = -Math.PI / 2;         // face the ship
         model.scale.setScalar(1.45);
@@ -1193,6 +1201,16 @@ export function createWorld(container, onIslandClick) {
 
   function syncBoard(room) {
     const nodes = room.board.nodes || [];
+    nodeMeta = {};
+    for (const n of nodes) {
+      nodeMeta[n.id] = { x: n.x, z: n.z, type: n.type,
+                         blocked: n.type === 'fleece' || !!n.monster };
+    }
+    nbrs = {};
+    for (const [a, b] of room.board.edges || []) {
+      (nbrs[a] = nbrs[a] || []).push(b);
+      (nbrs[b] = nbrs[b] || []).push(a);
+    }
     const sig = nodes.length && nodes.map((n) => n.id).sort().join(',').slice(0, 40) +
                 `:${nodes[0]?.x},${nodes[0]?.z}`;
     const homeNode = nodes.find((n) => n.id === 'home');
@@ -1273,6 +1291,27 @@ export function createWorld(container, onIslandClick) {
     }
   }
 
+  /** shortest lane path a ship can actually sail (visual routing) */
+  function sailPath(from, to) {
+    if (!nbrs[from] || !nbrs[to]) return null;
+    const prev = { [from]: null };
+    const dq = [from];
+    while (dq.length) {
+      const cur = dq.shift();
+      if (cur === to) break;
+      for (const nb of nbrs[cur] || []) {
+        if (nb in prev) continue;
+        if (nb !== to && nodeMeta[nb]?.blocked) continue;   // no cutting past monsters
+        prev[nb] = cur;
+        dq.push(nb);
+      }
+    }
+    if (!(to in prev)) return null;
+    const path = [];
+    for (let cur = to; cur !== null; cur = prev[cur]) path.unshift(cur);
+    return path;
+  }
+
   function slotFor(nodeId, slotIdx) {
     const isle = islands[nodeId];
     const node = isle ? isle.group.position : new THREE.Vector3();
@@ -1306,11 +1345,27 @@ export function createWorld(container, onIslandClick) {
       const sh = ships[p.pid];
       sh.idx = idx;
       if (sh.target !== p.node) {
-        const to = slotFor(p.node, idx);
-        const dist = sh.group.position.distanceTo(to);
-        sh.anim = { from: sh.group.position.clone(), to, t0: performance.now(),
-                    dur: Math.min(2600, 600 + dist * 26) };
+        // sail the actual lanes: build a polyline through the route's nodes
+        const route = sailPath(sh.target, p.node);
+        const pts = [sh.group.position.clone()];
+        if (route && route.length > 2) {
+          for (const nid of route.slice(1, -1)) {
+            const meta = nodeMeta[nid];
+            if (meta) pts.push(new THREE.Vector3(meta.x, 0, meta.z));
+          }
+        }
+        pts.push(slotFor(p.node, idx));
+        let total = 0;
+        const legs = [];
+        for (let i = 1; i < pts.length; i++) {
+          const len = pts[i].distanceTo(pts[i - 1]);
+          legs.push(len);
+          total += len;
+        }
+        sh.anim = { pts, legs, total, t0: performance.now(),
+                    dur: Math.min(5200, 500 + total * 26) };
         sh.target = p.node;
+        if (p.pid === room.turn && !battleFocus) followShip = p.pid;
       }
     });
     for (const pid of Object.keys(ships)) {
@@ -1416,14 +1471,33 @@ export function createWorld(container, onIslandClick) {
         fleece.position.y = 1.9 + Math.sin(t * 1.6) * 0.12;
       }
     }
-    for (const sh of Object.values(ships)) {
+    for (const [pid, sh] of Object.entries(ships)) {
       if (sh.anim) {
         const k = Math.min(1, (performance.now() - sh.anim.t0) / sh.anim.dur);
         const e = k < 0.5 ? 2 * k * k : 1 - Math.pow(-2 * k + 2, 2) / 2;
-        sh.group.position.lerpVectors(sh.anim.from, sh.anim.to, e);
-        const dir = sh.anim.to.clone().sub(sh.anim.from);
-        if (dir.lengthSq() > 0.01) sh.group.rotation.y = Math.atan2(-dir.z, dir.x);
-        if (k >= 1) sh.anim = null;
+        // walk the polyline at eased progress
+        let dAlong = e * sh.anim.total;
+        let seg = 0;
+        while (seg < sh.anim.legs.length - 1 && dAlong > sh.anim.legs[seg]) {
+          dAlong -= sh.anim.legs[seg];
+          seg++;
+        }
+        const a = sh.anim.pts[seg], b = sh.anim.pts[seg + 1];
+        const f = sh.anim.legs[seg] > 0 ? dAlong / sh.anim.legs[seg] : 1;
+        sh.group.position.lerpVectors(a, b, Math.min(1, f));
+        const dir = b.clone().sub(a);
+        if (dir.lengthSq() > 0.01) {
+          const want = Math.atan2(-dir.z, dir.x);
+          let cur = sh.group.rotation.y;
+          let diff = want - cur;
+          while (diff > Math.PI) diff -= Math.PI * 2;
+          while (diff < -Math.PI) diff += Math.PI * 2;
+          sh.group.rotation.y = cur + diff * 0.15;      // smooth helm turns
+        }
+        if (k >= 1) {
+          sh.anim = null;
+          if (followShip === pid) followShip = null;
+        }
       }
       sh.group.position.y = Math.sin(t * 1.9 + sh.phase) * 0.1;
       sh.group.rotation.z = Math.sin(t * 1.4 + sh.phase) * 0.04;
@@ -1453,7 +1527,15 @@ export function createWorld(container, onIslandClick) {
       camera.lookAt(look);
       controls.target.copy(look);
     } else {
-      if (glideTo) {
+      const chase = followShip && ships[followShip]?.anim ? ships[followShip] : null;
+      if (chase) {
+        // the camera sails with the boat
+        const delta = chase.group.position.clone().setY(1.5).sub(controls.target);
+        delta.multiplyScalar(0.09);
+        controls.target.add(delta);
+        camera.position.add(delta);
+        glideTo = null;
+      } else if (glideTo) {
         const delta = glideTo.clone().sub(controls.target);
         if (delta.length() < 0.6) {
           glideTo = null;

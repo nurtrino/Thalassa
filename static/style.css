@@ -401,6 +401,7 @@ button.small { font-size: 13px; padding: 6px 10px; background: #7a8ca0; }
 
 /* ═══ battle screen ═══ */
 #battleHud { position: fixed; inset: 0; z-index: 15; pointer-events: none; }
+#bmon { pointer-events: auto; }
 .cinebar { position: absolute; left: 0; right: 0; height: 84px; }
 .cinebar.top { top: 0; height: 190px; background: linear-gradient(rgba(8,6,12,.92) 40%, transparent); }
 .cinebar.bot { bottom: 0; background: linear-gradient(transparent, rgba(8,6,12,.88)); }
