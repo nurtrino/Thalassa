@@ -1398,15 +1398,17 @@ export function makeShip(colorHex) {
   g.add(line(new THREE.Vector3(0.05, 2.72, 0.85), new THREE.Vector3(-0.6, 0.6, 0.5)));
   g.add(line(new THREE.Vector3(0.05, 2.72, -0.85), new THREE.Vector3(-0.6, 0.6, -0.5)));
 
+  // steering oars slung over the stern quarters: the loom rests up at the
+  // rail, the blade rakes aft and down alongside the hull — never through it
   for (const side of [-1, 1]) {
     const oar = new THREE.Group();
-    const shaft = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.03, 0.9, 5), flat(COL.woodDark));
-    const blade = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.34, 0.14), flat(COL.woodDark));
-    blade.position.y = -0.5;
+    const shaft = new THREE.Mesh(new THREE.CylinderGeometry(0.028, 0.036, 1.15, 5), flat(COL.woodDark));
+    const blade = new THREE.Mesh(new THREE.BoxGeometry(0.04, 0.42, 0.16), flat(COL.woodDark));
+    blade.position.y = -0.66;
     oar.add(shaft, blade);
-    oar.position.set(-1.35, 0.45, side * 0.42);
-    oar.rotation.x = side * 0.35;
-    oar.rotation.z = 0.25;
+    oar.position.set(-1.5, 0.78, side * 0.34);
+    oar.rotation.x = side * 0.3;       // splay the blade a touch outboard
+    oar.rotation.z = -1.02;            // rake aft: loom high-forward, blade low-aft
     g.add(oar);
   }
 
