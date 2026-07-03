@@ -16,6 +16,15 @@ Five interactive/generated kinds (client never receives fields in "secret"):
   · anagram    unscramble a themed word (typed answer).
   · ravens     Raven's-matrix: 3×3 glyph grid follows hidden row/col rules;
                pick the missing ninth tile.
+  · sequence   "The Fates' Thread": a number sequence from a random rule
+               (arith/geo/fib/squares/primes/triangular/cubes) — type the next
+               term. The answer rides in "secret".
+  · lights_out "The Gorgon's Gaze": a 4×4 grid; tapping a cell toggles it and
+               its orthogonal neighbours — extinguish every light. Scrambled
+               from all-off, so always solvable by replaying taps.
+  · sliding    "The Shifting Mosaic": a 3×3 sliding-tile puzzle (0 = blank),
+               scrambled from the solved goal with legal moves (always
+               solvable); restore the goal order.
 
 Plus "riddle" — a typed-answer brain teaser (like anagram, an INTERACTIVE
 minigame): the player reads a themed riddle and types the answer against a 30s
@@ -32,9 +41,11 @@ import riddles_typed
 # time limit (seconds) per kind — the server enforces these.
 # Simon has NO clock: one wrong tap is the failure, not the seconds.
 TIME_LIMITS = {"riddle": 30, "tetromino": 45, "nonogram": 30,
-               "simon": None, "anagram": 30, "ravens": 30}
+               "simon": None, "anagram": 30, "ravens": 30,
+               "sequence": 30, "lights_out": 45, "sliding": 60}
 
-INTERACTIVE = ("tetromino", "nonogram", "simon", "anagram", "ravens", "riddle")
+INTERACTIVE = ("tetromino", "nonogram", "simon", "anagram", "ravens", "riddle",
+               "sequence", "lights_out", "sliding")
 
 # ── typed-answer riddles — content + normalization live in riddles_typed ─────
 RIDDLES = riddles_typed.RIDDLES
@@ -291,14 +302,132 @@ def check_riddle(data: dict, guess) -> bool:
     return riddles_typed.check_riddle(data["secret"], guess)
 
 
+# ── sequence: "The Fates' Thread" (type the next term) ───────────────────────
+def gen_sequence(rng: random.Random) -> dict:
+    """A number sequence from a random rule; the next term rides in secret."""
+    fam = rng.choice(["arith", "geo", "fib", "squares",
+                      "primes", "triangular", "cubes"])
+    if fam == "arith":
+        start, step = rng.randint(1, 9), rng.randint(2, 9)
+        terms = [start + step * i for i in range(5)]
+        answer = start + step * 5
+    elif fam == "geo":
+        start, ratio = rng.randint(1, 4), rng.randint(2, 3)
+        terms = [start * ratio ** i for i in range(4)]
+        answer = start * ratio ** 4
+    elif fam == "fib":
+        seq = [rng.randint(1, 3), rng.randint(2, 4)]
+        while len(seq) < 6:
+            seq.append(seq[-1] + seq[-2])
+        terms, answer = seq[:5], seq[5]
+    elif fam == "squares":
+        off = rng.randint(0, 3)
+        terms = [(i + 1 + off) ** 2 for i in range(5)]
+        answer = (6 + off) ** 2
+    elif fam == "primes":
+        primes = [2, 3, 5, 7, 11, 13, 17, 19, 23, 29, 31, 37, 41]
+        s = rng.randint(0, 4)
+        terms, answer = primes[s:s + 5], primes[s + 5]
+    elif fam == "triangular":
+        off = rng.randint(0, 4)
+        terms = [(k * (k + 1)) // 2 for k in range(1 + off, 6 + off)]
+        answer = ((6 + off) * (7 + off)) // 2
+    else:                                                   # cubes
+        off = rng.randint(0, 2)
+        terms = [(i + 1 + off) ** 3 for i in range(4)]
+        answer = (5 + off) ** 3
+    return {"terms": terms, "secret": {"answer": answer}}
+
+
+def check_sequence(data: dict, guess) -> bool:
+    try:
+        return int(str(guess).strip()) == int(data["secret"]["answer"])
+    except (ValueError, TypeError):
+        return False
+
+
+# ── lights out: "The Gorgon's Gaze" (extinguish every light) ─────────────────
+def _lights_toggle(board, n, r, c):
+    for rr, cc in ((r, c), (r - 1, c), (r + 1, c), (r, c - 1), (r, c + 1)):
+        if 0 <= rr < n and 0 <= cc < n:
+            board[rr][cc] ^= 1
+
+
+def gen_lights_out(rng: random.Random, n: int = 4, depth: int = 5) -> dict:
+    """Scramble from an all-off board with `depth` taps — always solvable by
+    replaying those taps. Reroll if the scramble lands back on all-off."""
+    while True:
+        board = [[0] * n for _ in range(n)]
+        for _ in range(depth):
+            _lights_toggle(board, n, rng.randrange(n), rng.randrange(n))
+        if any(v for row in board for v in row):
+            return {"n": n, "board": board, "secret": {}}
+
+
+def check_lights_out(data: dict, taps) -> bool:
+    n = data["n"]
+    if not isinstance(taps, list):
+        return False
+    board = [row[:] for row in data["board"]]
+    for tap in taps:
+        if not (isinstance(tap, (list, tuple)) and len(tap) == 2):
+            return False
+        r, c = tap
+        if not (isinstance(r, int) and isinstance(c, int)
+                and 0 <= r < n and 0 <= c < n):
+            return False
+        _lights_toggle(board, n, r, c)
+    return all(v == 0 for row in board for v in row)
+
+
+# ── sliding tile: "The Shifting Mosaic" (3×3, 0 = blank) ─────────────────────
+_SLIDE_GOAL = [1, 2, 3, 4, 5, 6, 7, 8, 0]
+
+
+def _slide_neighbors(board):
+    z = board.index(0)
+    r, c = divmod(z, 3)
+    out = []
+    for dr, dc in ((-1, 0), (1, 0), (0, -1), (0, 1)):
+        nr, nc = r + dr, c + dc
+        if 0 <= nr < 3 and 0 <= nc < 3:
+            out.append(nr * 3 + nc)
+    return out
+
+
+def gen_sliding(rng: random.Random, scramble: int = 25) -> dict:
+    """Only ever scramble the solved goal with legal blank-swaps, so the board
+    is always solvable. Reroll if the walk lands back on the goal."""
+    while True:
+        board = list(_SLIDE_GOAL)
+        last = None
+        for _ in range(scramble):
+            z = board.index(0)
+            nbrs = _slide_neighbors(board)
+            opts = [p for p in nbrs if p != last] or nbrs
+            pos = rng.choice(opts)
+            last = z
+            board[z], board[pos] = board[pos], board[z]
+        if board != _SLIDE_GOAL:
+            return {"board": board, "goal": list(_SLIDE_GOAL), "secret": {}}
+
+
+def check_sliding(data: dict, board) -> bool:
+    return isinstance(board, list) and board == data["goal"]
+
+
 # ── dealing & checking ───────────────────────────────────────────────────────
 _WEIGHTS = [("tetromino", 3), ("nonogram", 3), ("simon", 3),
-            ("anagram", 3), ("ravens", 3), ("riddle", 1)]
+            ("anagram", 3), ("ravens", 3), ("riddle", 1),
+            ("sequence", 3), ("lights_out", 3), ("sliding", 3)]
 _GENERATORS = {"tetromino": gen_tetromino, "nonogram": gen_nonogram,
-               "simon": gen_simon, "anagram": gen_anagram, "ravens": gen_ravens}
+               "simon": gen_simon, "anagram": gen_anagram, "ravens": gen_ravens,
+               "sequence": gen_sequence, "lights_out": gen_lights_out,
+               "sliding": gen_sliding}
 _CHECKERS = {"tetromino": check_tetromino, "nonogram": check_nonogram,
              "simon": check_simon, "anagram": check_anagram, "ravens": check_ravens,
-             "riddle": check_riddle}
+             "riddle": check_riddle, "sequence": check_sequence,
+             "lights_out": check_lights_out, "sliding": check_sliding}
 
 
 def deal(rng: random.Random, used_riddles: set[int]) -> dict:

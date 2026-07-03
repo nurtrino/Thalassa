@@ -30,6 +30,8 @@ const MG_LABEL = {
   tetromino: 'Sigil of the Isle', nonogram: 'The Weaver’s Grid',
   simon: 'Echoes of the Muses', anagram: 'The Scattered Letters',
   ravens: 'The Pattern of Fate', riddle: 'Riddle of the Isle',
+  sequence: 'The Fates’ Thread', lights_out: 'The Gorgon’s Gaze',
+  sliding: 'The Shifting Mosaic',
 };
 const MG_PROMPT = {
   tetromino: 'Drag each piece onto the grid. No rotating — they fit as given.',
@@ -38,6 +40,9 @@ const MG_PROMPT = {
   anagram: 'Unscramble the word.',
   ravens: 'Find the pattern. Pick the missing tile.',
   riddle: 'Read the riddle and type your answer.',
+  sequence: 'Read the thread and type the next number.',
+  lights_out: 'Tap to toggle a stone and its neighbours. Darken them all.',
+  sliding: 'Slide the tiles into order, 1 to 8, blank last.',
 };
 const TIER_ROMAN = { 1: 'I', 2: 'II', 3: 'III' };
 const UP_ICON = {
@@ -1195,6 +1200,9 @@ function renderMinigame() {
   else if (m.kind === 'anagram') renderAnagram(board, m, mine, fresh);
   else if (m.kind === 'ravens') renderRavens(board, m, mine, fresh);
   else if (m.kind === 'riddle') renderRiddle(board, m, mine, fresh);
+  else if (m.kind === 'sequence') renderSequence(board, m, mine, fresh);
+  else if (m.kind === 'lights_out') renderLightsOut(board, m, mine, fresh);
+  else if (m.kind === 'sliding') renderSliding(board, m, mine, fresh);
 }
 
 /* tetromino — Talos-style sigil fill: drag to place, no rotation */
@@ -1512,6 +1520,113 @@ function renderRiddle(board, m, mine, fresh) {
     board.appendChild(row);
     setTimeout(() => input.focus(), 100);
   }
+}
+
+/* sequence — read the thread of numbers, type the next term (like riddle) */
+function renderSequence(board, m, mine, fresh) {
+  if (!fresh) return;
+  board.innerHTML = '';
+  const thread = document.createElement('div');
+  thread.className = 'seqthread';
+  thread.textContent = (m.terms || []).join(', ') + ', …';
+  board.appendChild(thread);
+  if (mine) {
+    const row = document.createElement('div');
+    row.className = 'agrow';
+    const input = document.createElement('input');
+    input.className = 'aginput';
+    input.inputMode = 'numeric';
+    input.maxLength = 12;
+    input.placeholder = 'next number';
+    input.autocomplete = 'off';
+    const go = document.createElement('button');
+    go.className = 'act';
+    go.textContent = 'ANSWER';
+    const submit = () => {
+      const v = input.value.trim();
+      if (v) send({ type: 'solve', payload: v });
+      else $('mgnote').textContent = 'Type a number.';
+    };
+    go.onclick = submit;
+    input.addEventListener('keydown', (e) => { if (e.key === 'Enter') submit(); });
+    row.append(input, go);
+    board.appendChild(row);
+    setTimeout(() => input.focus(), 100);
+  }
+}
+
+/* lights out — tap a stone to toggle it and its orthogonal neighbours; darken
+ * the whole grid. Local board + taps in mg state; auto-submits when all off. */
+function renderLightsOut(board, m, mine, fresh) {
+  const n = m.n;
+  if (fresh) {
+    mg.board = m.board.map((r) => r.slice());
+    mg.taps = [];
+  }
+  board.innerHTML = '';
+  const grid = document.createElement('div');
+  grid.className = 'logrid';
+  grid.style.gridTemplateColumns = `repeat(${n}, 1fr)`;
+  const cells = [];
+  const paint = () => {
+    for (let r = 0; r < n; r++) {
+      for (let c = 0; c < n; c++) cells[r * n + c].classList.toggle('lit', !!mg.board[r][c]);
+    }
+  };
+  for (let r = 0; r < n; r++) {
+    for (let c = 0; c < n; c++) {
+      const cell = document.createElement('button');
+      cell.className = 'mgcell locell';
+      cell.disabled = !mine;
+      cell.onclick = () => {
+        for (const [rr, cc] of [[r, c], [r - 1, c], [r + 1, c], [r, c - 1], [r, c + 1]]) {
+          if (rr >= 0 && rr < n && cc >= 0 && cc < n) mg.board[rr][cc] ^= 1;
+        }
+        mg.taps.push([r, c]);
+        paint();
+        if (mg.board.every((row) => row.every((v) => v === 0))) {
+          send({ type: 'solve', payload: mg.taps });
+        }
+      };
+      cells.push(cell);
+      grid.appendChild(cell);
+    }
+  }
+  board.appendChild(grid);
+  paint();
+}
+
+/* sliding tile — click a tile beside the blank to slide it in; restore the
+ * goal order 1..8 with the blank last. Auto-submits when solved. */
+function renderSliding(board, m, mine, fresh) {
+  if (fresh) mg.board = m.board.slice();
+  board.innerHTML = '';
+  const grid = document.createElement('div');
+  grid.className = 'slidegrid';
+  const goal = m.goal;
+  const draw = () => {
+    grid.innerHTML = '';
+    mg.board.forEach((val, i) => {
+      const cell = document.createElement('button');
+      cell.className = 'mgcell slidecell' + (val === 0 ? ' blank' : '');
+      cell.textContent = val === 0 ? '' : val;
+      cell.disabled = !mine || val === 0;
+      cell.onclick = () => {
+        const z = mg.board.indexOf(0);
+        if (Math.abs(Math.floor(z / 3) - Math.floor(i / 3)) + Math.abs((z % 3) - (i % 3)) === 1) {
+          mg.board[z] = mg.board[i];
+          mg.board[i] = 0;
+          draw();
+          if (mg.board.every((v, k) => v === goal[k])) {
+            send({ type: 'solve', payload: mg.board.slice() });
+          }
+        }
+      };
+      grid.appendChild(cell);
+    });
+  };
+  draw();
+  board.appendChild(grid);
 }
 
 /* raven's matrix */

@@ -469,11 +469,12 @@ def land_on_puzzle(g, pid, monkeypatch=None, force_kind=None):
     """Land on a puzzle node, optionally forcing the dealt kind."""
     pz = find_node(g, "puzzle")
     if force_kind == "mc":
-        # No live multiple-choice puzzle today (riddle is now typed-answer);
-        # synthesize the MC deal a future "sequence" kind will use, so the
-        # puzzle→question→upgrade-pick flow stays covered.
+        # Every live kind is now an INTERACTIVE minigame, so the multiple-choice
+        # puzzle→question→upgrade-pick path in _land is only reachable via a
+        # non-interactive deal. Synthesize one (kind not in INTERACTIVE) to keep
+        # that branch covered.
         def fake_deal(rng, used):
-            return {"kind": "sequence", "limit": 30,
+            return {"kind": "quiz", "limit": 30,
                     "text": "2, 4, 6, 8, … — what comes next?",
                     "options": ["9", "10", "12", "7"], "correct": 1}
         monkeypatch.setattr(G.puzzles, "deal", fake_deal)
@@ -562,6 +563,89 @@ def test_minigame_riddle_typed_flow(monkeypatch):
         g.minigame_submit(p0, "definitely-not-it")
     assert g.phase == "minigame"
     g.minigame_submit(p0, mg["data"]["secret"]["answer"])
+    assert g.phase == "upgrade_pick"
+    assert g.board.nodes[pz]["solved"]
+
+
+def test_minigame_sequence_typed_flow(monkeypatch):
+    g, (p0, p1) = make_game(seed=17)
+    pz = land_on_puzzle(g, p0, monkeypatch, force_kind="sequence")
+    assert g.phase == "minigame"
+    mg = g.minigame
+    assert mg["kind"] == "sequence" and mg["limit"] == P.TIME_LIMITS["sequence"]
+    snap = g.to_dict(p0)
+    assert snap["minigame"]["kind"] == "sequence"
+    assert snap["minigame"]["terms"]                      # the thread is public
+    assert "secret" not in snap["minigame"]               # next term never leaks
+    with pytest.raises(GameError):
+        g.minigame_submit(p0, "-999")                     # wrong number, phase alive
+    assert g.phase == "minigame"
+    g.minigame_submit(p0, str(mg["data"]["secret"]["answer"]))
+    assert g.phase == "upgrade_pick"
+    assert g.board.nodes[pz]["solved"]
+
+
+def _lights_out_solution(board, n):
+    """GF(2) solve: taps that clear the board (see test_puzzles for the twin)."""
+    rows = []
+    for r in range(n):
+        for c in range(n):
+            eq = [0] * (n * n + 1)
+            for rr, cc in ((r, c), (r - 1, c), (r + 1, c), (r, c - 1), (r, c + 1)):
+                if 0 <= rr < n and 0 <= cc < n:
+                    eq[rr * n + cc] = 1
+            eq[-1] = board[r][c]
+            rows.append(eq)
+    m, piv, row = n * n, [], 0
+    for col in range(m):
+        sel = next((rr for rr in range(row, len(rows)) if rows[rr][col]), None)
+        if sel is None:
+            continue
+        rows[row], rows[sel] = rows[sel], rows[row]
+        for rr in range(len(rows)):
+            if rr != row and rows[rr][col]:
+                rows[rr] = [a ^ b for a, b in zip(rows[rr], rows[row])]
+        piv.append((row, col))
+        row += 1
+    x = [0] * m
+    for r, col in piv:
+        x[col] = rows[r][-1]
+    return [[i // n, i % n] for i in range(m) if x[i]]
+
+
+def test_minigame_lights_out_flow(monkeypatch):
+    g, (p0, p1) = make_game(seed=17)
+    pz = land_on_puzzle(g, p0, monkeypatch, force_kind="lights_out")
+    assert g.phase == "minigame"
+    mg = g.minigame
+    assert mg["kind"] == "lights_out" and mg["limit"] == P.TIME_LIMITS["lights_out"]
+    snap = g.to_dict(p0)
+    assert snap["minigame"]["kind"] == "lights_out"
+    assert snap["minigame"]["board"]                      # the grid is public
+    assert "secret" not in snap["minigame"]
+    with pytest.raises(GameError):                        # doing nothing fails
+        g.minigame_submit(p0, [])
+    assert g.phase == "minigame"
+    sol = _lights_out_solution(mg["data"]["board"], mg["data"]["n"])
+    g.minigame_submit(p0, sol)
+    assert g.phase == "upgrade_pick"
+    assert g.board.nodes[pz]["solved"]
+
+
+def test_minigame_sliding_flow(monkeypatch):
+    g, (p0, p1) = make_game(seed=17)
+    pz = land_on_puzzle(g, p0, monkeypatch, force_kind="sliding")
+    assert g.phase == "minigame"
+    mg = g.minigame
+    assert mg["kind"] == "sliding" and mg["limit"] == P.TIME_LIMITS["sliding"]
+    snap = g.to_dict(p0)
+    assert snap["minigame"]["kind"] == "sliding"
+    assert snap["minigame"]["board"] and snap["minigame"]["goal"]
+    assert "secret" not in snap["minigame"]
+    with pytest.raises(GameError):                        # the scramble is not the goal
+        g.minigame_submit(p0, mg["data"]["board"])
+    assert g.phase == "minigame"
+    g.minigame_submit(p0, mg["data"]["goal"])
     assert g.phase == "upgrade_pick"
     assert g.board.nodes[pz]["solved"]
 

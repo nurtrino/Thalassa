@@ -206,3 +206,85 @@ def test_ravens_unique_correct_option():
         for i in range(4):
             if i != correct:
                 assert not puzzles.check_ravens(data, i)
+
+
+# ── sequence: "The Fates' Thread" (typed next term) ──────────────────────────
+def test_sequence_answer_solves_and_wrong_rejected():
+    rng = random.Random(11)
+    for _ in range(30):
+        data = puzzles.gen_sequence(rng)
+        assert len(data["terms"]) >= 4
+        ans = data["secret"]["answer"]
+        # answer lives ONLY in secret — never in the client-facing payload
+        assert "answer" not in {k for k in data if k != "secret"}
+        assert puzzles.check_sequence(data, ans)
+        assert puzzles.check_sequence(data, str(ans))          # typed string
+        assert puzzles.check_sequence(data, f"  {ans} ")       # trimmed
+        assert not puzzles.check_sequence(data, ans + 1)
+        assert not puzzles.check_sequence(data, "not a number")
+        assert not puzzles.check_sequence(data, None)
+
+
+# ── lights out: "The Gorgon's Gaze" ──────────────────────────────────────────
+def _solve_lights_out(board, n):
+    """GF(2) solve: which cells to tap to clear the board. 16 vars for 4x4."""
+    def idx(r, c):
+        return r * n + c
+    # augmented matrix: each equation is one cell's parity; each var is a tap
+    rows = []
+    for r in range(n):
+        for c in range(n):
+            eq = [0] * (n * n + 1)
+            for rr, cc in ((r, c), (r - 1, c), (r + 1, c), (r, c - 1), (r, c + 1)):
+                if 0 <= rr < n and 0 <= cc < n:
+                    eq[idx(rr, cc)] = 1
+            eq[-1] = board[r][c]
+            rows.append(eq)
+    m = n * n
+    piv = []
+    row = 0
+    for col in range(m):
+        sel = next((rr for rr in range(row, len(rows)) if rows[rr][col]), None)
+        if sel is None:
+            continue
+        rows[row], rows[sel] = rows[sel], rows[row]
+        for rr in range(len(rows)):
+            if rr != row and rows[rr][col]:
+                rows[rr] = [a ^ b for a, b in zip(rows[rr], rows[row])]
+        piv.append((row, col))
+        row += 1
+    x = [0] * m
+    for r, col in piv:
+        x[col] = rows[r][-1]
+    return [[i // n, i % n] for i in range(m) if x[i]]
+
+
+def test_lights_out_solvable_and_rejects_wrong():
+    rng = random.Random(12)
+    for _ in range(30):
+        data = puzzles.gen_lights_out(rng)
+        n = data["n"]
+        assert n == 4 and len(data["board"]) == n
+        assert any(v for row in data["board"] for v in row)   # not already solved
+        assert data["secret"] == {}                            # nothing hidden
+        sol = _solve_lights_out(data["board"], n)
+        assert puzzles.check_lights_out(data, sol)             # the solution clears it
+        assert not puzzles.check_lights_out(data, [])          # doing nothing fails
+        assert not puzzles.check_lights_out(data, "nope")      # malformed
+        assert not puzzles.check_lights_out(data, [[9, 9]])    # out of bounds
+        assert not puzzles.check_lights_out(data, [[0]])       # wrong shape
+
+
+# ── sliding tile: "The Shifting Mosaic" ──────────────────────────────────────
+def test_sliding_goal_solves_and_scramble_rejected():
+    rng = random.Random(13)
+    for _ in range(30):
+        data = puzzles.gen_sliding(rng)
+        assert sorted(data["board"]) == list(range(9))         # a real permutation
+        assert data["goal"] == [1, 2, 3, 4, 5, 6, 7, 8, 0]
+        assert data["board"] != data["goal"]                   # actually scrambled
+        assert data["secret"] == {}
+        assert puzzles.check_sliding(data, data["goal"])       # goal order solves it
+        assert not puzzles.check_sliding(data, data["board"])  # scramble does not
+        assert not puzzles.check_sliding(data, "nope")
+        assert not puzzles.check_sliding(data, list(range(9)))
