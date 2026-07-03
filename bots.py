@@ -40,35 +40,64 @@ UPGRADE_WISHLIST = ["hull_plates", "ram", "sandals", "star_chart",
                     "owl", "aegis", "boar_spear", "lyre"]
 
 
+def _distances_from(board, start: str) -> dict[str, int]:
+    """BFS hop-distance over the whole chart (monsters ignored — this is
+    route intent, the reachable set handles what's actually sailable)."""
+    dist = {start: 0}
+    frontier = [start]
+    while frontier:
+        nxt = []
+        for nid in frontier:
+            for nb in board.neighbors[nid]:
+                if nb not in dist:
+                    dist[nb] = dist[nid] + 1
+                    nxt.append(nb)
+        frontier = nxt
+    return dist
+
+
+def _target_score(g: G.Game, p, nid: str) -> float:
+    node = g.board.nodes[nid]
+    ntype = node["type"]
+    monster = g.board.alive_monster(nid)
+    if ntype == "fleece":
+        return 500 if g._fleece_ok(p) else -1
+    if ntype == "home":
+        return 40 + 90 * len(p.cargo) + (35 if p.hull <= 2 else 0) - 30
+    if ntype == "lair" and monster and not node.get("taken"):
+        strength = p.hull + (2 if p.has("ram") else 0)
+        return 25 + strength * 8 - monster["hp"] * 6
+    if ntype == "shrine" and node.get("charges", 0) > 0:
+        return 45 if p.scrolls < 6 else 22
+    if ntype == "puzzle" and not node.get("solved"):
+        return 55 if len(p.upgrades) < 4 else 15
+    if ntype == "haven":
+        return 75 if (p.hull <= p.max_hull - 2 and p.scrolls > 0) else -1
+    return -1
+
+
 def decide_sail(g: G.Game, pid: str, rng: random.Random) -> str:
+    """Pick a destination worth wanting, then take the reachable node that
+    gets closest to it (the map is huge — most turns are passage-making)."""
     p = g.player_by_pid(pid)
-    best, best_score = None, -1e9
+    targets = sorted(
+        ((nid, _target_score(g, p, nid) + rng.random() * 8)
+         for nid in g.board.nodes),
+        key=lambda t: -t[1])
+    goal, goal_score = targets[0]
+    if goal_score <= 0:                                     # nothing appeals: drift home
+        goal = "home"
+    if goal in g.reachable:
+        return goal
+    dist_to_goal = _distances_from(g.board, goal)
+    best, best_d = None, 1e9
     for nid in g.reachable:
-        node = g.board.nodes[nid]
-        known = nid in p.known
-        ntype = node["type"] if known else None
-        monster = g.board.alive_monster(nid)
-        score = 5.0
-        if ntype == "fleece":
-            score = 500                                     # end it
-        elif ntype == "home":
-            score = 40 + 80 * len(p.cargo) + (30 if p.hull <= 2 else 0)
-        elif not known:
-            score = 55                                      # the fog calls
-        elif ntype == "lair" and monster:
-            strength = p.hull + (2 if p.has("ram") else 0)
-            score = 20 + strength * 8 - monster["hp"] * 6
-        elif ntype == "monster" and monster:
-            score = 12 + p.hull * 3 - monster["hp"] * 4
-        elif ntype == "shrine" and node.get("charges", 0) > 0:
-            score = 45 if p.scrolls < 6 else 25
-        elif ntype == "puzzle" and not node.get("solved"):
-            score = 60 if len(p.upgrades) < 4 else 20
-        elif ntype == "haven":
-            score = 70 if (p.hull <= p.max_hull - 2 and p.scrolls > 0) else 5
-        score += rng.random() * 6
-        if score > best_score:
-            best, best_score = nid, score
+        d = dist_to_goal.get(nid, 1e8)
+        # prefer stepping onto flotsam when it's on the way
+        if g.board.nodes[nid].get("flotsam"):
+            d -= 0.4
+        if d < best_d:
+            best, best_d = nid, d
     return best
 
 

@@ -179,6 +179,9 @@ async def dispatch(pid: str | None, kind: str, msg: dict) -> str | None:
             table.bots[p.pid] = skill
         elif kind == "roll":
             die = secrets.randbelow(6) + 1
+            p = g.player_by_pid(pid)
+            if p and p.has("star_chart"):        # roll two, sail with the higher
+                die = max(die, secrets.randbelow(6) + 1)
             g.roll(pid, die)
             await broadcast_event({"type": "dice", "pid": pid, "value": die})
         elif kind == "sail":

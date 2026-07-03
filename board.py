@@ -1,16 +1,19 @@
 """
 Thalassa board — a procedurally generated frontier archipelago.
 
-Every game rolls a new sea chart: the Home Port anchors the south, and
-bands of islands fan north toward the hidden isle of the Golden Fleece.
-Farther bands hold harder questions, meaner monsters, and richer loot.
+Every game rolls a new sea chart, fully visible from the first turn: the
+Home Port anchors the south, and bands of islands fan north toward the Isle
+of the Golden Fleece on the horizon. Farther bands hold harder questions,
+meaner monsters, and richer loot — and the sea between islands is wide:
+every route is a chain of open-water waypoints (buoys, drifting flotsam),
+so a voyage to a far lair takes real turns and real route planning.
 
     band 0   home port
     band 1-2 shrines, puzzles, havens, first monsters
     band 3-5 relic lairs and their guardians
-    band 6   the Golden Fleece (revealed when someone banks 3 relics)
+    band 6   the Golden Fleece (locked until someone banks 3 relics)
 
-Node types: home · shrine · puzzle · haven · monster · lair · fleece
+Node types: home · shrine · puzzle · haven · monster · lair · fleece · sea
 The engine owns per-game state (monster hp, shrine charges, relics), so a
 Board instance belongs to one Game and mutates freely.
 """
@@ -45,9 +48,12 @@ RELICS_TOTAL = 6           # lairs on the map, one relic each
 RELICS_TO_WIN = 3
 SHRINE_CHARGES = 2
 
-# band z rows (south → north) and how many islands in each
-_BAND_Z = [40, 26, 12, -2, -16, -30, -44]
+# band z rows (south → north) and how many islands in each — spread wide;
+# the space between is filled with sea waypoints at generation time
+_BAND_Z = [56, 34, 12, -10, -32, -54, -76]
 _BAND_N = [1, 4, 5, 5, 4, 3, 1]
+_WAYPOINT_EVERY = 11.0        # aim for a sea node roughly every N world units
+_FLOTSAM_CHANCE = 0.28
 _BAND_TYPES = {
     1: ["shrine", "shrine", "shrine", "puzzle"],
     2: ["shrine", "shrine", "monster", "haven", "puzzle"],
@@ -78,7 +84,7 @@ class Board:
         bands: list[list[str]] = []
         for bi, (z, n) in enumerate(zip(_BAND_Z, _BAND_N)):
             row = []
-            width = 30 if 1 <= bi <= 4 else 18
+            width = 42 if 1 <= bi <= 4 else 24
             for i in range(n):
                 if bi == 0:
                     nid, ntype, name = "home", "home", "Home Port"
@@ -138,6 +144,39 @@ class Board:
 
         self._build_neighbors()
         self._ensure_connected(bands)
+        self._insert_waypoints(rng)
+
+    def _insert_waypoints(self, rng):
+        """Split every island-to-island edge into a chain of open-sea nodes,
+        so distance is measured in real sailing turns."""
+        island_edges = self.edges[:]
+        self.edges = []
+        wp = 0
+        for a, b in island_edges:
+            length = self._dist(a, b)
+            n_way = max(1, round(length / _WAYPOINT_EVERY) - 1)
+            na, nb = self.nodes[a], self.nodes[b]
+            chain = [a]
+            for k in range(1, n_way + 1):
+                t = k / (n_way + 1)
+                # perpendicular jitter so routes curve like real currents
+                px, pz = -(nb["z"] - na["z"]), (nb["x"] - na["x"])
+                plen = max(1e-6, (px * px + pz * pz) ** 0.5)
+                jit = rng.uniform(-2.6, 2.6)
+                nid = f"sea{wp}"
+                wp += 1
+                self.nodes[nid] = {
+                    "id": nid, "name": "Open Sea", "type": "sea",
+                    "band": min(na["band"], nb["band"]),
+                    "x": round(na["x"] + (nb["x"] - na["x"]) * t + px / plen * jit, 2),
+                    "z": round(na["z"] + (nb["z"] - na["z"]) * t + pz / plen * jit, 2),
+                    "flotsam": rng.random() < _FLOTSAM_CHANCE,
+                }
+                chain.append(nid)
+            chain.append(b)
+            for u, v in zip(chain, chain[1:]):
+                self._link(u, v)
+        self._build_neighbors()
 
     def _monster(self, spec, rng) -> dict:
         name, hp, power, tier = spec

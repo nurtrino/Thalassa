@@ -16,9 +16,10 @@ Phases:
                                      battle: stance → question → reveal → stance…
     puzzle success → upgrade_pick.   finished when someone claims the Fleece.
 
-Fog of war is per player: `known` nodes show their true type, `seen` nodes
-are silhouettes, everything else is open sea. You can sail only through
-known, safe water; entering a silhouette ends your movement (exploration).
+The whole chart is visible from the first turn — the strategy is the route.
+Islands are far apart, connected by chains of open-sea waypoints (some carry
+flotsam worth a scroll); live monsters block passage, and the Fleece isle
+admits only captains with RELICS_TO_WIN banked relics.
 
 Battles are stance (strategy) → question (trivia) → damage die (luck):
     ATTACK  correct → your die +1 damage   wrong → take power +1
@@ -50,7 +51,7 @@ COLORS = ["#e4572e", "#2e86ab", "#f6ae2d", "#8e5572", "#33ca7f", "#6457a6"]
 UPGRADES = {
     "ram":        {"name": "Bronze Ram",        "desc": "+1 damage on every strike"},
     "hull_plates": {"name": "Oak Hull Plates",  "desc": "+2 max hull (and heal 2 now)"},
-    "star_chart": {"name": "Star Chart",        "desc": "Landing reveals two waves of islands"},
+    "star_chart": {"name": "Star Chart",        "desc": "Roll two movement dice, sail with the higher"},
     "sandals":    {"name": "Hermes' Sandals",   "desc": "+1 to every movement roll"},
     "owl":        {"name": "Owl of Athena",     "desc": "Once per battle: remove 2 wrong options"},
     "lyre":       {"name": "Lyre of Orpheus",   "desc": "Once per battle: swap the question"},
@@ -83,8 +84,6 @@ class Player:
         self.banked = 0
         self.upgrades: list[str] = []
         self.streak = 0
-        self.known: set[str] = set()       # fog: full knowledge
-        self.seen: set[str] = set()        # fog: silhouettes
 
     def has(self, upgrade: str) -> bool:
         return upgrade in self.upgrades
@@ -149,23 +148,9 @@ class Game:
         if self.current.pid != pid:
             raise GameError("Not your turn.")
 
-    # ── fog of war ───────────────────────────────────────────────────────────
-    def _reveal_for(self, p: Player, nid: str):
-        """Landing on nid: it becomes known; neighbors become silhouettes.
-        A Star Chart pushes both waves one ring further."""
-        p.known.add(nid)
-        p.seen.add(nid)
-        for nb in self.board.neighbors[nid]:
-            p.seen.add(nb)
-            if p.has("star_chart"):
-                p.known.add(nb)
-                for nb2 in self.board.neighbors[nb]:
-                    p.seen.add(nb2)
-
+    # ── movement rules ───────────────────────────────────────────────────────
     def _passable(self, p: Player, nid: str) -> bool:
         """Can p sail THROUGH nid (not merely stop there)?"""
-        if nid not in p.known:
-            return False
         node = self.board.nodes[nid]
         if node["type"] == "fleece":
             return False
@@ -183,7 +168,7 @@ class Game:
                 if d == steps or (nid != p.node and not self._passable(p, nid)):
                     continue                       # stop-nodes end movement
                 for nb in self.board.neighbors[nid]:
-                    if nb in dist or nb not in p.seen:
+                    if nb in dist:
                         continue
                     if self.board.nodes[nb]["type"] == "fleece" and not self._fleece_ok(p):
                         continue
@@ -239,8 +224,6 @@ class Game:
             raise GameError("Only the host can launch the fleet.")
         if len(self.players) < MIN_PLAYERS:
             raise GameError(f"Need at least {MIN_PLAYERS} captain(s).")
-        for p in self.players:
-            self._reveal_for(p, "home")
         self.turn_idx = 0
         self._start_turn()
 
@@ -277,7 +260,6 @@ class Game:
         p.prev_node = p.node
         p.node = node
         self.reachable = {}
-        self._reveal_for(p, node)
         self._land(p, node)
 
     # ── landing dispatch ─────────────────────────────────────────────────────
@@ -291,7 +273,13 @@ class Game:
             self._say(f"{monster['name']} bars {p.name}'s way!")
             self._bump("battle")
             return
-        if ntype == "home":
+        if ntype == "sea":
+            if node.get("flotsam"):
+                node["flotsam"] = False
+                p.scrolls += 1
+                self._say(f"{p.name} hauls drifting flotsam aboard — +1 scroll.")
+            self._next_turn()
+        elif ntype == "home":
             self._bank(p)
             self._next_turn()
         elif ntype == "shrine" and node.get("charges", 0) > 0:
@@ -328,10 +316,7 @@ class Game:
         p.hull = p.max_hull
         if p.banked >= RELICS_TO_WIN and not self.fleece_revealed:
             self.fleece_revealed = True
-            for q in self.players:
-                q.seen.add("fleece")
-                q.known.add("fleece")
-            self._say("⚡ The Isle of the Golden Fleece emerges from the mist!")
+            self._say(f"⚡ {p.name} has three relics — the way to the Fleece is open to them!")
 
     # ── shrine wagers ────────────────────────────────────────────────────────
     def wager(self, pid: str, tier: int):
@@ -698,8 +683,6 @@ class Game:
         self.used_puzzles = set()
         self.log = []
         self.turn_idx = 0
-        for p in self.players:
-            self._reveal_for(p, "home")
         self._start_turn()
 
     # ── snapshots (per viewer — fog!) ────────────────────────────────────────
@@ -716,19 +699,14 @@ class Game:
                 "is_fleece": node["type"] == "fleece",
                 "used_items": self.battle["used_items"]}
 
-    def _node_view(self, nid: str, viewer: Player | None) -> dict | None:
+    def _node_view(self, nid: str) -> dict:
         node = self.board.nodes[nid]
-        full = viewer is None or self.phase == "finished"
-        if not full and nid not in viewer.seen:
-            return None
         base = {"id": nid, "x": node["x"], "z": node["z"], "band": node["band"]}
-        if not full and nid not in viewer.known:
-            base["type"] = "mist"
-            base["name"] = "Uncharted Isle"
-            return base
         base["type"] = node["type"]
         base["name"] = node["name"]
-        if node["type"] == "shrine":
+        if node["type"] == "sea":
+            base["flotsam"] = node.get("flotsam", False)
+        elif node["type"] == "shrine":
             base["domain"] = node["domain"]
             base["charges"] = node["charges"]
             base["tier"] = node["tier"]
@@ -744,17 +722,8 @@ class Game:
         return base
 
     def to_dict(self, viewer_pid: str | None = None) -> dict:
-        viewer = self.player_by_pid(viewer_pid) if viewer_pid else None
-        nodes = []
-        for nid in self.board.nodes:
-            if self.board.nodes[nid]["type"] == "fleece" and not self.fleece_revealed \
-                    and self.phase != "finished":
-                continue
-            v = self._node_view(nid, viewer)
-            if v:
-                nodes.append(v)
-        shown = {n["id"] for n in nodes}
-        edges = [[a, b] for a, b in self.board.edges if a in shown and b in shown]
+        nodes = [self._node_view(nid) for nid in self.board.nodes]
+        edges = [[a, b] for a, b in self.board.edges]
 
         q = None
         if self.question is not None:
@@ -771,8 +740,9 @@ class Game:
             "host": self.players[0].pid if self.players else None,
             "turn": self.current.pid if self.players and self.phase != "lobby" else None,
             "die": self.die,
-            "reachable": self.reachable if viewer is None or
-                         (self.players and self.current.pid == viewer_pid) else {},
+            "reachable": self.reachable if viewer_pid is None or
+                         (self.players and self.phase != "lobby"
+                          and self.current.pid == viewer_pid) else {},
             "question": q,
             "side_answered": list(self.side_answers.keys()),
             "reveal": self.reveal if self.phase == "reveal" else None,

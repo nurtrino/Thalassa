@@ -41,7 +41,7 @@ const flat = (color, extra = {}) =>
 
 /* ── sky / sun / water (unchanged aesthetics) ───────────────────────────── */
 function makeSky() {
-  const geo = new THREE.SphereGeometry(360, 24, 14);
+  const geo = new THREE.SphereGeometry(560, 24, 14);
   const mat = new THREE.ShaderMaterial({
     side: THREE.BackSide, depthWrite: false,
     uniforms: {
@@ -82,7 +82,7 @@ function makeSunGlow() {
 }
 
 function makeWater(sunDir) {
-  const geo = new THREE.PlaneGeometry(680, 680, 96, 96);
+  const geo = new THREE.PlaneGeometry(1000, 1000, 110, 110);
   geo.rotateX(-Math.PI / 2);
   const mat = new THREE.ShaderMaterial({
     uniforms: {
@@ -472,26 +472,46 @@ function makeFleeceTree() {
   return g;
 }
 
-let _mistTex = null;
-function mistRing(radius) {
-  if (!_mistTex) {
-    const c = document.createElement('canvas');
-    c.width = c.height = 256;
-    const ctx = c.getContext('2d');
-    const g = ctx.createRadialGradient(128, 128, 60, 128, 128, 128);
-    g.addColorStop(0, 'rgba(230,238,242,0)');
-    g.addColorStop(0.6, 'rgba(230,238,242,0.55)');
-    g.addColorStop(1, 'rgba(230,238,242,0)');
-    ctx.fillStyle = g;
-    ctx.fillRect(0, 0, 256, 256);
-    _mistTex = new THREE.CanvasTexture(c);
+/* open-sea waypoints: a buoy, or bobbing flotsam worth a scroll */
+function makeBuoy(rng) {
+  const g = new THREE.Group();
+  const float = new THREE.Mesh(new THREE.CylinderGeometry(0.5, 0.38, 0.42, 8),
+    flat(0xd9534f));
+  float.position.y = 0.28;
+  const stripe = new THREE.Mesh(new THREE.CylinderGeometry(0.52, 0.52, 0.14, 8),
+    flat(0xf7f4ec));
+  stripe.position.y = 0.34;
+  const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.045, 0.045, 1.1, 5),
+    flat(COL.woodDark));
+  pole.position.y = 1.0;
+  const lamp = new THREE.Mesh(new THREE.SphereGeometry(0.11, 6, 5),
+    flat(0xffd97a, { emissive: 0x9a7a1a }));
+  lamp.position.y = 1.6;
+  g.add(float, stripe, pole, lamp);
+  g.rotation.y = rng() * 6.28;
+  g.name = 'bob';
+  return g;
+}
+
+function makeFlotsam(rng) {
+  const g = new THREE.Group();
+  for (let i = 0; i < 3; i++) {
+    const crate = new THREE.Mesh(new THREE.BoxGeometry(0.55, 0.4, 0.55), flat(COL.woodDark));
+    const a = rng() * 6.28;
+    crate.position.set(Math.cos(a) * (0.4 + rng() * 0.5), 0.16, Math.sin(a) * (0.4 + rng() * 0.5));
+    crate.rotation.y = rng() * 1.5;
+    g.add(crate);
   }
-  const m = new THREE.Mesh(new THREE.PlaneGeometry(radius, radius),
-    new THREE.MeshBasicMaterial({ map: _mistTex, transparent: true, depthWrite: false }));
-  m.rotation.x = -Math.PI / 2;
-  m.position.y = 1.6;
-  m.name = 'mist';
-  return m;
+  const barrel = new THREE.Mesh(new THREE.CylinderGeometry(0.24, 0.24, 0.5, 8), flat(COL.wood));
+  barrel.rotation.z = Math.PI / 2;
+  barrel.position.y = 0.2;
+  g.add(barrel);
+  const glint = new THREE.Mesh(new THREE.SphereGeometry(0.12, 6, 5),
+    flat(COL.gold, { emissive: 0x9a6a10 }));
+  glint.position.y = 0.5;
+  g.add(glint);
+  g.name = 'bob';
+  return g;
 }
 
 /* ── ships ──────────────────────────────────────────────────────────────── */
@@ -569,11 +589,12 @@ function bannerTexture(title, sub, colorHex, dark = false) {
 
 /* ── island assembly (keyed by view state) ──────────────────────────────── */
 const ISLE_R = { home: 6.2, shrine: 4.6, puzzle: 4.6, haven: 5.0,
-                 monster: 5.2, lair: 5.8, fleece: 7.2, mist: 4.4 };
+                 monster: 5.2, lair: 5.8, fleece: 7.2, sea: 1.5 };
 
 function viewKey(node) {
   return [node.type, node.monster ? node.monster.hp : '-',
-          node.charges ?? '-', node.solved ?? '-', node.relic_taken ?? '-'].join(':');
+          node.charges ?? '-', node.solved ?? '-', node.relic_taken ?? '-',
+          node.flotsam ?? '-'].join(':');
 }
 
 function buildIsland(node, domains) {
@@ -583,26 +604,11 @@ function buildIsland(node, domains) {
   const rng0 = mulberry32(seed + 7);
   let terrain;
 
-  if (node.type === 'mist') {
-    terrain = makeTerrain({ seed, R, H: 1.6, mode: 'hill',
-      palette: { sand: 0xb9bfc2, grass: 0x9aa5ad, grass2: 0x8a959d, sandWet: 0xa8adaf } });
-    g.add(terrain.mesh);
-    g.add(mistRing(R * 3.4));
-    const qc = document.createElement('canvas');
-    qc.width = qc.height = 128;
-    const qx = qc.getContext('2d');
-    qx.fillStyle = 'rgba(240,244,246,0.92)';
-    qx.beginPath(); qx.arc(64, 64, 56, 0, 6.29); qx.fill();
-    qx.fillStyle = '#5d6a72';
-    qx.font = 'bold 78px Georgia, serif';
-    qx.textAlign = 'center'; qx.textBaseline = 'middle';
-    qx.fillText('?', 64, 70);
-    const qt = new THREE.CanvasTexture(qc);
-    qt.colorSpace = THREE.SRGBColorSpace;
-    const q = new THREE.Sprite(new THREE.SpriteMaterial({ map: qt, transparent: true, fog: false }));
-    q.scale.set(2.2, 2.2, 1);
-    q.position.y = 4.6;
-    g.add(q);
+  if (node.type === 'sea') {
+    const marker = node.flotsam ? makeFlotsam(rng0) : makeBuoy(rng0);
+    g.add(marker);
+    g.position.set(node.x, 0, node.z);
+    return { group: g, R, plateauY: 0 };
   } else if (node.type === 'home') {
     terrain = makeTerrain({ seed, R, H: 1.7, mode: 'mesa' });
     const dock = makeDock(6.0);
@@ -689,7 +695,7 @@ function buildIsland(node, domains) {
     terrain = makeTerrain({ seed, R, H: 2.0, mode: 'hill' });
   }
 
-  if (node.type !== 'mist') {
+  {
     g.add(terrain.mesh);
     g.add(shallowDisc(R * 4.0));
     const foam = new THREE.Mesh(
@@ -726,10 +732,10 @@ function bannerFor(node, domains) {
 /* ── the world ──────────────────────────────────────────────────────────── */
 export function createWorld(container, onIslandClick) {
   const scene = new THREE.Scene();
-  scene.fog = new THREE.Fog(0xd6ecf5, 110, 330);
+  scene.fog = new THREE.Fog(0xd6ecf5, 170, 520);
 
-  const camera = new THREE.PerspectiveCamera(48, 1, 0.1, 800);
-  camera.position.set(0, 64, 96);
+  const camera = new THREE.PerspectiveCamera(48, 1, 0.1, 1100);
+  camera.position.set(0, 96, 138);
 
   const renderer = new THREE.WebGLRenderer({ antialias: true });
   renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
@@ -743,14 +749,14 @@ export function createWorld(container, onIslandClick) {
   controls.enableDamping = true;
   controls.dampingFactor = 0.06;
   controls.maxPolarAngle = 1.26;
-  controls.minDistance = 20;
-  controls.maxDistance = 160;
+  controls.minDistance = 22;
+  controls.maxDistance = 260;
   controls.enablePan = true;
   controls.panSpeed = 0.6;
   controls.screenSpacePanning = false;
   controls.autoRotate = true;
   controls.autoRotateSpeed = 0.45;
-  controls.target.set(0, 1.5, 4);
+  controls.target.set(0, 1.5, -10);
 
   scene.add(makeSky());
   scene.add(new THREE.HemisphereLight(0xd6ecff, 0x3e7d5a, 0.85));
@@ -759,13 +765,13 @@ export function createWorld(container, onIslandClick) {
   sun.position.copy(sunPos);
   sun.castShadow = true;
   sun.shadow.mapSize.set(2048, 2048);
-  sun.shadow.camera.left = -70; sun.shadow.camera.right = 70;
-  sun.shadow.camera.top = 70; sun.shadow.camera.bottom = -70;
-  sun.shadow.camera.far = 260;
+  sun.shadow.camera.left = -105; sun.shadow.camera.right = 105;
+  sun.shadow.camera.top = 105; sun.shadow.camera.bottom = -105;
+  sun.shadow.camera.far = 320;
   sun.shadow.bias = -0.0004;
   scene.add(sun);
   const glow = makeSunGlow();
-  glow.position.copy(sunPos.clone().normalize().multiplyScalar(310));
+  glow.position.copy(sunPos.clone().normalize().multiplyScalar(500));
   scene.add(glow);
 
   const water = makeWater(sunPos);
@@ -1031,8 +1037,11 @@ export function createWorld(container, onIslandClick) {
         const s = 1 + Math.sin(t * 1.3 + isle.group.position.x) * 0.045;
         foam.scale.set(s, s, 1);
       }
-      const mist = isle.group.getObjectByName('mist');
-      if (mist) mist.rotation.z = t * 0.15;
+      const bob = isle.group.getObjectByName('bob');
+      if (bob) {
+        bob.position.y = Math.sin(t * 1.7 + isle.group.position.x * 0.5) * 0.14;
+        bob.rotation.z = Math.sin(t * 1.3 + isle.group.position.z * 0.4) * 0.08;
+      }
       const beast = isle.group.getObjectByName('monster');
       if (beast) beast.position.y += Math.sin(t * 2 + isle.group.position.z) * 0.0035;
       const beacon = isle.group.getObjectByName('beacon');

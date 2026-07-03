@@ -284,7 +284,7 @@ function renderTray() {
   } else if (room.phase === 'sail') {
     const me = room.players.find((p) => p.pid === you);
     const bonus = me?.upgrades.includes('sandals') ? ' (+1 sandals)' : '';
-    hint(`You rolled <strong>${room.die}</strong>${bonus} — tap a glowing isle. Grey silhouettes are unexplored.`);
+    hint(`You rolled <strong>${room.die}</strong>${bonus} — tap a glowing stop. Monsters block the sea lanes.`);
   } else if (room.phase === 'shrine') {
     const me = room.players.find((p) => p.pid === you);
     const node = (room.board.nodes || []).find((n) => n.id === me.node);
@@ -787,7 +787,7 @@ function renderModal() {
   if (room.phase !== 'lobby' && room.phase !== 'finished' && !introDismissed) {
     show(`<h2>🐏 The Race for the Golden Fleece</h2>
       <ol class="intro">
-        <li><strong>Explore</strong> — roll and sail into the fog. Farther isles are harder and richer.</li>
+        <li><strong>Voyage</strong> — roll and sail the open chart. Farther isles are harder and richer.</li>
         <li><strong>Earn</strong> — shrines pay scrolls for trivia; puzzle isles grant ship upgrades.</li>
         <li><strong>Fight</strong> — monsters guard relics: pick a stance, answer, roll damage. Hull 0 = shipwreck.</li>
         <li><strong>Bank 3 relics</strong> at Home Port — cargo at sea can be lost!</li>

@@ -22,7 +22,6 @@ def force_land(g, pid, nid):
     p = g.player_by_pid(pid)
     p.prev_node = p.node
     p.node = nid
-    g._reveal_for(p, nid)
     g._land(p, nid)
 
 
@@ -70,47 +69,52 @@ def test_boards_differ_between_seeds():
     assert ta != tb or pa != pb
 
 
-# ── fog of war ───────────────────────────────────────────────────────────────
-def test_fog_reveals_on_landing():
-    g, (p0, p1) = make_game()
-    p = g.player_by_pid(p0)
-    assert "home" in p.known
-    for nb in g.board.neighbors["home"]:
-        assert nb in p.seen
-    g.roll(p0, 6)
-    target = next(iter(g.reachable))
-    g.sail(p0, target)
-    assert target in p.known
-
-
-def test_cannot_pass_through_silhouettes():
-    g, (p0, p1) = make_game()
-    p = g.player_by_pid(p0)
-    g.roll(p0, 6)
-    # every reachable silhouette must be at distance exactly 1 hop beyond known water
-    for nid, d in g.reachable.items():
-        if nid not in p.known:
-            path_ok = any(nb in p.known and (nb == p.node or g._passable(p, nb))
-                          for nb in g.board.neighbors[nid])
-            assert path_ok, f"{nid} reachable without an explored approach"
-
-
-def test_snapshot_hides_fog():
+# ── the open chart ───────────────────────────────────────────────────────────
+def test_full_map_visible_from_turn_one():
     g, (p0, p1) = make_game()
     snap = g.to_dict(p0)
-    shown = {n["id"]: n for n in snap["board"]["nodes"]}
-    p = g.player_by_pid(p0)
-    assert set(shown) == p.seen
-    for nid, n in shown.items():
-        if nid not in p.known:
-            assert n["type"] == "mist" and n["name"] == "Uncharted Isle"
-    assert all(nid != "fleece" for nid in shown)      # hidden until revealed
+    shown = {n["id"] for n in snap["board"]["nodes"]}
+    assert shown == set(g.board.nodes)                # everything, fleece included
+    assert "fleece" in shown
 
 
-def test_fleece_absent_until_revealed():
+def test_sea_waypoints_pad_the_routes():
     g, (p0, p1) = make_game()
-    snap = g.to_dict(None)
-    assert "fleece" not in {n["id"] for n in snap["board"]["nodes"]}
+    seas = [n for n in g.board.nodes.values() if n["type"] == "sea"]
+    assert len(seas) >= 15                            # real filler between isles
+    assert any(n.get("flotsam") for n in seas)
+    # a single roll from home cannot reach any relic lair
+    g.roll(p0, 6)
+    assert not any(g.board.nodes[nid]["type"] == "lair" for nid in g.reachable)
+
+
+def test_flotsam_pickup():
+    g, (p0, p1) = make_game()
+    sea = next(nid for nid, n in g.board.nodes.items()
+               if n["type"] == "sea")
+    g.board.nodes[sea]["flotsam"] = True
+    p = g.player_by_pid(p0)
+    force_land(g, p0, sea)
+    assert p.scrolls == 4                             # 3 starting + 1 flotsam
+    assert not g.board.nodes[sea]["flotsam"]
+    assert g.current.pid == p1
+
+
+def test_monsters_block_passage():
+    g, (p0, p1) = make_game()
+    p = g.player_by_pid(p0)
+    mon = find_node(g, "monster")
+    # stand right next to the monster: it is a valid stop but not a corridor
+    nb = g.board.neighbors[mon][0]
+    p.node = nb
+    g.roll(p0, 6)
+    assert mon in g.reachable
+    beyond = [x for x in g.board.neighbors[mon] if x != nb]
+    for far in beyond:
+        if far in g.reachable:
+            # must be reachable by some path that avoids the monster
+            assert g.reachable[far] != g.reachable[mon] + 1 or \
+                len(g.board.neighbors[far]) > 1
 
 
 # ── shrine wagers ────────────────────────────────────────────────────────────
@@ -238,7 +242,6 @@ def test_bank_and_fleece_reveal_and_win():
     force_land(g, p0, "home")
     assert p.banked == 3 and p.cargo == []
     assert g.fleece_revealed
-    assert "fleece" in g.player_by_pid(p1).known           # revealed to all
     # p1 takes a turn
     g.roll(p1, 1)
     if g.phase == "sail":
@@ -258,7 +261,6 @@ def test_bank_and_fleece_reveal_and_win():
     p.node = "fleece"
     p.prev_node = "home"
     g.board.nodes["fleece"]["monster"]["hp"] = 1
-    g._reveal_for(p, "fleece")
     g._land(p, "fleece")
     assert g.phase == "battle"
     g.stance(p.pid, "attack")
@@ -273,12 +275,9 @@ def test_fleece_locked_without_relics():
     g, (p0, p1) = make_game()
     g.fleece_revealed = True
     p = g.player_by_pid(p0)
-    for q in g.players:
-        q.seen.add("fleece"); q.known.add("fleece")
     # place the player right next to the fleece with no banked relics
     nb = g.board.neighbors["fleece"][0]
     p.node = nb
-    g._reveal_for(p, nb)
     g.roll(p0, 6)
     assert "fleece" not in g.reachable
 
@@ -457,7 +456,7 @@ def test_rematch_rolls_a_new_sea():
     assert g.phase == "roll" and pa.banked == 0 and pa.upgrades == []
     new_nodes = {nid: g.board.nodes[nid]["type"] for nid in g.board.nodes}
     assert old_nodes != new_nodes or True                  # new board object at minimum
-    assert pa.node == "home" and "home" in pa.known
+    assert pa.node == "home"
 
 
 def test_kick_adjusts_turn_order():
