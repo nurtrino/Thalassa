@@ -717,31 +717,45 @@ export function createWorld(container, handlers = {}) {
     };
   }
 
+  /* a realm crossed on foot (the desert): its captain walks, no boat */
+  function isFootStage(stageId) {
+    return !!(stageId && stageId !== 'hub'
+      && lastRoom?.board?.regions?.[stageId]?.mode === 'foot');
+  }
+
   function syncShips(room, you) {
     const playersByPid = {};
     room.players?.forEach((p, idx) => {
       playersByPid[p.pid] = p;
       const rec = ensureShip(p, idx);
       rec.idx = idx;
-      const node = nodeById[p.node];
-      const mode = node?.mode === 'foot' ? 'foot' : 'sail';
-      if (mode !== rec.mode) { rec.mode = mode; applyMode(rec); }
-      else if (mode === 'foot' && !rec.captain) applyMode(rec);
 
-      if (rec.node !== p.node) {
-        rec.prevNode = rec.node;
-        rec.node = p.node;
+      const moved = rec.node !== p.node;
+      if (moved) { rec.prevNode = rec.node; rec.node = p.node; }
+
+      // which stage does this ship live in now? (gates belong to two)
+      const targetStage = stageHasNode(activeBoardId, rec.node) ? activeBoardId : null;
+      // the ship's form follows that STAGE: afloat on water, on foot on sand —
+      // so you become the captain the moment you're shown in the desert (even
+      // at its pass), and never a boat gliding over the dunes.
+      const foot = isFootStage(targetStage);
+      const modeChanged = foot !== (rec.mode === 'foot');
+      if (modeChanged) rec.mode = foot ? 'foot' : 'sail';
+
+      let doTravel = false;
+      if (moved) {
         const inActive = stageHasNode(activeBoardId, p.node);
         const fromIn = stageHasNode(activeBoardId, rec.prevNode);
         if (inActive && fromIn && rec.stageId === activeBoardId && !rec.needPlace) {
-          startTravel(rec, p.node, stages[activeBoardId]);
+          doTravel = true;
         } else {
           rec.anim = null;
           rec.needPlace = true;
         }
       }
-      /* attach to the active stage only when its node lives there */
-      setShipStage(rec, stageHasNode(activeBoardId, rec.node) ? activeBoardId : null);
+      setShipStage(rec, targetStage);
+      if (modeChanged || (foot && !rec.captain)) applyMode(rec);
+      if (doTravel) startTravel(rec, rec.node, stages[activeBoardId]);
       if (rec.needPlace && rec.stageId && stages[rec.stageId]) {
         rec.root.position.copy(slotFor(rec.node, rec.idx, stages[rec.stageId]));
         rec.needPlace = false;
