@@ -80,8 +80,8 @@ SHRINE_CHARGES = 2
 # is filled with chains of sea waypoints at generation time
 _BAND_Z = [190, 125, 60, -5, -70, -135, -200, -265, -330]
 _BAND_N = [1, 4, 5, 5, 5, 4, 4, 3, 1]
-_WAYPOINT_EVERY = 20.0        # aim for a sea node roughly every N world units
-_MAX_WAYPOINTS = 4            # per lane
+_WAYPOINT_EVERY = 26.0        # aim for a sea node roughly every N world units
+_MAX_WAYPOINTS = 2            # per lane — tuned so a skilled voyage ends ~45 rolls
 _FLOTSAM_CHANCE = 0.25
 _SEA_LOOKS = ["buoy", "buoy", "buoy", "rocks", "rocks", "islet", "islet", "none"]
 _BAND_TYPES = {
