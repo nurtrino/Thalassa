@@ -44,7 +44,7 @@ MAX_HULL = 6
 STRIKE_DMG = 1                     # easy question, reliable chip damage
 MAGIC_DMG = 3                      # hard question, big swing
 MAGIC_BACKFIRE = 1                 # a missed spell burns the caster
-MONSTER_LOOT = {2: 2, 3: 3, 4: 5, 6: 0}             # scrolls by monster max_hp
+BOUNTIES_PER_GAME = 3              # public race-goals posted at Home Port
 STREAK_AT = 3                      # correct-answer streak that pays a bonus
 SIDE_REWARD = 1                    # scrolls for a correct side answer
 
@@ -87,6 +87,7 @@ class Player:
         self.banked = 0
         self.upgrades: list[str] = []
         self.streak = 0
+        self.puzzles_solved = 0
 
     def has(self, upgrade: str) -> bool:
         return upgrade in self.upgrades
@@ -126,6 +127,7 @@ class Game:
         self.fleece_revealed = False
         self.winner: str | None = None
         self.log: list[str] = []
+        self.bounties: list[dict] = self._make_bounties()
 
     # ── plumbing ─────────────────────────────────────────────────────────────
     def _bump(self, phase: str):
@@ -184,6 +186,51 @@ class Game:
 
     def _fleece_ok(self, p: Player) -> bool:
         return self.fleece_revealed and p.banked >= RELICS_TO_WIN
+
+    # ── bounties: public race-goals, first captain to do it gets paid ────────
+    def _make_bounties(self) -> list[dict]:
+        lair_names = list({self.board.nodes[n]["monster"]["name"]
+                           for n in self.board.lairs()})
+        self.rng.shuffle(lair_names)
+        pool = [
+            {"kind": "slay", "name": lair_names[0],
+             "text": f"Slay {lair_names[0]}", "reward": 6},
+            {"kind": "slay", "name": lair_names[1],
+             "text": f"Slay {lair_names[1]}", "reward": 6},
+            {"kind": "bank1", "text": "First to bank a relic", "reward": 4},
+            {"kind": "bank2", "text": "First to bank 2 relics", "reward": 6},
+            {"kind": "puzzles2", "text": "First to crack 2 puzzle isles", "reward": 5},
+            {"kind": "far", "text": "First to reach the Far Reaches", "reward": 5},
+            {"kind": "scrolls12", "text": "First to hold 12 scrolls", "reward": 5},
+        ]
+        self.rng.shuffle(pool)
+        picked, kinds = [], set()
+        for b in pool:
+            if b["kind"] in kinds:
+                continue
+            kinds.add(b["kind"])
+            b["claimed_by"] = None
+            picked.append(b)
+            if len(picked) == BOUNTIES_PER_GAME:
+                break
+        return picked
+
+    def _bounty_event(self, event: str, p: Player, **data):
+        for b in self.bounties:
+            if b["claimed_by"]:
+                continue
+            hit = (
+                (b["kind"] == "slay" and event == "slay" and data.get("name") == b["name"]) or
+                (b["kind"] == "bank1" and event == "bank" and p.banked >= 1) or
+                (b["kind"] == "bank2" and event == "bank" and p.banked >= 2) or
+                (b["kind"] == "puzzles2" and event == "puzzle" and p.puzzles_solved >= 2) or
+                (b["kind"] == "far" and event == "land" and data.get("band", 0) >= 6) or
+                (b["kind"] == "scrolls12" and p.scrolls >= 12)
+            )
+            if hit:
+                b["claimed_by"] = p.pid
+                p.scrolls += b["reward"]
+                self._say(f"🏴 BOUNTY CLAIMED: {b['text']} — {p.name} +{b['reward']} scrolls!")
 
     # ── lobby ────────────────────────────────────────────────────────────────
     def add_player(self, token: str, name: str, is_bot: bool = False) -> Player:
@@ -270,6 +317,8 @@ class Game:
     def _land(self, p: Player, nid: str):
         node = self.board.nodes[nid]
         ntype = node["type"]
+        if ntype != "sea":
+            self._bounty_event("land", p, band=node.get("band", 0))
         monster = self.board.alive_monster(nid)
         if monster:
             self.battle = {"node": nid, "stance": None,
@@ -320,6 +369,7 @@ class Game:
             p.banked += n
             p.cargo = []
             self._say(f"{p.name} banks {n} relic{'s' if n > 1 else ''}! ({p.banked}/{RELICS_TO_WIN})")
+            self._bounty_event("bank", p)
         p.hull = p.max_hull
         if p.banked >= RELICS_TO_WIN and not self.fleece_revealed:
             self.fleece_revealed = True
@@ -356,17 +406,19 @@ class Game:
         self._say(f"{p.name} patches {spend} hull at the haven.")
         self._next_turn()
 
-    # ── battle ───────────────────────────────────────────────────────────────
-    def stance(self, pid: str, stance: str):
+    # ── battle (Paper-Mario turns: your move, then the enemies') ─────────────
+    def stance(self, pid: str, stance: str, target: int = 0):
         self._require_turn(pid, "battle")
         if stance not in ("attack", "magic"):
             raise GameError("Choose STRIKE or MAGIC.")
         m = self.board.alive_monster(self.battle["node"])
-        if stance == "attack":
-            tier = 2 if m["max_hp"] >= 5 else 1     # bosses ask harder even for strikes
-        else:
-            tier = 3
+        enemies = m["enemies"]
+        if not (0 <= target < len(enemies)) or enemies[target]["hp"] <= 0:
+            target = next(i for i, e in enumerate(enemies) if e["hp"] > 0)
+        boss = any(e["max_hp"] >= 5 for e in enemies)
+        tier = (2 if boss else 1) if stance == "attack" else 3
         self.battle["stance"] = stance
+        self.battle["target"] = target
         self.qctx = {"kind": "battle", "island": self.battle["node"],
                      "tier": tier, "domain": m["domain"]}
         self.question = None
@@ -378,7 +430,7 @@ class Game:
         p = self.current
         p.hull -= 1
         m = self.board.alive_monster(self.battle["node"])
-        self._say(f"{p.name} breaks off from {m['name']}, hull scraped.")
+        self._say(f"{p.name} breaks off from {m['name']}, Health scraped.")
         if p.hull <= 0:
             self._shipwreck(p)
         else:
@@ -415,7 +467,8 @@ class Game:
             for nid in self.board.lairs():
                 node = self.board.nodes[nid]
                 if node.get("relic") == relic:
-                    node["monster"]["hp"] = node["monster"]["max_hp"]
+                    for e in node["monster"]["enemies"]:
+                        e["hp"] = e["max_hp"]         # the guardians rise again
                     node["taken"] = False
                     returned.append(node["name"])
         p.cargo = []
@@ -514,48 +567,70 @@ class Game:
                 p.streak = 0
                 note = "The riddle keeps its secret. It can be tried again."
         elif kind == "battle":
-            m = self.board.alive_monster(self.battle["node"])
+            m = self.board.nodes[self.battle["node"]]["monster"]
+            enemies = m["enemies"]
             stance = self.battle["stance"]
+            tgt = enemies[self.battle.get("target", 0)]
+            enemy_phase = {"evaded": False, "backfire": False,
+                           "attacker": None, "dmg": 0,
+                           "target_idx": self.battle.get("target", 0),
+                           "dealt": 0, "killed": False}
             if correct:
                 self._streak_bonus(p)
                 if stance == "attack":
                     dmg = STRIKE_DMG + (1 if p.has("ram") else 0)
-                    note = f"⚔ Your blade bites for {dmg}!"
+                    note = f"⚔ Your blade bites {tgt['name']} for {dmg}!"
                 else:
                     dmg = MAGIC_DMG + (1 if p.has("trident") else 0)
-                    note = f"✨ Arcane fire sears {m['name']} for {dmg}!"
-                m["hp"] -= dmg
-                if m["hp"] <= 0:
+                    note = f"✨ Arcane fire sears {tgt['name']} for {dmg}!"
+                tgt["hp"] -= dmg
+                enemy_phase["dealt"] = dmg
+                if tgt["hp"] <= 0:
+                    enemy_phase["killed"] = True
+                    note += f" {tgt['name']} falls!"
+                alive = [e for e in enemies if e["hp"] > 0]
+                if not alive:
                     battle_over = True
-                    note += f" {m['name']} is defeated!"
-                    loot = MONSTER_LOOT.get(m["max_hp"], 2)
                     node = self.board.nodes[self.battle["node"]]
                     if node["type"] == "fleece":
                         self.winner = p.pid
-                        note = f"🏆 {m['name']} falls — {p.name} seizes the GOLDEN FLEECE!"
-                    elif node.get("relic") and not node.get("taken"):
-                        node["taken"] = True
-                        p.cargo.append(node["relic"])
-                        note += " The relic is aboard — sail it home!"
-                    if loot:
+                        note = f"🏆 The last guardian falls — {p.name} seizes the GOLDEN FLEECE!"
+                    else:
+                        note += f" {m['name']} — defeated!"
+                        if node.get("relic") and not node.get("taken"):
+                            node["taken"] = True
+                            p.cargo.append(node["relic"])
+                            note += " The relic is aboard — sail it home!"
+                        loot = sum(e["max_hp"] for e in enemies)
                         p.scrolls += loot
                         gained = loot
+                        self._bounty_event("slay", p, name=m["name"])
+                else:
+                    # your successful move also carries you clear of the counter
+                    enemy_phase["evaded"] = True
+                    enemy_phase["attacker"] = alive[0]["name"]
             else:
                 p.streak = 0
                 if stance == "magic":
                     hit = MAGIC_BACKFIRE
+                    enemy_phase["backfire"] = True
+                    enemy_phase["dmg"] = hit
                     note = f"🔥 The spell backfires — {hit} damage to your ship!"
                 else:
-                    hit = m["power"]
+                    front = next(e for e in enemies if e["hp"] > 0)
+                    hit = front["power"]
                     if p.has("aegis") and not self.battle["first_hit_taken"]:
                         hit = max(1, hit // 2)
                         self.battle["first_hit_taken"] = True
                         note = "Your Aegis shard flares — "
-                    note += f"💥 {m['name']} strikes for {hit}!"
+                    enemy_phase["attacker"] = front["name"]
+                    enemy_phase["dmg"] = hit
+                    note += f"💥 {front['name']} strikes for {hit}!"
                 p.hull -= hit
                 if p.hull <= 0:
                     battle_over = True
                     self._shipwreck(p)
+            self._last_enemy_phase = enemy_phase
 
         # side answers: rivals who guessed right skim a scroll
         side = {}
@@ -576,12 +651,14 @@ class Game:
             "was_correct": correct, "note": note, "gained": gained,
             "kind": kind, "domain": ctx.get("domain"), "side": side,
             "battle_over": battle_over,
+            "enemy_phase": getattr(self, "_last_enemy_phase", None) if kind == "battle" else None,
             "monster": self._battle_public() if kind == "battle" else None,
         }
         if note:
             self._say(note)
         if battle_over or self.winner:
             self.battle = None
+        self._bounty_event("scrolls", p)
         self._bump("reveal")
 
     def _side_streak(self, sp: Player) -> int:
@@ -632,6 +709,8 @@ class Game:
         p = self.current
         self.board.nodes[nid]["solved"] = True
         self.minigame = None
+        p.puzzles_solved += 1
+        self._bounty_event("puzzle", p)
         self._streak_bonus(p)
         pool = [u for u in UPGRADES if not p.has(u)]
         if pool:
@@ -698,6 +777,7 @@ class Game:
             p.reset()
         self.winner = None
         self.fleece_revealed = False
+        self.bounties = self._make_bounties()
         self.used_puzzles = set()
         self.log = []
         self.turn_idx = 0
@@ -711,10 +791,15 @@ class Game:
         if not m:
             return None
         node = self.board.nodes[self.battle["node"]]
-        return {"name": m["name"], "hp": max(0, m["hp"]), "max_hp": m["max_hp"],
-                "power": m["power"], "tier": m["tier"], "domain": m["domain"],
+        boss = any(e["max_hp"] >= 5 for e in m["enemies"])
+        return {"name": m["name"], "tier": m["tier"], "domain": m["domain"],
+                "enemies": [{"name": e["name"], "hp": max(0, e["hp"]),
+                             "max_hp": e["max_hp"], "power": e["power"]}
+                            for e in m["enemies"]],
+                "strike_tier": 2 if boss else 1,
                 "node": self.battle["node"], "is_lair": node["type"] == "lair",
                 "is_fleece": node["type"] == "fleece",
+                "target": self.battle.get("target", 0),
                 "used_items": self.battle["used_items"]}
 
     def _node_view(self, nid: str) -> dict:
@@ -733,9 +818,12 @@ class Game:
             base["solved"] = node.get("solved", False)
         elif node["type"] in ("monster", "lair", "fleece"):
             m = node.get("monster")
-            base["monster"] = None if not m or m["hp"] <= 0 else {
-                "name": m["name"], "hp": m["hp"], "max_hp": m["max_hp"],
-                "power": m["power"], "domain": m["domain"]}
+            alive = [e for e in (m["enemies"] if m else []) if e["hp"] > 0]
+            base["monster"] = None if not alive else {
+                "name": m["name"], "count": len(alive),
+                "hp": sum(e["hp"] for e in alive),
+                "max_hp": sum(e["max_hp"] for e in m["enemies"]),
+                "power": max(e["power"] for e in alive), "domain": m["domain"]}
             if node["type"] == "lair":
                 base["relic_taken"] = node.get("taken", False)
         return base
@@ -773,6 +861,7 @@ class Game:
             "upgrade_offer": self.upgrade_offer if self.phase == "upgrade_pick" else None,
             "upgrade_info": UPGRADES,
             "fleece_revealed": self.fleece_revealed,
+            "bounties": self.bounties,
             "winner": self.winner,
             "log": self.log,
             "config": {"relics_to_win": RELICS_TO_WIN, "tier_reward": TIER_REWARD,

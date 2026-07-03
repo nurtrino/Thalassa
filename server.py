@@ -134,7 +134,10 @@ async def question_timer(nonce: int, limit: float):
 
 
 async def reveal_timer(nonce: int):
-    await asyncio.sleep(REVEAL_SECS)
+    g = table.game
+    # battle reveals run longer: the client plays your move, then the enemy's
+    extra = 2.6 if (g.reveal or {}).get("kind") == "battle" else 0
+    await asyncio.sleep(REVEAL_SECS + extra)
     g = table.game
     if g.nonce == nonce and g.phase == "reveal":
         g.advance_after_reveal()
@@ -193,7 +196,7 @@ async def dispatch(pid: str | None, kind: str, msg: dict) -> str | None:
         elif kind == "repair":
             g.repair(pid)
         elif kind == "stance":
-            g.stance(pid, str(msg.get("stance", "")))
+            g.stance(pid, str(msg.get("stance", "")), int(msg.get("target", 0)))
         elif kind == "flee":
             g.flee(pid)
         elif kind == "item":

@@ -66,7 +66,8 @@ def _target_score(g: G.Game, p, nid: str) -> float:
         return 40 + 90 * len(p.cargo) + (35 if p.hull <= 2 else 0) - 30
     if ntype == "lair" and monster and not node.get("taken"):
         strength = p.hull + (2 if p.has("ram") else 0)
-        return 25 + strength * 8 - monster["hp"] * 6
+        pack_hp = sum(e["hp"] for e in monster["enemies"] if e["hp"] > 0)
+        return 25 + strength * 8 - pack_hp * 5
     if ntype == "shrine" and node.get("charges", 0) > 0:
         return 45 if p.scrolls < 6 else 22
     if ntype == "puzzle" and not node.get("solved"):
@@ -112,10 +113,13 @@ def decide_battle(g: G.Game, pid: str, rng: random.Random) -> str:
     """'attack' | 'magic' | 'flee' for the stance phase."""
     p = g.player_by_pid(pid)
     m = g.board.alive_monster(g.battle["node"])
-    if p.hull <= 1 or (p.hull <= 2 and m["hp"] >= 4):
+    alive = [e for e in m["enemies"] if e["hp"] > 0]
+    total_hp = sum(e["hp"] for e in alive)
+    power = max(e["power"] for e in alive)
+    if p.hull <= 1 or (p.hull <= 2 and total_hp >= 4):
         return "flee"
-    # magic when the monster is meaty or the miss is cheaper than its counter
-    if m["hp"] >= 3 or m["power"] > 1:
+    # magic when the pack is meaty or the miss is cheaper than its counter
+    if total_hp >= 3 or power > 1:
         return "magic"
     return "attack"
 

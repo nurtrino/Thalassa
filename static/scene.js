@@ -170,7 +170,7 @@ function shallowDisc(radius) {
 }
 
 /* ── terrain (radial sculpted mesh, vertex-colored) ─────────────────────── */
-function makeTerrain({ seed, R, H, mode = 'hill', palette = {} }) {
+function makeTerrain({ seed, R, H, mode = 'hill', palette = {}, lobes = 0 }) {
   const rng = mulberry32(seed);
   const SEG_A = 44, SEG_R = 13;
   // every island drifts its own way: stretched, rugged, lush or parched
@@ -195,8 +195,9 @@ function makeTerrain({ seed, R, H, mode = 'hill', palette = {} }) {
   const h1a = (0.07 + rng() * 0.12) * rugged, h1k = 2 + Math.floor(rng() * 2), h1p = rng() * 6.28;
   const h2a = (0.05 + rng() * 0.09) * rugged, h2k = 4 + Math.floor(rng() * 3), h2p = rng() * 6.28;
   const h3a = (0.02 + rng() * 0.07) * rugged, h3k = 7 + Math.floor(rng() * 5), h3p = rng() * 6.28;
-  const edge = (a) => 1 + h1a * Math.sin(a * h1k + h1p) + h2a * Math.sin(a * h2k + h2p)
-                        + h3a * Math.sin(a * h3k + h3p);
+  const edge = (a) => (1 + h1a * Math.sin(a * h1k + h1p) + h2a * Math.sin(a * h2k + h2p)
+                         + h3a * Math.sin(a * h3k + h3p))
+                      * (1 + lobes * Math.sin(2 * a + h1p));
   const bump = (a, rr) => 1 + 0.16 * Math.sin(a * 3 + h1p + rr * 5) * rr;
   const smooth = (a, b, x) => {
     const k = Math.min(1, Math.max(0, (x - a) / (b - a)));
@@ -206,6 +207,7 @@ function makeTerrain({ seed, R, H, mode = 'hill', palette = {} }) {
     if (mode === 'mesa') return H * (1 - smooth(0.52, 0.88, rr));
     if (mode === 'peak') return H * Math.pow(Math.max(0, 1 - rr), 1.35);
     if (mode === 'flat') return H * (1 - smooth(0.7, 0.97, rr));
+    if (mode === 'atoll') return H * (smooth(0.14, 0.4, rr) - smooth(0.55, 0.92, rr));
     return H * (1 - smooth(0.15, 0.95, rr)) * (0.75 + 0.25 * Math.cos(rr * 3));
   };
 
@@ -536,6 +538,129 @@ function makeFlotsam(rng) {
   return g;
 }
 
+/* ── battle enemies: four procedural archetypes, tinted per name ────────── */
+function enemyArchetype(name) {
+  const n = name.toLowerCase();
+  if (/harp|bird/.test(n)) return 'wing';
+  if (/siren|empusa|gorgon|sphinx/.test(n)) return 'spirit';
+  if (/hydra|ketos|skylla|charybdis|typhon|dragon/.test(n)) return 'serpent';
+  return 'brute';
+}
+
+const ENEMY_TINTS = [0x3a2e4f, 0x2e463f, 0x4f2e2e, 0x2e3a4f, 0x443047];
+
+function makeEnemy(name, maxHp) {
+  const seed = hashStr(name);
+  const rng = mulberry32(seed);
+  const tint = ENEMY_TINTS[seed % ENEMY_TINTS.length];
+  const s = 0.85 + maxHp * 0.28;
+  const g = new THREE.Group();
+  const eyeMat = new THREE.MeshBasicMaterial({ color: 0xff3b2f });
+  const addEyes = (y, z, spread = 0.22) => {
+    for (const dx of [-spread, spread]) {
+      const eye = new THREE.Mesh(new THREE.SphereGeometry(0.09 * s, 6, 5), eyeMat);
+      eye.position.set(dx * s, y, z);
+      g.add(eye);
+    }
+  };
+  const kind = enemyArchetype(name);
+  if (kind === 'wing') {
+    const body = new THREE.Mesh(displace(new THREE.IcosahedronGeometry(0.6 * s, 1), 0.2 * s, seed), flat(tint));
+    body.position.y = 1.2 * s;
+    body.castShadow = true;
+    g.add(body);
+    for (const side of [-1, 1]) {
+      const wing = new THREE.Mesh(new THREE.PlaneGeometry(1.5 * s, 0.6 * s, 3, 1),
+        flat(tint, { side: THREE.DoubleSide }));
+      wing.position.set(side * 0.75 * s, 1.45 * s, 0);
+      wing.rotation.z = side * 0.3;
+      wing.name = side < 0 ? 'wingL' : 'wingR';
+      wing.castShadow = true;
+      g.add(wing);
+    }
+    const beak = new THREE.Mesh(new THREE.ConeGeometry(0.12 * s, 0.4 * s, 5), flat(0xc9a227));
+    beak.rotation.x = Math.PI / 2;
+    beak.position.set(0, 1.3 * s, 0.62 * s);
+    g.add(beak);
+    addEyes(1.45 * s, 0.5 * s, 0.18);
+  } else if (kind === 'spirit') {
+    const robe = new THREE.Mesh(displace(new THREE.ConeGeometry(0.7 * s, 1.9 * s, 8), 0.16 * s, seed), flat(tint));
+    robe.position.y = 1.35 * s;
+    robe.castShadow = true;
+    const head = new THREE.Mesh(new THREE.SphereGeometry(0.34 * s, 8, 6), flat(tint));
+    head.position.y = 2.4 * s;
+    const aura = new THREE.Mesh(new THREE.SphereGeometry(1.1 * s, 10, 8),
+      new THREE.MeshBasicMaterial({ color: 0x9f7dd6, transparent: true, opacity: 0.14,
+        blending: THREE.AdditiveBlending, depthWrite: false }));
+    aura.position.y = 1.6 * s;
+    g.add(robe, head, aura);
+    addEyes(2.44 * s, 0.28 * s, 0.14);
+    g.userData.float = true;
+  } else if (kind === 'serpent') {
+    const boss = maxHp >= 5;
+    const segs = boss ? 6 : 5;
+    for (let i = 0; i < segs; i++) {
+      const k = i / (segs - 1);
+      const r = (0.5 - k * 0.24) * s;
+      const seg = new THREE.Mesh(displace(new THREE.SphereGeometry(r, 8, 6), r * 0.3, seed + i), flat(tint));
+      seg.position.set(-Math.sin(k * 2.4) * 0.8 * s, 0.4 * s + k * 1.9 * s, Math.cos(k * 2.2) * 0.25 * s);
+      seg.castShadow = true;
+      g.add(seg);
+    }
+    const head = new THREE.Mesh(displace(new THREE.ConeGeometry(0.4 * s, 0.9 * s, 6), 0.12 * s, seed), flat(tint));
+    head.rotation.x = Math.PI / 2.4;
+    head.position.set(-Math.sin(2.4) * 0.8 * s, 2.5 * s, 0.5 * s);
+    head.castShadow = true;
+    g.add(head);
+    addEyes(2.5 * s, 0.62 * s, 0.16);
+    if (boss) {
+      for (const side of [-1, 1]) {
+        const wing = new THREE.Mesh(new THREE.PlaneGeometry(1.8 * s, 1.0 * s, 3, 1),
+          flat(0x5a2e2e, { side: THREE.DoubleSide }));
+        wing.position.set(side * 0.9 * s, 1.9 * s, -0.2 * s);
+        wing.rotation.z = side * 0.5;
+        wing.name = side < 0 ? 'wingL' : 'wingR';
+        g.add(wing);
+      }
+    }
+  } else {                                        // brute
+    const body = new THREE.Mesh(displace(new THREE.IcosahedronGeometry(0.75 * s, 1), 0.22 * s, seed), flat(tint));
+    body.scale.set(1, 1.35, 0.9);
+    body.position.y = 1.15 * s;
+    body.castShadow = true;
+    g.add(body);
+    for (const side of [-1, 1]) {
+      const arm = new THREE.Mesh(new THREE.CylinderGeometry(0.14 * s, 0.18 * s, 1.1 * s, 6), flat(tint));
+      arm.position.set(side * 0.85 * s, 1.15 * s, 0.1 * s);
+      arm.rotation.z = side * 0.55;
+      arm.castShadow = true;
+      g.add(arm);
+    }
+    const head = new THREE.Mesh(displace(new THREE.SphereGeometry(0.4 * s, 8, 6), 0.1 * s, seed + 5), flat(tint));
+    head.position.y = 2.25 * s;
+    head.castShadow = true;
+    g.add(head);
+    const oneEye = /cyclops/.test(name.toLowerCase());
+    if (oneEye) {
+      const eye = new THREE.Mesh(new THREE.SphereGeometry(0.13 * s, 6, 5), eyeMat);
+      eye.position.set(0, 2.3 * s, 0.36 * s);
+      g.add(eye);
+    } else {
+      addEyes(2.3 * s, 0.34 * s, 0.16);
+    }
+    if (/minotaur|typhon/.test(name.toLowerCase())) {
+      for (const side of [-1, 1]) {
+        const horn = new THREE.Mesh(new THREE.ConeGeometry(0.09 * s, 0.5 * s, 5), flat(0xd8d4c8));
+        horn.position.set(side * 0.3 * s, 2.6 * s, 0);
+        horn.rotation.z = side * -0.5;
+        g.add(horn);
+      }
+    }
+  }
+  g.userData.scaleS = s;
+  return g;
+}
+
 /* ── ships ──────────────────────────────────────────────────────────────── */
 function sailTexture(colorHex) {
   const c = document.createElement('canvas');
@@ -639,12 +764,19 @@ function buildIsland(node, domains) {
       }
       g.add(shallowDisc(9));
     } else if (node.look === 'islet') {
-      const t = makeTerrain({ seed, R: 2.6, H: 1.0, mode: 'hill',
-        palette: rng0() < 0.5 ? { sand: 0xf7ecc8 } : {} });
+      const style = rng0();
+      const t = makeTerrain({
+        seed, R: 2.6 + rng0() * 1.4,
+        H: style < 0.33 ? 0.8 : 1.1,
+        mode: style < 0.33 ? 'atoll' : 'hill',
+        lobes: style > 0.66 ? 0.42 : 0,
+        palette: rng0() < 0.5 ? { sand: 0xf7ecc8 } : {},
+      });
       g.add(t.mesh);
-      g.add(shallowDisc(11));
+      g.add(shallowDisc(13));
       const flora = rng0() < 0.6 ? makePalm(rng0, 0.75) : makeCypress(rng0, 0.7);
-      flora.position.y = t.heightAt(0.15);
+      const fr = style < 0.33 ? 0.3 : 0.15;      // atolls grow on the ring
+      flora.position.set(t.heightAt(fr) ? 0.8 : 0, Math.max(0.3, t.heightAt(fr)), 0);
       g.add(flora);
     } else if (node.look === 'none') {
       const ripple = new THREE.Mesh(new THREE.RingGeometry(0.9, 1.5, 24),
@@ -711,7 +843,7 @@ function buildIsland(node, domains) {
       palette: dark ? { grass: 0x74875e, grass2: 0x5a7050, rock: COL.basalt, sand: 0xcbb489 } : {} });
     if (node.monster) {
       const beast = makeMonster(rng0, node.monster);
-      beast.position.y = terrain.heightAt(0.25);
+      beast.position.y = terrain.heightAt(0.25) + 0.55;   // clear of the slope
       beast.position.x = R * 0.1;
       g.add(beast);
     }
@@ -882,6 +1014,139 @@ export function createWorld(container, onIslandClick) {
   let cameraAnchored = false;
   let lastFollowPid = null;
 
+  /* ── the battle arena: a Paper-Mario stage far off the chart ───────────── */
+  const ARENA = new THREE.Vector3(1500, 0, 420);
+  const arena = { group: null, key: null, ship: null, slots: [], anims: [] };
+
+  function buildArenaSet() {
+    const g = new THREE.Group();
+    g.position.copy(ARENA);
+    // backdrop sandbar with palms, the "stage"
+    const bar = makeTerrain({ seed: 77, R: 15, H: 1.6, mode: 'flat',
+      palette: { sand: 0xf7ecc8 } });
+    bar.mesh.position.set(6, 0, -14);
+    g.add(bar.mesh);
+    const rngA = mulberry32(99);
+    for (const [x, z, s] of [[-2, -16, 1.3], [9, -18, 1.1], [16, -12, 1.2]]) {
+      const palm = makePalm(rngA, s);
+      palm.position.set(x, 1.4, z);
+      g.add(palm);
+    }
+    for (const [x, z] of [[-14, -8], [20, -4]]) {
+      const rk = makeRock(rngA, 1.2);
+      rk.position.set(x, 0.3, z);
+      g.add(rk);
+    }
+    g.add(shallowDisc(70));
+    const light = new THREE.DirectionalLight(0xfff1d6, 0.9);
+    light.position.set(-20, 30, 20);
+    g.add(light);
+    scene.add(g);
+    return g;
+  }
+
+  function syncArena(room) {
+    const b = room.battle;
+    if (!b) {
+      if (arena.group) arena.group.visible = false;
+      arena.key = null;
+      return;
+    }
+    if (!arena.group) {
+      arena.group = buildArenaSet();
+      arena.stage = new THREE.Group();
+      arena.group.add(arena.stage);
+    }
+    arena.group.visible = true;
+    const fighter = room.players.find((p) => p.pid === room.turn);
+    const key = b.node + ':' + b.enemies.map((e) => e.name).join('|') + ':' + (fighter?.pid || '');
+    if (arena.key !== key) {
+      arena.key = key;
+      arena.stage.clear();
+      arena.slots = [];
+      arena.anims = [];
+      const ship = makeShip(fighter?.color || '#e4572e');
+      ship.position.set(-10, 0, 2);
+      ship.rotation.y = -0.4;                    // quarter view: sail + prow both read
+      ship.scale.setScalar(1.4);
+      arena.stage.add(ship);
+      arena.ship = ship;
+      b.enemies.forEach((e, i) => {
+        const model = makeEnemy(e.name, e.max_hp);
+        const home = new THREE.Vector3(5 + i * 5.5, 0, -1 + (i % 2) * 3.5);
+        model.position.copy(home);
+        model.rotation.y = -Math.PI / 2;         // face the ship
+        model.scale.setScalar(1.45);
+        arena.stage.add(model);
+        arena.slots.push({ model, home, dead: false, phase: Math.random() * 6 });
+      });
+    }
+    // deaths: sink models whose hp hit zero
+    b.enemies.forEach((e, i) => {
+      const slot = arena.slots[i];
+      if (slot && e.hp <= 0 && !slot.dead) {
+        slot.dead = true;
+        slot.dying = performance.now();
+      }
+    });
+  }
+
+  /** app-triggered battle beats: lunges, hits, misses */
+  function arenaPlay(kind, payload = {}) {
+    if (!arena.group) return;
+    const now = performance.now();
+    if (kind === 'enemy_attack' || kind === 'enemy_miss') {
+      const idx = arena.slots.findIndex((s) => !s.dead);
+      if (idx >= 0) arena.anims.push({ kind, idx, t0: now, dur: 1100 });
+    } else if (kind === 'player_hit') {
+      arena.anims.push({ kind: 'ship_lunge', t0: now, dur: 900 });
+      const slot = arena.slots[payload.idx];
+      if (slot) arena.anims.push({ kind: 'flinch', idx: payload.idx, t0: now + 450, dur: 500 });
+    } else if (kind === 'backfire') {
+      arena.anims.push({ kind: 'ship_flash', t0: now, dur: 600 });
+    }
+  }
+
+  function tickArena(t) {
+    if (!arena.group || !arena.group.visible) return;
+    for (const slot of arena.slots) {
+      const m = slot.model;
+      if (slot.dead) {
+        const k = Math.min(1, (performance.now() - slot.dying) / 900);
+        m.scale.setScalar(Math.max(0.001, 1 - k));
+        m.position.y = slot.home.y - k * 1.5;
+        continue;
+      }
+      m.position.y = slot.home.y + (m.userData.float ? 0.5 : 0) +
+        Math.sin(t * 2 + slot.phase) * 0.12;
+      const wl = m.getObjectByName('wingL'), wr = m.getObjectByName('wingR');
+      if (wl) { wl.rotation.z = 0.3 + Math.sin(t * 6 + slot.phase) * 0.35; }
+      if (wr) { wr.rotation.z = -0.3 - Math.sin(t * 6 + slot.phase) * 0.35; }
+    }
+    if (arena.ship) {
+      arena.ship.position.y = Math.sin(t * 1.8) * 0.12;
+      arena.ship.rotation.z = Math.sin(t * 1.3) * 0.03;
+    }
+    const now = performance.now();
+    arena.anims = arena.anims.filter((a) => now - a.t0 < a.dur + 50);
+    for (const a of arena.anims) {
+      const k = Math.min(1, Math.max(0, (now - a.t0) / a.dur));
+      const arc = Math.sin(k * Math.PI);
+      if ((a.kind === 'enemy_attack' || a.kind === 'enemy_miss') && arena.slots[a.idx]) {
+        const slot = arena.slots[a.idx];
+        const toward = a.kind === 'enemy_attack' ? 1 : 1.25;   // a miss overshoots
+        slot.model.position.x = slot.home.x + (arena.ship.position.x + 3 - slot.home.x) * arc * toward * 0.9;
+        slot.model.position.z = slot.home.z + (2 - slot.home.z) * arc * 0.9;
+      } else if (a.kind === 'ship_lunge' && arena.ship) {
+        arena.ship.position.x = -10 + arc * 6;
+      } else if (a.kind === 'flinch' && arena.slots[a.idx]) {
+        arena.slots[a.idx].model.rotation.z = Math.sin(k * Math.PI * 3) * 0.25;
+      } else if (a.kind === 'ship_flash' && arena.ship) {
+        arena.ship.rotation.z = Math.sin(k * Math.PI * 4) * 0.12;
+      }
+    }
+  }
+
   function anchorToHome() {
     const home = islands.home;
     if (!home || cameraAnchored) return;
@@ -1018,6 +1283,7 @@ export function createWorld(container, onIslandClick) {
 
   function update(room, you) {
     syncBoard(room);
+    syncArena(room);
     anchorToHome();
     controls.autoRotate = room.phase === 'lobby' && !battleFocus;
 
@@ -1174,20 +1440,18 @@ export function createWorld(container, onIslandClick) {
       ring.scale.set(s, s, 1);
     }
 
+    tickArena(t);
+
     // camera choreography — while a battle owns the camera, OrbitControls
     // must NOT update (its damping fights the cinematic and wins)
     if (battleFocus) {
-      const isle = islands[battleFocus.node];
-      if (isle) {
-        const c = isle.group.position;
-        const R = isle.R;
-        const az = t * 0.14;
-        const want = new THREE.Vector3(
-          c.x + Math.sin(az) * (R * 2.7 + 6), R * 2.0 + 7, c.z + Math.cos(az) * (R * 2.7 + 6));
-        camera.position.lerp(want, 0.06);
-        camera.lookAt(c.x, 2.4, c.z);
-        controls.target.set(c.x, 2.4, c.z);
-      }
+      const sway = Math.sin(t * 0.5) * 1.6;
+      const want = ARENA.clone().add(new THREE.Vector3(-1 + sway, 8.5, 27));
+      const look = ARENA.clone().add(new THREE.Vector3(1, 2.6, 0));
+      const dist = camera.position.distanceTo(want);
+      camera.position.lerp(want, dist > 400 ? 0.5 : dist > 60 ? 0.22 : 0.08);
+      camera.lookAt(look);
+      controls.target.copy(look);
     } else {
       if (glideTo) {
         const delta = glideTo.clone().sub(controls.target);
@@ -1207,5 +1471,5 @@ export function createWorld(container, onIslandClick) {
   // debug handle (used by dev tooling/screenshot scripts; harmless in prod)
   window.__thalassa = { scene, camera, controls, ships, islands };
 
-  return { update, setBattleFocus };
+  return { update, setBattleFocus, arenaPlay };
 }

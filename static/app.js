@@ -117,16 +117,7 @@ function reactAudio(prev, next) {
   if (next.phase === 'reveal' && sfxPrevPhase !== 'reveal' && next.reveal) {
     const rv = next.reveal;
     if (rv.kind === 'battle') {
-      if (rv.was_correct) {
-        audio.sfx.hit();
-        flashScreen('gold');
-      } else {
-        audio.sfx.hurt();
-        flashScreen('red');
-        document.body.classList.add('shake');
-        setTimeout(() => document.body.classList.remove('shake'), 500);
-      }
-      if (rv.battle_over && rv.was_correct) setTimeout(() => audio.sfx.laurel(), 450);
+      playBattleBeats(rv);
     } else if (rv.was_correct) audio.sfx.correct();
     else audio.sfx.wrong();
   }
@@ -167,6 +158,58 @@ function flashScreen(color) {
   setTimeout(() => { f.className = ''; }, 650);
 }
 
+function setBTurn(text) {
+  const el = document.getElementById('bturn');
+  if (el) el.innerHTML = text;
+}
+
+/* the two beats of a battle round: YOUR MOVE resolves, then the ENEMY'S */
+function playBattleBeats(rv) {
+  const ep = rv.enemy_phase || {};
+  const shake = () => {
+    document.body.classList.add('shake');
+    setTimeout(() => document.body.classList.remove('shake'), 500);
+  };
+  if (rv.was_correct) {
+    audio.sfx.hit();
+    flashScreen('gold');
+    world.arenaPlay('player_hit', { idx: ep.target_idx ?? 0, dmg: ep.dealt });
+    setBTurn(`⚔ YOUR MOVE — you hit for <strong>${ep.dealt}</strong>!` +
+             (ep.killed ? ' 💀' : ''));
+    if (rv.battle_over) {
+      setTimeout(() => audio.sfx.laurel(), 500);
+      setTimeout(() => setBTurn('🏆 VICTORY!'), 1500);
+    } else if (ep.evaded && ep.attacker) {
+      setTimeout(() => {
+        setBTurn(`🛡 ENEMY MOVE — ${esc(ep.attacker)} lunges… <strong>you evade!</strong>`);
+        world.arenaPlay('enemy_miss');
+        audio.sfx.sail();
+      }, 2600);
+    }
+  } else if (ep.backfire) {
+    setBTurn('🔥 YOUR MOVE — the spell fizzles…');
+    setTimeout(() => {
+      setBTurn(`🔥 It backfires for <strong>${ep.dmg}</strong> damage!`);
+      world.arenaPlay('backfire');
+      audio.sfx.hurt();
+      flashScreen('red');
+      shake();
+    }, 900);
+  } else {
+    setBTurn('✗ YOUR MOVE — the attack whiffs…');
+    audio.sfx.wrong();
+    setTimeout(() => {
+      setBTurn(`💥 ENEMY MOVE — ${esc(ep.attacker || 'the beast')} strikes for <strong>${ep.dmg}</strong>!`);
+      world.arenaPlay('enemy_attack');
+    }, 1600);
+    setTimeout(() => {
+      audio.sfx.hurt();
+      flashScreen('red');
+      shake();
+    }, 2200);
+  }
+}
+
 /* ── rendering ───────────────────────────────────────────────────────────── */
 function render() {
   world.update(room, you);
@@ -177,6 +220,7 @@ function render() {
 
   renderPlayers();
   renderGoal();
+  renderBounties();
   renderTurnBanner();
   renderTray();
   renderBattle();
@@ -227,7 +271,8 @@ function renderPlayers() {
     const div = document.createElement('div');
     div.className = 'pchip' + (p.pid === room.turn ? ' turn' : '') +
       (p.connected ? '' : ' gone') + (p.pid === you ? ' me' : '');
-    div.title = `hull ${p.hull}/${p.max_hull} — your ship's health; 0 = shipwreck`;
+    div.title = `Health ${p.hull}/${p.max_hull} — 0 = shipwreck. Click for upgrades.`;
+    const icons = (p.upgrades || []).map((u) => UP_ICON[u] || '⚙').join('');
     div.innerHTML =
       `<span class="dot" style="background:${p.color}"></span>` +
       `<span class="pname">${p.bot ? '🤖 ' : ''}${esc(p.name)}</span>` +
@@ -236,12 +281,53 @@ function renderPlayers() {
       `<span class="stat">📜${p.scrolls}</span>` +
       (p.cargo ? `<span class="stat cargo">⚱${p.cargo}</span>` : '') +
       `<span class="stat banked">✦${p.banked}/${room.config.relics_to_win}</span>` +
+      (icons ? `<span class="upicons">${icons}</span>` : '') +
       (you === room.host && p.pid !== you ? `<button class="kick" data-pid="${p.pid}">✕</button>` : '');
+    div.onclick = (e) => {
+      if (e.target.closest('.kick')) return;
+      showUpgrades(p);
+    };
     el.appendChild(div);
   }
   el.querySelectorAll('.kick').forEach((b) => {
     b.onclick = () => send({ type: 'kick', pid: b.dataset.pid });
   });
+}
+
+const UP_ICON = {
+  ram: '🗡', hull_plates: '🛡', star_chart: '⭐', sandals: '👟',
+  owl: '🦉', lyre: '🎼', trident: '🔱', aegis: '💠',
+};
+
+function showUpgrades(p) {
+  const panel = $('uppanel');
+  const ups = p.upgrades || [];
+  panel.innerHTML = `<h3>${esc(p.name)}'s ship fittings</h3>` +
+    (ups.length
+      ? ups.map((u) => {
+          const info = room.upgrade_info[u] || { name: u, desc: '' };
+          return `<div class="uprow"><span class="upic">${UP_ICON[u] || '⚙'}</span>
+            <div><strong>${esc(info.name)}</strong><br><small>${esc(info.desc)}</small></div></div>`;
+        }).join('')
+      : '<p class="tag">No upgrades yet — crack the puzzle isles!</p>') +
+    '<button class="small" id="upclose">close</button>';
+  panel.classList.remove('hidden');
+  $('upclose').onclick = () => panel.classList.add('hidden');
+}
+
+function renderBounties() {
+  const el = $('bounties');
+  const list = room.bounties || [];
+  if (!list.length || room.phase === 'lobby') { el.classList.add('hidden'); return; }
+  el.classList.remove('hidden');
+  el.innerHTML = '<div class="btitle2">🏴 BOUNTIES</div>' + list.map((b) => {
+    const claimer = room.players.find((p) => p.pid === b.claimed_by);
+    return `<div class="brow ${claimer ? 'done' : ''}">
+      <span>${esc(b.text)}</span>
+      <span class="breward">${claimer
+        ? `<span class="dot" style="background:${claimer.color}"></span>`
+        : `+${b.reward}📜`}</span></div>`;
+  }).join('');
 }
 
 function renderGoal() {
@@ -334,6 +420,13 @@ function hpBar(cur, max, cls) {
   return `<div class="hpbar ${cls}">${cells}</div>`;
 }
 
+let pendingMove = null;              // 'attack'|'magic' while choosing a target
+
+function sendMove(stance, target) {
+  pendingMove = null;
+  send({ type: 'stance', stance, target: target ?? 0 });
+}
+
 function renderBattle() {
   const hud = $('battleHud');
   const b = room.battle;
@@ -342,19 +435,33 @@ function renderBattle() {
   hud.classList.toggle('hidden', !show);
   document.body.classList.toggle('battling', !!show);
   world.setBattleFocus(show ? b.node : null);
-  if (!show) return;
+  if (!show) { pendingMove = null; return; }
 
   const mine = room.turn === you;
   const dcolor = DOMAIN_COLORS[b.domain] || '#c0392b';
   const fighter = room.players.find((p) => p.pid === room.turn);
+  const alive = b.enemies.filter((e) => e.hp > 0);
 
+  // enemy row: one card per pack member; clickable while targeting
+  const cards = b.enemies.map((e, i) => `
+    <div class="ecard ${e.hp <= 0 ? 'dead' : ''} ${pendingMove && e.hp > 0 ? 'targetable' : ''}" data-idx="${i}">
+      <div class="ename">${esc(e.name)}</div>
+      ${hpBar(e.hp, e.max_hp, 'foe')}
+      <div class="epow">power ${e.power}</div>
+    </div>`).join('');
   $('bmon').innerHTML = `
     <div class="btitle">${b.is_fleece ? '🐉' : b.is_lair ? '⚱' : '⚔'} ${esc(b.name)}</div>
-    <div class="bsub" style="color:${dcolor}">${room.board.domains[b.domain]?.field || ''} · power ${b.power}${b.is_lair ? ' · guards a relic' : ''}</div>
-    ${hpBar(b.hp, b.max_hp, 'foe')}`;
+    <div class="bsub" style="color:${dcolor}">${room.board.domains[b.domain]?.field || ''}${b.is_lair ? ' · guards a relic' : ''}</div>
+    <div class="erow">${cards}</div>
+    <div id="bturn">${room.phase === 'battle'
+      ? (pendingMove ? '🎯 CHOOSE A TARGET' : (mine ? '⚔ YOUR MOVE' : `${esc(fighter?.name || '')}'s move…`))
+      : room.phase === 'question' ? '…' : ''}</div>`;
+  $('bmon').querySelectorAll('.ecard.targetable').forEach((el) => {
+    el.onclick = () => sendMove(pendingMove, parseInt(el.dataset.idx, 10));
+  });
 
   $('bship').innerHTML = fighter ? `
-    <div class="bsub">${esc(fighter.name)}'s ship — hull</div>
+    <div class="bsub">${esc(fighter.name)}'s ship — <strong>Health</strong></div>
     ${hpBar(fighter.hull, fighter.max_hull, 'ally')}` : '';
 
   const actions = $('bactions');
@@ -367,11 +474,15 @@ function renderBattle() {
       bt.onclick = fn;
       actions.appendChild(bt);
     };
-    mk('⚔ STRIKE<small>easy question · 1 dmg</small>', 'battlebtn strike', () => send({ type: 'stance', stance: 'attack' }));
-    mk('✨ MAGIC<small>hard question · 3 dmg · backfire 1</small>', 'battlebtn magic', () => send({ type: 'stance', stance: 'magic' }));
-    mk('🏃 FLEE<small>lose 1 hull, retreat</small>', 'battlebtn ghost', () => send({ type: 'flee' }));
-  } else if (room.phase === 'battle') {
-    actions.innerHTML = `<span class="hint">${esc(fighter?.name || '')} weighs their next move…</span>`;
+    const move = (stance) => {
+      if (alive.length > 1) { pendingMove = stance; renderBattle(); }
+      else sendMove(stance, b.enemies.findIndex((e) => e.hp > 0));
+    };
+    const st = TIER_ROMAN[b.strike_tier] || 'I';
+    mk(`⚔ STRIKE<small>tier ${st} question · 1 dmg</small>`, 'battlebtn strike', () => move('attack'));
+    mk('✨ MAGIC<small>tier III question · 3 dmg · backfire 1</small>', 'battlebtn magic', () => move('magic'));
+    mk('🏃 FLEE<small>lose 1 Health, retreat</small>', 'battlebtn ghost', () => send({ type: 'flee' }));
+    if (pendingMove) mk('cancel', 'battlebtn ghost small', () => { pendingMove = null; renderBattle(); });
   }
 }
 
@@ -827,7 +938,7 @@ function renderModal() {
       <ol class="intro">
         <li><strong>Voyage</strong> — roll and sail the open chart. Farther isles are harder and richer.</li>
         <li><strong>Earn</strong> — shrines pay scrolls for trivia; puzzle isles grant ship upgrades.</li>
-        <li><strong>Fight</strong> — monsters guard relics: STRIKE (easy question, 1 dmg) or MAGIC (hard, 3 dmg — a miss backfires). The ♥ hearts by your name are your <strong>hull</strong>: at 0 you shipwreck back to your last haven checkpoint.</li>
+        <li><strong>Fight</strong> — monsters guard relics: STRIKE (easy question, 1 dmg) or MAGIC (hard, 3 dmg — a miss backfires). The ♥ hearts by your name are your <strong>Health</strong>: at 0 you shipwreck back to your last haven checkpoint.</li>
         <li><strong>Bank 3 relics</strong> at Home Port — cargo at sea can be lost!</li>
         <li><strong>Claim the Fleece</strong> — its isle appears once you bank 3. Slay the dragon. Win.</li>
       </ol>

@@ -95,7 +95,8 @@ class Board:
         bands: list[list[str]] = []
         for bi, (z, n) in enumerate(zip(_BAND_Z, _BAND_N)):
             row = []
-            width = 130 if 1 <= bi <= 6 else 70
+            width = rng.uniform(105, 150) if 1 <= bi <= 6 else 70
+            drift = rng.uniform(-38, 38) if 1 <= bi <= 6 else 0   # bands wander
             for i in range(n):
                 if bi == 0:
                     nid, ntype, name = "home", "home", "Home Port"
@@ -106,8 +107,8 @@ class Board:
                     ntype = None                     # assigned below
                     name = names.pop()
                 x = (-width + (2 * width) * (i / max(1, n - 1))) if n > 1 else 0.0
-                x += rng.uniform(-14, 14)
-                zz = z + rng.uniform(-11, 11)
+                x += drift + rng.uniform(-24, 24)
+                zz = z + rng.uniform(-16, 16)
                 self.nodes[nid] = {"id": nid, "name": name, "type": ntype, "band": bi,
                                    "x": round(x, 2), "z": round(zz, 2)}
                 row.append(nid)
@@ -153,6 +154,12 @@ class Board:
             for a, b in zip(row, row[1:]):
                 if rng.random() < 0.6:
                     self._link(a, b)
+        # a few long skip-band passages so the chart isn't a ladder
+        for bi in range(1, len(bands) - 3):
+            if rng.random() < 0.55:
+                a = rng.choice(bands[bi])
+                b = min(bands[bi + 2], key=lambda p: self._dist(a, p))
+                self._link(a, b)
 
         self._build_neighbors()
         self._ensure_connected(bands)
@@ -192,9 +199,24 @@ class Board:
         self._build_neighbors()
 
     def _monster(self, spec, rng) -> dict:
+        """A monster entry is a PACK: 1-3 enemies fought Paper-Mario style."""
         name, hp, power, tier = spec
-        return {"name": name, "hp": hp, "max_hp": hp, "power": power,
-                "tier": tier, "domain": rng.choice(DOMAINS)}
+        domain = rng.choice(DOMAINS)
+        if hp <= 2:                             # minions hunt in packs
+            count = rng.choice([2, 3])
+            each_hp = 1 if count == 3 else 2
+            enemies = [{"name": f"{_singular(name)} {'ⅠⅡⅢ'[i]}", "hp": each_hp,
+                        "max_hp": each_hp, "power": power} for i in range(count)]
+        elif hp == 3 and rng.random() < 0.4:    # some guards come in pairs
+            enemies = [{"name": f"{name} {'ⅠⅡ'[i]}", "hp": 2, "max_hp": 2,
+                        "power": power} for i in range(2)]
+        elif name == DRAGON[0]:                 # the dragon has hatchlings
+            enemies = [{"name": name, "hp": hp, "max_hp": hp, "power": power},
+                       {"name": "Dragonling Ⅰ", "hp": 1, "max_hp": 1, "power": 1},
+                       {"name": "Dragonling Ⅱ", "hp": 1, "max_hp": 1, "power": 1}]
+        else:
+            enemies = [{"name": name, "hp": hp, "max_hp": hp, "power": power}]
+        return {"name": name, "tier": tier, "domain": domain, "enemies": enemies}
 
     def _dist(self, a: str, b: str) -> float:
         na, nb = self.nodes[a], self.nodes[b]
@@ -235,4 +257,12 @@ class Board:
 
     def alive_monster(self, nid: str) -> dict | None:
         m = self.nodes[nid].get("monster")
-        return m if m and m["hp"] > 0 else None
+        return m if m and any(e["hp"] > 0 for e in m["enemies"]) else None
+
+
+def _singular(name: str) -> str:
+    for plural, single in (("Harpies", "Harpy"), ("Birds", "Bird"), ("Wolves", "Wolf"),
+                           ("Brigands", "Brigand"), ("Skiffs", "Skiff")):
+        if plural in name:
+            return name.replace(plural, single).replace("The ", "")
+    return name.replace("The ", "")

@@ -158,10 +158,21 @@ def battle_at(g, pid, nid):
     assert g.phase == "battle"
 
 
+def pack(g, nid):
+    return g.board.nodes[nid]["monster"]["enemies"]
+
+
+def set_pack(g, nid, hps):
+    """Force a node's pack to exactly these hp values."""
+    m = g.board.nodes[nid]["monster"]
+    m["enemies"] = [{"name": f"E{i}", "hp": h, "max_hp": max(h, 1), "power": 1}
+                    for i, h in enumerate(hps)]
+
+
 def test_battle_win_takes_relic():
     g, (p0, p1) = make_game(seed=3)
     lair = g.board.lairs()[0]
-    g.board.nodes[lair]["monster"]["hp"] = 1     # one clean hit fells it
+    set_pack(g, lair, [1])                       # one clean hit fells it
     battle_at(g, p0, lair)
     g.stance(p0, "attack")
     put_question(g)
@@ -176,14 +187,16 @@ def test_battle_win_takes_relic():
 def test_strike_miss_takes_monster_counter():
     g, (p0, p1) = make_game()
     mon = find_node(g, "monster")
+    set_pack(g, mon, [3])
+    g.board.nodes[mon]["monster"]["enemies"][0]["power"] = 2
     battle_at(g, p0, mon)
     g.stance(p0, "attack")
     assert g.qctx["tier"] == 1                            # strikes ask easy questions
     put_question(g, correct=0)
     g.answer(p0, 3)
     p = g.player_by_pid(p0)
-    power = g.board.nodes[mon]["monster"]["power"]
-    assert p.hull == G.MAX_HULL - power
+    assert p.hull == G.MAX_HULL - 2                       # front enemy counters
+    assert g.reveal["enemy_phase"]["dmg"] == 2
     g.advance_after_reveal()
     assert g.phase == "battle"                            # fight continues
 
@@ -191,13 +204,14 @@ def test_strike_miss_takes_monster_counter():
 def test_magic_hits_hard_and_backfires():
     g, (p0, p1) = make_game()
     mon = find_node(g, "monster")
-    g.board.nodes[mon]["monster"]["hp"] = 5
+    set_pack(g, mon, [5])
     battle_at(g, p0, mon)
     g.stance(p0, "magic")
     assert g.qctx["tier"] == 3                            # magic asks hard questions
     put_question(g, correct=1)
     g.answer(p0, 1)                                       # correct → 3 damage
-    assert g.board.nodes[mon]["monster"]["hp"] == 2
+    assert pack(g, mon)[0]["hp"] == 2
+    assert g.reveal["enemy_phase"]["evaded"]              # your success dodges the counter
     g.advance_after_reveal()
     assert g.phase == "battle"
     g.stance(p0, "magic")
@@ -205,13 +219,14 @@ def test_magic_hits_hard_and_backfires():
     g.answer(p0, 2)                                       # miss → backfire 1
     p = g.player_by_pid(p0)
     assert p.hull == G.MAX_HULL - G.MAGIC_BACKFIRE
-    assert g.board.nodes[mon]["monster"]["hp"] == 2       # monster untouched
+    assert g.reveal["enemy_phase"]["backfire"]
+    assert pack(g, mon)[0]["hp"] == 2                     # monster untouched
 
 
 def test_battle_rounds_until_dead_monster():
     g, (p0, p1) = make_game(seed=5)
     mon = find_node(g, "monster")
-    g.board.nodes[mon]["monster"]["hp"] = 99
+    set_pack(g, mon, [99])
     battle_at(g, p0, mon)
     for _ in range(6):
         if g.phase != "battle":
@@ -220,7 +235,7 @@ def test_battle_rounds_until_dead_monster():
         put_question(g)
         g.answer(p0, 0)                                   # always correct
         g.advance_after_reveal()
-    assert g.board.nodes[mon]["monster"]["hp"] < 99       # damage accumulated
+    assert pack(g, mon)[0]["hp"] < 99                     # damage accumulated
 
 
 def test_flee_costs_hull_and_retreats():
@@ -240,12 +255,14 @@ def test_shipwreck_returns_relics_and_respawns_guardian():
     p = g.player_by_pid(p0)
     lair = g.board.lairs()[0]
     node = g.board.nodes[lair]
-    node["monster"]["hp"] = 0
+    for e in node["monster"]["enemies"]:
+        e["hp"] = 0
     node["taken"] = True
     p.cargo = [node["relic"]]
     p.scrolls = 9
     p.hull = 1
     mon = find_node(g, "monster")
+    set_pack(g, mon, [3])
     battle_at(g, p0, mon)
     g.stance(p0, "attack")
     put_question(g, correct=0)
@@ -282,7 +299,7 @@ def test_bank_and_fleece_reveal_and_win():
     # p0 storms the fleece
     p.node = "fleece"
     p.prev_node = "home"
-    g.board.nodes["fleece"]["monster"]["hp"] = 1
+    set_pack(g, "fleece", [1])
     g._land(p, "fleece")
     assert g.phase == "battle"
     g.stance(p.pid, "attack")
@@ -402,6 +419,7 @@ def test_owl_disables_two_wrong_options():
     p = g.player_by_pid(p0)
     p.upgrades = ["owl"]
     mon = find_node(g, "monster")
+    set_pack(g, mon, [4])
     battle_at(g, p0, mon)
     g.stance(p0, "attack")
     put_question(g, correct=2)
@@ -436,6 +454,7 @@ def test_shipwreck_respawns_at_checkpoint():
     p.checkpoint = haven
     p.hull = 1
     mon = find_node(g, "monster")
+    set_pack(g, mon, [3])
     battle_at(g, p0, mon)
     g.stance(p0, "attack")
     put_question(g, correct=0)
