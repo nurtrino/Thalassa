@@ -1,11 +1,11 @@
 """
-Thalassa board — the Safe Isles ringed by mountains, four passes to the wilds.
+Thalassa board — the Isles of Peace ringed by mountains, four passes to the wilds.
 
 Every game rolls a new chart. The Pharos — a shining white colossus — stands
 at the exact center; Home Port sits in its shadow. Three rings of islands
-(the SAFE ISLES: temples, puzzle spires, market isles, havens, and small
-hunting grounds — nothing worse) spread to the mountain wall that seals the
-world. Ring roads and spokes make the chart a lattice of LOOPS.
+(the ISLES OF PEACE: temples, puzzle spires, market isles and havens — no
+monsters, no ambushes, safe waters throughout) spread to the mountain wall
+that seals the world. Ring roads and spokes make the chart a lattice of LOOPS.
 
 At the four compass points a PASS pierces the mountains. Beyond each lies
 one of the four REALMS — ice, desert, jungle, autumn — a dungeon-like spine
@@ -152,11 +152,14 @@ _WAYPOINT_EVERY = 60.0        # aim for a sea node roughly every N world units
 _MAX_WAYPOINTS = 1            # per lane — tuned for exact-roll d3 sailing
 _FLOTSAM_CHANCE = 0.25
 _SEA_LOOKS = ["buoy", "buoy", "buoy", "rocks", "rocks", "islet", "islet", "none"]
+# The Isles of Peace are exactly that — no hunting grounds, no ambushes. All
+# danger lives beyond the mountain passes. (Monsters are grown into the realm
+# spines by _grow_region.)
 _RING_TYPES = {
     1: ["shrine", "shrine", "shrine", "puzzle", "puzzle", "shop", "shop", "haven"],
-    2: ["monster", "monster", "monster", "shrine", "shrine",
-        "puzzle", "puzzle", "shop", "haven", "haven"],
-    3: ["monster", "monster", "monster", "shrine", "puzzle", "haven", "shop", "haven"],
+    2: ["shrine", "shrine", "shrine", "puzzle", "puzzle",
+        "shop", "shop", "haven", "haven", "puzzle"],
+    3: ["shrine", "shrine", "puzzle", "puzzle", "haven", "shop", "haven", "shop"],
 }
 _GATE_ANGLES = [1.5707963, 3.1415927, 4.7123890, 0.0]   # N, W, S, E of the chart
 _REGION_SPINE = (5, 7)        # spine stops per realm (min, max) — a real trek
@@ -201,7 +204,7 @@ class Board:
                 row.append(nid)
             rings.append(row)
 
-        # decorate the Safe Isles — no lairs in here, only small trouble
+        # decorate the Isles of Peace — temples, spires, markets, havens only
         for ri in range(1, 4):
             for nid in rings[ri]:
                 node = self.nodes[nid]

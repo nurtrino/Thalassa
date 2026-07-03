@@ -402,17 +402,13 @@ class Game:
             self._say(f"{p.name} hauls drifting flotsam aboard — +1 scroll.")
 
         monster = self.board.alive_monster(nid)
-        # ambush odds: hunting grounds bite on half the landings (deeper in a
-        # realm, more surely); open water is never quite safe either — sea
-        # attacks find you on the way between islands.
-        if node.get("encounter"):
-            if node.get("depth"):
-                chance = min(0.85, 0.45 + 0.1 * node["depth"])
-            else:
-                chance = 0.5
-        elif ntype == "sea":
-            depth = node.get("depth", 0)
-            chance = min(0.5, 0.2 + 0.05 * depth) if depth else 0.15
+        # The Isles of Peace are safe: NO ambushes in the hub. All danger is
+        # beyond the passes — realm hunting grounds bite on most landings
+        # (deeper = surer) and realm open water can spring a sea attack too.
+        if node.get("encounter") and node.get("depth"):
+            chance = min(0.85, 0.45 + 0.1 * node["depth"])
+        elif ntype == "sea" and node.get("depth"):
+            chance = min(0.5, 0.2 + 0.05 * node["depth"])
         else:
             chance = 0.0
         if chance and not monster and self.rng.random() < chance:

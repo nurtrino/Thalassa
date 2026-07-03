@@ -43,10 +43,13 @@ def test_generation_counts_and_connectivity():
             types[n["type"]] = types.get(n["type"], 0) + 1
         assert types["home"] == 1 and types["pharos"] == 1
         assert types["gate"] == 4 and types["lair"] == 4
-        assert types["shrine"] >= 6 and types["puzzle"] == 5
-        assert types["haven"] >= 6 and types["shop"] == 4
-        assert types["monster"] >= 14             # hub grounds + realm gauntlets
+        assert types["shrine"] >= 8 and types["puzzle"] == 7
+        assert types["haven"] >= 6 and types["shop"] == 6
+        assert types["monster"] >= 8              # realm gauntlets only
         assert types["sea"] >= 20                 # long routes between isles
+        # the Isles of Peace are safe: every monster lives beyond a pass
+        assert all(n.get("region") for n in b.nodes.values()
+                   if n["type"] == "monster")
         # connected: BFS from home touches everything
         seen, frontier = {"home"}, ["home"]
         while frontier:
@@ -143,15 +146,24 @@ def test_lairs_wall_passage_but_take_landings():
             assert len(g.board.neighbors[far]) > 1
 
 
+def shallow_monster(g):
+    """A realm hunting ground near a pass (depth ≤ 2 → tier-1 packs)."""
+    return next(nid for nid, n in g.board.nodes.items()
+                if n["type"] == "monster" and (n.get("depth") or 9) <= 2)
+
+
 def test_hunting_grounds_spawn_random_packs():
+    import random as _r
     g, (p0, p1) = make_game()
-    mon = find_node(g, "monster")
+    g.bounties = []                                   # no realm-edge bounty noise
+    mon = shallow_monster(g)
     assert g.board.nodes[mon]["monster"] is None      # calm until someone lands
+    g.rng = _r.Random(1)                              # 0.134 < ambush odds
     force_land(g, p0, mon)
     assert g.phase == "battle"
     m = g.board.alive_monster(mon)
     assert m and 1 <= len(m["enemies"]) <= 3
-    assert all(e["max_hp"] <= 3 for e in m["enemies"])  # packs, not bosses
+    assert all(e["max_hp"] <= 3 for e in m["enemies"])  # shallow packs, not bosses
     # win it → the grounds fall quiet again
     set_pack(g, mon, [1])
     g.stance(p0, "attack")
@@ -318,11 +330,18 @@ def test_flee_gamble():
     import random as _r
     # success branch — seed whose first random() < 0.5
     g, (p0, p1) = make_game()
-    mon = find_node(g, "monster")
+    g.bounties = []                          # isolate the flee economy
+    mon = shallow_monster(g)
+    g.board.nodes[mon]["monster"] = None
     p = g.player_by_pid(p0)
     start = p.node
     p.scrolls = 5
-    battle_at(g, p0, mon)
+    set_pack(g, mon, [2, 2])                 # a fixed pack to flee from
+    p.prev_node = start
+    p.node = mon
+    g.battle = {"node": mon, "stance": None, "round": 0, "charging": False,
+                "used_items": [], "first_hit_taken": False}
+    g._bump("battle")
     g.rng = _r.Random(1)                 # .random() → 0.134… (escape)
     g.flee(p0)
     assert p.scrolls == 5 - G.FLEE_COST and p.hull == G.MAX_HULL
@@ -330,11 +349,16 @@ def test_flee_gamble():
 
     # failure branch — the front enemy lands a free hit, fight continues
     g2, (q0, q1) = make_game(seed=9)
-    mon2 = find_node(g2, "monster")
+    g2.bounties = []
+    mon2 = shallow_monster(g2)
     p2 = g2.player_by_pid(q0)
     p2.scrolls = 5
     set_pack(g2, mon2, [3])
-    battle_at(g2, q0, mon2)
+    p2.prev_node = p2.node
+    p2.node = mon2
+    g2.battle = {"node": mon2, "stance": None, "round": 0, "charging": False,
+                 "used_items": [], "first_hit_taken": False}
+    g2._bump("battle")
     g2.rng = _r.Random(0)                # .random() → 0.844… (cut off)
     g2.flee(q0)
     assert p2.scrolls == 5 - G.FLEE_COST and p2.hull == G.MAX_HULL - 1
@@ -358,6 +382,7 @@ def test_no_retreat_from_trials():
 
 def test_shipwreck_stashes_fragment_at_altar():
     g, (p0, p1) = make_game()
+    g.bounties = []
     p = g.player_by_pid(p0)
     lair = g.board.lairs()[0]
     node = g.board.nodes[lair]
@@ -365,9 +390,13 @@ def test_shipwreck_stashes_fragment_at_altar():
     p.cargo = [node["region"]]
     p.scrolls = 9
     p.hull = 1
-    mon = find_node(g, "monster")
+    mon = shallow_monster(g)
     set_pack(g, mon, [3])
-    battle_at(g, p0, mon)
+    p.prev_node = p.node
+    p.node = mon
+    g.battle = {"node": mon, "stance": None, "round": 0, "charging": False,
+                "used_items": [], "first_hit_taken": False}
+    g._bump("battle")
     g.stance(p0, "attack")
     put_question(g, correct=0)
     g.answer(p0, 1)                                        # wrong → hit → sunk
@@ -793,14 +822,16 @@ def test_mountain_pass_halts_the_voyage():
 def test_sea_attacks_on_the_crossing():
     import random as _r
     g, (p0, p1) = make_game()
+    g.bounties = []
+    # sea attacks happen in the WILDS (realm waters with depth), never the hub
     sea = next(nid for nid, n in g.board.nodes.items()
-               if n["type"] == "sea" and not n.get("region"))
+               if n["type"] == "sea" and n.get("region") and (n.get("depth") or 0) >= 3)
     g.board.nodes[sea]["flotsam"] = False
-    g.rng = _r.Random(1)                       # first random() ≈ 0.134 < 0.15
+    g.rng = _r.Random(1)                       # 0.134 < the realm-water odds
     force_land(g, p0, sea)
     assert g.phase == "battle"                 # beset mid-crossing
     m = g.board.alive_monster(sea)
-    assert m and all(e["max_hp"] <= 3 for e in m["enemies"])
+    assert m
     set_pack(g, sea, [1])
     g.stance(p0, "attack")
     put_question(g)
@@ -809,15 +840,22 @@ def test_sea_attacks_on_the_crossing():
     assert g.board.nodes[sea]["monster"] is None   # the water falls quiet
 
 
-def test_open_water_is_usually_safe():
+def test_isles_of_peace_are_safe():
+    """No ambush ever springs in the hub — not on islands, not in open water."""
     import random as _r
-    g, (p0, p1) = make_game()
-    sea = next(nid for nid, n in g.board.nodes.items()
-               if n["type"] == "sea" and not n.get("region"))
-    g.board.nodes[sea]["flotsam"] = False
-    g.rng = _r.Random(0)                       # first random() ≈ 0.844 > 0.15
-    force_land(g, p0, sea)
-    assert g.phase == "roll" and g.current.pid == p1
+    for seed in range(6):
+        g, (p0, p1) = make_game(seed=seed)
+        hub_seas = [nid for nid, n in g.board.nodes.items()
+                    if n["type"] == "sea" and not n.get("region")]
+        for sea in hub_seas[:8]:
+            g.board.nodes[sea]["flotsam"] = False
+            p = g.player_by_pid(g.current.pid)
+            g.rng = _r.Random(1)               # would trigger IF the hub bit
+            g.phase = "sail"
+            p.prev_node = p.node
+            p.node = sea
+            g._land(p, sea)
+            assert g.phase != "battle"         # the hub never fights you
 
 
 # ── boss fights demand strategy ──────────────────────────────────────────────

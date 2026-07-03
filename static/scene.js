@@ -759,7 +759,9 @@ export function createWorld(container, handlers = {}) {
     for (const pid of Object.keys(ships)) {
       if (!playersByPid[pid]) removeShip(pid);
     }
-    viewFollowPid = ships[you] ? you : room.turn;
+    // the camera follows whoever's turn it is, so everyone watches the
+    // current captain sail, land, and fight — you see exactly what they do
+    viewFollowPid = ships[room.turn] ? room.turn : (ships[you] ? you : room.turn);
   }
 
   /* ── reachable highlight rings ──────────────────────────────────────── */
@@ -900,7 +902,10 @@ export function createWorld(container, handlers = {}) {
     if (!room) return activeBoardId || 'hub';
     // hold the cut to the battle stage until the boat finishes sailing up
     if (room.battle && !arriving(room)) return 'battle';
-    return stageForViewer(room, myPid);
+    // ride with the active captain (or yourself in the lobby / when idle)
+    const focus = (room.phase !== 'lobby' && room.phase !== 'finished' && room.turn)
+      ? room.turn : myPid;
+    return stageForViewer(room, focus);
   }
 
   function requestStage(target) {
@@ -923,11 +928,6 @@ export function createWorld(container, handlers = {}) {
       fading = false;
       pendingTarget = null;
       handlers.onStageChange?.(tgt);
-      /* first arrival in a realm gets its own establishing pan */
-      if (tgt !== 'battle' && tgt !== 'hub' && !seenStages.has(tgt) && stages[tgt]) {
-        seenStages.add(tgt);
-        startCinematic(stages[tgt]);
-      }
       /* the world may have moved on while the curtain was down */
       const want = desiredTarget(lastRoom);
       if (want !== (battleOn ? 'battle' : activeBoardId)) requestStage(want);
