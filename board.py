@@ -22,38 +22,40 @@ DOMAIN_INFO = {
     "dionysos": {"name": "Dionysos", "field": "Culture & Sport"},
 }
 
-_INNER_R = 13.0
-_OUTER_R = 24.0
+_INNER_R = 21.0
+_OUTER_R = 39.0
 
 
-def _pos(angle_deg: float, radius: float) -> tuple[float, float]:
+def _pos(angle_deg: float, radius: float, dx: float = 0.0, dz: float = 0.0) -> tuple[float, float]:
     a = math.radians(angle_deg)
     # angle 270 = due south (+z); angle 90 = due north (-z)
-    return (round(radius * math.cos(a), 2), round(-radius * math.sin(a), 2))
+    return (round(radius * math.cos(a) + dx, 2), round(-radius * math.sin(a) + dz, 2))
 
 
-def _node(nid, name, ntype, angle, radius):
-    x, z = _pos(angle, radius)
+def _node(nid, name, ntype, angle, radius, dx=0.0, dz=0.0):
+    x, z = _pos(angle, radius, dx, dz)
     return {"id": nid, "name": name, "type": ntype, "x": x, "z": z}
 
 
+# Positions are two rough rings with hand-tuned offsets so the archipelago
+# reads as scattered islands, not a mandala.
 # fmt: off
 NODES = {n["id"]: n for n in [
     _node("delos",    "Delos",     "delos",   0,   0.0),
     # inner ring (spokes at 30/90/150/210/270/330 degrees)
-    _node("agora",    "Agora of Mykonos", "agora",  90,  _INNER_R),
-    _node("kalypso",  "Kalypso",   "open",   150, _INNER_R),
-    _node("thera",    "Thera",     "open",   210, _INNER_R),
-    _node("oracle",   "The Oracle","oracle", 270, _INNER_R),
-    _node("naxos",    "Naxos",     "open",   330, _INNER_R),
-    _node("melos",    "Melos",     "open",    30, _INNER_R),
+    _node("agora",    "Agora of Mykonos", "agora",  90,  _INNER_R,  3.5, -1.0),
+    _node("kalypso",  "Kalypso",   "open",   150, _INNER_R, -2.5,  3.0),
+    _node("thera",    "Thera",     "open",   210, _INNER_R,  2.0,  2.5),
+    _node("oracle",   "The Oracle","oracle", 270, _INNER_R, -3.0, -2.0),
+    _node("naxos",    "Naxos",     "open",   330, _INNER_R, -1.5, -3.0),
+    _node("melos",    "Melos",     "open",    30, _INNER_R,  2.5,  2.0),
     # outer ring
-    _node("pergamon", "Library of Pergamon", "library",  90, _OUTER_R),
-    _node("rhodos",   "Library of Rhodos",   "library", 150, _OUTER_R),
-    _node("kos",      "Library of Kos",      "library", 210, _OUTER_R),
-    _node("piraeus",  "Port of Piraeus",     "port",    270, _OUTER_R),
-    _node("samos",    "Library of Samos",    "library", 330, _OUTER_R),
-    _node("kythera",  "Library of Kythera",  "library",  30, _OUTER_R),
+    _node("pergamon", "Library of Pergamon", "library",  90, _OUTER_R, -4.0,  2.0),
+    _node("rhodos",   "Library of Rhodos",   "library", 150, _OUTER_R,  3.0, -3.5),
+    _node("kos",      "Library of Kos",      "library", 210, _OUTER_R, -2.0, -4.0),
+    _node("piraeus",  "Port of Piraeus",     "port",    270, _OUTER_R,  4.0,  1.5),
+    _node("samos",    "Library of Samos",    "library", 330, _OUTER_R,  2.5,  3.5),
+    _node("kythera",  "Library of Kythera",  "library",  30, _OUTER_R, -3.5, -2.0),
 ]}
 # fmt: on
 
