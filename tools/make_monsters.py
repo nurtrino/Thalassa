@@ -675,71 +675,79 @@ def build_colossus(spec):
 def build_warden(spec):
     """The Warden of the Pharos — the final horror. A towering shrouded
     revenant: a horned skull under a fallen crown, a burning void-rift in its
-    chest, long clawed arms and a tattered robe trailing into nothing. Floats."""
-    robe = mat("robe", spec.get("robe", C("17122a")), rough=0.96)
-    robedk = mat("robedk", C("0c0918"), rough=0.97)
+    chest, long clawed arms and a heavy tattered robe. Floats. Built as one
+    solid overlapping mass — no floating gaps."""
+    robe = mat("robe", spec.get("robe", C("1a1430")), rough=0.96)
+    robedk = mat("robedk", C("0d0a1c"), rough=0.97)
     bone = mat("wbone", spec.get("bone", C("c3bacd")), rough=0.8)
     voidc = spec.get("core", C("8b5cff"))
     eyec = spec.get("eye", C("b58cff"))
     root = empty("root")
-    body = prim("cube", "body", robe, scale=(1.35, 1.05, 2.2), loc=(0, 0, 3.0),
-                parent=root, jitter=0.16)
-    prim("cube", "shoulders", robedk, scale=(2.1, 1.4, 0.5), loc=(0, 0, 0.9),
-         parent=body, jitter=0.12)
-    prim("cube", "skirt", robedk, scale=(1.9, 1.5, 1.5), loc=(0, 0, -1.5),
-         parent=body, jitter=0.28)
+    # ── one continuous robe column, each block overlapping the last ──
+    body = prim("cube", "body", robe, scale=(1.55, 1.2, 1.9), loc=(0, 0, 3.7),
+                parent=root, jitter=0.12)                       # chest 2.75–4.65
+    prim("cube", "shoulders", robe, scale=(2.5, 1.5, 0.9), loc=(0, 0, 0.55),
+         parent=body, jitter=0.1)                               # broad shoulders
+    prim("cube", "robeM", robe, scale=(1.9, 1.45, 1.5), loc=(0, 0, -1.55),
+         parent=body, jitter=0.14)                              # waist 1.35–2.85
+    prim("cube", "robeL", robedk, scale=(2.3, 1.7, 1.5), loc=(0, 0, -2.75),
+         parent=body, jitter=0.2)                               # flared skirt 0.2–1.7
+    # ragged hem — cones hanging from and overlapping the skirt bottom
+    for i in range(10):
+        a = i / 10 * math.tau
+        ca, sa = math.cos(a), math.sin(a)
+        prim("cone", "tatter", robedk,
+             scale=(0.5, 0.5, 1.4 + 0.5 * math.sin(i * 1.7)),
+             loc=(ca * 0.95, sa * 0.62, -3.2), rot=(math.pi + 0.12 * sa, 0.12 * ca, 0),
+             parent=body, jitter=0.05, seed=i * 5, segs=5)
+    # the void rift, sunk into the chest
     prim("ico", "core", mat("voidcore", C("0a0616"), emit=voidc, emit_str=8),
-         scale=(0.62, 0.36, 0.95), loc=(0.7, 0, 0.5), parent=body)
+         scale=(0.8, 0.5, 1.15), loc=(0.62, 0, 0.2), parent=body)
+    # ── neck + horned skull, seated on the chest ──
+    hd = empty("head", loc=(0, 0, 1.15), parent=body)
+    prim("cube", "neck", robedk, scale=(0.62, 0.6, 0.7), loc=(0, 0, -0.35),
+         parent=hd, jitter=0.05)
+    prim("cube", "skull", bone, scale=(0.82, 0.74, 0.9), parent=hd, jitter=0.06)
+    prim("cube", "brow", bone, scale=(0.9, 0.8, 0.28), loc=(0.28, 0, 0.28),
+         rot=(0, -0.28, 0), parent=hd, jitter=0.03)
+    jaw = empty("jaw", loc=(0.22, 0, -0.36), parent=hd)
+    prim("cube", "jawm", bone, scale=(0.66, 0.6, 0.34), loc=(0.08, 0, -0.02),
+         parent=jaw, jitter=0.04)
     for sy in (-1, 1):
-        for k in range(3):
-            prim("cube", "rib", bone, scale=(0.55, 0.16, 0.14),
-                 loc=(0.72, 0.34 * sy, 0.95 - k * 0.42), rot=(0.5 * sy, 0, 0),
-                 parent=body, jitter=0.03)
-    hd = empty("head", loc=(0, 0, 1.45), parent=body)
-    prim("cube", "skull", bone, scale=(0.72, 0.64, 0.82), parent=hd, jitter=0.07)
-    prim("cube", "brow", bone, scale=(0.8, 0.72, 0.2), loc=(0.24, 0, 0.3),
-         rot=(0, -0.25, 0), parent=hd, jitter=0.04)
-    jaw = empty("jaw", loc=(0.18, 0, -0.34), parent=hd)
-    prim("cube", "jawm", bone, scale=(0.55, 0.5, 0.26), loc=(0.12, 0, -0.1),
-         parent=jaw, jitter=0.05)
-    for sy in (-1, 1):
-        prim("cone", "horn", bone, scale=(0.17, 0.17, 1.5),
-             loc=(-0.05, 0.28 * sy, 0.45), rot=(0.7 * sy, -0.5, 0),
-             parent=hd, segs=5, jitter=0.04)
+        prim("cone", "horn", bone, scale=(0.24, 0.24, 1.7),
+             loc=(-0.05, 0.3 * sy, 0.48), rot=(0.75 * sy, -0.5, 0),
+             parent=hd, segs=5, jitter=0.03)
     eyem = mat("eye", C("040208"), emit=eyec, emit_str=6)
     for sy in (-1, 1):
-        prim("sphere", "eye", eyem, scale=(0.16, 0.12, 0.17),
-             loc=(0.44, 0.2 * sy, 0.02), parent=hd, segs=6, rings=4)
+        prim("sphere", "eye", eyem, scale=(0.2, 0.14, 0.2),
+             loc=(0.46, 0.22 * sy, 0.0), parent=hd, segs=6, rings=4)
+    # ── heavy sleeved arms, solid to the claws ──
     for nm, sy in (("armL", 1), ("armR", -1)):
-        a = empty(nm, loc=(0, 1.15 * sy, 0.85), parent=body)
-        prim("cube", "sleeve", robe, scale=(0.42, 0.44, 1.9), pivot=(0, 0, 0.85),
-             rot=(0.18 * sy, 0, 0), parent=a, jitter=0.1)
-        hand = empty("hand", loc=(0.06, 0.04 * sy, -1.75), parent=a)
+        a = empty(nm, loc=(0, 1.35 * sy, 0.9), parent=body)
+        prim("cube", "sleeve", robe, scale=(0.66, 0.72, 1.7), pivot=(0, 0, 0.8),
+             rot=(0.22 * sy, 0, 0), parent=a, jitter=0.08)
+        prim("cube", "cuff", robedk, scale=(0.72, 0.76, 0.5), loc=(0.05, 0.03 * sy, -1.35),
+             parent=a, jitter=0.05)
+        hand = empty("hand", loc=(0.08, 0.03 * sy, -1.6), parent=a)
         for k in range(3):
-            prim("cone", "claw", bone, scale=(0.08, 0.08, 0.62),
-                 loc=(0.08, (k - 1) * 0.16 * sy, -0.2),
-                 rot=(0, 2.4, (k - 1) * 0.2), parent=hand, segs=5)
-    for i in range(9):
-        a = i / 9 * math.tau
-        ca, sa = math.cos(a), math.sin(a)
-        prim("cube", "tatter", robedk,
-             scale=(0.34, 0.13, 1.3 + 0.5 * math.sin(i * 1.7)),
-             loc=(ca * 0.95, sa * 0.95, -2.7),
-             rot=(0.14 * sa, 0.14 * ca, 0), parent=body, jitter=0.06, seed=i * 5)
+            prim("cone", "claw", bone, scale=(0.13, 0.13, 0.7),
+                 loc=(0.05, (k - 1) * 0.17 * sy, -0.2),
+                 rot=(0, 2.5, (k - 1) * 0.22), parent=hand, segs=5)
+    # cold wisps orbiting the crown (these are meant to float)
     wm = mat("wispm", C("0a0616"), emit=eyec, emit_str=5)
     for i in range(4):
         a = i / 4 * math.tau
-        prim("ico", "wisp", wm, scale=(0.2, 0.2, 0.2),
-             loc=(math.cos(a) * 1.9, math.sin(a) * 1.9, 1.6 + 0.4 * math.sin(i)),
+        prim("ico", "wisp", wm, scale=(0.24, 0.24, 0.24),
+             loc=(math.cos(a) * 2.0, math.sin(a) * 2.0, 1.5 + 0.4 * math.sin(i)),
              parent=body)
-    add_crown(hd, (0, 0, 0.82))
+    add_crown(hd, (0, 0, 0.9))
     return root
 
 
 def build_matriarch(spec):
-    """The Strangler Matriarch — a colossal carnivorous bloom: a gnarled mossy
-    bulb, a great toothed flytrap maw on a twisting stalk, writhing thorn-vines,
-    and a crowning blood-red blossom."""
+    """The Strangler Matriarch — a colossal carnivorous bloom: a solid mossy
+    trunk of overlapping boles, a great toothed flytrap maw, thick writhing
+    thorn-vines, and a crowning blood-red blossom. No floating gaps."""
     bark = mat("bark", spec.get("bark", C("3a2c1c")), rough=0.95)
     barkdk = mat("barkdk", C("22180e"), rough=0.95)
     leaf = mat("leaf", spec.get("leaf", LEAF_DARK), rough=0.9)
@@ -748,62 +756,69 @@ def build_matriarch(spec):
     thorn = mat("thorn", C("cabf9e"), rough=0.7)
     eyec = spec.get("eye", C("d8ff9a"))
     root = empty("root")
-    base = prim("sphere", "base", bark, scale=(2.0, 2.0, 1.5), loc=(0, 0, 1.3),
-                parent=root, jitter=0.26)
-    prim("sphere", "moss", leaf, scale=(1.8, 1.8, 0.85), loc=(0, 0, 0.7),
-         parent=base, jitter=0.24)
-    body = prim("cyl", "body", bark, scale=(0.85, 0.85, 2.4), loc=(0, 0, 2.6),
-                parent=root, jitter=0.14, segs=7)
-    hd = empty("head", loc=(0.15, 0, 3.9), parent=root)
-    prim("sphere", "skull", lobe, scale=(1.15, 1.35, 0.6), loc=(0.05, 0, 0.4),
-         parent=hd, jitter=0.14)
-    prim("sphere", "gullettop", gullet, scale=(0.92, 1.08, 0.34),
-         loc=(0.25, 0, 0.22), parent=hd, jitter=0.05)
-    jaw = empty("jaw", loc=(0.0, 0, -0.05), parent=hd)
-    prim("sphere", "jawlobe", lobe, scale=(1.15, 1.35, 0.6), loc=(0.05, 0, -0.4),
-         parent=jaw, jitter=0.14)
-    prim("sphere", "gulletbot", gullet, scale=(0.92, 1.08, 0.34),
-         loc=(0.25, 0, -0.22), parent=jaw, jitter=0.05)
+    # ── solid trunk: overlapping boles from a fat mossy base up to the maw ──
+    base = prim("sphere", "base", bark, scale=(2.2, 2.2, 1.7), loc=(0, 0, 1.4),
+                parent=root, jitter=0.24)                        # 0.55–2.25
+    prim("sphere", "moss", leaf, scale=(2.05, 2.05, 1.0), loc=(0, 0, -0.35),
+         parent=base, jitter=0.22)
+    body = prim("sphere", "body", bark, scale=(1.5, 1.5, 1.6), loc=(0, 0, 2.6),
+                parent=root, jitter=0.16)                        # 1.8–3.4
+    prim("sphere", "bole", bark, scale=(1.15, 1.15, 1.3), loc=(0.08, 0, 3.5),
+         parent=root, jitter=0.14)                               # 2.85–4.15 (to the maw)
+    # ── the great flytrap maw, seated on the trunk top ──
+    hd = empty("head", loc=(0.15, 0, 3.95), parent=root)
+    prim("sphere", "skull", lobe, scale=(1.3, 1.5, 0.72), loc=(0.02, 0, 0.42),
+         parent=hd, jitter=0.12)
+    prim("sphere", "gullettop", gullet, scale=(1.0, 1.18, 0.4),
+         loc=(0.28, 0, 0.22), parent=hd, jitter=0.05)
+    jaw = empty("jaw", loc=(0.0, 0, -0.02), parent=hd)
+    prim("sphere", "jawlobe", lobe, scale=(1.3, 1.5, 0.72), loc=(0.02, 0, -0.42),
+         parent=jaw, jitter=0.12)
+    prim("sphere", "gulletbot", gullet, scale=(1.0, 1.18, 0.4),
+         loc=(0.28, 0, -0.22), parent=jaw, jitter=0.05)
     for i in range(7):
-        a = (i / 6 - 0.5) * 2.1
-        y = math.sin(a) * 1.05
-        xoff = 0.78 + 0.15 * math.cos(a)
-        prim("cone", "tooth", thorn, scale=(0.1, 0.1, 0.42),
-             loc=(xoff, y, 0.06), rot=(0, 1.35, a * 0.3), parent=hd, segs=5)
-        prim("cone", "tooth", thorn, scale=(0.1, 0.1, 0.42),
-             loc=(xoff, y, -0.06), rot=(0, 1.79, a * 0.3), parent=jaw, segs=5)
+        a = (i / 6 - 0.5) * 2.2
+        y = math.sin(a) * 1.15
+        xoff = 0.82 + 0.12 * math.cos(a)
+        prim("cone", "tooth", thorn, scale=(0.12, 0.12, 0.5),
+             loc=(xoff, y, 0.12), rot=(0, 1.4, a * 0.3), parent=hd, segs=5)
+        prim("cone", "tooth", thorn, scale=(0.12, 0.12, 0.5),
+             loc=(xoff, y, -0.12), rot=(0, 1.74, a * 0.3), parent=jaw, segs=5)
     prim("ico", "core", mat("core", C("101010"), emit=eyec, emit_str=5),
-         scale=(0.42, 0.42, 0.42), loc=(0.3, 0, 0), parent=hd)
+         scale=(0.5, 0.5, 0.5), loc=(0.3, 0, 0), parent=hd)
     eyem = mat("beye", C("101010"), emit=eyec, emit_str=4)
     for sy in (-1, 1):
-        prim("sphere", "eye", eyem, scale=(0.16, 0.16, 0.16),
-             loc=(0.7, 0.55 * sy, 2.9), parent=root, segs=6, rings=4)
-    nv = spec.get("vines", 7)
+        prim("sphere", "eye", eyem, scale=(0.18, 0.18, 0.18),
+             loc=(0.62, 0.62 * sy, 2.7), parent=root, segs=6, rings=4)
+    # ── thick thorn-vines, rooted INSIDE the trunk, tightly overlapping ──
+    nv = spec.get("vines", 6)
     for i in range(nv):
         a = (i / nv) * math.tau + 0.3
         ca, sa = math.cos(a), math.sin(a)
-        v = empty(f"vine{i}", loc=(ca * 1.4, sa * 1.4, 1.1), parent=root)
-        for k in range(1, 5):
+        v = empty(f"vine{i}", loc=(ca * 0.5, sa * 0.5, 1.5), parent=root)
+        for k in range(5):
             t = k / 4
-            prim("sphere", "vseg", bark, scale=(0.34 - 0.05 * k,) * 3,
-                 loc=(ca * t * 1.9, sa * t * 1.9, 0.9 * t + 0.9 * t * t),
-                 parent=v, jitter=0.05, seed=i * 9 + k)
-            prim("cone", "thorn", barkdk, scale=(0.09, 0.09, 0.3),
-                 loc=(ca * t * 1.9 + 0.12 * ca, sa * t * 1.9 + 0.12 * sa,
-                      0.9 * t + 0.9 * t * t),
-                 rot=(sa * 1.2, -ca * 1.2, 0), parent=v, segs=4, seed=i + k)
-        prim("cone", "vtip", leaf, scale=(0.34, 0.34, 0.8),
-             loc=(ca * 2.4, sa * 2.4, 2.3), rot=(-sa * 0.5, ca * 0.5, 0),
+            prim("sphere", "vseg", bark, scale=(0.62 - 0.09 * k,) * 3,
+                 loc=(ca * t * 1.55, sa * t * 1.55, 0.55 * t + 0.75 * t * t),
+                 parent=v, jitter=0.04, seed=i * 9 + k)
+            if k >= 1:
+                prim("cone", "thorn", barkdk, scale=(0.13, 0.13, 0.34),
+                     loc=(ca * t * 1.55 + 0.14 * ca, sa * t * 1.55 + 0.14 * sa,
+                          0.55 * t + 0.75 * t * t + 0.12),
+                     rot=(sa * 1.2, -ca * 1.2, 0), parent=v, segs=4, seed=i + k)
+        prim("cone", "vtip", leaf, scale=(0.44, 0.44, 1.0),
+             loc=(ca * 1.7, sa * 1.7, 1.7), rot=(-sa * 0.55, ca * 0.55, 0),
              parent=v, segs=5)
+    # ── crowning blood blossom on the maw ──
     petal = mat("petal", C("b0416a"))
     petal2 = mat("petal2", C("d46a8e"))
-    bl = empty("bloom", loc=(0, 0, 0.85), parent=hd)
+    bl = empty("bloom", loc=(0, 0, 0.78), parent=hd)
     for i in range(8):
         a = i / 8 * math.tau
         prim("cube", "petalm", (petal if i % 2 else petal2),
-             scale=(0.95, 0.36, 0.08), pivot=(-0.48, 0, 0), rot=(0, -0.65, a),
+             scale=(1.05, 0.42, 0.1), pivot=(-0.52, 0, 0), rot=(0, -0.7, a),
              parent=bl)
-    add_crown(hd, (0, 0, 1.05))
+    add_crown(hd, (0, 0, 1.1))
     return root
 
 
