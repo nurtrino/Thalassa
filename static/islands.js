@@ -780,60 +780,185 @@ function makeLairAltar(accentHex, rng) {
   return g;
 }
 
-/* the mountain-pass portal that replaces the legacy storm-gate pillars:
- * two rock bastions, a carved lintel, braziers burning in the realm's color */
+/* a tall fluted temple column with a proper base and echinus/abacus capital */
+function _grandColumn(h, r) {
+  const g = new THREE.Group();
+  const base = new THREE.Mesh(new THREE.CylinderGeometry(r * 1.5, r * 1.75, r * 1.3, 10),
+    flat(COL.marbleShade));
+  base.position.y = r * 0.65;
+  const shaft = new THREE.Mesh(new THREE.CylinderGeometry(r * 0.86, r, h, 14),
+    flat(COL.marble));
+  shaft.position.y = r * 1.3 + h / 2;
+  shaft.castShadow = true;
+  const echinus = new THREE.Mesh(new THREE.CylinderGeometry(r * 1.35, r * 0.86, r * 0.8, 14),
+    flat(COL.marble));
+  echinus.position.y = r * 1.3 + h + r * 0.4;
+  const abacus = new THREE.Mesh(new THREE.BoxGeometry(r * 3, r * 0.7, r * 3), flat(COL.marbleShade));
+  abacus.position.y = r * 1.3 + h + r * 0.9;
+  g.add(base, shaft, echinus, abacus);
+  return g;
+}
+
+/* THE MOUNTAIN PASS — a monumental carved gateway into a trial realm.
+ * Two great strata towers on a stone dais, framed by temple colonnades and
+ * flanked by guardian obelisks; a corbelled arch with keystone, a glowing
+ * carved frieze, a pediment crown, brazier plinths and hanging banners in the
+ * realm's colour. Local frame: the channel runs along ±Z, the structure
+ * flanks along ±X (the caller rotates it so the channel opens radially). */
 function makeGatePortal(accentHex, seed, rockHex = 0x8a8f98) {
   const g = new THREE.Group();
   const accent = new THREE.Color(accentHex);
   const rock = new THREE.Color(rockHex);
-  const rockDk = rock.clone().multiplyScalar(0.62);
+  const rockLt = rock.clone().multiplyScalar(1.16);
+  const rockDk = rock.clone().multiplyScalar(0.6);
   const rng = mulberry32(seed);
-  for (const side of [-1, 1]) {
-    // a leaning crag, not a black spike — themed to the realm's own stone
-    const bastion = new THREE.Mesh(
-      displace(new THREE.ConeGeometry(4.2, 13, 7, 3), 2.1, seed + side * 3),
-      flat(rock, { flatShading: true }));
-    bastion.position.set(side * 8.2, 5.4, 0);
-    bastion.rotation.z = side * 0.16;
-    bastion.castShadow = true;
-    g.add(bastion);
-    const foot = makeRock(rng, 2.0, rockDk);
-    foot.position.set(side * 6.6, 0.4, 1.8);
-    g.add(foot);
-    // brazier pillar + flame
-    const pillar = new THREE.Mesh(new THREE.CylinderGeometry(0.32, 0.45, 3.4, 6), flat(rockDk));
-    pillar.position.set(side * 4.6, 1.7, 0);
-    const bowl = new THREE.Mesh(new THREE.CylinderGeometry(0.5, 0.3, 0.5, 6),
-      flat(0x55505e, { emissive: accent, emissiveIntensity: 0.55 }));
-    bowl.position.set(side * 4.6, 3.55, 0);
-    const fl = glowSprite(accent, 2.4, 'brazier');
-    fl.position.set(side * 4.6, 4.2, 0);
-    const glow = new THREE.PointLight(accent, 5, 20, 2);
-    glow.position.set(side * 4.6, 4.4, 0);
-    g.add(pillar, bowl, fl, glow);
+  const CH = 9;                       // half-width of the sailing channel
+
+  // ── stone dais: the whole gate rises from a stepped platform on the water ──
+  for (let i = 0; i < 3; i++) {
+    const step = new THREE.Mesh(
+      new THREE.CylinderGeometry(16 - i * 3.3, 16.6 - i * 3.3, 1.15, 10),
+      flat(i % 2 ? rockDk : rock));
+    step.position.y = -0.3 + i * 0.85;
+    step.receiveShadow = true;
+    g.add(step);
   }
-  // carved lintel spanning the pass
+
+  for (const side of [-1, 1]) {
+    const tx = side * (CH + 4);
+
+    // ── great flanking tower: three tapering strata blocks + jagged crown ──
+    const tiers = [[8.4, 7.2, 10, 5], [7, 6, 9, 14.5], [5.6, 5, 8, 23]];
+    tiers.forEach(([w, d, h, y], k) => {
+      const c = k === 0 ? rockDk : k === 1 ? rock : rockLt;
+      const blk = new THREE.Mesh(
+        displace(new THREE.BoxGeometry(w, h, d, 2, 2, 2), 0.32, seed + side * 7 + y),
+        flat(c, { flatShading: true }));
+      blk.position.set(tx, y, 0);
+      blk.castShadow = true;
+      g.add(blk);
+      const band = new THREE.Mesh(new THREE.BoxGeometry(w + 0.7, 0.5, d + 0.7), flat(rockDk));
+      band.position.set(tx, y + h / 2, 0);
+      g.add(band);
+    });
+    const crown = new THREE.Mesh(
+      displace(new THREE.ConeGeometry(3.6, 9, 6, 2), 1.9, seed + side * 13),
+      flat(rockLt, { flatShading: true }));
+    crown.position.set(tx, 31, 0);
+    crown.castShadow = true;
+    g.add(crown);
+    // a buttress wedge bracing the tower toward the channel
+    const butt = new THREE.Mesh(new THREE.BoxGeometry(3.4, 12, 4.4), flat(rockDk));
+    butt.position.set(tx - side * 3.4, 6, 0);
+    butt.rotation.z = side * 0.42;
+    g.add(butt);
+    // glowing carved arrow-slit on the inner face
+    const slit = new THREE.Mesh(new THREE.BoxGeometry(0.7, 4.5, 0.5),
+      flat(0x161219, { emissive: accent, emissiveIntensity: 1.25 }));
+    slit.position.set(tx - side * 3.7, 15, 0);
+    g.add(slit);
+
+    // ── temple colonnade framing the channel mouth (a column fore & aft) ──
+    for (const zz of [-5, 5]) {
+      const col = _grandColumn(11, 0.9);
+      col.position.set(side * (CH - 1.2), 0.9, zz);
+      g.add(col);
+    }
+    const entablature = new THREE.Mesh(new THREE.BoxGeometry(3.2, 1.5, 13.5),
+      flat(COL.marbleShade));
+    entablature.position.set(side * (CH - 1.2), 13.3, 0);
+    entablature.castShadow = true;
+    g.add(entablature);
+
+    // ── tall brazier plinth at the fore mouth ──
+    const plinth = new THREE.Mesh(new THREE.CylinderGeometry(1.1, 1.5, 6.5, 8), flat(rockDk));
+    plinth.position.set(side * (CH - 2.4), 3.2, 7);
+    g.add(plinth);
+    const bowl = new THREE.Mesh(new THREE.CylinderGeometry(1.6, 0.9, 1.3, 8),
+      flat(0x39343f, { emissive: accent, emissiveIntensity: 0.75 }));
+    bowl.position.set(side * (CH - 2.4), 6.7, 7);
+    g.add(bowl);
+    const fl = glowSprite(accent, 3.6, 'brazier');
+    fl.position.set(side * (CH - 2.4), 8.1, 7);
+    g.add(fl);
+    const glow = new THREE.PointLight(accent, 7, 28, 2);
+    glow.position.set(side * (CH - 2.4), 8.1, 7);
+    g.add(glow);
+
+    // ── guardian obelisk standing watch out front ──
+    const ob = new THREE.Mesh(
+      displace(new THREE.CylinderGeometry(0.55, 1.4, 10, 5), 0.28, seed + side * 17),
+      flat(rockLt, { flatShading: true }));
+    ob.position.set(side * (CH + 2.5), 5, 12);
+    ob.castShadow = true;
+    g.add(ob);
+    const obcap = new THREE.Mesh(new THREE.ConeGeometry(1.0, 1.8, 4),
+      flat(0x161219, { emissive: accent, emissiveIntensity: 0.9 }));
+    obcap.position.set(side * (CH + 2.5), 10.7, 12);
+    g.add(obcap);
+  }
+
+  // ── monumental archway spanning the channel ──
+  for (const side of [-1, 1]) {                    // corbel brackets stepping in
+    for (let k = 0; k < 3; k++) {
+      const cb = new THREE.Mesh(new THREE.BoxGeometry(4.4, 1.2, 3.2), flat(k % 2 ? rock : rockDk));
+      cb.position.set(side * (CH + 1.6 - k * 1.2), 16.5 + k * 1.2, 0);
+      cb.castShadow = true;
+      g.add(cb);
+    }
+  }
   const lintel = new THREE.Mesh(
-    displace(new THREE.BoxGeometry(15, 1.8, 2.4, 6, 1, 1), 0.5, seed + 11),
-    flat(rockDk.clone().multiplyScalar(1.15)));
-  lintel.position.y = 10.6;
+    displace(new THREE.BoxGeometry(2 * CH + 7, 3.2, 4.2, 8, 1, 1), 0.4, seed + 31),
+    flat(rockLt, { flatShading: true }));
+  lintel.position.y = 21.5;
   lintel.castShadow = true;
-  const carving = new THREE.Mesh(new THREE.BoxGeometry(13.6, 0.4, 2.5),
-    flat(0x2e2a34, { emissive: accent, emissiveIntensity: 0.9 }));
-  carving.position.y = 10.1;
-  g.add(lintel, carving);
-  // the realm glimmers through the pass
-  const haze = new THREE.Mesh(new THREE.PlaneGeometry(11, 12),
-    new THREE.MeshBasicMaterial({ color: accent, transparent: true, opacity: 0.16,
-      blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide, fog: false }));
-  haze.position.set(0, 6, 0);
+  g.add(lintel);
+  const keystone = new THREE.Mesh(new THREE.BoxGeometry(2.8, 3.9, 4.6), flat(rock));
+  keystone.position.set(0, 21.5, 0);
+  g.add(keystone);
+  // carved frieze band with a row of glowing glyphs (dark stone, not a hole)
+  const frieze = new THREE.Mesh(new THREE.BoxGeometry(2 * CH + 2.5, 1.5, 4.3),
+    flat(rockDk.clone().multiplyScalar(0.85)));
+  frieze.position.y = 19.2;
+  g.add(frieze);
+  for (let i = -4; i <= 4; i++) {
+    const gl = new THREE.Mesh(new THREE.BoxGeometry(0.9, 0.95, 0.4),
+      new THREE.MeshBasicMaterial({ color: accent }));
+    gl.position.set(i * 2.05, 19.2, 2.2);
+    g.add(gl);
+  }
+  // a low pediment crowning the arch
+  const ped = new THREE.Mesh(new THREE.ConeGeometry(CH + 3.5, 5, 4), flat(rock, { flatShading: true }));
+  ped.rotation.y = Math.PI / 4;
+  ped.position.y = 25.5;
+  ped.scale.z = 0.34;
+  ped.castShadow = true;
+  g.add(ped);
+
+  // ── long banners in the realm's colour hanging beside the opening ──
+  for (const side of [-1, 1]) {
+    const ban = new THREE.Mesh(new THREE.PlaneGeometry(2.4, 9.5),
+      new THREE.MeshStandardMaterial({ color: accent, side: THREE.DoubleSide,
+        roughness: 0.85, emissive: accent, emissiveIntensity: 0.18 }));
+    ban.position.set(side * 6.2, 13.6, 2.3);
+    g.add(ban);
+    const trim = new THREE.Mesh(new THREE.BoxGeometry(2.5, 0.5, 0.2), flat(COL.gold));
+    trim.position.set(side * 6.2, 18.1, 2.3);
+    g.add(trim);
+  }
+
+  // a soft accent glow breathing in the opening (subtle, not a flat plane)
+  const haze = glowSprite(accent, 13);
+  haze.material.opacity = 0.16;
+  haze.position.set(0, 9.5, 0);
   g.add(haze);
-  // marker ring on the water
-  const ring = new THREE.Mesh(new THREE.RingGeometry(3.2, 4.6, 28),
-    new THREE.MeshBasicMaterial({ color: accent, transparent: true, opacity: 0.28,
+
+  // marker ring on the water (keeps the pulse-animation hook)
+  const ring = new THREE.Mesh(new THREE.RingGeometry(5, 7, 32),
+    new THREE.MeshBasicMaterial({ color: accent, transparent: true, opacity: 0.3,
       side: THREE.DoubleSide, depthWrite: false }));
   ring.rotation.x = -Math.PI / 2;
-  ring.position.y = 0.1;
+  ring.position.y = 1.35;
   ring.name = 'foam';
   g.add(ring);
   return g;
@@ -966,10 +1091,10 @@ export function buildIsland(node, theme, domains) {
     g.add(makeGatePortal(accent, seed, theme?.wall?.rock ?? 0x8a8f98));
     g.position.set(node.x, 0, node.z);
     // the channel must open RADIALLY (boat sails in from the isles, out to
-    // the realm); bastions flank it tangentially. π/2 − angle, not −angle,
-    // or a bastion sits square in the fairway.
+    // the realm); towers flank it tangentially. π/2 − angle, not −angle,
+    // or a tower sits square in the fairway.
     g.rotation.y = Math.PI / 2 - Math.atan2(node.z, node.x);
-    return { group: g, R: 8, plateauY: 0 };
+    return { group: g, R: 13, plateauY: 0 };
   }
 
   // foot-mode isles are outcrops: rockier palettes, no beach-wet band

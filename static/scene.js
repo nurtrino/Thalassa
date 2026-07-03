@@ -1282,6 +1282,12 @@ export function createWorld(container, handlers = {}) {
   }
 
   function tickCamera(st, t) {
+    if (window.__freezeCam) {              // dev/screenshot hook only
+      st.sun.position.copy(controls.target).addScaledVector(st.sunDir, 380);
+      st.sun.target.position.copy(controls.target);
+      controls.update();
+      return;
+    }
     controls.autoRotate = lobbyMode && !cine;
     viewFollowPid = focusPid(lastRoom);   // follow the mover, then the next captain
     if (cine) { if (tickCinematic(st, performance.now())) return; }

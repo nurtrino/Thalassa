@@ -322,8 +322,27 @@ class Board:
 
         # a junction node both roads share, just before the altar
         junc_id = f"r{gi}_j"
-        place(junc_id, R0 + 360, ang + rng.uniform(-0.03, 0.03), 8)
-        self._link(junc_id, lair_id)
+        place(junc_id, R0 + 340, ang + rng.uniform(-0.03, 0.03), 8)
+
+        # ── the FINAL LOOP: a ring of approach nodes circling the altar ──────
+        # The boss sits on a small loop instead of a dead-end spur, so exact
+        # rolls always have a way to land on it — circle the ring to line up
+        # your step count instead of bouncing back and forth forever.
+        appL_id, appR_id, appF_id = f"r{gi}_aL", f"r{gi}_aR", f"r{gi}_aF"
+        place(appL_id, R0 + 405, ang - 0.16, 8)
+        place(appR_id, R0 + 405, ang + 0.16, 8)
+        place(appF_id, R0 + 445, ang + rng.uniform(-0.03, 0.03), 9)
+        # junction feeds both sides of the ring; the ring wraps around the
+        # altar and every ring node touches it, so there are many exact-step
+        # approaches to choose from.
+        self._link(junc_id, appL_id)
+        self._link(junc_id, appR_id)
+        self._link(appL_id, appF_id)
+        self._link(appR_id, appF_id)
+        self._link(appL_id, appR_id)          # close the loop behind the boss
+        self._link(appL_id, lair_id)
+        self._link(appR_id, lair_id)
+        self._link(appF_id, lair_id)
 
         # ── the PERILOUS road: 3 elite grounds, straight and deep ────────────
         hard = [gate_id]
