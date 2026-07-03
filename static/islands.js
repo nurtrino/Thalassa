@@ -936,11 +936,19 @@ function makeGatePortal(accentHex, seed, rockHex = 0x8a8f98) {
     gl.position.set(i * 2.05, 19.2, 2.2);
     g.add(gl);
   }
-  // a low pediment crowning the arch
-  const ped = new THREE.Mesh(new THREE.ConeGeometry(CH + 3.5, 5, 4), flat(rock, { flatShading: true }));
-  ped.rotation.y = Math.PI / 4;
-  ped.position.y = 25.5;
-  ped.scale.z = 0.34;
+  // a low pediment crowning the arch — a proper triangular gable that faces
+  // straight down the channel (built as an extruded triangle, so it never
+  // twists off-axis the way a flattened-then-rotated pyramid did)
+  const pw = CH + 3.5, ph = 5.5;
+  const pedShape = new THREE.Shape();
+  pedShape.moveTo(-pw, 0);
+  pedShape.lineTo(pw, 0);
+  pedShape.lineTo(0, ph);
+  pedShape.closePath();
+  const pedGeo = new THREE.ExtrudeGeometry(pedShape, { depth: 3.8, bevelEnabled: false });
+  pedGeo.translate(0, 0, -1.9);                 // centre the depth on the channel axis
+  const ped = new THREE.Mesh(pedGeo, flat(rock, { flatShading: true }));
+  ped.position.set(0, 22.9, 0);
   ped.castShadow = true;
   g.add(ped);
 
