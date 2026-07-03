@@ -724,6 +724,7 @@ class Game:
         base["name"] = node["name"]
         if node["type"] == "sea":
             base["flotsam"] = node.get("flotsam", False)
+            base["look"] = node.get("look", "buoy")
         elif node["type"] == "shrine":
             base["domain"] = node["domain"]
             base["charges"] = node["charges"]

@@ -60,7 +60,7 @@ function displace(geo, amt, seed = 0) {
 
 /* ── sky / sun / water (unchanged aesthetics) ───────────────────────────── */
 function makeSky() {
-  const geo = new THREE.SphereGeometry(1000, 24, 14);
+  const geo = new THREE.SphereGeometry(2600, 24, 14);
   const mat = new THREE.ShaderMaterial({
     side: THREE.BackSide, depthWrite: false,
     uniforms: {
@@ -101,7 +101,7 @@ function makeSunGlow() {
 }
 
 function makeWater(sunDir) {
-  const geo = new THREE.PlaneGeometry(1700, 1700, 128, 128);
+  const geo = new THREE.PlaneGeometry(4200, 4200, 220, 220);
   geo.rotateX(-Math.PI / 2);
   const mat = new THREE.ShaderMaterial({
     uniforms: {
@@ -627,10 +627,38 @@ function buildIsland(node, domains) {
   let terrain;
 
   if (node.type === 'sea') {
-    const marker = node.flotsam ? makeFlotsam(rng0) : makeBuoy(rng0);
-    g.add(marker);
+    // open-water stops come in flavors: cargo, buoys, rocks, tiny islets, ripples
+    if (node.flotsam) {
+      g.add(makeFlotsam(rng0));
+    } else if (node.look === 'rocks') {
+      for (let i = 0; i < 2 + Math.floor(rng0() * 2); i++) {
+        const rk = makeRock(rng0, 0.5 + rng0() * 0.6, rng0() < 0.4 ? 0xd8d4c8 : COL.rock);
+        const a = rng0() * 6.28;
+        rk.position.set(Math.cos(a) * rng0() * 1.3, 0.25, Math.sin(a) * rng0() * 1.3);
+        g.add(rk);
+      }
+      g.add(shallowDisc(9));
+    } else if (node.look === 'islet') {
+      const t = makeTerrain({ seed, R: 2.6, H: 1.0, mode: 'hill',
+        palette: rng0() < 0.5 ? { sand: 0xf7ecc8 } : {} });
+      g.add(t.mesh);
+      g.add(shallowDisc(11));
+      const flora = rng0() < 0.6 ? makePalm(rng0, 0.75) : makeCypress(rng0, 0.7);
+      flora.position.y = t.heightAt(0.15);
+      g.add(flora);
+    } else if (node.look === 'none') {
+      const ripple = new THREE.Mesh(new THREE.RingGeometry(0.9, 1.5, 24),
+        new THREE.MeshBasicMaterial({ color: 0xeafcff, transparent: true, opacity: 0.28,
+          side: THREE.DoubleSide, depthWrite: false }));
+      ripple.rotation.x = -Math.PI / 2;
+      ripple.position.y = 0.06;
+      ripple.name = 'foam';
+      g.add(ripple);
+    } else {
+      g.add(makeBuoy(rng0));
+    }
     g.position.set(node.x, 0, node.z);
-    return { group: g, R, plateauY: 0 };
+    return { group: g, R: node.look === 'islet' ? 2.8 : node.look === 'rocks' ? 2.2 : R, plateauY: 0 };
   } else if (node.type === 'home') {
     terrain = makeTerrain({ seed, R, H: 1.7, mode: 'mesa' });
     const dock = makeDock(6.0);
@@ -754,10 +782,10 @@ function bannerFor(node, domains) {
 /* ── the world ──────────────────────────────────────────────────────────── */
 export function createWorld(container, onIslandClick) {
   const scene = new THREE.Scene();
-  scene.fog = new THREE.Fog(0xd6ecf5, 260, 900);
+  scene.fog = new THREE.Fog(0xd6ecf5, 420, 2000);
 
-  const camera = new THREE.PerspectiveCamera(48, 1, 0.1, 2200);
-  camera.position.set(0, 44, 104);              // re-anchored to home on board load
+  const camera = new THREE.PerspectiveCamera(48, 1, 0.1, 6000);
+  camera.position.set(0, 46, 240);              // re-anchored to home on board load
 
   const renderer = new THREE.WebGLRenderer({ antialias: true });
   renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
@@ -772,7 +800,7 @@ export function createWorld(container, onIslandClick) {
   controls.dampingFactor = 0.06;
   controls.maxPolarAngle = 1.26;
   controls.minDistance = 14;
-  controls.maxDistance = 380;
+  controls.maxDistance = 1100;
   controls.enablePan = true;
   controls.panSpeed = 0.6;
   controls.screenSpacePanning = false;
@@ -782,38 +810,40 @@ export function createWorld(container, onIslandClick) {
 
   scene.add(makeSky());
   scene.add(new THREE.HemisphereLight(0xd6ecff, 0x3e7d5a, 0.85));
-  const sunPos = new THREE.Vector3(60, 84, 30);
+  const sunPos = new THREE.Vector3(300, 420, 150);
   const sun = new THREE.DirectionalLight(0xfff1d6, 1.75);
   sun.position.copy(sunPos);
   sun.castShadow = true;
   sun.shadow.mapSize.set(4096, 4096);
-  sun.shadow.camera.left = -120; sun.shadow.camera.right = 120;
-  sun.shadow.camera.top = 120; sun.shadow.camera.bottom = -120;
-  sun.shadow.camera.far = 420;
+  sun.shadow.camera.left = -360; sun.shadow.camera.right = 360;
+  sun.shadow.camera.top = 360; sun.shadow.camera.bottom = -360;
+  sun.shadow.camera.far = 1400;
   sun.shadow.bias = -0.0004;
-  sun.target.position.set(0, 0, -24);           // center of the long chart
+  sun.target.position.set(0, 0, -70);           // center of the grand chart
   scene.add(sun.target);
   scene.add(sun);
   const glow = makeSunGlow();
-  glow.position.copy(sunPos.clone().normalize().multiplyScalar(700));
+  glow.scale.set(240, 240, 1);
+  glow.position.copy(sunPos.clone().normalize().multiplyScalar(2400));
   scene.add(glow);
 
   const water = makeWater(sunPos);
   scene.add(water);
 
   const clouds = [];
-  for (let i = 0; i < 8; i++) {
+  for (let i = 0; i < 16; i++) {
     const cl = new THREE.Group();
     const n = 3 + Math.floor(Math.random() * 3);
+    const big = 1 + Math.random() * 2.2;
     for (let j = 0; j < n; j++) {
-      const puff = new THREE.Mesh(new THREE.IcosahedronGeometry(2.0 + Math.random() * 2.2, 0),
+      const puff = new THREE.Mesh(new THREE.IcosahedronGeometry((2.0 + Math.random() * 2.2) * big, 0),
         new THREE.MeshStandardMaterial({ color: 0xffffff, flatShading: true, transparent: true, opacity: 0.9 }));
-      puff.position.set(j * 2.6 - n * 1.2, Math.random() * 0.8, (Math.random() - 0.5) * 2.4);
+      puff.position.set((j * 2.6 - n * 1.2) * big, Math.random() * 0.8, (Math.random() - 0.5) * 2.4 * big);
       puff.scale.y = 0.42;
       cl.add(puff);
     }
-    cl.userData = { a: Math.random() * Math.PI * 2, r: 140 + Math.random() * 70 };
-    cl.position.y = 44 + Math.random() * 20;
+    cl.userData = { a: Math.random() * Math.PI * 2, r: 260 + Math.random() * 560 };
+    cl.position.y = 70 + Math.random() * 70;
     clouds.push(cl);
     scene.add(cl);
   }
@@ -828,8 +858,8 @@ export function createWorld(container, onIslandClick) {
       wing.userData.side = s;
       bird.add(wing);
     }
-    bird.userData = { r: 26 + Math.random() * 42, h: 16 + Math.random() * 8,
-                      speed: 0.1 + Math.random() * 0.12, phase: Math.random() * 6.28,
+    bird.userData = { r: 60 + Math.random() * 200, h: 24 + Math.random() * 24,
+                      speed: 0.05 + Math.random() * 0.08, phase: Math.random() * 6.28,
                       flap: 4 + Math.random() * 3 };
     birds.push(bird);
     scene.add(bird);
@@ -969,7 +999,7 @@ export function createWorld(container, onIslandClick) {
                      pa.clone().addScaledVector(dir, len - gapB)];
         const geo = new THREE.BufferGeometry().setFromPoints(pts);
         const mat = new THREE.LineDashedMaterial({
-          color: 0xffffff, transparent: true, opacity: 0.4, dashSize: 0.8, gapSize: 1.1 });
+          color: 0xffffff, transparent: true, opacity: 0.4, dashSize: 2.0, gapSize: 2.8 });
         const line = new THREE.Line(geo, mat);
         line.computeLineDistances();
         laneGroup.add(line);

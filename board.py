@@ -54,12 +54,15 @@ RELICS_TOTAL = 8           # lairs on the map, one relic each
 RELICS_TO_WIN = 3
 SHRINE_CHARGES = 2
 
-# band z rows (south → north) and how many islands in each — a LONG chart;
-# the space between is filled with sea waypoints at generation time
-_BAND_Z = [64, 42, 20, -2, -24, -46, -68, -90, -112]
+# band z rows (south → north) and how many islands in each — a GRAND chart:
+# islands are true landfalls separated by real open water; the space between
+# is filled with chains of sea waypoints at generation time
+_BAND_Z = [190, 125, 60, -5, -70, -135, -200, -265, -330]
 _BAND_N = [1, 4, 5, 5, 5, 4, 4, 3, 1]
-_WAYPOINT_EVERY = 9.0         # aim for a sea node roughly every N world units
-_FLOTSAM_CHANCE = 0.28
+_WAYPOINT_EVERY = 20.0        # aim for a sea node roughly every N world units
+_MAX_WAYPOINTS = 4            # per lane
+_FLOTSAM_CHANCE = 0.25
+_SEA_LOOKS = ["buoy", "buoy", "buoy", "rocks", "rocks", "islet", "islet", "none"]
 _BAND_TYPES = {
     1: ["shrine", "shrine", "puzzle", "shrine"],
     2: ["shrine", "monster", "haven", "puzzle", "shrine"],
@@ -92,7 +95,7 @@ class Board:
         bands: list[list[str]] = []
         for bi, (z, n) in enumerate(zip(_BAND_Z, _BAND_N)):
             row = []
-            width = 42 if 1 <= bi <= 4 else 24
+            width = 130 if 1 <= bi <= 6 else 70
             for i in range(n):
                 if bi == 0:
                     nid, ntype, name = "home", "home", "Home Port"
@@ -103,8 +106,8 @@ class Board:
                     ntype = None                     # assigned below
                     name = names.pop()
                 x = (-width + (2 * width) * (i / max(1, n - 1))) if n > 1 else 0.0
-                x += rng.uniform(-4, 4)
-                zz = z + rng.uniform(-3, 3)
+                x += rng.uniform(-14, 14)
+                zz = z + rng.uniform(-11, 11)
                 self.nodes[nid] = {"id": nid, "name": name, "type": ntype, "band": bi,
                                    "x": round(x, 2), "z": round(zz, 2)}
                 row.append(nid)
@@ -163,7 +166,7 @@ class Board:
         wp = 0
         for a, b in island_edges:
             length = self._dist(a, b)
-            n_way = max(1, round(length / _WAYPOINT_EVERY) - 1)
+            n_way = min(_MAX_WAYPOINTS, max(1, round(length / _WAYPOINT_EVERY) - 1))
             na, nb = self.nodes[a], self.nodes[b]
             chain = [a]
             for k in range(1, n_way + 1):
@@ -171,7 +174,7 @@ class Board:
                 # perpendicular jitter so routes curve like real currents
                 px, pz = -(nb["z"] - na["z"]), (nb["x"] - na["x"])
                 plen = max(1e-6, (px * px + pz * pz) ** 0.5)
-                jit = rng.uniform(-2.6, 2.6)
+                jit = rng.uniform(-7.0, 7.0)
                 nid = f"sea{wp}"
                 wp += 1
                 self.nodes[nid] = {
@@ -180,6 +183,7 @@ class Board:
                     "x": round(na["x"] + (nb["x"] - na["x"]) * t + px / plen * jit, 2),
                     "z": round(na["z"] + (nb["z"] - na["z"]) * t + pz / plen * jit, 2),
                     "flotsam": rng.random() < _FLOTSAM_CHANCE,
+                    "look": rng.choice(_SEA_LOOKS),
                 }
                 chain.append(nid)
             chain.append(b)
