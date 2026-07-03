@@ -100,6 +100,51 @@ function makeSunGlow() {
   return sp;
 }
 
+function puffTexture(r, g, b) {
+  const c = document.createElement('canvas');
+  c.width = c.height = 256;
+  const ctx = c.getContext('2d');
+  const blob = (x, y, rad, a) => {
+    const gr = ctx.createRadialGradient(x, y, rad * 0.12, x, y, rad);
+    gr.addColorStop(0, `rgba(${r},${g},${b},${a})`);
+    gr.addColorStop(0.6, `rgba(${r},${g},${b},${a * 0.45})`);
+    gr.addColorStop(1, `rgba(${r},${g},${b},0)`);
+    ctx.fillStyle = gr;
+    ctx.fillRect(0, 0, 256, 256);
+  };
+  blob(128, 148, 96, 0.9);
+  blob(84, 128, 66, 0.85);
+  blob(174, 124, 70, 0.85);
+  blob(126, 102, 56, 0.8);
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  return tex;
+}
+const TEX_CLOUD = puffTexture(255, 255, 255);
+const TEX_STORM = puffTexture(58, 54, 70);
+const TEX_STORM2 = puffTexture(92, 86, 106);
+const TEX_MIST = puffTexture(226, 236, 240);
+
+function cloudSprite(tex, size, opacity = 1) {
+  const sp = new THREE.Sprite(new THREE.SpriteMaterial({
+    map: tex, transparent: true, opacity, depthWrite: false }));
+  sp.scale.set(size, size * 0.62, 1);
+  return sp;
+}
+
+/* a cumulus: several soft sprites clumped with a flat-ish base */
+function makeCloud(big) {
+  const cl = new THREE.Group();
+  const n = 4 + Math.floor(Math.random() * 3);
+  for (let j = 0; j < n; j++) {
+    const sp = cloudSprite(TEX_CLOUD, (16 + Math.random() * 18) * big, 0.9);
+    sp.position.set((j - n / 2) * 9 * big + (Math.random() - 0.5) * 6,
+                    Math.random() * 5 * big, (Math.random() - 0.5) * 8 * big);
+    cl.add(sp);
+  }
+  return cl;
+}
+
 function makeWater(sunDir) {
   const geo = new THREE.PlaneGeometry(4200, 4200, 220, 220);
   geo.rotateX(-Math.PI / 2);
@@ -648,13 +693,22 @@ function makeEnemy(name, maxHp) {
     g.add(head);
     addEyes(2.5 * s, 0.62 * s, 0.16);
     if (boss) {
+      // swept membrane fins, tilted to catch the light
       for (const side of [-1, 1]) {
-        const wing = new THREE.Mesh(new THREE.PlaneGeometry(1.8 * s, 1.0 * s, 3, 1),
-          flat(0x5a2e2e, { side: THREE.DoubleSide }));
-        wing.position.set(side * 0.9 * s, 1.9 * s, -0.2 * s);
-        wing.rotation.z = side * 0.5;
+        const wing = new THREE.Mesh(new THREE.PlaneGeometry(1.0 * s, 0.55 * s, 3, 1),
+          flat(0x7a4646, { side: THREE.DoubleSide }));
+        wing.position.set(side * 0.55 * s, 1.7 * s, -0.15 * s);
+        wing.rotation.set(-0.6, side * 0.5, side * 0.55);
         wing.name = side < 0 ? 'wingL' : 'wingR';
         g.add(wing);
+      }
+      for (let i = 0; i < 4; i++) {                 // dorsal spines up the back
+        const k = i / 3;
+        const spine = new THREE.Mesh(new THREE.ConeGeometry(0.07 * s, 0.4 * s, 4), flat(0x8a5050));
+        spine.position.set(-Math.sin(k * 2.4) * 0.8 * s, (0.7 + k * 1.5) * s,
+                           Math.cos(k * 2.2) * 0.25 * s - 0.3 * s);
+        spine.rotation.x = -0.5;
+        g.add(spine);
       }
     }
   } else if (kind === 'beast') {                  // quadruped: wolves & kin
@@ -785,41 +839,148 @@ function sailTexture(colorHex) {
 }
 
 function makeShip(colorHex) {
+  /* A little Aegean galley, lofted from cross-sections: swept bow and
+     stern posts, bronze ram, painted rail, square sail on a yard,
+     rigging, steering oars, and the classic eye at the bow. */
   const g = new THREE.Group();
-  const outline = new THREE.Shape();
-  outline.moveTo(-1.35, 0);
-  outline.quadraticCurveTo(-1.32, 0.52, -0.55, 0.58);
-  outline.lineTo(0.75, 0.58);
-  outline.quadraticCurveTo(1.55, 0.42, 1.85, 0);
-  outline.quadraticCurveTo(1.55, -0.42, 0.75, -0.58);
-  outline.lineTo(-0.55, -0.58);
-  outline.quadraticCurveTo(-1.32, -0.52, -1.35, 0);
-  const hullGeo = new THREE.ExtrudeGeometry(outline,
-    { depth: 0.55, bevelEnabled: true, bevelSize: 0.1, bevelThickness: 0.12 });
-  hullGeo.rotateX(Math.PI / 2);
-  hullGeo.translate(0, 0.64, 0);
+  const accent = new THREE.Color(colorHex);
+
+  // hull loft — stations stern → bow: [x, halfWidth, railY, keelY]
+  const ST = [
+    [-1.70, 0.06, 0.86, 0.42],
+    [-1.52, 0.30, 0.74, 0.16],
+    [-1.00, 0.50, 0.62, 0.03],
+    [-0.30, 0.58, 0.56, 0.00],
+    [ 0.40, 0.57, 0.56, 0.00],
+    [ 1.05, 0.48, 0.60, 0.03],
+    [ 1.55, 0.26, 0.72, 0.14],
+    [ 1.82, 0.05, 0.88, 0.40],
+  ];
+  const ring = (st) => {
+    const [x, w, ry, ky] = st;
+    const my = ky + (ry - ky) * 0.45;
+    return [
+      [x, ry, w], [x, my, w * 0.92], [x, ky + 0.04, w * 0.42], [x, ky - 0.05, 0],
+      [x, ky + 0.04, -w * 0.42], [x, my, -w * 0.92], [x, ry, -w],
+    ];
+  };
+  const rings = ST.map(ring);
+  const pos = [];
+  const quad = (a, b, c, d) => { pos.push(...a, ...b, ...c, ...a, ...c, ...d); };
+  for (let i = 0; i < rings.length - 1; i++) {
+    const r0 = rings[i], r1 = rings[i + 1];
+    for (let j = 0; j < r0.length - 1; j++) {
+      quad(r0[j], r1[j], r1[j + 1], r0[j + 1]);
+    }
+    // close the top with a deck strip between the two rails
+    quad(r0[r0.length - 1], r1[r1.length - 1], r1[0], r0[0]);
+  }
+  const hullGeo = new THREE.BufferGeometry();
+  hullGeo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  hullGeo.computeVertexNormals();
   const hull = new THREE.Mesh(hullGeo, flat(COL.wood));
   hull.castShadow = true;
-  const mast = new THREE.Mesh(new THREE.CylinderGeometry(0.055, 0.07, 2.3, 6), flat(COL.woodDark));
+  g.add(hull);
+
+  // painted rail stripe in the captain's color, port and starboard
+  for (const side of [-1, 1]) {
+    const railPts = ST.map(([x, w, ry]) => new THREE.Vector3(x, ry + 0.015, side * w));
+    const rail = new THREE.Mesh(
+      new THREE.TubeGeometry(new THREE.CatmullRomCurve3(railPts), 24, 0.045, 5),
+      flat(accent));
+    g.add(rail);
+  }
+
+  // swept stern post (curls inward) and bow stem
+  const post = (x, lean) => {
+    const p = new THREE.Mesh(
+      new THREE.TorusGeometry(0.34, 0.055, 6, 10, 2.1), flat(COL.woodDark));
+    p.position.set(x, 0.98, 0);
+    p.rotation.z = lean;
+    return p;
+  };
+  g.add(post(-1.72, -0.5), post(1.84, Math.PI - 2.6));
+
+  // bronze ram at the waterline
+  const ram = new THREE.Mesh(new THREE.ConeGeometry(0.09, 0.5, 6), flat(0xc9a227, { emissive: 0x4a3a10 }));
+  ram.rotation.z = -Math.PI / 2;
+  ram.position.set(2.02, 0.12, 0);
+  g.add(ram);
+
+  // the eye of the ship, both bows
+  for (const side of [-1, 1]) {
+    const white = new THREE.Mesh(new THREE.CircleGeometry(0.085, 10),
+      new THREE.MeshBasicMaterial({ color: 0xf4efe2 }));
+    const pupil = new THREE.Mesh(new THREE.CircleGeometry(0.04, 8),
+      new THREE.MeshBasicMaterial({ color: 0x22303c }));
+    white.position.set(1.42, 0.52, side * 0.335);
+    pupil.position.set(1.435, 0.52, side * 0.345);
+    white.rotation.y = side * (Math.PI / 2 + 0.25);
+    pupil.rotation.y = side * (Math.PI / 2 + 0.25);
+    g.add(white, pupil);
+  }
+
+  // mast, yard, and a braced square sail
+  const mast = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.075, 2.5, 7), flat(COL.woodDark));
   mast.position.set(0.05, 1.75, 0);
-  const sailGeo = new THREE.PlaneGeometry(1.35, 1.45, 6, 6);
+  mast.castShadow = true;
+  const yard = new THREE.Mesh(new THREE.CylinderGeometry(0.035, 0.035, 1.7, 6), flat(COL.woodDark));
+  yard.rotation.x = Math.PI / 2;
+  yard.position.set(0.05, 2.72, 0);
+  g.add(mast, yard);
+
+  const sailGeo = new THREE.PlaneGeometry(1.5, 1.5, 8, 8);
   {
     const p = sailGeo.attributes.position;
     for (let i = 0; i < p.count; i++) {
-      const fx = p.getX(i) / 1.35 + 0.5, fy = p.getY(i) / 1.45 + 0.5;
-      p.setZ(i, Math.sin(fx * Math.PI) * 0.3 * (0.4 + fy * 0.6));
+      const fx = p.getX(i) / 1.5 + 0.5, fy = p.getY(i) / 1.5 + 0.5;
+      const belly = Math.sin(fx * Math.PI) * (0.42 - fy * 0.22);
+      p.setZ(i, belly);
+      p.setX(i, p.getX(i) * (0.82 + fy * 0.18));   // sail narrows toward the foot
     }
     sailGeo.computeVertexNormals();
   }
   const sail = new THREE.Mesh(sailGeo, new THREE.MeshStandardMaterial({
     map: sailTexture(colorHex), side: THREE.DoubleSide, flatShading: true }));
   sail.rotation.y = Math.PI / 2;
-  sail.position.set(0.05, 1.82, 0);
+  sail.position.set(0.05, 1.92, 0);
   sail.castShadow = true;
+  g.add(sail);
+
+  // rigging: forestay, backstay, and two braces
+  const line = (from, to) => {
+    const d = to.clone().sub(from);
+    const m = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.012, 0.012, d.length(), 3), flat(0x5a4a33));
+    m.position.copy(from).add(d.multiplyScalar(0.5));
+    m.lookAt(to);
+    m.rotateX(Math.PI / 2);
+    return m;
+  };
+  const masthead = new THREE.Vector3(0.05, 2.95, 0);
+  g.add(line(masthead, new THREE.Vector3(1.82, 0.9, 0)));
+  g.add(line(masthead, new THREE.Vector3(-1.68, 0.9, 0)));
+  g.add(line(new THREE.Vector3(0.05, 2.72, 0.85), new THREE.Vector3(-0.6, 0.6, 0.5)));
+  g.add(line(new THREE.Vector3(0.05, 2.72, -0.85), new THREE.Vector3(-0.6, 0.6, -0.5)));
+
+  // steering oars on both stern quarters
+  for (const side of [-1, 1]) {
+    const oar = new THREE.Group();
+    const shaft = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.03, 0.9, 5), flat(COL.woodDark));
+    const blade = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.34, 0.14), flat(COL.woodDark));
+    blade.position.y = -0.5;
+    oar.add(shaft, blade);
+    oar.position.set(-1.35, 0.45, side * 0.42);
+    oar.rotation.x = side * 0.35;
+    oar.rotation.z = 0.25;
+    g.add(oar);
+  }
+
   const pennant = new THREE.Mesh(new THREE.PlaneGeometry(0.5, 0.18),
-    flat(new THREE.Color(colorHex), { side: THREE.DoubleSide }));
-  pennant.position.set(0.3, 2.95, 0);
-  g.add(hull, mast, sail, pennant);
+    flat(accent, { side: THREE.DoubleSide }));
+  pennant.position.set(0.32, 3.05, 0);
+  pennant.name = 'pennant';
+  g.add(pennant);
   return g;
 }
 
@@ -1218,51 +1379,66 @@ export function createWorld(container, onIslandClick) {
   scene.add(water);
 
   const clouds = [];
-  for (let i = 0; i < 16; i++) {
-    const cl = new THREE.Group();
-    const n = 3 + Math.floor(Math.random() * 3);
-    const big = 1 + Math.random() * 2.2;
-    for (let j = 0; j < n; j++) {
-      const puff = new THREE.Mesh(new THREE.IcosahedronGeometry((2.0 + Math.random() * 2.2) * big, 0),
-        new THREE.MeshStandardMaterial({ color: 0xffffff, flatShading: true, transparent: true, opacity: 0.9 }));
-      puff.position.set((j * 2.6 - n * 1.2) * big, Math.random() * 0.8, (Math.random() - 0.5) * 2.4 * big);
-      puff.scale.y = 0.42;
-      cl.add(puff);
-    }
-    cl.userData = { a: Math.random() * Math.PI * 2, r: 260 + Math.random() * 560 };
-    cl.position.y = 70 + Math.random() * 70;
+  for (let i = 0; i < 14; i++) {
+    const cl = makeCloud(0.9 + Math.random() * 1.6);
+    cl.userData = { a: Math.random() * Math.PI * 2, r: 200 + Math.random() * 480 };
+    cl.position.y = 80 + Math.random() * 80;
     clouds.push(cl);
     scene.add(cl);
+  }
+  // low sea haze drifting over the water
+  const mists = [];
+  for (let i = 0; i < 10; i++) {
+    const m = cloudSprite(TEX_MIST, 70 + Math.random() * 90, 0.12 + Math.random() * 0.08);
+    m.position.set(-500 + Math.random() * 1000, 3 + Math.random() * 4,
+                   -500 + Math.random() * 1000);
+    m.userData = { vx: (Math.random() - 0.5) * 0.9, vz: (Math.random() - 0.5) * 0.9 };
+    mists.push(m);
+    scene.add(m);
   }
 
   // the storm wall — a ring of boiling dark cloud that seals the region
   const WALL_R = 640;
   const storm = new THREE.Group();
   {
-    const puffMat = new THREE.MeshStandardMaterial({ color: 0x3a3542, flatShading: true,
-      transparent: true, opacity: 0.94 });
-    const puffMat2 = new THREE.MeshStandardMaterial({ color: 0x4a4456, flatShading: true,
-      transparent: true, opacity: 0.9 });
-    for (let i = 0; i < 72; i++) {
-      const a = (i / 72) * Math.PI * 2;
-      const puff = new THREE.Mesh(
-        new THREE.IcosahedronGeometry(24 + Math.random() * 34, 0),
-        Math.random() < 0.5 ? puffMat : puffMat2);
-      const r = WALL_R + (Math.random() - 0.5) * 60;
-      puff.position.set(Math.cos(a) * r, 4 + Math.random() * 62, Math.sin(a) * r);
-      puff.scale.y = 0.55 + Math.random() * 0.5;
-      puff.userData = { bob: Math.random() * 6.28, y0: puff.position.y };
-      storm.add(puff);
+    // three stacked banks of soft dark cloud, boiling slowly
+    const BANKS = [
+      { n: 64, y: 14, h: 26, size: [60, 110], tex: TEX_STORM, op: 0.95 },
+      { n: 52, y: 55, h: 34, size: [70, 130], tex: TEX_STORM, op: 0.88 },
+      { n: 44, y: 98, h: 40, size: [60, 120], tex: TEX_STORM2, op: 0.7 },
+    ];
+    for (const bank of BANKS) {
+      for (let i = 0; i < bank.n; i++) {
+        const a = (i / bank.n) * Math.PI * 2 + Math.random() * 0.1;
+        const sp = cloudSprite(bank.tex,
+          bank.size[0] + Math.random() * (bank.size[1] - bank.size[0]), bank.op);
+        const r = WALL_R + (Math.random() - 0.5) * 70;
+        sp.position.set(Math.cos(a) * r, bank.y + Math.random() * bank.h, Math.sin(a) * r);
+        sp.userData = { bob: Math.random() * 6.28, y0: sp.position.y };
+        storm.add(sp);
+      }
+    }
+    // a curtain of grey fog rolling out ahead of the clouds
+    for (let i = 0; i < 40; i++) {
+      const a = (i / 40) * Math.PI * 2;
+      const sp = cloudSprite(TEX_MIST, 90 + Math.random() * 60, 0.28);
+      const r = WALL_R - 70 - Math.random() * 40;
+      sp.position.set(Math.cos(a) * r, 4 + Math.random() * 8, Math.sin(a) * r);
+      sp.userData = { bob: Math.random() * 6.28, y0: sp.position.y };
+      storm.add(sp);
     }
     const veil = new THREE.Mesh(
-      new THREE.CylinderGeometry(WALL_R - 34, WALL_R - 34, 150, 72, 1, true),
-      new THREE.MeshBasicMaterial({ color: 0x2c2836, transparent: true, opacity: 0.4,
+      new THREE.CylinderGeometry(WALL_R + 60, WALL_R + 60, 240, 72, 1, true),
+      new THREE.MeshBasicMaterial({ color: 0x2c2836, transparent: true, opacity: 0.5,
         side: THREE.DoubleSide, depthWrite: false }));
-    veil.position.y = 60;
+    veil.position.y = 90;
     veil.name = 'veil';
     storm.add(veil);
   }
   scene.add(storm);
+  // lightning inside the wall
+  const lightning = new THREE.PointLight(0xcfe0ff, 0, 900, 1.1);
+  scene.add(lightning);
   const SKY_DAY = { zenith: new THREE.Color(0x5fb0e6), mid: new THREE.Color(0xa5d9ef),
                     horizon: new THREE.Color(0xfdeed3) };
   const SKY_STORM = { zenith: new THREE.Color(0x3f4456), mid: new THREE.Color(0x5c6070),
@@ -1976,9 +2152,23 @@ export function createWorld(container, onIslandClick) {
     storm.rotation.y = t * 0.006;
     for (const puff of storm.children) {
       if (puff.userData.y0 !== undefined) {
-        puff.position.y = puff.userData.y0 + Math.sin(t * 0.4 + puff.userData.bob) * 2.2;
+        puff.position.y = puff.userData.y0 + Math.sin(t * 0.4 + puff.userData.bob) * 2.6;
       }
     }
+    for (const m of mists) {
+      m.position.x += m.userData.vx * 0.05;
+      m.position.z += m.userData.vz * 0.05;
+      if (Math.hypot(m.position.x, m.position.z) > 560) {
+        m.position.set(-Math.random() * 400 + 200, m.position.y, -Math.random() * 400 + 200);
+      }
+    }
+    // lightning cracks somewhere along the wall now and then
+    if (Math.random() < 0.007) {
+      const a = Math.random() * Math.PI * 2;
+      lightning.position.set(Math.cos(a) * WALL_R, 45 + Math.random() * 50, Math.sin(a) * WALL_R);
+      lightning.intensity = 1400 + Math.random() * 900;
+    }
+    if (lightning.intensity > 1) lightning.intensity *= 0.82;
     {
       const mine = myPid && ships[myPid];
       const d = mine ? Math.hypot(mine.group.position.x, mine.group.position.z) / WALL_R : 0;
