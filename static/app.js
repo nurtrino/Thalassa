@@ -149,11 +149,6 @@ $('resetBtn').onclick = () => {
 $('nameInput').addEventListener('keydown', (e) => { if (e.key === 'Enter') $('joinBtn').click(); });
 $('startBtn').onclick = () => send({ type: 'start' });
 $('addBotBtn').onclick = () => send({ type: 'add_bot' });
-$('copyLink').onclick = () => {
-  navigator.clipboard?.writeText(location.href);
-  $('copyLink').textContent = 'Copied!';
-  setTimeout(() => { $('copyLink').textContent = 'Copy Invite Link'; }, 1200);
-};
 $('compass').onclick = () => { bountiesOpen = !bountiesOpen; renderBounties(); };
 
 /* ── net layer ──────────────────────────────────────────────────────────── */
@@ -531,9 +526,11 @@ function renderLobby() {
     b.onclick = () => send({ type: 'kick', pid: b.dataset.pid });
   });
   const isHost = you === room.host;
+  const humans = room.players.filter((p) => !p.bot).length;
   $('startBtn').classList.toggle('hidden', !isHost);
   $('startBtn').disabled = room.players.length < 1;
-  $('addBotBtn').classList.toggle('hidden', !isHost || room.players.length >= 6);
+  // once a second (human) captain joins, drop the fill-with-AI button
+  $('addBotBtn').classList.toggle('hidden', !isHost || room.players.length >= 6 || humans > 1);
   $('waitMsg').classList.toggle('hidden', isHost);
 }
 
