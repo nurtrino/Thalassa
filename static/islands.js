@@ -1097,7 +1097,14 @@ export function buildIsland(node, theme, domains) {
 
   if (node.type === 'gate') {
     const accent = REALM_INFO[node.region]?.accent ?? '#d9a441';
-    g.add(makeGatePortal(accent, seed, theme?.wall?.rock ?? 0x8a8f98));
+    const portal = makeGatePortal(accent, seed, theme?.wall?.rock ?? 0x8a8f98);
+    // the pass sits way out at the mountain wall — render it fog-free like the
+    // wall itself so the gateway reads clearly instead of washing into haze
+    portal.traverse((o) => {
+      if (!o.material) return;
+      for (const m of (Array.isArray(o.material) ? o.material : [o.material])) m.fog = false;
+    });
+    g.add(portal);
     g.position.set(node.x, 0, node.z);
     // the channel must open RADIALLY (boat sails in from the isles, out to
     // the realm); towers flank it tangentially. π/2 − angle, not −angle,
