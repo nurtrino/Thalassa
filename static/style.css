@@ -20,6 +20,16 @@ body {
 #world { position: fixed; inset: 0; }
 #world canvas { display: block; }
 
+#muteBtn {
+  position: fixed; top: 10px; right: 12px; z-index: 30;
+  width: 42px; height: 42px; padding: 0;
+  font-size: 20px; line-height: 42px;
+  background: rgba(247, 244, 236, .9);
+  border: 2px solid var(--gold); border-radius: 10px;
+  box-shadow: 0 3px 10px rgba(10,40,60,.25);
+}
+#muteBtn.off { opacity: .55; }
+
 .hidden { display: none !important; }
 
 /* ── overlays ───────────────────────────────────────────────────────────── */

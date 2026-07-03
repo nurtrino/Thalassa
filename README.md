@@ -61,9 +61,12 @@ games playable (`TRIVIA_OFFLINE=1` forces this — handy for dev).
 | Bots | `bots.py` | AI captains: sail/wager/build heuristics + per-tier answer accuracy, driven by the server. |
 | Server | `server.py` | FastAPI: the single shared table, WebSocket protocol, dice RNG, phase timers, broadcast. |
 | Client | `static/` | Vanilla JS + vendored Three.js: procedural 3D archipelago (water shader, temples, palms, triremes), CSS-3D dice, question cards. |
+| Audio | `static/audio.js` | Web Audio, fully synthesized (no sound files): an ambient lyre soundtrack (Karplus–Strong strings in D-Dorian over a pad + sea-noise bed) and event SFX — dice, sail, correct/wrong, laurel, build, Oracle, victory. Mute button, persisted. |
 
 No build step — the frontend is plain ES modules; Three.js r160 is vendored
-in `static/vendor/`.
+in `static/vendor/`. All music and sound effects are generated at runtime
+with the Web Audio API (no audio files to ship or license); the 🔊 button
+mutes.
 
 ## Run locally
 

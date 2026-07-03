@@ -1,6 +1,7 @@
 /* Thalassa client — lobby, WebSocket protocol, HUD, and question UI.
  * The 3D board lives in scene.js; this file owns everything DOM. */
 import { createWorld, DOMAIN_COLORS } from '/static/scene.js';
+import { audio } from '/static/audio.js';
 
 const $ = (id) => document.getElementById(id);
 const DOMAIN_ORDER = ['clio', 'athena', 'apollo', 'dionysos'];
@@ -29,7 +30,22 @@ world = createWorld($('world'), (node) => {
 
 $('nameInput').value = localStorage.getItem('thalassa_name') || '';
 
-$('joinBtn').onclick = () => connect();
+// mute button (always visible; state persisted in audio.js)
+const muteBtn = $('muteBtn');
+function paintMute() {
+  muteBtn.textContent = audio.isMuted() ? '🔇' : '🔊';
+  muteBtn.classList.toggle('off', audio.isMuted());
+}
+paintMute();
+muteBtn.onclick = () => { audio.init(); audio.toggleMuted(); paintMute(); };
+
+// soft click on any game button; first gesture also wakes the audio context
+document.addEventListener('pointerdown', (e) => {
+  audio.init();
+  if (e.target.closest('.act, .opt, .big, .small')) audio.sfx.click();
+}, { passive: true });
+
+$('joinBtn').onclick = () => { audio.init(); audio.startMusic(); audio.sfx.join(); connect(); };
 $('nameInput').addEventListener('keydown', (e) => { if (e.key === 'Enter') $('joinBtn').click(); });
 
 function showLobbyErr(msg) { $('lobbyErr').textContent = msg; }
@@ -60,10 +76,13 @@ let lastLogLine = null;
 
 function handle(msg) {
   if (msg.type === 'snapshot') {
+    const prev = room;
     you = msg.you;
     room = msg.room;
     render();
+    reactAudio(prev, room);
   } else if (msg.type === 'dice') {
+    audio.sfx.dice();
     animateDice(msg.d1, msg.d2);
   } else if (msg.type === 'error') {
     toast(msg.msg, true);
@@ -72,6 +91,53 @@ function handle(msg) {
     $('lobby').classList.remove('hidden');
     $('hud').classList.add('hidden');
   }
+}
+
+/* ── sound reactions (fired by diffing consecutive snapshots) ────────────── */
+let sfxLastTurn = null, sfxPrevPhase = null, sfxPlotCount = 0,
+    sfxAnnouncedWin = false, sfxOracleArmed = false;
+
+function reactAudio(prev, next) {
+  if (!next) return;
+
+  // your turn begins
+  if (next.phase === 'roll' && next.turn === you && sfxLastTurn !== next.turn) {
+    audio.sfx.turn();
+  }
+  sfxLastTurn = next.phase === 'lobby' ? null : next.turn;
+
+  // answer reveal (once, on the transition into 'reveal')
+  if (next.phase === 'reveal' && sfxPrevPhase !== 'reveal' && next.reveal) {
+    if (next.reveal.was_correct) audio.sfx.correct(); else audio.sfx.wrong();
+    if (next.reveal.note && /laurel/i.test(next.reveal.note)) {
+      setTimeout(() => audio.sfx.laurel(), 480);
+    }
+  }
+
+  // the Oracle's question arriving
+  if (next.phase === 'question' && next.question &&
+      next.question.kind === 'oracle' && !sfxOracleArmed) {
+    audio.sfx.oracle();
+    sfxOracleArmed = true;
+  }
+  if (next.phase !== 'question') sfxOracleArmed = false;
+
+  // a building went up
+  const plotCount = Object.values(next.plots || {}).filter(Boolean).length;
+  if (plotCount > sfxPlotCount) audio.sfx.build();
+  sfxPlotCount = plotCount;
+
+  // victory
+  if (next.phase === 'finished' && !sfxAnnouncedWin) {
+    audio.sfx.victory();
+    sfxAnnouncedWin = true;
+  }
+  if (next.phase !== 'finished') sfxAnnouncedWin = false;
+
+  // duck the music under a question card
+  audio.duck(next.phase === 'question' || next.phase === 'reveal');
+
+  sfxPrevPhase = next.phase;
 }
 
 /* ── rendering ───────────────────────────────────────────────────────────── */
