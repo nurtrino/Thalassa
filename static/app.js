@@ -126,7 +126,24 @@ function reactAudio(prev, next) {
     sfxAnnouncedWin = true;
   }
   if (next.phase !== 'finished') sfxAnnouncedWin = false;
-  audio.duck(['question', 'reveal', 'minigame'].includes(next.phase));
+
+  // soundtrack scenes: lobby / battle / puzzle / endgame / open sea
+  const battleish = next.phase === 'battle' ||
+    (next.phase === 'question' && next.question?.kind === 'battle') ||
+    (next.phase === 'reveal' && next.reveal?.kind === 'battle');
+  const puzzleish = next.phase === 'minigame' ||
+    (next.phase === 'question' && ['puzzle', 'riddle'].includes(next.question?.kind)) ||
+    (next.phase === 'reveal' && next.reveal?.kind === 'puzzle') ||
+    next.phase === 'upgrade_pick';
+  let scene = 'game';
+  if (next.phase === 'lobby') scene = 'lobby';
+  else if (battleish) scene = 'battle';
+  else if (puzzleish) scene = 'puzzle';
+  else if (next.phase === 'finished' || next.fleece_revealed) scene = 'endgame';
+  audio.setScene(scene);
+
+  // duck only under trivia cards (the puzzle scene has its own music)
+  audio.duck(next.phase === 'question' && !puzzleish && !battleish);
   sfxPrevPhase = next.phase;
 }
 

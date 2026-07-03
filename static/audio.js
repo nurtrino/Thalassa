@@ -222,27 +222,73 @@ class ThalassaAudio {
     src.start(); lfo.start();
   }
 
+  /* ── soundtrack director ─────────────────────────────────────────────────
+   * Five scenes, five files in /static/music/. Crossfades between scenes;
+   * falls back to the procedural lyre if the files can't load/decode. */
   startMusic() {
     if (!this.enabled || this.musicOn) return;
     this.musicOn = true;
-    // if the repo ships a static/music.mp3, loop that instead of the
-    // procedural lyre (drop a file in — zero code changes needed)
-    fetch('/static/music.mp3', { method: 'HEAD' }).then((r) => {
-      if (r.ok) {
-        const el = new Audio('/static/music.mp3');
-        el.loop = true;
-        const src = this.ctx.createMediaElementSource(el);
-        src.connect(this.musicBus);
-        el.play().catch(() => {});
-        this._musicEl = el;
-      } else {
-        this._nextBar = this.ctx.currentTime + 0.3;
-        this._loop();
-      }
-    }).catch(() => {
+    this.setScene(this._pendingScene || 'lobby');
+  }
+
+  _track(name) {
+    if (!this._tracks) this._tracks = {};
+    if (this._tracks[name]) return this._tracks[name];
+    const el = new Audio(`/static/music/${name}.mp3`);
+    el.loop = true;
+    el.preload = 'auto';
+    const gain = this.ctx.createGain();
+    gain.gain.value = 0;
+    const t = { el, gain, failed: false, started: false };
+    el.addEventListener('error', () => { t.failed = true; this._musicFallback(); });
+    try {
+      const src = this.ctx.createMediaElementSource(el);
+      src.connect(gain);
+      gain.connect(this.musicBus);
+    } catch (e) {
+      t.failed = true;
+    }
+    this._tracks[name] = t;
+    return t;
+  }
+
+  _musicFallback() {
+    // every scene track broken? sing the procedural lyre instead (once)
+    const tracks = Object.values(this._tracks || {});
+    if (tracks.length && tracks.every((t) => t.failed) && !this._procOn) {
+      this._procOn = true;
       this._nextBar = this.ctx.currentTime + 0.3;
       this._loop();
-    });
+    }
+  }
+
+  setScene(name) {
+    this._pendingScene = name;
+    if (!this.enabled || !this.musicOn || this._procOn) return;
+    if (this._scene === name) return;
+    this._scene = name;
+    const FADE = 1.4;
+    for (const [n, t] of Object.entries(this._tracks || {})) {
+      if (n !== name && t.started) this._ramp(t.gain.gain, 0, FADE);
+    }
+    const t = this._track(name);
+    if (t.failed) {                       // missing file → keep the game bed
+      if (name !== 'game') this.setSceneForce('game');
+      else this._musicFallback();
+      return;
+    }
+    if (!t.started) {
+      t.started = true;
+      t.el.play().then(() => {}).catch(() => { t.failed = true; this._musicFallback(); });
+    } else if (t.el.paused) {
+      t.el.play().catch(() => {});
+    }
+    this._ramp(t.gain.gain, 1.0, FADE);
+  }
+
+  setSceneForce(name) {
+    this._scene = null;
+    this.setScene(name);
   }
 
   _loop() {
