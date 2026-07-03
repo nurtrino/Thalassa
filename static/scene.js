@@ -961,7 +961,10 @@ export function createWorld(container, handlers = {}) {
     // a boat just made landfall — re-home the view (the moving ship may have
     // been carrying the camera; now hand off to the active captain / battle)
     requestStage(desiredTarget(lastRoom));
-    if (pid === lastRoom.turn) handlers.onArrive?.(pid);
+    // let the UI re-render on ANY arrival: the turn captain's own encounter
+    // card waits on their boat, and the *next* captain's roll button waits on
+    // the previous captain's boat parking (the handoff case).
+    handlers.onArrive?.(pid);
   }
 
   function desiredTarget(room) {
@@ -1041,8 +1044,22 @@ export function createWorld(container, handlers = {}) {
       preloadMonsters(['captain']);
     }
 
-    /* which stage should the viewer be seeing? */
-    const beforeStage = activeBoardId;
+    /* bootstrap the very first board so ships have a stage to sync into */
+    if (activeBoardId === null) requestStage(desiredTarget(room));
+
+    /* keep the visible board stage in sync (also under a battle, so the
+     * return trip is instant). Sync ships BEFORE choosing the stage below:
+     * a captain who just began sailing must be recognized as the focus, or
+     * the view flips to the next captain's realm for a frame and snaps back
+     * — the "region shows up then switches right back" glitch. */
+    if (activeBoardId && stages[activeBoardId]) {
+      syncStage(stages[activeBoardId], room);
+      syncShips(room, you);
+      syncHighlights(room, you);
+    }
+
+    /* now pick the stage — stays glued to whoever is mid-sail, and only hands
+     * off to the next captain once their boat has actually parked */
     requestStage(desiredTarget(room));
 
     /* establishing pan: once when the voyage begins, and each time you first
@@ -1052,14 +1069,6 @@ export function createWorld(container, handlers = {}) {
       startCinematic(stages[activeBoardId]);
     }
     wasLobby = lobbyMode;
-
-    /* keep the visible board stage in sync (also under a battle, so the
-     * return trip is instant) */
-    if (activeBoardId && stages[activeBoardId]) {
-      syncStage(stages[activeBoardId], room);
-      syncShips(room, you);
-      syncHighlights(room, you);
-    }
 
     /* battle re-key: a brand-new fight arriving while one is showing */
     if (battleOn && room.battle) {
@@ -1361,6 +1370,7 @@ export function createWorld(container, handlers = {}) {
     battlePlay,
     battleActive: () => battleOn,
     arriving: () => arriving(lastRoom),
+    animating: () => animatingPid(),
     currentStage: () => (battleOn ? 'battle' : (activeBoardId || 'hub')),
   };
 

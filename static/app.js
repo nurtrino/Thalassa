@@ -106,8 +106,13 @@ world = createWorld($('world'), {
     applyStage(stageId);
   },
   onArrive() {
-    // the boat has reached its island — now reveal whatever waits there
+    // the boat has reached its island — now reveal whatever waits there,
+    // and fire the audio reaction we held back while it was still sailing
     if (room) render();
+    if (audioDeferred && room && !world.arriving()) {
+      audioDeferred = false;
+      reactAudio(null, room);
+    }
   },
 });
 
@@ -176,6 +181,8 @@ function send(obj) { if (ws?.readyState === 1) ws.send(JSON.stringify(obj)); }
 window.__send = send;                 // debug/testing handles
 window.__room = null;
 window.__you = null;
+window.__world = world;               // scene api: arriving()/animating()/currentStage()
+window.__audio = audio;               // music scene lives on audio._scene
 
 function handle(msg) {
   if (msg.type === 'snapshot') {
@@ -237,9 +244,16 @@ function showRealmBanner(info) {
 
 /* ── sound reactions + battle beats ─────────────────────────────────────── */
 let sfxLastTurn = null, sfxPrevPhase = null, sfxAnnouncedWin = false;
+let audioDeferred = false;
 
 function reactAudio(prev, next) {
   if (!next) return;
+  // Hold the whole audio reaction — the puzzle/battle music, the roar, the
+  // reveal beats — until the captain's boat actually lands. Otherwise the
+  // scene switches the moment the server does, and you hear a puzzle before
+  // you've reached the island. onArrive replays this once the boat parks.
+  if (world.arriving()) { audioDeferred = true; return; }
+  audioDeferred = false;
   if (next.phase !== sfxPrevPhase && sfxPrevPhase === 'reveal') clearBeats();
 
   if (next.phase === 'roll' && next.turn === you && sfxLastTurn !== next.turn) {
@@ -720,10 +734,20 @@ function renderTray() {
   }
 
   if (room.phase === 'roll') {
-    trayBtn(tray, `${icon('dice', 17)} ROLL`, 'gold big', () => send({ type: 'roll' }));
+    // the previous captain may still be sailing on-screen — don't hand the
+    // dice over until their boat has actually stopped moving
+    if (world.animating()) {
+      trayHint(tray, `${icon('anchor', 14)} The wake still runs — hold until the tide settles…`);
+    } else {
+      trayBtn(tray, `${icon('dice', 17)} ROLL`, 'gold big', () => send({ type: 'roll' }));
+    }
   } else if (room.phase === 'sail') {
     const bonus = me?.upgrades?.includes('sandals') ? ' <small>(+1 sandals)</small>' : '';
     trayHint(tray, `Rolled <strong>${room.die ?? '?'}</strong>${bonus} — sail exactly that far. Tap a glowing stop.`);
+  } else if (world.arriving()) {
+    // my own boat is still sailing up to this island — hold the landfall menu
+    // (shrine wager / haven repair / trader's stall) until it arrives
+    trayHint(tray, `${icon('anchor', 14)} Making landfall…`);
   } else if (room.phase === 'shrine') {
     const node = nodeOf(me);
     const dom = node?.domain;
@@ -751,7 +775,7 @@ function renderTray() {
 /* ── shop bottom sheet ──────────────────────────────────────────────────── */
 function renderShop() {
   const panel = $('shopPanel');
-  const mine = room.turn === you && room.phase === 'shop';
+  const mine = room.turn === you && room.phase === 'shop' && !world.arriving();
   if (!mine || shopClosed) {
     panel.classList.add('hidden');
     if (room.phase !== 'shop') shopClosed = false;
