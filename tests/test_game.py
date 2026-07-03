@@ -42,10 +42,10 @@ def test_generation_counts_and_connectivity():
         for n in b.nodes.values():
             types[n["type"]] = types.get(n["type"], 0) + 1
         assert types["home"] == 1 and types["pharos"] == 1
-        assert types["lair"] == 8 and types["shrine"] == 5
-        assert types["puzzle"] == 4 and types["haven"] == 2
-        assert types["shop"] == 3
-        assert types["monster"] == 4
+        assert types["gate"] == 4 and types["lair"] == 4
+        assert types["shrine"] >= 6 and types["puzzle"] == 5
+        assert types["haven"] >= 6 and types["shop"] == 4
+        assert types["monster"] == 14             # hub grounds + region elites
         assert types["sea"] >= 20                 # long routes between isles
         # connected: BFS from home touches everything
         seen, frontier = {"home"}, ["home"]
@@ -56,10 +56,11 @@ def test_generation_counts_and_connectivity():
                     seen.add(nb)
                     frontier.append(nb)
         assert seen == set(b.nodes)
-        # every lair holds a distinct relic and a guardian
-        relics = [b.nodes[nid]["relic"] for nid in b.lairs()]
-        assert sorted(relics) == list(range(1, 9))
-        assert all(b.alive_monster(nid) for nid in b.lairs())
+        # four regions drawn from the pool, each ending in a boss altar
+        assert len(b.regions) == 4 and len(set(b.regions)) == 4
+        themes = sorted(b.nodes[nid]["region"] for nid in b.lairs())
+        assert themes == sorted(b.regions)
+        assert all(b.nodes[nid]["boss_spec"] for nid in b.lairs())
 
 
 def test_boards_differ_between_seeds():
@@ -158,11 +159,12 @@ def test_hunting_grounds_spawn_random_packs():
     assert g.board.nodes[mon]["monster"] is None
 
 
-def test_lair_bosses_are_solo():
+def test_lair_bosses_are_solo_personal_trials():
     for seed in range(5):
         b = Board(seed)
         for nid in b.lairs():
-            m = b.nodes[nid]["monster"]
+            assert b.nodes[nid]["monster"] is None      # calm until challenged
+            m = b.spawn_boss(nid)
             assert m["boss"] and len(m["enemies"]) == 1
             assert m["enemies"][0]["max_hp"] >= 5
     assert b.nodes["pharos"]["monster"]["boss"]
@@ -224,19 +226,36 @@ def set_pack(g, nid, hps):
         for i, h in enumerate(hps)]
 
 
-def test_battle_win_takes_relic():
+def test_boss_trial_is_personal_and_yields_fragment():
     g, (p0, p1) = make_game(seed=3)
     lair = g.board.lairs()[0]
+    node = g.board.nodes[lair]
+    battle_at(g, p0, lair)                       # a fresh boss rises
+    assert g.board.alive_monster(lair)["boss"]
     set_pack(g, lair, [1])                       # one clean hit fells it
-    battle_at(g, p0, lair)
     g.stance(p0, "attack")
     put_question(g)
     g.answer(p0, 0)
     p = g.player_by_pid(p0)
-    assert g.reveal["battle_over"] and p.cargo == [g.board.nodes[lair]["relic"]]
-    assert g.board.alive_monster(lair) is None
+    assert g.reveal["battle_over"] and p.cargo == [node["region"]]
+    assert p0 in node["defeated"]
+    assert g.board.alive_monster(lair) is None   # calm again
     g.advance_after_reveal()
     assert g.current.pid == p1 and g.battle is None
+    # the second captain faces their OWN fresh boss
+    battle_at(g, p1, lair)
+    m = g.board.alive_monster(lair)
+    assert m and m["enemies"][0]["hp"] == m["enemies"][0]["max_hp"]
+    g.flee(p1) if g.player_by_pid(p1).scrolls >= 2 and not m.get("boss") else None
+    # (trials allow no flee; clean up by hand)
+    g.battle = None
+    g.board.nodes[lair]["monster"] = None
+    g._next_turn()
+    # the victor sails back later: no refight, nothing happens
+    while g.current.pid != p0:
+        g._next_turn()
+    force_land(g, p0, lair)
+    assert g.phase == "roll" and g.battle is None
 
 
 def test_strike_miss_takes_monster_counter():
@@ -335,15 +354,13 @@ def test_no_retreat_from_trials():
         g.flee(p0)
 
 
-def test_shipwreck_returns_relics_and_respawns_guardian():
+def test_shipwreck_stashes_fragment_at_altar():
     g, (p0, p1) = make_game()
     p = g.player_by_pid(p0)
     lair = g.board.lairs()[0]
     node = g.board.nodes[lair]
-    for e in node["monster"]["enemies"]:
-        e["hp"] = 0
-    node["taken"] = True
-    p.cargo = [node["relic"]]
+    node["defeated"].append(p0)                  # trial already won
+    p.cargo = [node["region"]]
     p.scrolls = 9
     p.hull = 1
     mon = find_node(g, "monster")
@@ -354,7 +371,12 @@ def test_shipwreck_returns_relics_and_respawns_guardian():
     g.answer(p0, 1)                                        # wrong → hit → sunk
     assert p.node == "home" and p.hull == p.max_hull
     assert p.cargo == [] and p.scrolls == 4
-    assert node["taken"] is False and g.board.alive_monster(lair)
+    assert p0 in node["stash"]                   # waiting at the altar
+    g.advance_after_reveal()
+    while g.current.pid != p0:
+        g._next_turn()
+    force_land(g, p0, lair)                      # sail back: reclaim, no refight
+    assert p.cargo == [node["region"]] and node["stash"] == []
 
 
 # ── relics, banking, the Fleece ──────────────────────────────────────────────

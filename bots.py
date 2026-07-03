@@ -64,10 +64,9 @@ def _target_score(g: G.Game, p, nid: str) -> float:
         return 500 if g._pharos_ok(p) else -1
     if ntype == "home":
         return 40 + 90 * len(p.cargo) + (35 if p.hull <= 2 else 0) - 30
-    if ntype == "lair" and monster and not node.get("taken"):
+    if ntype == "lair" and p.pid not in node.get("defeated", []):
         strength = p.hull + (2 if p.has("ram") else 0)
-        pack_hp = sum(e["hp"] for e in monster["enemies"] if e["hp"] > 0)
-        return 25 + strength * 8 - pack_hp * 5
+        return 25 + strength * 8 - 30
     if ntype == "shrine" and node.get("charges", 0) > 0:
         return 45 if p.scrolls < 6 else 22
     if ntype == "puzzle" and not node.get("solved"):

@@ -4,12 +4,13 @@ Thalassa rules engine — the Race to the Pharos. Pure state machine.
 The server owns dice RNG, question fetching, and timers; this module owns
 the rules. Every mutation either succeeds or raises GameError.
 
-The voyage: a ringed sea sealed by a storm wall, the Pharos blazing at its
-center. Sail out from Home Port, answer trivia at temples for scrolls,
-crack puzzle spires, buy charms at market isles, and beat the solo boss of
-each trial lair for its relic seal. Haul seals HOME to bank them — cargo is
-lost if your ship goes down. Bank RELICS_TO_WIN seals and the Pharos opens:
-defeat the Warden inside and the game is yours.
+The voyage: the Safe Isles ringed by a storm wall, the Pharos blazing at
+the center, four storm gates leading to wild themed regions. Earn scrolls
+and charms in the hub, then brave a region's spine to face its BOSS — a
+personal trial; beat it once and it stays beaten for you. Its sigil
+fragment must be HAULED home: shipwreck and it drifts back to the altar
+(reclaim by landing — no refight). Bank RELICS_TO_WIN fragments and the
+Pharos opens: defeat the Warden inside and the game is yours.
 
 Phases:
     lobby → roll → sail → (shrine | haven | shop | battle | question …) → reveal
@@ -36,7 +37,7 @@ from __future__ import annotations
 import random
 
 import puzzles
-from board import Board, DOMAIN_INFO, DOMAINS, RELICS_TO_WIN
+from board import Board, DOMAIN_INFO, DOMAINS, REGION_POOL, RELICS_TO_WIN
 
 # ── tunables ─────────────────────────────────────────────────────────────────
 MIN_PLAYERS = 1                    # solo runs are allowed for testing
@@ -103,7 +104,7 @@ class Player:
         self.scrolls = 3                   # seed money for the first shrine misses
         self.hull = MAX_HULL
         self.max_hull = MAX_HULL
-        self.cargo: list[int] = []         # relic seals aboard (not yet safe)
+        self.cargo: list[str] = []         # sigil fragments aboard (not yet safe)
         self.banked = 0
         self.upgrades: list[str] = []
         self.items = {"hint": 0, "gale": 0, "aegis_charm": 0, "horn": 0}
@@ -180,12 +181,7 @@ class Game:
     # ── movement rules ───────────────────────────────────────────────────────
     def _wall(self, p: Player, nid: str) -> bool:
         """Nodes you cannot sail THROUGH — only (maybe) end a voyage on."""
-        node = self.board.nodes[nid]
-        if node["type"] == "pharos":
-            return True
-        if node["type"] == "lair" and self.board.alive_monster(nid):
-            return True
-        return False
+        return self.board.nodes[nid]["type"] == "pharos"
 
     def _can_land(self, p: Player, nid: str) -> bool:
         if self.board.nodes[nid]["type"] == "pharos":
@@ -220,8 +216,7 @@ class Game:
 
     # ── bounties: public race-goals, first captain to do it gets paid ────────
     def _make_bounties(self) -> list[dict]:
-        lair_names = list({self.board.nodes[n]["monster"]["name"]
-                           for n in self.board.lairs()})
+        lair_names = [REGION_POOL[t]["boss"][0] for t in self.board.regions]
         self.rng.shuffle(lair_names)
         pool = [
             {"kind": "slay", "name": lair_names[0],
@@ -353,11 +348,27 @@ class Game:
         ntype = node["type"]
         if ntype != "sea":
             self._bounty_event("land", p, band=node.get("band", 0))
+        if node["type"] == "lair":
+            if p.pid in node["defeated"]:
+                if p.pid in node["stash"]:
+                    node["stash"].remove(p.pid)
+                    p.cargo.append(node["region"])
+                    self._say(f"⚱ {p.name} reclaims the fragment of {node['name']}.")
+                self._next_turn()
+                return
+            self.board.spawn_boss(nid)
+            self.battle = {"node": nid, "stance": None,
+                           "used_items": [], "first_hit_taken": False}
+            self._say(f"👑 {node['monster']['name']} rises — {p.name}'s trial begins!")
+            self._bump("battle")
+            return
         monster = self.board.alive_monster(nid)
-        if node.get("encounter") and not monster:
-            node["monster"] = self.board.random_pack(node["band"], self.rng)
+        ambush = not node.get("elite") or self.rng.random() < 0.6
+        if node.get("encounter") and not monster and ambush:
+            node["monster"] = self.board.random_pack(node, self.rng)
             monster = node["monster"]
-            self._say(f"⚔ {monster['name']} ambush {p.name} in open water!")
+            self._say(f"⚔ {monster['name']} ambush {p.name}"
+                      + (" in the wilds!" if node.get("region") else " in open water!"))
         if monster:
             self.battle = {"node": nid, "stance": None,
                            "used_items": [], "first_hit_taken": False}
@@ -593,13 +604,11 @@ class Game:
 
     def _shipwreck(self, p: Player):
         returned = []
-        for relic in p.cargo:
+        for theme in p.cargo:
             for nid in self.board.lairs():
                 node = self.board.nodes[nid]
-                if node.get("relic") == relic:
-                    for e in node["monster"]["enemies"]:
-                        e["hp"] = e["max_hp"]         # the guardians rise again
-                    node["taken"] = False
+                if node.get("region") == theme and p.pid not in node["stash"]:
+                    node["stash"].append(p.pid)       # waits at the altar for you
                     returned.append(node["name"])
         p.cargo = []
         p.scrolls //= 2
@@ -731,10 +740,11 @@ class Game:
                         note = f"🏆 The Warden falls — {p.name} takes the PHAROS!"
                     else:
                         note += f" {m['name']} — defeated!"
-                        if node.get("relic") and not node.get("taken"):
-                            node["taken"] = True
-                            p.cargo.append(node["relic"])
-                            note += " Seal aboard — sail it home."
+                        if node["type"] == "lair":
+                            node["defeated"].append(p.pid)
+                            node["monster"] = None      # your trial is done, forever
+                            p.cargo.append(node["region"])
+                            note += " The sigil fragment is aboard — sail it home."
                         loot = sum(e["max_hp"] for e in enemies)
                         p.scrolls += loot
                         gained = loot
@@ -949,6 +959,10 @@ class Game:
         base = {"id": nid, "x": node["x"], "z": node["z"], "band": node["band"]}
         base["type"] = node["type"]
         base["name"] = node["name"]
+        if node.get("region"):
+            base["region"] = node["region"]
+        if node.get("gate_angle") is not None:
+            base["gate_angle"] = node["gate_angle"]
         if node["type"] == "sea":
             base["flotsam"] = node.get("flotsam", False)
             base["look"] = node.get("look", "buoy")
@@ -969,8 +983,11 @@ class Game:
                 "boss": bool(m.get("boss"))}
             if node["type"] == "monster":
                 base["encounter"] = True
+                base["elite"] = node.get("elite", False)
             if node["type"] == "lair":
-                base["relic_taken"] = node.get("taken", False)
+                base["boss_name"] = node["boss_spec"][0]
+                base["defeated"] = node["defeated"]
+                base["stash"] = node["stash"]
         return base
 
     def to_dict(self, viewer_pid: str | None = None) -> dict:
@@ -987,7 +1004,9 @@ class Game:
             "code": self.code,
             "phase": self.phase,
             "board": {"nodes": nodes, "edges": edges,
-                      "domains": DOMAIN_INFO, "home": "home"},
+                      "domains": DOMAIN_INFO, "home": "home",
+                      "regions": {t: REGION_POOL[t]["name"]
+                                  for t in self.board.regions}},
             "players": [p.public() for p in self.players],
             "host": self.players[0].pid if self.players else None,
             "turn": self.current.pid if self.players and self.phase != "lobby" else None,

@@ -129,28 +129,26 @@ function puffTexture(r, g, b) {
   return tex;
 }
 
-/* ── the storm wall: continuous animated cloud, shader-built ─────────────
-   Concentric shells sample seamless 3D value-noise in WORLD space, so the
-   wall has no seams, a ragged boiling top, and depth from parallax. A
-   lightning angle/intensity uniform lets bolts glow through the cloud. */
+/* ── the storm wall: RAYMARCHED volumetric cloud ─────────────────────────
+   One bounding cylinder; each fragment marches a 3D noise density field
+   through the wall's volume with sun scattering and self-shadowing. The
+   wall is seamless, light-proof, boiling, and pierced by four arched gate
+   channels whose angles come from the board. */
 const STORM_VERT = `
   varying vec3 vW;
-  varying float vH;
-  uniform float uH0; uniform float uH1;
   void main() {
     vec4 wp = modelMatrix * vec4(position, 1.0);
     vW = wp.xyz;
-    vH = (wp.y - uH0) / (uH1 - uH0);
     gl_Position = projectionMatrix * viewMatrix * wp;
   }`;
 const STORM_FRAG = `
   precision highp float;
   varying vec3 vW;
-  varying float vH;
-  uniform float t; uniform float uOp; uniform float uScale; uniform float uDrift;
-  uniform float uSolid;
-  uniform vec3 cA; uniform vec3 cB;
+  uniform float t;
+  uniform vec3 sunD; uniform vec3 cA; uniform vec3 cB; uniform vec3 cC;
+  uniform vec4 uGates;
   uniform float boltA; uniform float boltI;
+
   float hash(vec3 p) {
     p = fract(p * 0.3183099 + 0.1);
     p *= 17.0;
@@ -165,49 +163,89 @@ const STORM_FRAG = `
                    mix(hash(i + vec3(0,1,1)), hash(i + vec3(1,1,1)), f.x), f.y), f.z);
   }
   float fbm(vec3 p) {
-    float v = 0.0; float a = 0.52;
-    for (int i = 0; i < 5; i++) { v += a * vnoise(p); p = p * 2.03 + 11.5; a *= 0.5; }
+    float v = 0.0; float a = 0.55;
+    for (int i = 0; i < 4; i++) { v += a * vnoise(p); p = p * 2.11 + 13.7; a *= 0.5; }
     return v;
   }
-  void main() {
-    // slow angular drift keeps the wall churning around the ring
-    float ca = cos(t * 0.008 * uDrift), sa = sin(t * 0.008 * uDrift);
-    vec3 q = vec3(vW.x * ca - vW.z * sa, vW.y * 0.55, vW.x * sa + vW.z * ca) * uScale;
-    float n1 = fbm(q + vec3(0.0, -t * 0.045, 0.0));
-    float n2 = fbm(q * 1.9 + vec3(t * 0.03, t * 0.018, 4.7));
-    float d = n1 * 0.68 + n2 * 0.32;
-    // ragged top silhouette and a base that melts into the sea
-    float top = smoothstep(1.04, 0.42 + d * 0.5, vH);
-    float base = smoothstep(-0.1, 0.14, vH);
-    float aWisp = smoothstep(0.38, 0.66, d) * top * base;
-    float aSolid = top * step(-1.0, vH);          // opaque core: only the crown fades
-    float alpha = mix(aWisp, aSolid, uSolid) * uOp;
-    vec3 col = mix(cA, cB, clamp(smoothstep(0.3, 0.85, d) * 0.75 + vH * 0.35, 0.0, 1.0));
-    // lightning diffusing through the cloud around the bolt angle
-    float ang = atan(vW.z, vW.x);
-    float dd = abs(mod(ang - boltA + 3.14159, 6.28318) - 3.14159);
-    float glow = boltI * exp(-5.0 * dd);
-    col += vec3(0.72, 0.78, 1.0) * glow * (0.4 + d);
-    alpha = min(1.0, alpha + glow * 0.15);
-    if (alpha < 0.01) discard;
-    gl_FragColor = vec4(col, alpha);
-  }`;
 
-function stormWallMaterial(opts) {
-  return new THREE.ShaderMaterial({
-    transparent: true, depthWrite: !!opts.solid, side: THREE.DoubleSide,
-    uniforms: {
-      t: { value: 0 },
-      uOp: { value: opts.op }, uScale: { value: opts.scale },
-      uDrift: { value: opts.drift }, uSolid: { value: opts.solid || 0 },
-      cA: { value: new THREE.Color(opts.cA) }, cB: { value: new THREE.Color(opts.cB) },
-      uH0: { value: opts.h0 }, uH1: { value: opts.h1 },
-      boltA: { value: 0 }, boltI: { value: 0 },
-    },
-    vertexShader: STORM_VERT,
-    fragmentShader: STORM_FRAG,
-  });
-}
+  const float R_IN = 520.0;
+  const float R_OUT = 780.0;
+
+  float density(vec3 p) {
+    if (p.y < -6.0 || p.y > 330.0) return 0.0;
+    float r = length(p.xz);
+    float radial = smoothstep(R_IN, 596.0, r) * (1.0 - smoothstep(700.0, R_OUT, r));
+    if (radial <= 0.001) return 0.0;
+    vec3 q = p * 0.0085;
+    q.y *= 0.55;
+    float n = fbm(q + vec3(0.0, -t * 0.028, t * 0.012));
+    float crown = 1.0 - smoothstep(140.0 + n * 150.0, 325.0, p.y);
+    float d = smoothstep(0.30, 0.58, n * 0.82 + 0.22) * radial * crown;
+    // the four gate channels: arched clear passages through the wall
+    float ang = atan(p.z, p.x);
+    for (int i = 0; i < 4; i++) {
+      float dd = abs(mod(ang - uGates[i] + 3.14159265, 6.2831853) - 3.14159265);
+      float w0 = 0.085 * (1.0 - smoothstep(8.0, 64.0, p.y));
+      d *= smoothstep(w0 * 0.45, w0, dd);
+    }
+    return d;
+  }
+
+  vec2 cylT(vec3 o, vec3 d, float r) {
+    float a = d.x * d.x + d.z * d.z;
+    float b = 2.0 * (o.x * d.x + o.z * d.z);
+    float c = o.x * o.x + o.z * o.z - r * r;
+    float disc = b * b - 4.0 * a * c;
+    if (disc < 0.0 || a < 1e-6) return vec2(-1.0, -1.0);
+    float sq = sqrt(disc);
+    return vec2((-b - sq) / (2.0 * a), (-b + sq) / (2.0 * a));
+  }
+
+  void main() {
+    vec3 o = cameraPosition;
+    vec3 d = normalize(vW - o);
+    float rc = length(o.xz);
+    vec2 tin = cylT(o, d, R_IN);
+    vec2 tout = cylT(o, d, R_OUT);
+    float t0; float t1;
+    if (rc < R_IN) {                 // inside the Safe Isles, looking out
+      t0 = max(tin.y, 0.0);
+      t1 = tout.y;
+    } else if (rc <= R_OUT) {        // inside the wall itself
+      t0 = 0.0;
+      t1 = (tin.x > 0.0) ? tin.x : tout.y;
+    } else {                         // out in the wild regions
+      t0 = max(tout.x, 0.0);
+      t1 = (tin.x > 0.0) ? tin.x : tout.y;
+    }
+    if (t1 <= t0) discard;
+    t1 = min(t1, t0 + 520.0);
+    const int N = 22;
+    float span = (t1 - t0) / float(N);
+    float tt = t0 + span * hash(vW * 0.37);
+    float T = 1.0;
+    vec3 acc = vec3(0.0);
+    for (int i = 0; i < N; i++) {
+      vec3 p = o + d * tt;
+      float de = density(p);
+      if (de > 0.004) {
+        float a = 1.0 - exp(-de * span * 0.085);
+        float dl = density(p + sunD * 30.0);
+        float lit = exp(-dl * 2.4);
+        float h = clamp(p.y / 300.0, 0.0, 1.0);
+        vec3 col = mix(cA, mix(cB, cC, h), lit);
+        float gd = abs(mod(atan(p.z, p.x) - boltA + 3.14159265, 6.2831853) - 3.14159265);
+        col += vec3(0.72, 0.78, 1.0) * boltI * exp(-4.5 * gd) * de * 1.8;
+        acc += T * a * col;
+        T *= 1.0 - a;
+        if (T < 0.03) break;
+      }
+      tt += span;
+    }
+    float alpha = 1.0 - T;
+    if (alpha < 0.01) discard;
+    gl_FragColor = vec4(acc / max(alpha, 0.06), alpha);
+  }`;
 const TEX_CLOUD = puffTexture(255, 255, 255);
 const TEX_MIST = puffTexture(226, 236, 240);
 
@@ -705,10 +743,10 @@ function makeFlotsam(rng) {
 /* ── battle enemies: five procedural archetypes, tinted per name ────────── */
 function enemyArchetype(name) {
   const n = name.toLowerCase();
-  if (/harp|bird/.test(n)) return 'wing';
-  if (/wolf|lion|boar/.test(n)) return 'beast';
-  if (/siren|empusa|gorgon|sphinx|drowned/.test(n)) return 'spirit';
-  if (/hydra|ketos|skylla|charybdis|typhon|dragon|serpent/.test(n)) return 'serpent';
+  if (/harp|bird|vulture|moth/.test(n)) return 'wing';
+  if (/wolf|lion|boar|stag|hound|jaguar/.test(n)) return 'beast';
+  if (/siren|empusa|gorgon|sphinx|drowned|wraith|shade|wisp|sprite|hag|queen|matriarch/.test(n)) return 'spirit';
+  if (/hydra|ketos|skylla|charybdis|typhon|dragon|serpent|wyrm/.test(n)) return 'serpent';
   return 'brute';
 }
 
@@ -1102,7 +1140,30 @@ const REGIONS = [
     palette: { grass: 0x63985a, grass2: 0x40684a, sand: 0xdccf9f, rock: 0x8a8474 },
     flora: 'cypress' },
 ];
+
+// the wilds beyond the storm gates — one look per region theme
+const THEMES = {
+  autumn:  { palette: { grass: 0xc9772e, grass2: 0x9c4f22, sand: 0xe8d5a8, rock: 0x8a6a52 },
+             flora: 'autumn' },
+  ice:     { palette: { grass: 0xdfe8ee, grass2: 0xb8c9d6, sand: 0xe8eef2, rock: 0x9fb2c4 },
+             flora: 'pine' },
+  volcano: { palette: { grass: 0x4a4440, grass2: 0x322e2c, sand: 0x6a5f56, rock: 0x2c2830 },
+             flora: 'dead', ember: true },
+  jungle:  { palette: { grass: 0x2e7d3a, grass2: 0x1d5c2e, sand: 0xd8cb96, rock: 0x5a6b4a },
+             flora: 'jungle', dense: true },
+  marsh:   { palette: { grass: 0x6b7a4e, grass2: 0x4a573a, sand: 0x9c9478, rock: 0x6a6a58 },
+             flora: 'dead' },
+  desert:  { palette: { grass: 0xe0c98a, grass2: 0xc9ae6e, sand: 0xf0dfae, rock: 0xc9a97a },
+             flora: 'palm' },
+  blossom: { palette: { grass: 0x8fbf6a, grass2: 0x6a9c50, sand: 0xf2e4d0, rock: 0xb8a0a8 },
+             flora: 'blossom' },
+  reef:    { palette: { grass: 0x3a9c8a, grass2: 0x2a7a6e, sand: 0xe8dfc0, rock: 0x7a9a94 },
+             flora: 'palm' },
+};
+
 const regionFor = (band) => REGIONS.find((r) => r.bands.includes(band ?? 0)) || REGIONS[0];
+const themeFor = (node) =>
+  (node.region && THEMES[node.region]) || regionFor(node.band);
 
 function makeOlive(rng, s = 1) {
   const g = new THREE.Group();
@@ -1138,10 +1199,47 @@ function makeDeadTree(rng, s = 1) {
 
 function seedFrom(rng) { return Math.floor(rng() * 1e9); }
 
+function makePuffTree(rng, s, trunkCol, puffCol) {
+  const g = new THREE.Group();
+  const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.08 * s, 0.14 * s, 1.0 * s, 5), flat(trunkCol));
+  trunk.position.y = 0.5 * s;
+  trunk.rotation.z = (rng() - 0.5) * 0.3;
+  g.add(trunk);
+  for (let i = 0; i < 3; i++) {
+    const puff = new THREE.Mesh(
+      displace(new THREE.IcosahedronGeometry((0.34 + rng() * 0.16) * s, 0), 0.06 * s, seedFrom(rng)),
+      flat(puffCol));
+    puff.position.set((rng() - 0.5) * 0.55 * s, (1.05 + rng() * 0.4) * s, (rng() - 0.5) * 0.55 * s);
+    puff.castShadow = true;
+    g.add(puff);
+  }
+  return g;
+}
+
+function makePine(rng, s = 1) {
+  const g = new THREE.Group();
+  const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.06 * s, 0.11 * s, 0.7 * s, 5), flat(0x4a3a2c));
+  trunk.position.y = 0.35 * s;
+  g.add(trunk);
+  for (let i = 0; i < 3; i++) {
+    const tier = new THREE.Mesh(
+      new THREE.ConeGeometry((0.55 - i * 0.14) * s, 0.65 * s, 7),
+      flat(i === 2 ? 0xe8f0f4 : 0x3a6b52));
+    tier.position.y = (0.75 + i * 0.42) * s;
+    tier.castShadow = true;
+    g.add(tier);
+  }
+  return g;
+}
+
 function regionFlora(rng, region, s = 1) {
   if (region.flora === 'palm') return makePalm(rng, s);
   if (region.flora === 'olive') return makeOlive(rng, s);
   if (region.flora === 'dead') return makeDeadTree(rng, s);
+  if (region.flora === 'autumn') return makePuffTree(rng, s, 0x5a4030, 0xd07828);
+  if (region.flora === 'blossom') return makePuffTree(rng, s, 0x6a5040, 0xe8a8c0);
+  if (region.flora === 'pine') return makePine(rng, s);
+  if (region.flora === 'jungle') return makePalm(rng, s * 1.35);
   return makeCypress(rng, s);
 }
 
@@ -1176,11 +1274,13 @@ function dressIsland(g, rng, region, R, terrain) {
 
 /* ── island assembly (keyed by view state) ──────────────────────────────── */
 const ISLE_R = { home: 13.0, shrine: 10.0, puzzle: 10.0, haven: 11.0,
-                 shop: 10.0, monster: 11.0, lair: 13.0, pharos: 17.0, sea: 1.5 };
+                 shop: 10.0, monster: 11.0, lair: 14.0, pharos: 17.0,
+                 gate: 2.0, sea: 1.5 };
 
 function viewKey(node) {
   return [node.type, node.monster ? node.monster.hp : '-',
-          node.charges ?? '-', node.solved ?? '-', node.relic_taken ?? '-',
+          node.charges ?? '-', node.solved ?? '-',
+          (node.defeated || []).length, (node.stash || []).length,
           node.flotsam ?? '-'].join(':');
 }
 
@@ -1189,7 +1289,7 @@ function buildIsland(node, domains) {
   const seed = hashStr(node.id);
   const rng0 = mulberry32(seed + 7);
   const R = (ISLE_R[node.type] ?? 4.8) * (node.type === 'sea' ? 1 : 0.88 + rng0() * 0.35);
-  const region = regionFor(node.band);
+  const region = themeFor(node);
   let terrain;
 
   if (node.type === 'sea') {
@@ -1285,10 +1385,19 @@ function buildIsland(node, domains) {
     g.add(palm);
   } else if (node.type === 'monster' || node.type === 'lair') {
     const dark = node.type === 'lair';
-    terrain = makeTerrain({ seed, R, H: dark ? 3.4 : 2.6, mode: 'peak',
-      palette: dark
-        ? { grass: 0x74875e, grass2: 0x5a7050, rock: COL.basalt, sand: 0xcbb489 }
-        : { ...region.palette } });
+    terrain = makeTerrain({ seed, R, H: dark ? 3.6 : 2.6, mode: 'peak',
+      palette: { ...region.palette, ...(dark ? { rock: COL.basalt } : {}) } });
+    if (node.type === 'lair' && !node.monster) {
+      // the trial altar: the boss appears only when challenged
+      const beast = makeEnemy(node.boss_name || 'Guardian', 7);
+      beast.scale.setScalar(1.1);
+      beast.position.y = terrain.heightAt(0.25) + 0.55;
+      beast.position.x = R * 0.1;
+      beast.name = 'monster';
+      const glow = new THREE.PointLight(0xff5030, 8, 30, 1.6);
+      glow.position.set(R * 0.1, terrain.heightAt(0.25) + 3, 0);
+      g.add(beast, glow);
+    }
     if (node.monster) {
       const beast = makeMonster(rng0, node.monster);
       beast.position.y = terrain.heightAt(0.25) + 0.55;   // clear of the slope
@@ -1308,7 +1417,7 @@ function buildIsland(node, domains) {
         g.add(bone);
       }
     }
-    if (node.type === 'lair' && !node.relic_taken) {
+    if (node.type === 'lair') {
       const beacon = makeRelicBeacon();
       beacon.position.set(-R * 0.3, terrain.heightAt(0.35), -R * 0.25);
       g.add(beacon);
@@ -1330,6 +1439,29 @@ function buildIsland(node, domains) {
       c.position.set(Math.cos(a) * R * 0.72, terrain.heightAt(0.72), Math.sin(a) * R * 0.72);
       g.add(c);
     }
+  } else if (node.type === 'gate') {
+    for (const side of [-1, 1]) {
+      const pillar = new THREE.Mesh(new THREE.CylinderGeometry(0.7, 1.1, 9, 7), flat(0x3a3542));
+      pillar.position.set(side * 7, 4.5, 0);
+      pillar.castShadow = true;
+      const brazier = new THREE.Mesh(new THREE.SphereGeometry(0.9, 8, 6),
+        new THREE.MeshBasicMaterial({ color: 0xffc46a }));
+      brazier.position.set(side * 7, 9.6, 0);
+      brazier.name = 'foam';                      // reuse the gentle pulse
+      const glow = new THREE.PointLight(0xffb85e, 14, 60, 1.6);
+      glow.position.set(side * 7, 9.6, 0);
+      g.add(pillar, brazier, glow);
+    }
+    const ring = new THREE.Mesh(new THREE.RingGeometry(3.2, 4.6, 28),
+      new THREE.MeshBasicMaterial({ color: 0xffe2a0, transparent: true, opacity: 0.3,
+        side: THREE.DoubleSide, depthWrite: false }));
+    ring.rotation.x = -Math.PI / 2;
+    ring.position.y = 0.1;
+    g.add(ring);
+    g.position.set(node.x, 0, node.z);
+    // face the pillars along the channel (perpendicular to the radius)
+    g.rotation.y = -Math.atan2(node.z, node.x);
+    return { group: g, R: 8, plateauY: 0 };
   } else if (node.type === 'shop') {
     terrain = makeTerrain({ seed, R, H: 1.6, mode: 'flat', palette: { ...region.palette } });
     const stall = makeMarket(rng0);
@@ -1370,13 +1502,18 @@ function bannerFor(node, domains) {
       `${info?.field || ''} · ${'✦'.repeat(node.charges)}`,
       DOMAIN_COLORS[node.domain]);
   }
-  if (node.type === 'lair' && node.monster) {
-    return bannerTexture(node.monster.name, `👑 boss · relic of ${node.name || '?'}`, '#c0392b', true);
+  if (node.type === 'lair') {
+    return bannerTexture(node.boss_name || node.monster?.name || 'The Trial',
+      `👑 trial of ${node.name || '?'} · sigil fragment`, '#c0392b', true);
+  }
+  if (node.type === 'gate') {
+    return bannerTexture(node.name || 'Storm Gate', 'a passage through the wall', '#7d5ba6', true);
   }
   if (node.type === 'monster') {
     return node.monster
       ? bannerTexture(node.monster.name, `ambush at ${node.name || '?'}`, '#c0392b', true)
-      : bannerTexture(node.name || 'Hunting Grounds', '⚔ chance of ambush', '#b1543a', true);
+      : bannerTexture(node.name || 'Hunting Grounds',
+          node.elite ? '⚔⚔ deadly grounds' : '⚔ chance of ambush', '#b1543a', true);
   }
   if (node.type === 'pharos') {
     return bannerTexture('THE PHAROS', node.monster ? 'bank 3 seals to enter' : '', '#d9a441');
@@ -1486,36 +1623,26 @@ export function createWorld(container, onIslandClick) {
   // the storm wall — a ring of boiling dark cloud that seals the region
   const WALL_R = 640;
   const storm = new THREE.Group();
-  const stormMats = [];
+  const stormMat = new THREE.ShaderMaterial({
+    transparent: true, depthWrite: false, side: THREE.DoubleSide,
+    uniforms: {
+      t: { value: 0 },
+      sunD: { value: new THREE.Vector3(0.45, 0.62, 0.22).normalize() },
+      cA: { value: new THREE.Color(0x232030) },
+      cB: { value: new THREE.Color(0x8a8496) },
+      cC: { value: new THREE.Color(0xb9b2c4) },
+      uGates: { value: new THREE.Vector4(99, 99, 99, 99) },
+      boltA: { value: 0 }, boltI: { value: 0 },
+    },
+    vertexShader: STORM_VERT,
+    fragmentShader: STORM_FRAG,
+  });
   {
-    const shell = (geo, opts) => {
-      const m = stormWallMaterial(opts);
-      stormMats.push(m);
-      const mesh = new THREE.Mesh(geo, m);
-      mesh.renderOrder = 3;
-      storm.add(mesh);
-      return mesh;
-    };
-    // the CORE: fully opaque — no sky, no sun, no light passes through
-    const core = shell(new THREE.CylinderGeometry(WALL_R + 8, WALL_R + 20, 380, 160, 40, true),
-      { op: 1.0, scale: 0.011, drift: 0.8, cA: 0x191722, cB: 0x59536a,
-        h0: -40, h1: 330, solid: 1 });
-    core.position.y = 160;
-    core.renderOrder = 2;
-    // outer rampart — tall, dense, slightly flared
-    shell(new THREE.CylinderGeometry(WALL_R + 30, WALL_R + 55, 340, 160, 30, true),
-      { op: 1.0, scale: 0.0105, drift: 1.0, cA: 0x1f1c2a, cB: 0x6e6880,
-        h0: -30, h1: 300 }).position.y = 135;
-    // inner face — lighter, counter-drifting for parallax depth
-    shell(new THREE.CylinderGeometry(WALL_R - 45, WALL_R - 20, 260, 150, 26, true),
-      { op: 0.6, scale: 0.016, drift: -1.5, cA: 0x363240, cB: 0x8d8799,
-        h0: -20, h1: 235 }).position.y = 112;
-    // the roll cloud grinding along the sea at the wall's foot
-    const roll = shell(new THREE.TorusGeometry(WALL_R - 30, 58, 16, 120),
-      { op: 0.92, scale: 0.02, drift: 0.7, cA: 0x2b2836, cB: 0x7b7488,
-        h0: -40, h1: 85 });
-    roll.rotation.x = Math.PI / 2;
-    roll.position.y = 12;
+    const bound = new THREE.Mesh(
+      new THREE.CylinderGeometry(780, 780, 400, 96, 1, true), stormMat);
+    bound.position.y = 200;
+    bound.renderOrder = 4;
+    storm.add(bound);
   }
   scene.add(storm);
   // lightning inside the wall
@@ -1778,8 +1905,7 @@ export function createWorld(container, onIslandClick) {
     nodeMeta = {};
     for (const n of nodes) {
       nodeMeta[n.id] = { x: n.x, z: n.z, type: n.type,
-                         blocked: n.type === 'pharos' ||
-                                  (n.type === 'lair' && !!n.monster) };
+                         blocked: n.type === 'pharos' };
     }
     nbrs = {};
     for (const [a, b] of room.board.edges || []) {
@@ -1792,6 +1918,9 @@ export function createWorld(container, onIslandClick) {
     const fullSig = `${homeNode?.x},${homeNode?.z}:${room.code}`;
     if (boardSig && boardSig !== fullSig) clearBoard();     // new sea (rematch)
     boardSig = fullSig;
+    const gateAngles = nodes.filter((n) => n.type === 'gate' && n.gate_angle !== undefined)
+                            .map((n) => n.gate_angle);
+    if (gateAngles.length === 4) stormMat.uniforms.uGates.value.fromArray(gateAngles);
 
     const present = new Set();
     for (const node of nodes) {
@@ -2200,10 +2329,8 @@ export function createWorld(container, onIslandClick) {
     }
 
     // the storm broods: the wall churns, and bolts glow through the cloud
-    for (const m of stormMats) {
-      m.uniforms.t.value = t;
-      if (m.uniforms.boltI.value > 0.01) m.uniforms.boltI.value *= 0.86;
-    }
+    stormMat.uniforms.t.value = t;
+    if (stormMat.uniforms.boltI.value > 0.01) stormMat.uniforms.boltI.value *= 0.86;
     for (const m of mists) {
       m.position.x += m.userData.vx * 0.05;
       m.position.z += m.userData.vz * 0.05;
@@ -2216,16 +2343,15 @@ export function createWorld(container, onIslandClick) {
       lightning.position.set(Math.cos(a) * (WALL_R - 70), 55 + Math.random() * 60,
                              Math.sin(a) * (WALL_R - 70));
       lightning.intensity = 1600 + Math.random() * 900;
-      for (const m of stormMats) {
-        m.uniforms.boltA.value = a;
-        m.uniforms.boltI.value = 1.15;
-      }
+      stormMat.uniforms.boltA.value = a;
+      stormMat.uniforms.boltI.value = 1.15;
     }
     if (lightning.intensity > 1) lightning.intensity *= 0.82;
     {
       const mine = myPid && ships[myPid];
       const d = mine ? Math.hypot(mine.group.position.x, mine.group.position.z) / WALL_R : 0;
-      const target = THREE.MathUtils.smoothstep(d, 0.5, 0.92);
+      const target = THREE.MathUtils.smoothstep(d, 0.5, 0.92) *
+                     (1 - THREE.MathUtils.smoothstep(d, 1.12, 1.3));
       stormF += (target - stormF) * 0.03;
       sky.material.uniforms.zenith.value.lerpColors(SKY_DAY.zenith, SKY_STORM.zenith, stormF);
       sky.material.uniforms.mid.value.lerpColors(SKY_DAY.mid, SKY_STORM.mid, stormF);

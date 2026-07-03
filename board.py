@@ -1,22 +1,22 @@
 """
-Thalassa board — a vast ringed sea with the Pharos burning at its heart.
+Thalassa board — the Safe Isles ringed by storm, four gates to the wilds.
 
 Every game rolls a new chart. The Pharos — a shining white colossus — stands
-at the exact center of the world; Home Port sits in its shadow. Around them,
-three rings of islands spread outward to the storm wall that seals the region:
+at the exact center; Home Port sits in its shadow. Three rings of islands
+(the SAFE ISLES: temples, puzzle spires, market isles, havens, and small
+hunting grounds — nothing worse) spread to the storm wall that seals the
+world. Ring roads and spokes make the chart a lattice of LOOPS.
 
-    ring 1  the inner isles: temples, puzzle spires, two market isles
-    ring 2  the middle waters: first trials, hunting grounds, more temples
-    ring 3  the outer shoals: the great trials, the wild edge of the storm
+At the four compass points a GATE pierces the storm. Beyond each lies a
+REGION drawn at random from a themed pool — a spine of hard water with a
+couple of side loops, elite ambushes, one haven, and a solo BOSS at the
+far end holding that region's sigil fragment. Bosses are personal trials:
+every captain faces their own. Haul a fragment home to bank it; bank
+RELICS_TO_WIN and the Pharos opens.
 
-Ring roads and spokes make the chart a lattice of LOOPS — exact-roll
-movement needs circuits, and every route back to the center passes real
-open water.
-
-Node types: home · pharos · shrine · puzzle · haven · shop · monster · lair · sea
-Lairs hold SOLO boss guardians and the relic seals; "monster" spots are
-hunting grounds where a fresh random pack ambushes whoever lands (never a
-wall). The engine owns per-game state (monster hp, shrine charges, relics),
+Node types: home · pharos · shrine · puzzle · haven · shop · monster ·
+            lair · gate · sea
+The engine owns per-game state (monster hp, shrine charges, fragments),
 so a Board instance belongs to one Game and mutates freely.
 """
 from __future__ import annotations
@@ -40,17 +40,66 @@ ISLAND_NAMES = [
     "Patmos", "Astypalaia", "Karpathos", "Kasos", "Symi", "Tilos",
     "Rhodos", "Kythera", "Ithaka", "Zakynthos", "Kefalonia", "Lefkada",
     "Salamis", "Aegina", "Hydra", "Spetses", "Poros", "Skiathos",
+    "Alonissos", "Skopelos", "Euboia", "Delos", "Mykonos", "Anafi",
+    "Nisyros", "Chalki", "Lipsi", "Fourni", "Psara", "Antikythera",
+    "Gavdos", "Elafonisos", "Meganisi", "Kalamos",
 ]
 
-# Bosses are SOLO — one great guardian per trial lair, where the relics are.
-# (name, hp, power, tier) — tier is the question difficulty asked.
-BOSSES = [("The Cyclops", 5, 2, 3), ("The Siren Queen", 5, 2, 3),
-          ("The Hydra", 5, 2, 3), ("The Minotaur", 5, 2, 3),
-          ("The Sphinx", 5, 2, 3), ("The Gorgon", 5, 2, 3),
-          ("The Empusa", 5, 2, 3), ("The Laestrygonian King", 5, 2, 3)]
-ELITES = [("Skylla", 6, 2, 3), ("The Chimera", 6, 2, 3), ("The Ketos", 6, 2, 3),
-          ("Charybdis", 6, 3, 3), ("Typhon's Spawn", 6, 3, 3)]
 WARDEN = ("The Warden of the Pharos", 8, 3, 3)
+
+# ── the region pool: 4 are drawn per game, one per storm gate ────────────────
+# Each region: palette theme id, display name, boss (solo, personal trial),
+# and an elite encounter table for its hunting grounds.
+REGION_POOL = {
+    "autumn": {
+        "name": "The Amber Vale", "boss": ("The Stag King", 6, 2, 3),
+        "elites": [("Dire Boars", "Dire Boar", 3, 2),
+                   ("Stag Spirits", "Stag Spirit", 2, 2),
+                   ("Leafshade Wolves", "Leafshade Wolf", 2, 2)],
+    },
+    "ice": {
+        "name": "The Frostfang Shores", "boss": ("The Boreal Wyrm", 6, 2, 3),
+        "elites": [("Frost Wolves", "Frost Wolf", 2, 2),
+                   ("Ice Wraiths", "Ice Wraith", 2, 2),
+                   ("Rime Harpies", "Rime Harpy", 2, 2)],
+    },
+    "volcano": {
+        "name": "The Cinderline", "boss": ("The Forge Tyrant", 6, 2, 3),
+        "elites": [("Magma Hounds", "Magma Hound", 3, 2),
+                   ("Ash Shades", "Ash Shade", 2, 2),
+                   ("Cinder Serpents", "Cinder Serpent", 3, 2)],
+    },
+    "jungle": {
+        "name": "The Verdigris Deep", "boss": ("The Strangler Matriarch", 6, 2, 3),
+        "elites": [("Jaguar Shades", "Jaguar Shade", 2, 2),
+                   ("Vine Horrors", "Vine Horror", 3, 2),
+                   ("Poison Birds", "Poison Bird", 2, 2)],
+    },
+    "marsh": {
+        "name": "The Mirefen", "boss": ("The Mire Hag", 6, 2, 3),
+        "elites": [("Bog Drowned", "Drowned Thrall", 2, 2),
+                   ("Fen Serpents", "Fen Serpent", 3, 2),
+                   ("Will-o-Wisps", "Will-o-Wisp", 2, 2)],
+    },
+    "desert": {
+        "name": "The Bleached Reach", "boss": ("The Dune Colossus", 6, 2, 3),
+        "elites": [("Sand Raiders", "Sand Raider", 2, 2),
+                   ("Bone Vultures", "Bone Vulture", 2, 2),
+                   ("Glass Scorpions", "Glass Scorpion", 3, 2)],
+    },
+    "blossom": {
+        "name": "The Petal Court", "boss": ("The Thorn Queen", 6, 2, 3),
+        "elites": [("Petal Sprites", "Petal Sprite", 2, 2),
+                   ("Briar Beasts", "Briar Beast", 3, 2),
+                   ("Silk Moths", "Silk Moth", 2, 2)],
+    },
+    "reef": {
+        "name": "The Drowned Reef", "boss": ("The Tide Wyrm", 6, 2, 3),
+        "elites": [("Reef Lurkers", "Reef Lurker", 3, 2),
+                   ("Coral Crabs", "Coral Crab", 3, 2),
+                   ("Deep Sirens", "Deep Siren", 2, 2)],
+    },
+}
 
 # Random encounter table for hunting grounds ("monster" spots): a fresh pack
 # ambushes whoever LANDS there — they never wall off passage.
@@ -72,8 +121,8 @@ ENCOUNTERS_HEAVY = [
     ("Deep Serpents", "Deep Serpent", 3, 2),
 ]
 
-RELICS_TOTAL = 8           # trial lairs on the map, one relic seal each
-RELICS_TO_WIN = 3
+REGIONS_PER_GAME = 4       # gates through the storm, one region beyond each
+RELICS_TO_WIN = 3          # sigil fragments needed to open the Pharos
 SHRINE_CHARGES = 2
 
 # radial layout: ring radii (world units) and islands per ring
@@ -86,10 +135,12 @@ _FLOTSAM_CHANCE = 0.25
 _SEA_LOOKS = ["buoy", "buoy", "buoy", "rocks", "rocks", "islet", "islet", "none"]
 _RING_TYPES = {
     1: ["shrine", "shrine", "shrine", "puzzle", "puzzle", "shop", "shop", "haven"],
-    2: ["lair", "lair", "monster", "monster", "monster",
-        "shrine", "shrine", "puzzle", "puzzle", "shop"],
-    3: ["lair", "lair", "lair", "lair", "lair", "lair", "monster", "haven"],
+    2: ["monster", "monster", "monster", "shrine", "shrine",
+        "puzzle", "puzzle", "shop", "haven", "haven"],
+    3: ["monster", "monster", "monster", "shrine", "puzzle", "haven", "shop", "haven"],
 }
+_GATE_ANGLES = [1.5707963, 3.1415927, 4.7123890, 0.0]   # N, W, S, E of the chart
+_REGION_SPINE = (4, 6)        # spine stops per region (min, max)
 
 
 class Board:
@@ -107,8 +158,6 @@ class Board:
         rng = self.rng
         names = ISLAND_NAMES[:]
         rng.shuffle(names)
-        bosses, elites = BOSSES[:], ELITES[:]
-        rng.shuffle(bosses); rng.shuffle(elites)
 
         # the Pharos at the world's center, Home Port in its shadow
         self.nodes["pharos"] = {"id": "pharos", "name": "The Pharos",
@@ -133,8 +182,7 @@ class Board:
                 row.append(nid)
             rings.append(row)
 
-        # decorate payloads
-        relic_no = 1
+        # decorate the Safe Isles — no lairs in here, only small trouble
         for ri in range(1, 4):
             for nid in rings[ri]:
                 node = self.nodes[nid]
@@ -148,12 +196,6 @@ class Board:
                 elif ntype == "monster":
                     node["monster"] = None       # hunting grounds: packs spawn on landing
                     node["encounter"] = True
-                elif ntype == "lair":
-                    pool = bosses if ri <= 2 else (bosses if rng.random() < 0.4 and bosses else elites)
-                    m = pool.pop() if pool else (elites.pop() if elites else bosses.pop())
-                    node["monster"] = self._boss(m, rng)
-                    node["relic"] = relic_no
-                    relic_no += 1
         self.nodes["pharos"]["monster"] = self._boss(WARDEN, rng)
 
         # edges — ring roads (loops), spokes inward, a few long chords
@@ -182,9 +224,110 @@ class Board:
                 b = min(rings[3], key=lambda p: self._dist(a, p))
                 self._link(a, b)
 
+        # ── the four storm gates and the regions beyond ──────────────────────
+        self.gates = []
+        self.regions = rng.sample(sorted(REGION_POOL), REGIONS_PER_GAME)
+        for gi, (theme, base_a) in enumerate(zip(self.regions, _GATE_ANGLES)):
+            self._grow_region(gi, theme, base_a + rng.uniform(-0.18, 0.18),
+                              rings, names, rng)
+
         self._build_neighbors()
         self._ensure_connected()
         self._insert_waypoints(rng)
+
+    def _grow_region(self, gi: int, theme: str, ang: float, rings, names, rng):
+        """A gate through the wall, then a spine of hard water with side
+        loops, elite hunting grounds, one haven, and the boss at the end."""
+        info = REGION_POOL[theme]
+        gate_id = f"gate{gi}"
+        gx = math.cos(ang) * (WALL_R + 10)
+        gz = math.sin(ang) * (WALL_R + 10)
+        self.nodes[gate_id] = {"id": gate_id, "name": f"Gate of {info['name']}",
+                               "type": "gate", "band": 4, "region": theme,
+                               "gate_angle": round(ang, 4),
+                               "x": round(gx, 2), "z": round(gz, 2)}
+        self.gates.append(gate_id)
+        near = min(rings[3], key=lambda p: self._dist(gate_id, p))
+        self._link(gate_id, near)
+
+        # the spine marches outward with a slow bend
+        n_spine = rng.randint(*_REGION_SPINE)
+        spine = [gate_id]
+        bend = rng.uniform(-0.055, 0.055)
+        for i in range(1, n_spine + 1):
+            a = ang + bend * i + rng.uniform(-0.03, 0.03)
+            r = (WALL_R + 10) + i * rng.uniform(72, 92)
+            nid = f"r{gi}_{i}"
+            # spine stops: mostly open water, salted with elite grounds
+            self.nodes[nid] = {"id": nid, "name": "Open Sea", "type": "sea",
+                               "band": 4, "region": theme,
+                               "x": round(math.cos(a) * r, 2),
+                               "z": round(math.sin(a) * r, 2),
+                               "flotsam": rng.random() < 0.3,
+                               "look": rng.choice(_SEA_LOOKS)}
+            self._link(spine[-1], nid)
+            spine.append(nid)
+
+        # promote spine stops: elites, a haven checkpoint, maybe a temple
+        interior = spine[1:-1]
+        picks = rng.sample(interior, min(4, len(interior)))
+        for i, nid in enumerate(picks):
+            node = self.nodes[nid]
+            node["name"] = names.pop()
+            node.pop("flotsam", None)
+            node.pop("look", None)
+            if i < 2:
+                node["type"] = "monster"
+                node["monster"] = None
+                node["encounter"] = True
+                node["elite"] = True
+            elif i == 2:
+                node["type"] = "haven"
+            else:
+                node["type"] = "shrine"
+                node["domain"] = rng.choice(DOMAINS)
+                node["charges"] = SHRINE_CHARGES
+                node["tier"] = 2
+
+        # the boss altar at the spine's end
+        end = spine[-1]
+        node = self.nodes[end]
+        node.pop("flotsam", None)
+        node.pop("look", None)
+        node["type"] = "lair"
+        node["name"] = info["name"]
+        node["region"] = theme
+        node["boss_spec"] = list(info["boss"])
+        node["monster"] = None            # a fresh boss spawns per challenger
+        node["defeated"] = []             # pids who have beaten their trial
+        node["stash"] = []                # pids with a fragment waiting here
+
+        # 1-2 side loops for exact-roll steering
+        for _ in range(rng.randint(1, 2)):
+            if len(spine) < 4:
+                break
+            i0 = rng.randint(1, len(spine) - 3)
+            i1 = i0 + rng.randint(1, 2)
+            if i1 >= len(spine) - 1:
+                i1 = len(spine) - 2
+            if i0 >= i1:
+                continue
+            side = rng.choice([-1, 1])
+            a0 = math.atan2(self.nodes[spine[i0]]["z"], self.nodes[spine[i0]]["x"])
+            mid_r = (math.hypot(self.nodes[spine[i0]]["x"], self.nodes[spine[i0]]["z"]) +
+                     math.hypot(self.nodes[spine[i1]]["x"], self.nodes[spine[i1]]["z"])) / 2
+            nid = f"r{gi}_s{i0}"
+            if nid in self.nodes:
+                continue
+            aa = a0 + side * 0.14
+            self.nodes[nid] = {"id": nid, "name": "Open Sea", "type": "sea",
+                               "band": 4, "region": theme,
+                               "x": round(math.cos(aa) * mid_r, 2),
+                               "z": round(math.sin(aa) * mid_r, 2),
+                               "flotsam": rng.random() < 0.4,
+                               "look": rng.choice(_SEA_LOOKS)}
+            self._link(spine[i0], nid)
+            self._link(nid, spine[i1])
 
     def _insert_waypoints(self, rng):
         """Split every island-to-island edge into a chain of open-sea nodes,
@@ -213,6 +356,9 @@ class Board:
                     "flotsam": rng.random() < _FLOTSAM_CHANCE,
                     "look": rng.choice(_SEA_LOOKS),
                 }
+                reg = na.get("region") or nb.get("region")
+                if reg:
+                    self.nodes[nid]["region"] = reg
                 chain.append(nid)
             chain.append(b)
             for u, v in zip(chain, chain[1:]):
@@ -226,16 +372,29 @@ class Board:
                 "boss": True,
                 "enemies": [{"name": name, "hp": hp, "max_hp": hp, "power": power}]}
 
-    def random_pack(self, band: int, rng: random.Random | None = None) -> dict:
-        """A fresh random encounter for a hunting-ground landing (1-3 enemies)."""
+    def random_pack(self, node: dict, rng: random.Random | None = None) -> dict:
+        """A fresh random encounter for a hunting-ground landing (1-3 enemies).
+        Region grounds draw from their theme's elite table."""
         rng = rng or self.rng
-        pool = ENCOUNTERS_LIGHT if band <= 2 else ENCOUNTERS_HEAVY
+        theme = node.get("region")
+        if theme and node.get("elite"):
+            pool = REGION_POOL[theme]["elites"]
+            tier = 3
+        else:
+            pool = ENCOUNTERS_LIGHT if node.get("band", 0) <= 2 else ENCOUNTERS_HEAVY
+            tier = 2 if node.get("band", 0) <= 2 else 3
         name, unit, hp, power = rng.choice(pool)
         count = rng.choice([2, 2, 3]) if hp <= 2 else rng.choice([1, 2])
         enemies = [{"name": f"{unit} {'ⅠⅡⅢ'[i]}" if count > 1 else unit,
                     "hp": hp, "max_hp": hp, "power": power} for i in range(count)]
-        return {"name": name, "tier": 2 if band <= 2 else 3,
+        return {"name": name, "tier": tier,
                 "domain": rng.choice(DOMAINS), "enemies": enemies}
+
+    def spawn_boss(self, nid: str) -> dict:
+        """A fresh personal-trial boss for whoever just landed."""
+        node = self.nodes[nid]
+        node["monster"] = self._boss(tuple(node["boss_spec"]), self.rng)
+        return node["monster"]
 
     def _dist(self, a: str, b: str) -> float:
         na, nb = self.nodes[a], self.nodes[b]

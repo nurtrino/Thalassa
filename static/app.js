@@ -344,15 +344,15 @@ function renderBounties() {
 function renderGoal() {
   const me = room.players.find((p) => p.pid === you);
   const el = $('goal');
-  if (!me) { el.innerHTML = '<strong>✦ Goal:</strong> bank 3 seals, then take the Pharos'; return; }
+  if (!me) { el.innerHTML = '<strong>✦ Goal:</strong> bank 3 sigil fragments, then take the Pharos'; return; }
   const n = room.config.relics_to_win;
   const pips = Array.from({ length: n }, (_, i) =>
     `<span class="pip ${i < me.banked ? 'on' : ''}">✦</span>`).join('');
   let hint;
   if (room.winner) hint = '';
   else if (me.banked >= n) hint = '⚡ <strong>THE PHAROS IS OPEN</strong> — land on it and face the Warden.';
-  else if (me.cargo > 0) hint = '⚱ Seal aboard — <strong>sail it home</strong> to bank it.';
-  else hint = 'Beat trial bosses for seals · temples pay scrolls · shops sell charms and fittings';
+  else if (me.cargo > 0) hint = '⚱ Fragment aboard — <strong>sail it home</strong> to bank it.';
+  else hint = 'Sigil fragments lie beyond the four storm gates · temples pay scrolls · shops sell charms';
   el.innerHTML = `${pips} <span class="goaltext">${hint}</span>`;
 }
 
@@ -479,7 +479,7 @@ function renderBattle() {
     </div>`).join('');
   $('bmon').innerHTML = `
     <div class="btitle">${b.is_pharos ? '🏛' : b.boss ? '👑' : b.is_lair ? '⚱' : '⚔'} ${esc(b.name)}</div>
-    <div class="bsub" style="color:${dcolor}">${b.boss ? 'BOSS · ' : ''}${room.board.domains[b.domain]?.field || ''}${b.is_lair ? ' · holds a seal' : ''}</div>
+    <div class="bsub" style="color:${dcolor}">${b.boss ? 'BOSS · ' : ''}${room.board.domains[b.domain]?.field || ''}${b.is_lair ? ' · your trial' : ''}</div>
     <div class="erow">${cards}</div>
     <div id="bturn">${room.phase === 'battle'
       ? (pendingMove ? '🎯 CHOOSE A TARGET' : (mine ? '⚔ YOUR MOVE' : `${esc(fighter?.name || '')}'s move…`))
@@ -988,10 +988,10 @@ function renderModal() {
     show(`<h2>🏛 Race to the Pharos</h2>
       <ol class="intro">
         <li><strong>Sail</strong> — the roll is your move, exactly. Steer with the chart's loops.</li>
-        <li><strong>Earn</strong> — temples pay scrolls for trivia. Puzzle spires grant fittings — 30 seconds on the clock.</li>
-        <li><strong>Spend</strong> — market isles sell hint stones, charms, and fittings. Repairs at havens.</li>
-        <li><strong>Fight</strong> — trial bosses hold the seals. STRIKE is safe; MAGIC hits hard but backfires on a miss. Fleeing a regular fight: 2 scrolls, even odds.</li>
-        <li><strong>Win</strong> — bank 3 seals at Home Port, then land on the Pharos and beat the Warden.</li>
+        <li><strong>Prepare</strong> — the Safe Isles pay scrolls at temples and puzzle spires; shops sell charms and fittings.</li>
+        <li><strong>Venture</strong> — four gates pierce the storm. Each region ends in a BOSS: your personal trial, and a sigil fragment.</li>
+        <li><strong>Haul it home</strong> — shipwreck drops your fragment at the boss altar; sail back and reclaim it, no refight.</li>
+        <li><strong>Win</strong> — bank 3 fragments at Home Port, then land on the Pharos and beat the Warden.</li>
       </ol>
       <p class="tag">Shipwreck sends you to your last checkpoint — cargo lost. Answer on rivals' turns for a scroll.</p>
       <button id="introGo" class="big">SET SAIL</button>`);
