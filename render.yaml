@@ -1,0 +1,19 @@
+# Thalassa — Render Blueprint.
+#
+# One Python web service. Rooms live in process memory → keep this at a
+# single instance. Set TRIVIA_API_KEY in the Render dashboard (it is a
+# secret — never commit it).
+
+services:
+  - type: web
+    name: thalassa
+    runtime: python
+    plan: starter
+    startCommand: uvicorn server:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /healthz
+    autoDeploy: true
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.12.6"
+      - key: TRIVIA_API_KEY     # the-trivia-api.com key (secret, set in dashboard)
+        sync: false
