@@ -1,0 +1,903 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#0b141d">
+<title>THALASSA — UI Kit</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%230f1b28'/%3E%3Cpath d='M8 41c4 8.5 14 12.5 24 12.5S52 49.5 56 41l-7 2.5H15Z' fill='%23c9a227'/%3E%3Crect x='30' y='10' width='4' height='28' rx='1.5' fill='%23c9a227'/%3E%3C/svg%3E">
+<link rel="stylesheet" href="/static/style.css">
+<style>
+/* ═══ demo scaffolding only — every component below uses /static/style.css ═══
+   .ud-stage carries a transform, so the game's position:fixed HUD anchors to
+   the stage box exactly as it anchors to the viewport in play. */
+html, body { height: auto; overflow-x: hidden; overflow-y: auto; }
+body { background: radial-gradient(120% 80% at 50% -20%, #16273a, #0b141d 60%), #0b141d; }
+.ud-top {
+  position: sticky; top: 0; z-index: 500;
+  display: flex; align-items: center; gap: 18px; flex-wrap: wrap;
+  padding: 12px 22px;
+  background: rgba(11, 20, 29, .92);
+  border-bottom: 1px solid rgba(201, 162, 39, .35);
+  backdrop-filter: blur(6px);
+}
+.ud-mark { font-family: var(--disp); font-weight: 900; font-size: 17px; letter-spacing: .3em; color: var(--gilt); }
+.ud-mark em { font-family: var(--body); font-style: italic; font-weight: 400; font-size: 12px; letter-spacing: .04em; color: var(--mist); text-transform: none; margin-left: 10px; }
+.ud-tabs { display: flex; gap: 6px; flex-wrap: wrap; }
+.ud-tab {
+  font-family: var(--disp); font-weight: 700; font-size: 11.5px;
+  letter-spacing: .12em; text-transform: uppercase;
+  color: var(--mist);
+  padding: 6px 12px; border-radius: 999px;
+  border: 1px solid rgba(159, 178, 193, .25);
+  transition: color .15s, border-color .15s, background .15s;
+}
+.ud-tab:hover { color: var(--bone); border-color: rgba(201, 162, 39, .5); }
+.ud-tab.on { color: #3a2a08; background: linear-gradient(180deg, #ecca62, #c9a227); border-color: var(--bronze-dark); }
+.ud-wrap { max-width: 1320px; margin: 0 auto; padding: 28px 22px 90px; }
+.ud-sec { display: none; }
+.ud-sec.ud-show { display: block; }
+.ud-h {
+  display: flex; align-items: center; gap: 14px;
+  font-family: var(--disp); font-weight: 700; font-size: 15px;
+  letter-spacing: .26em; text-transform: uppercase;
+  color: var(--bronze);
+  margin: 34px 0 16px;
+}
+.ud-h::before, .ud-h::after { content: ''; height: 1px; flex: 1; background: linear-gradient(90deg, transparent, rgba(201, 162, 39, .5), transparent); }
+.ud-h:first-child { margin-top: 4px; }
+.ud-cap { font-size: 13px; font-style: italic; color: var(--mist); margin: 8px 2px 0; }
+.ud-stage {
+  position: relative;
+  transform: translateZ(0);            /* fixed children anchor here */
+  overflow: hidden;
+  border: 1px solid rgba(201, 162, 39, .3);
+  border-radius: 14px;
+  min-height: 640px;
+  box-shadow: 0 20px 50px rgba(2, 6, 10, .5), inset 0 0 90px rgba(3, 8, 13, .35);
+  background:
+    radial-gradient(120% 90% at 72% -12%, rgba(240, 208, 96, .2), transparent 55%),
+    radial-gradient(60% 26% at 30% 49%, rgba(20, 44, 56, .9), transparent 70%),
+    linear-gradient(180deg, #35597a 0%, #2a6d86 40%, #0f5b74 52%, #0b4761 56%, #0d3350 80%, #091625 100%);
+}
+.ud-stage::after { content: ''; position: absolute; inset: 0; background: var(--grain); opacity: .5; pointer-events: none; }
+.ud-stage.ud-night {
+  background:
+    radial-gradient(80% 60% at 50% 12%, rgba(127, 212, 239, .16), transparent 60%),
+    linear-gradient(180deg, #0b1a29 0%, #1c3349 42%, #10222f 58%, #060b12 100%);
+}
+.ud-stage.ud-dusk {
+  background:
+    radial-gradient(90% 70% at 60% 0%, rgba(240, 162, 79, .25), transparent 55%),
+    linear-gradient(180deg, #2c2338 0%, #5c3b46 38%, #201f33 60%, #090c14 100%);
+}
+.ud-stage.ud-mid { min-height: 520px; }
+.ud-stage.ud-mini { min-height: 250px; }
+.ud-row { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; }
+.ud-col { display: flex; flex-direction: column; gap: 12px; align-items: flex-start; }
+.ud-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 18px; align-items: start; }
+.ud-mggrid { display: grid; grid-template-columns: repeat(auto-fit, minmax(580px, max-content)); gap: 22px; justify-content: center; align-items: start; }
+.ud-tray { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; justify-content: center; padding: 16px 10px; border: 1px dashed rgba(201, 162, 39, .25); border-radius: 12px; background: rgba(6, 9, 13, .35); }
+.ud-swatches { display: grid; grid-template-columns: repeat(auto-fill, minmax(128px, 1fr)); gap: 10px; }
+.ud-swatch { border: 1px solid rgba(201, 162, 39, .25); border-radius: 9px; overflow: hidden; background: var(--ink2); }
+.ud-swatch i { display: block; height: 46px; }
+.ud-swatch b { display: block; font-family: var(--disp); font-size: 10.5px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; color: var(--bone); padding: 6px 8px 1px; }
+.ud-swatch span { display: block; font-size: 11px; color: var(--mist); padding: 0 8px 7px; }
+.ud-type h1 { font-size: 44px; letter-spacing: .2em; }
+.ud-type .w4 { font-weight: 400; } .ud-type .w9 { font-weight: 900; }
+.ud-note { font-size: 13.5px; color: var(--mist); max-width: 72ch; line-height: 1.5; }
+.ud-chipboard { display: flex; flex-wrap: wrap; gap: 14px 22px; align-items: center; padding: 16px; border: 1px dashed rgba(201, 162, 39, .25); border-radius: 12px; background: rgba(6, 9, 13, .35); }
+@media (max-width: 700px) {
+  .ud-mggrid { grid-template-columns: 1fr; }
+  .ud-stage { min-height: 560px; }
+}
+</style>
+</head>
+<body>
+
+<!-- ── shared icon sheet (24×24 stroke bronze style, no emoji) ─────────── -->
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <defs>
+    <g id="i-scroll"><path d="M7 4.5h10a2.5 2.5 0 0 1 2.5 2.5v.5a2 2 0 0 1-4 0V7" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/><path d="M7 4.5a2.5 2.5 0 0 0-2.5 2.5v10A2.5 2.5 0 0 0 7 19.5h9.5a2.5 2.5 0 0 0 2.5-2.5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><path d="M8.5 10h6M8.5 13.5h6" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></g>
+    <g id="i-star"><path d="M12 3l2.1 6.9L21 12l-6.9 2.1L12 21l-2.1-6.9L3 12l6.9-2.1Z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></g>
+    <g id="i-flame"><path d="M12 3.2c3 3.4 5.8 6.2 5.8 9.8a5.8 5.8 0 0 1-11.6 0c0-2.3 1.1-4 2.8-5.8.3 1.4 1 2.4 2 2.9.1-2.4.3-4.6 1-6.9Z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></g>
+    <g id="i-amphora"><path d="M9.5 3.5h5M10.5 3.5c0 1.8-1.7 2.3-2.8 3.1C6.2 7.7 5.5 9.2 5.5 11.2c0 3.8 2.3 6 4.6 7L9.5 20.5h5l-.6-2.3c2.3-1 4.6-3.2 4.6-7 0-2-.7-3.5-2.2-4.6-1.1-.8-2.8-1.3-2.8-3.1" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></g>
+    <g id="i-wind"><path d="M3 8.5h8.5A2.4 2.4 0 1 0 9.1 6M3 12.5h13.5a2.4 2.4 0 1 1-2.4 2.4M3 16.5h6a2 2 0 1 1-2 2" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></g>
+    <g id="i-horn"><path d="M3.5 14C9.5 15 13.5 12.5 16 8l4.5-4-1.2 5.8C17.5 16 11 19.5 3.5 17.5Z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/><path d="M8 14.5l1.5 3" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></g>
+    <g id="i-shield"><path d="M12 3l7 2.8v6c0 4.2-3 7.3-7 9.2-4-1.9-7-5-7-9.2v-6Z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><path d="M12 7.5v5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></g>
+    <g id="i-planks"><path d="M3.5 7.5h17V11h-17zM3.5 13h17v3.5h-17z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><path d="M7 9.2h.01M17 9.2h.01M7 14.7h.01M17 14.7h.01" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/></g>
+    <g id="i-sword"><path d="M14 4.5l5.5 5.5L9.5 20l-3.4 1.1a.7.7 0 0 1-.9-.9L6.3 17Z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><path d="M13 8.5l2.5 2.5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></g>
+    <g id="i-spark"><path d="M12 3l1.9 5.6L19.5 10l-5.6 1.9L12 17.5l-1.9-5.6L4.5 10l5.6-1.4Z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><path d="M18 16.5l.7 2 2 .7-2 .7-.7 2-.7-2-2-.7 2-.7Z" fill="currentColor"/></g>
+    <g id="i-flee"><path d="M4.5 12h13M12 5.5l6.5 6.5-6.5 6.5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></g>
+    <g id="i-crown"><path d="M4.5 16.5h15M4.5 16.5L3.5 8l4.7 3.6L12 5.5l3.8 6.1L20.5 8l-1 8.5Z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></g>
+    <g id="i-skull"><circle cx="12" cy="10.5" r="6.5" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M9.2 16.5V20M12 17v3M14.8 16.5V20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><circle cx="9.5" cy="10.5" r="1.1" fill="currentColor"/><circle cx="14.5" cy="10.5" r="1.1" fill="currentColor"/></g>
+    <g id="i-eye"><path d="M2.8 12S6.3 5.9 12 5.9 21.2 12 21.2 12 17.7 18.1 12 18.1 2.8 12 2.8 12Z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><circle cx="12" cy="12" r="2.6" fill="none" stroke="currentColor" stroke-width="1.8"/></g>
+    <g id="i-bag"><path d="M6 8.5h12l1.2 11.5H4.8Z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><path d="M9 8.5V7a3 3 0 0 1 6 0v1.5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></g>
+    <g id="i-gate"><path d="M5.5 20V8M18.5 20V8M3.5 8h17M7.5 8l1.2-3.5h6.6L16.5 8M3.5 20h17" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></g>
+    <g id="i-home"><path d="M4 11.5l8-7 8 7M6.5 9.8V20h11V9.8" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></g>
+    <g id="i-hammer"><path d="M3.5 20.5l8-8M11 5.8L14.3 2.5l7.2 7.2-3.3 3.3zM11 5.8l7.2 7.2" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></g>
+    <g id="i-banner"><path d="M6 3.5v17M6 4.5h12l-2.5 3.5L18 11.5H6" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></g>
+  </defs>
+</svg>
+
+<header class="ud-top">
+  <span class="ud-mark">THALASSA<em>Aegean Bronze — UI kit &amp; design review</em></span>
+  <nav class="ud-tabs">
+    <button class="ud-tab on" data-sec="found">Foundations</button>
+    <button class="ud-tab" data-sec="lobby">Lobby</button>
+    <button class="ud-tab" data-sec="hud">HUD</button>
+    <button class="ud-tab" data-sec="battle">Battle</button>
+    <button class="ud-tab" data-sec="question">Question</button>
+    <button class="ud-tab" data-sec="minigames">Minigames</button>
+    <button class="ud-tab" data-sec="shop">Shop</button>
+    <button class="ud-tab" data-sec="modals">Modals &amp; FX</button>
+  </nav>
+</header>
+
+<main class="ud-wrap">
+
+<!-- ═══════════════════════════ FOUNDATIONS ═══════════════════════════════ -->
+<section class="ud-sec ud-show" id="sec-found">
+  <h2 class="ud-h">Palette</h2>
+  <div class="ud-swatches">
+    <div class="ud-swatch"><i style="background:#0b141d"></i><b>Ink I</b><span>#0b141d</span></div>
+    <div class="ud-swatch"><i style="background:#0f1b28"></i><b>Ink II</b><span>#0f1b28</span></div>
+    <div class="ud-swatch"><i style="background:#16273a"></i><b>Ink III</b><span>#16273a</span></div>
+    <div class="ud-swatch"><i style="background:#efe6d0"></i><b>Parchment</b><span>#efe6d0</span></div>
+    <div class="ud-swatch"><i style="background:#e4d7b8"></i><b>Parchment lo</b><span>#e4d7b8</span></div>
+    <div class="ud-swatch"><i style="background:#c9a227"></i><b>Bronze</b><span>#c9a227</span></div>
+    <div class="ud-swatch"><i style="background:#e8c65f"></i><b>Bronze hi</b><span>#e8c65f</span></div>
+    <div class="ud-swatch"><i style="background:#a07d1c"></i><b>Bronze deep</b><span>#a07d1c</span></div>
+    <div class="ud-swatch"><i style="background:#8a6c1c"></i><b>Bronze dark</b><span>#8a6c1c</span></div>
+    <div class="ud-swatch"><i style="background:#a03325"></i><b>Blood</b><span>#a03325</span></div>
+    <div class="ud-swatch"><i style="background:#3f8f5f"></i><b>Verdant</b><span>#3f8f5f</span></div>
+    <div class="ud-swatch"><i style="background:#7fd4ef"></i><b>Frostfang</b><span>ice · #7fd4ef</span></div>
+    <div class="ud-swatch"><i style="background:#e8c27a"></i><b>Bleached</b><span>desert · #e8c27a</span></div>
+    <div class="ud-swatch"><i style="background:#6fd490"></i><b>Verdigris</b><span>jungle · #6fd490</span></div>
+    <div class="ud-swatch"><i style="background:#f0a24f"></i><b>Amber Vale</b><span>autumn · #f0a24f</span></div>
+    <div class="ud-swatch"><i style="background:#d9a441"></i><b>Safe Isles</b><span>hub · #d9a441</span></div>
+  </div>
+
+  <h2 class="ud-h">Type</h2>
+  <div class="ud-type ud-col">
+    <h1 class="gilt w9">THALASSA</h1>
+    <h1 class="w4" style="font-size:26px;letter-spacing:.14em;color:var(--bone)">Cinzel — engraved display, 400–900</h1>
+    <p style="font-size:18px;max-width:64ch">Alegreya carries the body copy: riddles, rules and the ship's log. It reads like a printed page —
+      <em>and the italic answers back like a margin note scrawled by the navigator.</em></p>
+  </div>
+
+  <h2 class="ud-h">Bronze controls</h2>
+  <div class="ud-chipboard">
+    <button class="act gold">ROLL THE DIE<small>a bronze knucklebone, one to three</small></button>
+    <button class="act">SET SAIL</button>
+    <button class="act tier">COMMUNE<span class="tierchip">III</span></button>
+    <button class="act tier hot">FIGHT<small>the pack blocks the strait</small></button>
+    <button class="act oracle">ORACLE<small>double or nothing</small></button>
+    <button class="act build">REPAIR<small>2 scrolls · +2 hull</small></button>
+    <button class="act ghost">PASS</button>
+    <button class="act" disabled>BANK RELIC<small>stone — nothing to bank</small></button>
+    <button class="act small">skip turn</button>
+    <button class="big" style="width:auto">JOIN THE VOYAGE</button>
+    <button class="buy">BUY</button>
+    <button class="buybtn" disabled>BUY</button>
+    <button class="itembtn">USE A HINT<small>rules one answer out</small></button>
+  </div>
+  <p class="ud-cap">Hover for the lift + glint sweep · press for the engrave · disabled is dead stone.</p>
+
+  <div class="ud-chipboard" style="margin-top:14px">
+    <button class="battlebtn strike">STRIKE<span class="tierchip">II</span></button>
+    <button class="battlebtn magic">MAGIC<span class="tierchip">III</span></button>
+    <button class="battlebtn guard">GUARD<span class="tierchip">I</span></button>
+    <button class="battlebtn ghost">FLEE</button>
+    <input style="max-width:240px;margin:0" placeholder="Your name, captain" value="Chase">
+  </div>
+
+  <h2 class="ud-h">Chips &amp; pips</h2>
+  <div class="ud-chipboard">
+    <span class="stat"><svg viewBox="0 0 24 24"><use href="#i-scroll"/></svg>7</span>
+    <span class="stat cargo"><svg viewBox="0 0 24 24"><use href="#i-amphora"/></svg>1</span>
+    <span class="stat banked"><svg viewBox="0 0 24 24"><use href="#i-star"/></svg>2/4</span>
+    <span class="streak"><svg viewBox="0 0 24 24"><use href="#i-flame"/></svg>3</span>
+    <span class="hullpips"><i></i><i></i><i></i><i></i><i class="dim"></i><i class="dim"></i></span>
+    <span class="relicpips"><span class="pip on"></span><span class="pip on"></span><span class="pip"></span><span class="pip"></span></span>
+    <span class="scrolls" style="margin-left:0"><span class="scroll" style="background:#d9a441">3</span><span class="scroll" style="background:#2e9e8f">1</span><span class="scroll" style="background:#7d5ba6">2</span><span class="scroll" style="background:#e4572e">1</span></span>
+    <span class="realmbadge" data-realm="ice" title="The Frostfang Reach">F</span>
+    <span class="realmbadge" data-realm="desert" title="The Bleached Reach">B</span>
+    <span class="realmbadge" data-realm="jungle" title="The Verdigris Deep">V</span>
+    <span class="realmbadge" data-realm="autumn" title="The Amber Vale">A</span>
+    <span class="realmbadge" data-realm="hub" title="The Safe Isles">S</span>
+    <span class="price">3 scrolls</span>
+    <span class="roundpips"><i class="on"></i><i class="on"></i><i></i><i></i><i></i></span>
+    <span class="powpips"><i></i><i></i><i></i></span>
+    <span class="hpbar foe"><span class="hpcell on"></span><span class="hpcell on"></span><span class="hpcell on"></span><span class="hpcell"></span><span class="hpcell"></span></span>
+    <span class="hpbar ally"><span class="hpcell on"></span><span class="hpcell on"></span><span class="hpcell on"></span><span class="hpcell on"></span><span class="hpcell"></span><span class="hpcell"></span></span>
+  </div>
+
+  <h2 class="ud-h">The bronze knucklebone — d3</h2>
+  <div class="ud-stage ud-mini ud-night">
+    <div id="dice">
+      <div class="die" id="die1">
+        <div class="cube" style="transform:rotateX(-16deg) rotateY(28deg)">
+          <div class="face front"  data-pips="3"><i></i><i></i><i></i></div>
+          <div class="face back"   data-pips="1"><i></i></div>
+          <div class="face top"    data-pips="2"><i></i><i></i></div>
+          <div class="face bottom" data-pips="2"><i></i><i></i></div>
+          <div class="face right"  data-pips="1"><i></i></div>
+          <div class="face left"   data-pips="3"><i></i><i></i><i></i></div>
+        </div>
+      </div>
+      <div class="die">
+        <div class="cube" style="transform:rotateX(-14deg) rotateY(-32deg)">
+          <div class="face front"  data-pips="2"><i></i><i></i></div>
+          <div class="face back"   data-pips="2"><i></i><i></i></div>
+          <div class="face top"    data-pips="1"><i></i></div>
+          <div class="face bottom" data-pips="3"><i></i><i></i><i></i></div>
+          <div class="face right"  data-pips="3"><i></i><i></i><i></i></div>
+          <div class="face left"   data-pips="1"><i></i></div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <p class="ud-cap">Faces carry 1–3 twice; app.js tumbles the .cube with an inline transform + transition, the stylesheet never competes.</p>
+</section>
+
+<!-- ═══════════════════════════ LOBBY ═════════════════════════════════════ -->
+<section class="ud-sec" id="sec-lobby">
+  <h2 class="ud-h">Title screen</h2>
+  <div class="ud-stage" style="min-height:860px">
+    <div id="lobby" class="overlay">
+      <div class="panel title-panel">
+        <div class="title-hero">
+          <svg class="laurel" viewBox="0 0 60 110" aria-hidden="true">
+            <path d="M46 104 C 20 84, 12 50, 28 6" fill="none" stroke="#c9a227" stroke-width="3" stroke-linecap="round"/>
+            <g fill="#c9a227"><path d="M43 95 Q 24 90 16 100 Q 34 108 43 95 Z"/><path d="M35 82 Q 17 74 8 82 Q 25 94 35 82 Z"/><path d="M29 67 Q 13 57 4 63 Q 19 78 29 67 Z"/><path d="M26 51 Q 12 39 3 43 Q 15 60 26 51 Z"/><path d="M26 36 Q 15 22 6 24 Q 14 43 26 36 Z"/><path d="M28 21 Q 20 8 11 8 Q 16 27 28 21 Z"/></g>
+            <g fill="#a07d1c"><path d="M45 90 Q 56 76 55 62 Q 42 74 45 90 Z"/><path d="M37 74 Q 46 60 44 46 Q 32 58 37 74 Z"/><path d="M31 57 Q 38 43 35 30 Q 24 42 31 57 Z"/><path d="M29 40 Q 34 26 30 14 Q 21 27 29 40 Z"/></g>
+          </svg>
+          <div class="title-name">
+            <h1 class="gilt">THALASSA</h1>
+            <p class="tagline">Four realms wait beyond the mountain wall</p>
+          </div>
+          <svg class="laurel flip" viewBox="0 0 60 110" aria-hidden="true">
+            <path d="M46 104 C 20 84, 12 50, 28 6" fill="none" stroke="#c9a227" stroke-width="3" stroke-linecap="round"/>
+            <g fill="#c9a227"><path d="M43 95 Q 24 90 16 100 Q 34 108 43 95 Z"/><path d="M35 82 Q 17 74 8 82 Q 25 94 35 82 Z"/><path d="M29 67 Q 13 57 4 63 Q 19 78 29 67 Z"/><path d="M26 51 Q 12 39 3 43 Q 15 60 26 51 Z"/><path d="M26 36 Q 15 22 6 24 Q 14 43 26 36 Z"/><path d="M28 21 Q 20 8 11 8 Q 16 27 28 21 Z"/></g>
+            <g fill="#a07d1c"><path d="M45 90 Q 56 76 55 62 Q 42 74 45 90 Z"/><path d="M37 74 Q 46 60 44 46 Q 32 58 37 74 Z"/><path d="M31 57 Q 38 43 35 30 Q 24 42 31 57 Z"/><path d="M29 40 Q 34 26 30 14 Q 21 27 29 40 Z"/></g>
+          </svg>
+        </div>
+
+        <div id="joinForm">
+          <input id="nameInput" maxlength="16" placeholder="Your name, captain" value="Chase">
+          <button id="joinBtn" class="big">Join the Voyage</button>
+          <p id="lobbyErr" class="err"></p>
+        </div>
+
+        <div id="waitRoom">
+          <ul id="lobbyPlayers">
+            <li><span class="dot" style="background:#d9a441"></span>Chase <span class="laurel-mark">— host</span><em>you</em></li>
+            <li><span class="dot" style="background:#2e9e8f"></span>Theron<em>ready</em><button class="kick" title="Kick">&times;</button></li>
+            <li><span class="dot" style="background:#7d5ba6"></span>Kassandra<em>ready</em><button class="kick" title="Kick">&times;</button></li>
+            <li><span class="dot" style="background:#e4572e"></span>Diogenes<em>philosopher</em><button class="kick" title="Kick">&times;</button></li>
+          </ul>
+          <div class="waitbtns">
+            <button id="addBotBtn" class="small">Invite a Philosopher</button>
+            <button id="copyLink" class="small">Copy Invite Link</button>
+          </div>
+          <button id="startBtn" class="big">Set Sail</button>
+          <p id="waitMsg" class="tag">the fleet gathers&hellip;</p>
+        </div>
+
+        <div class="title-howto">
+          <div class="howto-card">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="4" width="16" height="16" rx="3.5" fill="none" stroke="#c9a227" stroke-width="1.8"/><circle cx="9" cy="9" r="1.7" fill="#c9a227"/><circle cx="12" cy="12" r="1.7" fill="#c9a227"/><circle cx="15" cy="15" r="1.7" fill="#c9a227"/></svg>
+            <strong>Sail</strong><span>Roll the bronze die &mdash; one to three &mdash; and pick your course.</span>
+          </div>
+          <div class="howto-card">
+            <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="#c9a227" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M6.5 20V8.5h3V20"/><path d="M14.5 20V8.5h3V20"/><path d="M4 8.5h16"/><path d="M9 8.5l3-4.5 3 4.5"/></svg>
+            <strong>Realms</strong><span>Frost, sand, jungle and amber vale wait beyond the wall.</span>
+          </div>
+          <div class="howto-card">
+            <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="#c9a227" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l7 2.8v6c0 4.2-3 7.3-7 9.2-4-1.9-7-5-7-9.2v-6Z"/><path d="M12 7.5v5"/></svg>
+            <strong>Fight</strong><span>Answer to strike. Guard to turn a heavy blow aside.</span>
+          </div>
+          <div class="howto-card">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2.6l2.3 7.1L21.4 12l-7.1 2.3L12 21.4l-2.3-7.1L2.6 12l7.1-2.3Z" fill="none" stroke="#c9a227" stroke-width="1.8" stroke-linejoin="round"/></svg>
+            <strong>Relics</strong><span>Slay each realm's tyrant and carry its relic home.</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <p class="ud-cap">Join form and wait-room are shown together here; in play one replaces the other.</p>
+</section>
+
+<!-- ═══════════════════════════ HUD ═══════════════════════════════════════ -->
+<section class="ud-sec" id="sec-hud">
+  <h2 class="ud-h">Full sail — the living HUD</h2>
+  <div class="ud-stage" style="min-height:700px">
+    <button id="muteBtn" aria-label="Sound on / off">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9.5v5h3.5L13 19V5L7.5 9.5H4Z"/><path class="wave" d="M16.5 9a4.4 4.4 0 0 1 0 6"/><path class="wave" d="M18.8 6.8a7.6 7.6 0 0 1 0 10.4"/></svg>
+    </button>
+    <div id="hud">
+      <div id="players">
+        <div class="pchip turn me" title="Your ship">
+          <span class="dot" style="background:#d9a441"></span>
+          <span class="pname">Chase</span>
+          <span class="streak"><svg viewBox="0 0 24 24"><use href="#i-flame"/></svg>3</span>
+          <span class="hullpips"><i></i><i></i><i></i><i></i><i class="dim"></i><i class="dim"></i></span>
+          <span class="stat"><svg viewBox="0 0 24 24"><use href="#i-scroll"/></svg>7</span>
+          <span class="stat banked"><svg viewBox="0 0 24 24"><use href="#i-star"/></svg>2/4</span>
+          <span class="upicons"><svg viewBox="0 0 24 24" style="color:#c9a227"><use href="#i-sword"/></svg><svg viewBox="0 0 24 24" style="color:#c9a227"><use href="#i-shield"/></svg></span>
+          <span class="realmbadge" data-realm="hub" title="The Safe Isles">S</span>
+        </div>
+        <div class="pchip">
+          <span class="dot" style="background:#2e9e8f"></span>
+          <span class="pname">Theron</span>
+          <span class="hullpips"><i></i><i></i><i></i><i></i><i></i></span>
+          <span class="stat"><svg viewBox="0 0 24 24"><use href="#i-scroll"/></svg>4</span>
+          <span class="stat banked"><svg viewBox="0 0 24 24"><use href="#i-star"/></svg>1/4</span>
+          <span class="realmbadge" data-realm="ice" title="The Frostfang Reach">F</span>
+        </div>
+        <div class="pchip">
+          <span class="dot" style="background:#7d5ba6"></span>
+          <span class="pname">Kassandra</span>
+          <span class="hullpips"><i></i><i></i><i class="dim"></i><i class="dim"></i><i class="dim"></i></span>
+          <span class="stat"><svg viewBox="0 0 24 24"><use href="#i-scroll"/></svg>2</span>
+          <span class="stat cargo"><svg viewBox="0 0 24 24"><use href="#i-amphora"/></svg>1</span>
+          <span class="stat banked"><svg viewBox="0 0 24 24"><use href="#i-star"/></svg>2/4</span>
+          <span class="realmbadge" data-realm="jungle" title="The Verdigris Deep">V</span>
+        </div>
+        <div class="pchip gone" title="Disconnected">
+          <span class="dot" style="background:#e4572e"></span>
+          <span class="pname">Diogenes</span>
+          <span class="hullpips"><i></i><i></i><i></i><i class="dim"></i><i class="dim"></i></span>
+          <span class="stat"><svg viewBox="0 0 24 24"><use href="#i-scroll"/></svg>1</span>
+          <span class="realmbadge" data-realm="desert" title="The Bleached Reach">B</span>
+        </div>
+        <div class="pchip dead" title="Shipwrecked">
+          <span class="dot" style="background:#3c7391"></span>
+          <span class="pname">Lysander</span>
+          <span class="hullpips"><i class="dim"></i><i class="dim"></i><i class="dim"></i><i class="dim"></i><i class="dim"></i></span>
+          <span class="stat"><svg viewBox="0 0 24 24"><use href="#i-scroll"/></svg>0</span>
+          <span class="realmbadge" data-realm="autumn" title="The Amber Vale">A</span>
+        </div>
+      </div>
+
+      <div id="turnBanner">Your turn, captain</div>
+      <div id="objective">
+        <span class="pip on"></span><span class="pip on"></span><span class="pip"></span><span class="pip"></span>
+        <span class="goaltext">Two relics banked — <strong>the Verdigris tyrant</strong> still holds his.</span>
+      </div>
+
+      <div id="compass" title="The needles point to home and the four passes">
+        <span class="needle" data-realm="hub"    style="--deg:18deg"><i></i></span>
+        <span class="needle" data-realm="ice"    style="--deg:-64deg"><i></i><i></i></span>
+        <span class="needle" data-realm="desert" style="--deg:52deg"><i></i><i></i><i></i></span>
+        <span class="needle" data-realm="jungle" style="--deg:128deg"><i></i></span>
+        <span class="needle" data-realm="autumn" style="--deg:-138deg"><i></i><i></i></span>
+      </div>
+
+      <div id="bounties">
+        <div class="btitle2"><svg viewBox="0 0 24 24"><use href="#i-banner"/></svg>Bounties</div>
+        <div class="brow"><span>First blood in the Frostfang</span><span class="breward">+2 scrolls</span></div>
+        <div class="brow done"><span>Chart three passes</span><span class="breward"><span class="dot" style="background:#7d5ba6"></span></span></div>
+        <div class="brow"><span>Slay a pack without a scratch</span><span class="breward">+3 scrolls</span></div>
+      </div>
+
+      <div id="tray">
+        <span class="hint">Open water. <strong>Roll</strong> and pick your course.</span>
+        <button class="act gold">ROLL THE DIE<small>one to three</small></button>
+        <button class="act ghost small">skip turn</button>
+      </div>
+
+      <div id="dice">
+        <div class="die" id="die1">
+          <div class="cube" style="transform:rotateX(-12deg) rotateY(22deg)">
+            <div class="face front"  data-pips="3"><i></i><i></i><i></i></div>
+            <div class="face back"   data-pips="1"><i></i></div>
+            <div class="face top"    data-pips="2"><i></i><i></i></div>
+            <div class="face bottom" data-pips="2"><i></i><i></i></div>
+            <div class="face right"  data-pips="1"><i></i></div>
+            <div class="face left"   data-pips="3"><i></i><i></i><i></i></div>
+          </div>
+        </div>
+      </div>
+
+      <div id="log">
+        <div class="logline">Theron banks a relic at Home Port.</div>
+        <div class="logline">Kassandra slips through the Verdigris pass.</div>
+        <div class="logline">A heavy blow rocks the Argo — 2 hull.</div>
+        <div class="logline">Chase rolls a 3.</div>
+      </div>
+
+      <div id="toasts">
+        <div class="toast">The tide favors you — +1 scroll of Athena.</div>
+        <div class="toast err">The pass is sealed: two relics are owed.</div>
+      </div>
+
+      <div id="itembelt">
+        <button class="itemslot" title="Ship planks — patch 3 hull"><svg viewBox="0 0 24 24"><use href="#i-planks"/></svg><span class="count">2</span></button>
+        <button class="itemslot" title="Gale charm — reroll the die"><svg viewBox="0 0 24 24"><use href="#i-wind"/></svg><span class="count">1</span></button>
+        <button class="itemslot" disabled title="War horn — battle only"><svg viewBox="0 0 24 24"><use href="#i-horn"/></svg><span class="count">1</span></button>
+        <button class="itemslot" title="Hint — rules one answer out"><svg viewBox="0 0 24 24"><use href="#i-eye"/></svg><span class="count">3</span></button>
+        <button class="itemslot" disabled title="Aegis charm — none owned"><svg viewBox="0 0 24 24"><use href="#i-shield"/></svg></button>
+      </div>
+    </div>
+  </div>
+  <p class="ud-cap">Captain cards top-left (turn glow, me, disconnected, shipwrecked) · compass needles carry realm accents and distance pips · bounty scroll docks under the compass · log fades out over four lines.</p>
+
+  <h2 class="ud-h">Tray, phase by phase</h2>
+  <div class="ud-grid">
+    <div>
+      <div class="ud-tray">
+        <span class="hint">Sailed <strong>2</strong> — a gold ring marks each isle you can reach.</span>
+        <button class="act ghost small">drop anchor here</button>
+      </div>
+      <p class="ud-cap">sail</p>
+    </div>
+    <div>
+      <div class="ud-tray">
+        <button class="act tier hot">FIGHT<small>a pack blocks the strait</small></button>
+        <button class="act ghost">FLEE<small>lose 1 hull</small></button>
+      </div>
+      <p class="ud-cap">battle prompt</p>
+    </div>
+    <div>
+      <div class="ud-tray">
+        <button class="act oracle">COMMUNE<span class="tierchip">III</span><small>double or nothing</small></button>
+        <button class="act ghost">pass</button>
+      </div>
+      <p class="ud-cap">shrine</p>
+    </div>
+    <div>
+      <div class="ud-tray">
+        <button class="act build">REPAIR<small>2 scrolls · +2 hull</small></button>
+        <button class="act gold">BANK RELIC<small>carry it no further</small></button>
+        <button class="act ghost">pass</button>
+      </div>
+      <p class="ud-cap">haven</p>
+    </div>
+    <div>
+      <div class="ud-tray">
+        <span class="hint">A market isle. Buy what you can carry, then pass.</span>
+        <button class="act ghost">pass</button>
+      </div>
+      <p class="ud-cap">shop (sheet opens above — see Shop tab)</p>
+    </div>
+    <div>
+      <div class="ud-tray">
+        <span class="hint"><strong>Kassandra</strong> carries all four relics home!</span>
+        <button class="act gold">NEW VOYAGE</button>
+      </div>
+      <p class="ud-cap">finished</p>
+    </div>
+  </div>
+</section>
+
+<!-- ═══════════════════════════ BATTLE ════════════════════════════════════ -->
+<section class="ud-sec" id="sec-battle">
+  <h2 class="ud-h">Boss — charging &amp; enraged</h2>
+  <div class="ud-stage ud-night" style="min-height:700px">
+    <div id="battleHud">
+      <div class="cinebar top"></div>
+      <div class="cinebar bot"></div>
+      <div id="bfoe">
+        <div class="btitle"><svg viewBox="0 0 24 24" style="width:26px;height:26px;color:#e8c65f"><use href="#i-crown"/></svg>Skorvax the Wyrm</div>
+        <div class="bsub" style="color:#7fd4ef">BOSS &middot; The Frostfang Reach &middot; round
+          <span class="roundpips"><i class="on"></i><i class="on"></i><i class="on"></i><i></i><i></i></span>
+          <span class="enraged">Enraged</span>
+        </div>
+        <div class="chargewarn">It gathers a heavy blow &mdash; guard!</div>
+      </div>
+      <div id="bmon">
+        <div class="erow">
+          <div class="ecard">
+            <div class="ename">Skorvax, Tyrant of the Reach</div>
+            <div class="hpbar foe"><span class="hpcell on"></span><span class="hpcell on"></span><span class="hpcell on"></span><span class="hpcell on"></span><span class="hpcell on"></span><span class="hpcell"></span><span class="hpcell"></span><span class="hpcell"></span></div>
+            <div class="epow">power 4 &middot; every third blow falls heavy <span class="powpips"><i></i><i></i><i></i><i></i></span></div>
+          </div>
+        </div>
+      </div>
+      <div id="bturn">Your move, captain &mdash; read the blow.</div>
+      <div id="bship">
+        <div class="bsub">Chase's ship &mdash; <strong>Hull</strong></div>
+        <div class="hpbar ally"><span class="hpcell on"></span><span class="hpcell on"></span><span class="hpcell on"></span><span class="hpcell on"></span><span class="hpcell"></span><span class="hpcell"></span></div>
+      </div>
+      <div id="bactions">
+        <button class="battlebtn strike">STRIKE<span class="tierchip">II</span></button>
+        <button class="battlebtn magic">MAGIC<span class="tierchip">III</span></button>
+        <button class="battlebtn guard">GUARD<span class="tierchip">I</span></button>
+        <button class="battlebtn ghost">FLEE</button>
+        <button class="itemslot" title="War horn — rally the crew"><svg viewBox="0 0 24 24"><use href="#i-horn"/></svg><span class="count">1</span></button>
+        <button class="itemslot" title="Ship planks — patch 3 hull"><svg viewBox="0 0 24 24"><use href="#i-planks"/></svg><span class="count">2</span></button>
+      </div>
+    </div>
+  </div>
+  <p class="ud-cap">Letterbox bars, no dimming — the diorama stays lit behind the HUD. The warning strip scrolls; the enraged seal pulses.</p>
+
+  <h2 class="ud-h">Pack — picking a target</h2>
+  <div class="ud-stage ud-dusk" style="min-height:700px">
+    <div id="battleHud">
+      <div class="cinebar top"></div>
+      <div class="cinebar bot"></div>
+      <div id="bfoe">
+        <div class="btitle"><svg viewBox="0 0 24 24" style="width:24px;height:24px;color:#e8c65f"><use href="#i-skull"/></svg>Driftwreck Ambush</div>
+        <div class="bsub" style="color:#f0a24f">The Amber Vale &middot; round <span class="roundpips"><i class="on"></i><i></i><i></i></span></div>
+      </div>
+      <div id="bmon">
+        <div class="erow">
+          <div class="ecard">
+            <div class="ename">Drowned Oarsman</div>
+            <div class="hpbar foe"><span class="hpcell on"></span><span class="hpcell on"></span><span class="hpcell on"></span><span class="hpcell"></span></div>
+            <div class="epow">power 2 <span class="powpips"><i></i><i></i></span></div>
+          </div>
+          <div class="ecard targetable">
+            <div class="ename">Siren of the Shoals</div>
+            <div class="hpbar foe"><span class="hpcell on"></span><span class="hpcell on"></span></div>
+            <div class="epow">power 3 <span class="powpips"><i></i><i></i><i></i></span></div>
+          </div>
+          <div class="ecard dead">
+            <div class="ename">Harpy</div>
+            <div class="hpbar foe"><span class="hpcell"></span><span class="hpcell"></span><span class="hpcell"></span></div>
+            <div class="epow">slain</div>
+          </div>
+        </div>
+      </div>
+      <div id="bturn">Choose a target for the strike.</div>
+      <div id="bship">
+        <div class="bsub">Chase's ship &mdash; <strong>Hull</strong></div>
+        <div class="hpbar ally"><span class="hpcell on"></span><span class="hpcell on"></span><span class="hpcell on"></span><span class="hpcell on"></span><span class="hpcell on"></span><span class="hpcell"></span></div>
+      </div>
+      <div id="bactions">
+        <button class="battlebtn strike" disabled>STRIKE<span class="tierchip">I</span></button>
+        <button class="battlebtn magic" disabled>MAGIC<span class="tierchip">III</span></button>
+        <button class="battlebtn guard" disabled>GUARD<span class="tierchip">I</span></button>
+        <button class="battlebtn ghost" disabled>FLEE</button>
+      </div>
+    </div>
+  </div>
+  <p class="ud-cap">Targetable cards turn gilded and pulse; the fallen grey out; stance buttons wait as stone while a target is chosen.</p>
+</section>
+
+<!-- ═══════════════════════════ QUESTION ══════════════════════════════════ -->
+<section class="ud-sec" id="sec-question">
+  <h2 class="ud-h">Trial scroll — fresh</h2>
+  <div class="ud-stage ud-mid">
+    <div id="qmodal" class="overlay clear">
+      <div id="qcard">
+        <div id="qhead"><span id="qkind">Trial &middot; Tier II</span><span id="qdomain">Athena &mdash; lore of the owl</span></div>
+        <div id="qtimer"><div id="qtimerBar" style="width:64%"></div></div>
+        <p id="qtext">Which hero bridled the winged horse Pegasus and rode him against the Chimera?</p>
+        <div id="qitems">
+          <button class="itembtn">USE A HINT<small>rules one answer out &middot; 3 left</small></button>
+        </div>
+        <div id="qopts">
+          <button class="opt">Bellerophon</button>
+          <button class="opt">Perseus</button>
+          <button class="opt">Theseus</button>
+          <button class="opt">Cadmus</button>
+        </div>
+        <p id="qnote">Answer truly &mdash; the wyrm reads hesitation.</p>
+      </div>
+    </div>
+  </div>
+  <p class="ud-cap">.overlay.clear — the battle diorama stays bright behind the scroll.</p>
+
+  <h2 class="ud-h">Trial scroll — reveal</h2>
+  <div class="ud-stage ud-mid">
+    <div id="qmodal" class="overlay clear">
+      <div id="qcard">
+        <div id="qhead"><span id="qkind">Trial &middot; Tier II</span><span id="qdomain">Athena &mdash; lore of the owl</span></div>
+        <div id="qtimer"><div id="qtimerBar" style="width:6%;background:linear-gradient(180deg,#ef6a52,#a52c1a)"></div></div>
+        <p id="qtext">Which hero bridled the winged horse Pegasus and rode him against the Chimera?</p>
+        <div id="qitems"></div>
+        <div id="qopts">
+          <button class="opt good" disabled>Bellerophon</button>
+          <button class="opt bad picked" disabled>Perseus</button>
+          <button class="opt ruled" disabled>Theseus</button>
+          <button class="opt" disabled>Cadmus</button>
+        </div>
+        <p id="qnote">Wrong &mdash; the blow lands for 2 hull, and the wyrm <strong>ENRAGES</strong>.</p>
+      </div>
+    </div>
+  </div>
+  <p class="ud-cap">Reveal states: .good glows verdant, the picked wrong answer bleeds, .ruled is struck through by the hint.</p>
+</section>
+
+<!-- ═══════════════════════════ MINIGAMES ═════════════════════════════════ -->
+<section class="ud-sec" id="sec-minigames">
+  <h2 class="ud-h">Puzzle spires — all five boards</h2>
+  <div class="ud-mggrid">
+
+    <!-- tetromino -->
+    <div>
+      <div id="mgcard">
+        <div id="mghead"><span id="mgkind">Puzzle Spire &middot; Mosaic</span><span id="mgisle">The Cracked Quay</span></div>
+        <div id="mgtimer"><div id="mgtimerBar" style="width:72%"></div></div>
+        <p id="mgprompt">Fit every shard into the mosaic. Drag from the tray; tap a laid shard to lift it.</p>
+        <div id="mgboard">
+          <div class="mggrid" style="grid-template-columns:repeat(6,44px)">
+            <button class="mgcell" style="background:#e4572e"></button><button class="mgcell" style="background:#e4572e"></button><button class="mgcell"></button><button class="mgcell"></button><button class="mgcell"></button><button class="mgcell"></button>
+            <button class="mgcell" style="background:#e4572e"></button><button class="mgcell" style="background:#e4572e"></button><button class="mgcell drop-ok"></button><button class="mgcell drop-ok"></button><button class="mgcell"></button><button class="mgcell"></button>
+            <button class="mgcell" style="background:#2e86ab"></button><button class="mgcell"></button><button class="mgcell drop-ok"></button><button class="mgcell drop-ok"></button><button class="mgcell"></button><button class="mgcell drop-bad"></button>
+            <button class="mgcell" style="background:#2e86ab"></button><button class="mgcell"></button><button class="mgcell"></button><button class="mgcell"></button><button class="mgcell"></button><button class="mgcell"></button>
+            <button class="mgcell" style="background:#2e86ab"></button><button class="mgcell" style="background:#2e86ab"></button><button class="mgcell"></button><button class="mgcell"></button><button class="mgcell"></button><button class="mgcell"></button>
+          </div>
+          <div class="mgpalette">
+            <button class="mgpiece used" style="grid-template-columns:repeat(2,10px)"><i style="background:#e4572e"></i><i style="background:#e4572e"></i><i style="background:#e4572e"></i><i style="background:#e4572e"></i></button>
+            <button class="mgpiece sel" style="grid-template-columns:repeat(2,10px)"><i style="background:#f6ae2d"></i><i></i><i style="background:#f6ae2d"></i><i></i><i style="background:#f6ae2d"></i><i style="background:#f6ae2d"></i></button>
+            <button class="mgpiece" style="grid-template-columns:repeat(4,10px)"><i style="background:#33ca7f"></i><i style="background:#33ca7f"></i><i style="background:#33ca7f"></i><i style="background:#33ca7f"></i></button>
+            <span class="hint">drag a piece onto the grid &middot; tap a placed piece to lift it</span>
+          </div>
+        </div>
+        <p id="mgnote">2 of 4 shards laid.</p>
+      </div>
+      <p class="ud-cap">Tetromino — green cells welcome the drop, the red edge refuses it, spent shards fade.</p>
+    </div>
+
+    <!-- nonogram -->
+    <div>
+      <div id="mgcard">
+        <div id="mghead"><span id="mgkind">Puzzle Spire &middot; Loom</span><span id="mgisle">The Weaver's Rock</span></div>
+        <div id="mgtimer"><div id="mgtimerBar" style="width:55%"></div></div>
+        <p id="mgprompt">Weave the picture: the numbers count each unbroken run of dark thread.</p>
+        <div id="mgboard">
+          <div class="nonowrap">
+            <div class="nonogrid" style="grid-template-columns:auto repeat(5,1fr)">
+              <div class="nclue"></div>
+              <div class="nclue top">1<br>1</div><div class="nclue top">3</div><div class="nclue top">1<br>2</div><div class="nclue top">3</div><div class="nclue top">1<br>1</div>
+              <div class="nclue left">1 1</div>
+              <button class="mgcell nono on"></button><button class="mgcell nono"></button><button class="mgcell nono"></button><button class="mgcell nono"></button><button class="mgcell nono on"></button>
+              <div class="nclue left">3</div>
+              <button class="mgcell nono"></button><button class="mgcell nono on"></button><button class="mgcell nono given"></button><button class="mgcell nono on"></button><button class="mgcell nono"></button>
+              <div class="nclue left">1 1</div>
+              <button class="mgcell nono"></button><button class="mgcell nono on"></button><button class="mgcell nono"></button><button class="mgcell nono on"></button><button class="mgcell nono"></button>
+              <div class="nclue left">3</div>
+              <button class="mgcell nono"></button><button class="mgcell nono on"></button><button class="mgcell nono on"></button><button class="mgcell nono given"></button><button class="mgcell nono"></button>
+              <div class="nclue left">1</div>
+              <button class="mgcell nono"></button><button class="mgcell nono"></button><button class="mgcell nono on"></button><button class="mgcell nono"></button><button class="mgcell nono"></button>
+            </div>
+          </div>
+        </div>
+        <p id="mgnote">Gold threads were woven for you.</p>
+      </div>
+      <p class="ud-cap">Nonogram — bronze givens are fixed; ink cells toggle.</p>
+    </div>
+
+    <!-- simon -->
+    <div>
+      <div id="mgcard">
+        <div id="mghead"><span id="mgkind">Puzzle Spire &middot; Chimes</span><span id="mgisle">The Singing Grotto</span></div>
+        <div id="mgtimer"><div id="mgtimerBar" style="width:88%"></div></div>
+        <p id="mgprompt">The grotto sings nine notes. Repeat the song &mdash; one wrong note ends it.</p>
+        <div id="mgboard">
+          <div class="simonpad">
+            <button class="mgpad" style="--simoncol:#e4572e"></button>
+            <button class="mgpad" style="--simoncol:#2e86ab"></button>
+            <button class="mgpad" style="--simoncol:#f6ae2d"></button>
+            <button class="mgpad" style="--simoncol:#8e5572"></button>
+            <button class="mgpad lit" style="--simoncol:#33ca7f"></button>
+            <button class="mgpad" style="--simoncol:#6457a6"></button>
+            <button class="mgpad" style="--simoncol:#2e9e8f"></button>
+            <button class="mgpad" style="--simoncol:#d94f70"></button>
+            <button class="mgpad" style="--simoncol:#7d9c3e"></button>
+          </div>
+        </div>
+        <p id="mgnote">4 / 7</p>
+      </div>
+      <p class="ud-cap">Simon — the lit pad blooms and rings its tone.</p>
+    </div>
+
+    <!-- anagram -->
+    <div>
+      <div id="mgcard">
+        <div id="mghead"><span id="mgkind">Puzzle Spire &middot; Letters</span><span id="mgisle">The Scribe's Steps</span></div>
+        <div id="mgtimer"><div id="mgtimerBar" style="width:40%"></div></div>
+        <p id="mgprompt">Unscramble the word the tide left on the steps.</p>
+        <div id="mgboard">
+          <div class="agletters">
+            <span class="agtile">R</span><span class="agtile">T</span><span class="agtile">I</span><span class="agtile">E</span><span class="agtile">N</span><span class="agtile">D</span><span class="agtile">T</span>
+          </div>
+          <div class="agrow">
+            <input class="aginput" maxlength="7" placeholder="7 letters" value="TRIDE">
+            <button class="act">ANSWER</button>
+          </div>
+        </div>
+        <p id="mgnote">Needs 7 letters.</p>
+      </div>
+      <p class="ud-cap">Anagram — carved tiles, an engraved answer field.</p>
+    </div>
+
+    <!-- ravens -->
+    <div>
+      <div id="mgcard">
+        <div id="mghead"><span id="mgkind">Puzzle Spire &middot; Glyphs</span><span id="mgisle">The Raven's Tablet</span></div>
+        <div id="mgtimer"><div id="mgtimerBar" style="width:62%"></div></div>
+        <p id="mgprompt">Read the tablet's law and choose the glyph that completes it.</p>
+        <div id="mgboard">
+          <div class="ravgrid">
+            <div class="ravcell"><svg viewBox="0 0 54 54" width="44" height="44"><circle cx="27" cy="27" r="12" fill="none" stroke="#16344a" stroke-width="2.5"/></svg></div>
+            <div class="ravcell"><svg viewBox="0 0 54 54" width="44" height="44"><circle cx="18" cy="18" r="7" fill="none" stroke="#16344a" stroke-width="2.5"/><circle cx="36" cy="36" r="7" fill="none" stroke="#16344a" stroke-width="2.5"/></svg></div>
+            <div class="ravcell"><svg viewBox="0 0 54 54" width="44" height="44"><circle cx="14" cy="14" r="6" fill="none" stroke="#16344a" stroke-width="2.5"/><circle cx="27" cy="27" r="6" fill="none" stroke="#16344a" stroke-width="2.5"/><circle cx="40" cy="40" r="6" fill="none" stroke="#16344a" stroke-width="2.5"/></svg></div>
+            <div class="ravcell"><svg viewBox="0 0 54 54" width="44" height="44"><rect x="15" y="15" width="24" height="24" fill="#16344a"/></svg></div>
+            <div class="ravcell"><svg viewBox="0 0 54 54" width="44" height="44"><rect x="9" y="9" width="14" height="14" fill="#16344a"/><rect x="31" y="31" width="14" height="14" fill="#16344a"/></svg></div>
+            <div class="ravcell"><svg viewBox="0 0 54 54" width="44" height="44"><rect x="6" y="6" width="12" height="12" fill="#16344a"/><rect x="21" y="21" width="12" height="12" fill="#16344a"/><rect x="36" y="36" width="12" height="12" fill="#16344a"/></svg></div>
+            <div class="ravcell"><svg viewBox="0 0 54 54" width="44" height="44"><path d="M27 13l13 26H14Z" fill="none" stroke="#16344a" stroke-width="2.5" stroke-linejoin="round"/></svg></div>
+            <div class="ravcell"><svg viewBox="0 0 54 54" width="44" height="44"><path d="M18 12l9 18H9Z" fill="none" stroke="#16344a" stroke-width="2.5" stroke-linejoin="round"/><path d="M36 24l9 18H27Z" fill="none" stroke="#16344a" stroke-width="2.5" stroke-linejoin="round"/></svg></div>
+            <div class="ravcell missing">?</div>
+          </div>
+          <div class="ravopts">
+            <button class="glyphopt"><svg viewBox="0 0 54 54" style="width:44px;height:44px"><path d="M14 10l7 14H7Z" fill="none" stroke="#16344a" stroke-width="2.5" stroke-linejoin="round"/><path d="M27 22l7 14H20Z" fill="none" stroke="#16344a" stroke-width="2.5" stroke-linejoin="round"/><path d="M40 34l7 14H33Z" fill="none" stroke="#16344a" stroke-width="2.5" stroke-linejoin="round"/></svg></button>
+            <button class="glyphopt"><svg viewBox="0 0 54 54" style="width:44px;height:44px"><path d="M27 13l13 26H14Z" fill="#16344a"/></svg></button>
+            <button class="glyphopt"><svg viewBox="0 0 54 54" style="width:44px;height:44px"><circle cx="14" cy="14" r="6" fill="#16344a"/><circle cx="27" cy="27" r="6" fill="#16344a"/><circle cx="40" cy="40" r="6" fill="#16344a"/></svg></button>
+            <button class="glyphopt"><svg viewBox="0 0 54 54" style="width:44px;height:44px"><rect x="15" y="15" width="24" height="24" fill="none" stroke="#16344a" stroke-width="2.5"/></svg></button>
+          </div>
+        </div>
+        <p id="mgnote">One law rules each row.</p>
+      </div>
+      <p class="ud-cap">Raven's matrix — the dashed cell waits; options sit below.</p>
+    </div>
+  </div>
+</section>
+
+<!-- ═══════════════════════════ SHOP ══════════════════════════════════════ -->
+<section class="ud-sec" id="sec-shop">
+  <h2 class="ud-h">The wandering market — bottom sheet</h2>
+  <div class="ud-stage" style="min-height:640px">
+    <div id="shopPanel">
+      <div class="stallhead"><svg viewBox="0 0 24 24"><use href="#i-bag"/></svg>The Wandering Market<em>your scrolls: 7</em></div>
+      <div class="shoprow">
+        <div class="sicon"><svg viewBox="0 0 24 24"><use href="#i-planks"/></svg></div>
+        <div><div class="sname">Ship Planks</div><div class="sdesc">Patch 3 hull, even mid-battle. Carry as many as you dare.</div></div>
+        <span class="price">3 scrolls</span>
+        <button class="buy">BUY</button>
+      </div>
+      <div class="shoprow">
+        <div class="sicon"><svg viewBox="0 0 24 24"><use href="#i-wind"/></svg></div>
+        <div><div class="sname">Gale Charm</div><div class="sdesc">Reroll the bronze die once.</div></div>
+        <span class="price">2 scrolls</span>
+        <button class="buy">BUY</button>
+      </div>
+      <div class="shoprow">
+        <div class="sicon"><svg viewBox="0 0 24 24"><use href="#i-horn"/></svg></div>
+        <div><div class="sname">War Horn</div><div class="sdesc">Rally the crew: the next strike lands twice.</div></div>
+        <span class="price">4 scrolls</span>
+        <button class="buy">BUY</button>
+      </div>
+      <div class="shoprow">
+        <div class="sicon"><svg viewBox="0 0 24 24"><use href="#i-eye"/></svg></div>
+        <div><div class="sname">Oracle's Hint</div><div class="sdesc">Rules one wrong answer out of any trial.</div></div>
+        <span class="price">2 scrolls</span>
+        <button class="buy">BUY</button>
+      </div>
+      <div class="shoprow cant">
+        <div class="sicon"><svg viewBox="0 0 24 24"><use href="#i-shield"/></svg></div>
+        <div><div class="sname">Aegis Charm</div><div class="sdesc">Swallows one enemy blow entirely.</div></div>
+        <span class="price">8 scrolls</span>
+        <button class="buy" disabled>BUY</button>
+      </div>
+      <div class="shoprow">
+        <div class="sicon"><svg viewBox="0 0 24 24"><use href="#i-hammer"/></svg></div>
+        <div><div class="sname">Ship Fitting</div><div class="sdesc">Draw one of three upgrades for the hull.</div></div>
+        <span class="price">5 scrolls</span>
+        <button class="buy">BUY</button>
+      </div>
+    </div>
+    <div id="tray">
+      <span class="hint">A market isle. Buy what you can carry, then pass.</span>
+      <button class="act ghost">pass</button>
+    </div>
+  </div>
+  <p class="ud-cap">The sheet floats above the tray; unaffordable rows grey their price and their button turns to stone.</p>
+</section>
+
+<!-- ═══════════════════════════ MODALS & FX ═══════════════════════════════ -->
+<section class="ud-sec" id="sec-modals">
+  <h2 class="ud-h">Upgrade pick</h2>
+  <div class="ud-stage ud-mid ud-night">
+    <div id="modal" class="overlay">
+      <div class="panel" id="modalBody">
+        <h2>The spire yields a fitting</h2>
+        <p class="tag">choose one — the others sink with the tide</p>
+        <div class="upgrades">
+          <button class="upcard">
+            <svg viewBox="0 0 24 24" style="color:#8a6c1c"><use href="#i-sword"/></svg>
+            <strong>Bronze Ram</strong>
+            <span>Your strikes deal +1. The prow remembers every hull it has opened.</span>
+          </button>
+          <button class="upcard">
+            <svg viewBox="0 0 24 24" style="color:#8a6c1c"><use href="#i-shield"/></svg>
+            <strong>Oak Plating</strong>
+            <span>+2 max hull. Heavier in the water, harder to sink.</span>
+          </button>
+          <button class="upcard">
+            <svg viewBox="0 0 24 24" style="color:#8a6c1c"><use href="#i-star"/></svg>
+            <strong>Star Chart</strong>
+            <span>Once a turn you may sail one isle further than the die allows.</span>
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <h2 class="ud-h">Winner</h2>
+  <div class="ud-stage ud-mid ud-dusk">
+    <div id="modal" class="overlay">
+      <div class="panel" id="modalBody">
+        <h2 class="gilt" style="font-size:30px;letter-spacing:.16em">KASSANDRA</h2>
+        <p style="font-family:var(--disp);letter-spacing:.2em;font-size:13px;color:#4a3811">CARRIES ALL FOUR RELICS HOME</p>
+        <p class="tag">Frostfang &middot; Bleached &middot; Verdigris &middot; Amber — the mountain wall bows.</p>
+        <span class="relicpips" style="justify-content:center;display:inline-flex;margin:8px 0">
+          <span class="pip on"></span><span class="pip on"></span><span class="pip on"></span><span class="pip on"></span>
+        </span>
+        <button class="big">NEW VOYAGE</button>
+      </div>
+    </div>
+  </div>
+
+  <h2 class="ud-h">Intro rules</h2>
+  <div class="ud-stage ud-mid">
+    <div id="modal" class="overlay">
+      <div class="panel" id="modalBody">
+        <h2>The Voyage</h2>
+        <ol class="intro">
+          <li><strong>Roll the bronze die</strong> — one to three — and sail the lanes.</li>
+          <li><strong>Four passes</strong> breach the mountain wall; each realm runs seven isles deep.</li>
+          <li><strong>Trials arm your blows.</strong> Strike and magic are questions; a miss can backfire.</li>
+          <li><strong>Bosses swing heavy</strong> every third round — <em>guard</em> to turn the whole blow aside.</li>
+          <li><strong>Planks patch the hull.</strong> Slay each tyrant, carry its relic home, bank all four.</li>
+        </ol>
+        <button class="big">SET SAIL</button>
+      </div>
+    </div>
+  </div>
+
+  <h2 class="ud-h">Player inspector &amp; toasts</h2>
+  <div class="ud-grid">
+    <div class="ud-stage ud-mid" style="min-height:430px">
+      <div id="uppanel" style="top:24px">
+        <h3>Chase's ship</h3>
+        <div class="uprow"><span class="upic"><svg viewBox="0 0 24 24"><use href="#i-sword"/></svg></span><div><strong>Bronze Ram</strong><br><small>Strikes deal +1 damage.</small></div></div>
+        <div class="uprow"><span class="upic"><svg viewBox="0 0 24 24"><use href="#i-shield"/></svg></span><div><strong>Oak Plating</strong><br><small>+2 max hull.</small></div></div>
+        <h3 style="margin-top:12px">Charms</h3>
+        <div class="uprow"><span class="upic"><svg viewBox="0 0 24 24"><use href="#i-planks"/></svg></span><div><strong>Ship Planks &times;2</strong><br><small>Patch 3 hull, even mid-battle.</small></div></div>
+        <div class="uprow"><span class="upic"><svg viewBox="0 0 24 24"><use href="#i-eye"/></svg></span><div><strong>Oracle's Hint &times;3</strong><br><small>Rules one wrong answer out.</small></div></div>
+        <button class="small">close</button>
+      </div>
+    </div>
+    <div class="ud-col" style="gap:10px">
+      <div class="toast" style="max-width:340px">Theron banks the Amber relic — two remain.</div>
+      <div class="toast err" style="max-width:340px">Not enough scrolls for the aegis charm.</div>
+      <p class="ud-cap">Toasts — plain and .err; they stack bottom-left in play.</p>
+    </div>
+  </div>
+
+  <h2 class="ud-h">Flash &amp; scene fade</h2>
+  <div class="ud-grid">
+    <div>
+      <div class="ud-stage ud-mini"><div id="flash" class="gold"></div></div>
+      <p class="ud-cap">#flash.gold — reward pulse, fades over .6s</p>
+    </div>
+    <div>
+      <div class="ud-stage ud-mini"><div id="flash" class="red"></div></div>
+      <p class="ud-cap">#flash.red — damage vignette</p>
+    </div>
+    <div>
+      <div class="ud-stage ud-mini"><div class="scenefade" style="opacity:.72"></div></div>
+      <p class="ud-cap">.scenefade at 72% — the 0.6s stage-swap curtain</p>
+    </div>
+  </div>
+</section>
+
+</main>
+
+<script>
+/* tabs only — every component above is pure static markup + /static/style.css */
+const tabs = [...document.querySelectorAll('.ud-tab')];
+const secs = [...document.querySelectorAll('.ud-sec')];
+tabs.forEach(t => t.addEventListener('click', () => {
+  tabs.forEach(x => x.classList.toggle('on', x === t));
+  secs.forEach(s => s.classList.toggle('ud-show', s.id === 'sec-' + t.dataset.sec));
+  window.scrollTo(0, 0);
+}));
+</script>
+</body>
+</html>

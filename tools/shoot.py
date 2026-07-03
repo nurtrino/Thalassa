@@ -46,7 +46,12 @@ async def join_and_start(page):
     await page.wait_for_timeout(800)
     await page.click("#startBtn")
     await wait_phase(page, "roll")
-    await page.wait_for_timeout(1500)
+    await page.wait_for_timeout(1200)
+    try:
+        await page.click("#introGo", timeout=3000)   # dismiss the rules card
+    except Exception:
+        pass
+    await page.wait_for_timeout(600)
 
 
 def find_node(r, pred):

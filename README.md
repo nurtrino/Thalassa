@@ -1,72 +1,71 @@
 # THALASSA 🏛️
 
-A 2–6 player, 30-minute strategy trivia board game set in a tropical Greek
-archipelago — rendered in 3D, played from your phones/browsers. One server,
-one shared table: everyone who opens the site joins the same voyage.
+A 2–6 player strategy–trivia board game set in a mythic Greek sea — rendered
+in 3D, played from your phones/browsers. One server, one shared table:
+everyone who opens the site joins the same voyage.
 
-Trivia · dice · resources · placement. Not your average trivia game: the
-question floor starts at "hmm" and goes up from there.
+Up close and personal: you roll a bronze **d3**, the camera hugs your ship
+(you can only see the next three or four islands), and the world ends at a
+rocky **mountain wall**. Four carved passes lead to four realms — frost,
+desert, jungle, and autumn — each a dungeon of worsening monsters with a
+tyrant at the far end. Slay it, haul its sigil seal home, bank three, and
+storm the Pharos.
 
 ## How a voyage works
 
-1. Open the site, enter a name, hit **JOIN THE VOYAGE**. The first captain
-   to join is the host; friends just open the same URL.
-2. Host hits **SET SAIL**. Everyone sees the 3D archipelago; ships start at
-   the Port of Piraeus. Anyone arriving mid-game spectates until the next
-   game.
-3. On your turn, roll 2d6 and **sail using either one die** (your choice) —
-   the glowing islands are in range. Then the island decides:
+1. Open the site, enter a name, **JOIN THE VOYAGE**. First captain in is the
+   host; friends just open the same URL. The host can also invite AI
+   **philosophers** to fill the table.
+2. Host hits **SET SAIL**. Ships start at Home Port in the shadow of the
+   Pharos.
+3. On your turn, roll the d3 and sail **exactly** that far — the chart is a
+   lattice of loops, and steering them is the game. Islands do what islands
+   do: shrines wager trivia for scrolls (tier I/II/III — a missed III costs
+   you), puzzle spires deal minigames for ship fittings, havens set your
+   respawn checkpoint and patch the hull, market isles sell gear, hunting
+   grounds bite.
+4. **The realms.** Four passes pierce the mountains. The desert is crossed
+   *on foot* — you beach your ship at the pass. Every stop deeper raises the
+   ambush odds and the packs' strength; a haven checkpoint waits mid-spine.
+   At the end: the realm's **boss**, a personal trial (everyone faces their
+   own, fresh).
+5. **Battles** are stance + trivia, and bosses fight like bosses:
+   | Stance | Question | Effect |
+   |---|---|---|
+   | **STRIKE** | tier I (II vs bosses) | 1 damage, reliable |
+   | **MAGIC** | tier III | 3 damage; a miss backfires |
+   | **GUARD** | tier I | no damage — success turns the WHOLE enemy blow aside |
+   | **FLEE** | 2 scrolls | 50/50 escape; never from a boss |
 
-| Island | What happens |
-|---|---|
-| **Great Library** (×5) | Wager a question tier: **I** → 1 scroll, **II** → 2, **III** → 3 *but a miss costs you a scroll*. Each library shows a **domain card** (Clio/History, Athena/Science, Apollo/Arts, Dionysos/Culture) — and **the Muse moves on**: after any answer there, the card rotates. The librarian also remembers you: no two visits to the same library in a row. |
-| **The Oracle** | Pay 1 scroll, face a brutal question. Right → take any 3 scrolls. Wrong → the Pythia keeps your offering. |
-| **Agora** | Trade 3 scrolls of one domain for 1 of another. |
-| **Open isles** (×4) | One build plot each: **Academy** (3 scrolls — rivals landing here face a tuition question; you profit either way) or **Harbor** (2 scrolls — start any later turn from it). |
-| **Delos** (center) | Locked until you hold **3 laurels**. |
+   Bosses counter **every** exchange, telegraph a **heavy blow** every third
+   round (guard it or eat double damage), and **enrage** at half strength.
+   You do not beat one without preparation: hull fittings, aegis charms,
+   **pitch & planks** (patch 3 Health mid-battle), a war horn, and guard
+   timing.
+6. **Win.** Shipwreck sends seals back to their lairs — bank them at Home
+   Port. Three banked seals open the Pharos; put down the Warden inside and
+   the Aegean is yours.
 
-4. **Laurels:** at a library *currently showing* a domain, spend 2 scrolls of
-   it and pass a Tier-III **Trial** to earn that domain's laurel.
-5. **Victory:** with 3 laurels, sail to Delos. Your opponents vote which
-   domain your final **Symposium** question comes from (they will pick your
-   worst). Answer it and the Aegean is yours; miss and sail out to try again.
+Reconnects (refresh, phone lock) are seamless — identity is a token in
+localStorage. Rivals can answer your questions from the side to skim
+scrolls, so nobody is ever just waiting.
 
-Reconnects (page refresh, phone lock) are seamless — identity is a token in
-localStorage. The host can skip a stuck player and call rematches.
-
-## Bot captains (for playtesting)
-
-In the lobby the host can **🤖 invite a philosopher** — AI opponents that
-roll, sail, wager, build, and consult the Oracle on their own. Each has a
-skill profile (Sokrates is sharp; Diogenes lives in a barrel): they answer
-questions correctly with a per-tier probability rather than actually reading
-them, so their difficulty is honest and tunable in `bots.py`. Kick them like
-any player. `BOT_TEMPO` scales their thinking time (lower = faster).
-
-## Questions
-
-Live from [The Trivia API](https://the-trivia-api.com) — tiers map to
-medium/hard only; there is deliberately no "easy". Set `TRIVIA_API_KEY`
-(dashboard secret) for keyed access; without a key the public endpoint and
-rate limits apply. If the API is unreachable the built-in fallback set keeps
-games playable (`TRIVIA_OFFLINE=1` forces this — handy for dev).
-
-## Architecture
+## The tech
 
 | Piece | File | Role |
 |---|---|---|
-| Board | `board.py` | Island graph (13 nodes), domains, BFS reachability. |
-| Engine | `game.py` | Pure rules state machine — phases, wagers, trials, economy, buildings, symposium. No IO; unit-tested. |
-| Questions | `questions.py` | The Trivia API v2 client: per-domain/difficulty prefetch pools, dedupe, rate limiting, offline fallback. |
-| Bots | `bots.py` | AI captains: sail/wager/build heuristics + per-tier answer accuracy, driven by the server. |
-| Server | `server.py` | FastAPI: the single shared table, WebSocket protocol, dice RNG, phase timers, broadcast. |
-| Client | `static/` | Vanilla JS + vendored Three.js: procedural 3D archipelago (water shader, temples, palms, triremes), CSS-3D dice, question cards. |
-| Audio | `static/audio.js` | Web Audio, fully synthesized (no sound files): an ambient lyre soundtrack (Karplus–Strong strings in D-Dorian over a pad + sea-noise bed) and event SFX — dice, sail, correct/wrong, laurel, build, Oracle, victory. Mute button, persisted. |
+| Board | `board.py` | Procedural chart: three safe rings + four realm spines with dungeon depth, d3-tuned lane lengths. |
+| Engine | `game.py` | Pure rules state machine — phases, wagers, battles (heavies/enrage/guard), economy, relics. No IO; 59 unit tests. |
+| Questions | `questions.py` | The Trivia API v2 client with per-domain pools and an offline fallback set. |
+| Bots | `bots.py` | Philosopher captains: sail/wager/shop/guard heuristics + per-tier answer accuracy. |
+| Server | `server.py` | FastAPI + WebSockets: one shared table, d3 dice, timers, bot driver. |
+| World | `static/scene.js` + `themes.js`, `islands.js`, `wall.js`, `water.js` | Five themed stages (Aegean hub + four realms), the mountain wall, close chase camera, animated sailing, on-foot desert trek. |
+| Monsters | `tools/make_monsters.py` → `static/assets/monsters/*.glb` | 32 low-poly creatures and bosses **generated with Blender** (headless `bpy`), procedurally animated by named parts (`static/monsters.js`). |
+| Battles | `static/battle.js` | Cinematic diorama per realm: lunges, spell bolts, guard flashes, damage numbers, telegraphed heavies. |
+| UI | `static/index.html`, `style.css`, `app.js`, `ui.js` | "Aegean bronze" design system — Cinzel/Alegreya, parchment cards, engraved bronze buttons, SVG icons, compass HUD. |
+| Audio | `static/audio.js` | Web Audio SFX + looping soundtrack with battle/puzzle/endgame scenes. |
 
-No build step — the frontend is plain ES modules; Three.js r160 is vendored
-in `static/vendor/`. All music and sound effects are generated at runtime
-with the Web Audio API (no audio files to ship or license); the 🔊 button
-mutes.
+No build step — plain ES modules; Three.js r160 vendored.
 
 ## Run locally
 
@@ -76,23 +75,27 @@ TRIVIA_OFFLINE=1 .venv/bin/uvicorn server:app --port 5070
 # → http://127.0.0.1:5070  (open two tabs to simulate two players)
 ```
 
+Dev loop: `tools/serve_dev.sh` starts a server with offline questions, fast
+bots, and the dev-cheat hook; `tools/shoot.py` drives a headless Chromium
+through every game state and screenshots it; `tools/make_monsters.py`
+regenerates the Blender creature models (`pip install bpy`).
+
 ## Env vars
 
 | Var | Default | Purpose |
 |---|---|---|
-| `TRIVIA_API_KEY` | unset | the-trivia-api.com API key (keyed rate limits; required for commercial use). |
-| `TRIVIA_OFFLINE` | unset | `1` = never call the API; use the built-in fallback questions. |
+| `TRIVIA_API_KEY` | unset | the-trivia-api.com key (keyed rate limits). |
+| `TRIVIA_OFFLINE` | unset | `1` = never call the API; use built-in questions. |
 | `QUESTION_SECS` | `35` | Answer window per question. |
 | `REVEAL_SECS` | `5` | How long the answer reveal stays up. |
-| `VOTE_SECS` | `25` | Symposium vote timeout (majority of cast votes wins). |
-| `ABANDON_RESET_SECS` | `300` | A deserted mid-game table resets to a fresh lobby after this long. |
-| `BOT_TEMPO` | `1.0` | Multiplier on bot thinking delays (0.2 = speed-chess philosophers). |
+| `ABANDON_RESET_SECS` | `300` | Deserted mid-game table resets after this long. |
+| `BOT_TEMPO` | `1.0` | Bot thinking-time multiplier (0.2 = speed chess). |
+| `DEV_CHEATS` | unset | `1` = enable the test harness teleport hook. Never in production. |
 
 ## Tests
 
 ```bash
-.venv/bin/pip install pytest
-.venv/bin/python -m pytest tests/ -q
+.venv/bin/pip install pytest && .venv/bin/python -m pytest tests/ -q
 ```
 
 ## Deploy
