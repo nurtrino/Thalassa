@@ -45,7 +45,7 @@ def test_generation_counts_and_connectivity():
         assert types["gate"] == 4 and types["lair"] == 4
         assert types["shrine"] >= 6 and types["puzzle"] == 5
         assert types["haven"] >= 6 and types["shop"] == 4
-        assert types["monster"] == 14             # hub grounds + region elites
+        assert types["monster"] >= 14             # hub grounds + realm gauntlets
         assert types["sea"] >= 20                 # long routes between isles
         # connected: BFS from home touches everything
         seen, frontier = {"home"}, ["home"]
@@ -56,8 +56,8 @@ def test_generation_counts_and_connectivity():
                     seen.add(nb)
                     frontier.append(nb)
         assert seen == set(b.nodes)
-        # four regions drawn from the pool, each ending in a boss altar
-        assert len(b.regions) == 4 and len(set(b.regions)) == 4
+        # all four realms every game, each ending in a boss altar
+        assert sorted(b.regions) == ["autumn", "desert", "ice", "jungle"]
         themes = sorted(b.nodes[nid]["region"] for nid in b.lairs())
         assert themes == sorted(b.regions)
         assert all(b.nodes[nid]["boss_spec"] for nid in b.lairs())
@@ -552,10 +552,12 @@ def test_shop_sells_consumables_and_fittings():
     p.scrolls = 25                                    # fund AFTER landing (bounties!)
     g.shop_buy(p0, "hint")
     g.shop_buy(p0, "gale")
+    g.shop_buy(p0, "planks")
     g.shop_buy(p0, "aegis_charm")
     g.shop_buy(p0, "horn")
-    assert p.items == {"hint": 1, "gale": 1, "aegis_charm": 1, "horn": 1}
-    assert p.scrolls == 25 - 2 - 3 - 4 - 5
+    assert p.items == {"hint": 1, "gale": 1, "planks": 1,
+                       "aegis_charm": 1, "horn": 1}
+    assert p.scrolls == 25 - 2 - 2 - 3 - 4 - 4
     assert g.phase == "shop"                          # keep browsing
     with pytest.raises(GameError):
         g.shop_buy(p0, "ambrosia")                    # not stocked
@@ -718,6 +720,201 @@ def test_rematch_rolls_a_new_sea():
     new_nodes = {nid: g.board.nodes[nid]["type"] for nid in g.board.nodes}
     assert old_nodes != new_nodes or True                  # new board object at minimum
     assert pa.node == "home"
+
+
+# ── the four realms & the dungeon curve ──────────────────────────────────────
+def test_desert_realm_is_crossed_on_foot():
+    for seed in range(4):
+        b = Board(seed)
+        desert = [n for n in b.nodes.values() if n.get("region") == "desert"]
+        assert desert
+        walkers = [n for n in desert if n["type"] != "gate"]
+        assert all(n.get("mode") == "foot" for n in walkers)
+        sailing = [n for n in b.nodes.values()
+                   if n.get("region") in ("ice", "jungle", "autumn")
+                   and n["type"] != "gate"]
+        assert all(n.get("mode") == "sail" for n in sailing)
+
+
+def test_realm_spines_carry_depth():
+    b = Board(3)
+    for theme in b.regions:
+        depths = [n["depth"] for n in b.nodes.values()
+                  if n.get("region") == theme and n.get("depth")]
+        assert max(depths) >= 5                   # a real trek to the boss
+        lair = next(n for n in b.nodes.values()
+                    if n["type"] == "lair" and n["region"] == theme)
+        assert lair["depth"] == max(depths)       # the boss sits deepest
+
+
+def test_packs_scale_with_depth():
+    b = Board(1)
+    shallow = {"region": "ice", "depth": 1, "band": 4}
+    deep = {"region": "ice", "depth": 6, "band": 4}
+    import random as _r
+    rng = _r.Random(0)
+    weak = [b.random_pack(shallow, rng) for _ in range(12)]
+    strong = [b.random_pack(deep, rng) for _ in range(12)]
+    avg = lambda packs: sum(sum(e["max_hp"] + e["power"] for e in m["enemies"])
+                            for m in packs) / len(packs)
+    assert avg(strong) > avg(weak)                # the dungeon curve is real
+    assert all(m["tier"] == 3 for m in strong)    # deep questions are trials
+    assert all(e.get("model") for m in weak + strong for e in m["enemies"])
+
+
+def test_realm_ambush_odds_rise_with_depth(monkeypatch):
+    g, (p0, p1) = make_game(seed=17)
+    mon = find_node(g, "monster", region=g.board.regions[0])
+    node = g.board.nodes[mon]
+    node["depth"] = 6
+    g.rng = __import__("random").Random(4)        # first random() ≈ 0.236 < odds
+    force_land(g, p0, mon)
+    assert g.phase == "battle"                    # deep wilds almost always bite
+
+
+# ── boss fights demand strategy ──────────────────────────────────────────────
+def boss_battle(seed=3):
+    g, pids = make_game(seed=seed)
+    lair = g.board.lairs()[0]
+    force_land(g, pids[0], lair)
+    assert g.phase == "battle"
+    return g, pids, lair
+
+
+def test_boss_counters_even_when_you_hit():
+    g, (p0, p1), lair = boss_battle()
+    p = g.player_by_pid(p0)
+    g.stance(p0, "attack")
+    put_question(g)
+    g.answer(p0, 0)                               # correct strike
+    assert g.reveal["enemy_phase"]["dealt"] >= 1  # you drew blood
+    assert p.hull < G.MAX_HULL                    # ...and still got hit back
+    assert not g.reveal["enemy_phase"]["evaded"]
+
+
+def test_pack_still_lets_a_clean_hit_evade():
+    g, (p0, p1) = make_game()
+    mon = find_node(g, "monster")
+    set_pack(g, mon, [4])
+    battle_at(g, p0, mon)
+    g.stance(p0, "attack")
+    put_question(g)
+    g.answer(p0, 0)
+    assert g.reveal["enemy_phase"]["evaded"]      # packs punish only misses
+    assert g.player_by_pid(p0).hull == G.MAX_HULL
+
+
+def test_boss_heavy_telegraph_cycle_and_guard():
+    g, (p0, p1), lair = boss_battle()
+    p = g.player_by_pid(p0)
+    p.max_hull = 30
+    p.hull = 30
+    # exchanges 1 and 2: normal counters; after 2, the heavy is telegraphed
+    for expect_charging in (False, True):
+        g.stance(p0, "guard")
+        assert g.qctx["tier"] == 1                # guard reads, not strikes
+        put_question(g, correct=0)
+        g.answer(p0, 1)                           # failed guard → take the hit
+        g.advance_after_reveal()
+        assert g.battle["charging"] == expect_charging
+    hull_before = p.hull
+    # exchange 3 is the heavy: guard it successfully → no damage at all
+    g.stance(p0, "guard")
+    put_question(g, correct=2)
+    g.answer(p0, 2)
+    assert g.reveal["enemy_phase"]["blocked"]
+    assert g.reveal["enemy_phase"]["heavy"]
+    assert p.hull == hull_before
+    g.advance_after_reveal()
+    assert not g.battle["charging"]               # the cycle resets
+
+
+def test_boss_heavy_hits_double_when_not_guarded():
+    g, (p0, p1), lair = boss_battle()
+    p = g.player_by_pid(p0)
+    p.max_hull = 30
+    p.hull = 30
+    power = g.board.alive_monster(lair)["enemies"][0]["power"]
+    for _ in range(2):                            # eat two normal counters
+        g.stance(p0, "guard")
+        put_question(g, correct=0)
+        g.answer(p0, 1)
+        g.advance_after_reveal()
+    hull_before = p.hull
+    g.stance(p0, "guard")                         # heavy round, failed guard
+    put_question(g, correct=0)
+    g.answer(p0, 1)
+    assert g.reveal["enemy_phase"]["heavy"]
+    assert hull_before - p.hull == power * G.HEAVY_MULT
+
+
+def test_boss_enrages_at_half_strength():
+    g, (p0, p1), lair = boss_battle()
+    p = g.player_by_pid(p0)
+    p.max_hull = 30
+    p.hull = 30
+    m = g.board.alive_monster(lair)
+    e = m["enemies"][0]
+    power_before = e["power"]
+    e["hp"] = (e["max_hp"] // 2) + 1              # one magic tips it under half
+    g.stance(p0, "magic")
+    put_question(g)
+    g.answer(p0, 0)
+    assert m["enraged"] and e["power"] == power_before + 1
+    assert "ENRAGES" in g.reveal["note"]
+
+
+def test_boss_battle_state_is_published():
+    g, (p0, p1), lair = boss_battle()
+    snap = g.to_dict(p0)
+    b = snap["battle"]
+    assert b["boss"] and b["model"] and b["round"] == 0
+    assert b["charging"] is False and b["enraged"] is False
+    assert all(e["model"] for e in b["enemies"])
+
+
+def test_warden_resets_between_challengers():
+    g, (p0, p1) = make_game()
+    p = g.player_by_pid(p0)
+    p.banked = RELICS_TO_WIN
+    g.pharos_open = True
+    p.hull = 1
+    p.prev_node = p.node
+    p.node = "pharos"
+    g._land(p, "pharos")
+    warden = g.board.nodes["pharos"]["monster"]["enemies"][0]
+    warden["hp"] = 2                              # nearly slain...
+    g.stance(p0, "attack")
+    put_question(g, correct=0)
+    g.answer(p0, 1)                               # ...but the counter sinks you
+    assert p.node == p.checkpoint
+    fresh = g.board.nodes["pharos"]["monster"]["enemies"][0]
+    assert fresh["hp"] == fresh["max_hp"]         # nobody inherits a weak Warden
+
+
+# ── pitch & planks ───────────────────────────────────────────────────────────
+def test_planks_patch_hull_mid_battle():
+    g, (p0, p1) = make_game()
+    p = g.player_by_pid(p0)
+    p.items["planks"] = 1
+    p.hull = 2
+    mon = find_node(g, "monster")
+    set_pack(g, mon, [3])
+    battle_at(g, p0, mon)
+    g.use_item_charm(p0, "planks")
+    assert p.hull == 2 + G.PLANKS_HEAL and p.items["planks"] == 0
+    assert g.phase == "battle"                    # a free action, fight goes on
+    with pytest.raises(GameError):
+        g.use_item_charm(p0, "planks")            # none left
+
+
+def test_planks_refuse_a_sound_hull():
+    g, (p0, p1) = make_game()
+    p = g.player_by_pid(p0)
+    p.items["planks"] = 1
+    with pytest.raises(GameError):
+        g.use_item_charm(p0, "planks")
+    assert p.items["planks"] == 1
 
 
 def test_kick_adjusts_turn_order():

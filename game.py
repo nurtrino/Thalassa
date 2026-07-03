@@ -25,12 +25,21 @@ RELICS_TO_WIN banked seals.
 Battles are stance, target, trivia:
     STRIKE  tier-I/II question → 1 damage      miss → the front enemy hits
     MAGIC   tier-III question  → 3 damage      miss → 1 backfire self-damage
+    GUARD   tier-I question    → no damage; success turns the enemy blow
+            aside entirely (the answer is how well you read the attack)
     FLEE    2 scrolls, 50/50: slip away clean, or take a free hit (no
             retreat from a trial or the Warden)
+
+BOSSES fight like bosses: they counter EVERY exchange (a correct answer no
+longer slips you out of reach), every HEAVY_EVERY-th blow is a telegraphed
+heavy for double damage — guard it or eat it — and at half strength they
+ENRAGE for +1 power. Beating one takes preparation: hull fittings, planks,
+aegis charms, and guarding the right rounds.
+
 Scrolls are the economy: temples pay them, shops spend them — hint stones,
-gale charms, aegis charms, war horns, permanent ship fittings. Health 0 =
-shipwreck: unbanked seals return to their lairs, scrolls halved, respawn
-at your haven checkpoint.
+gale charms, pitch & planks, aegis charms, war horns, permanent ship
+fittings. Health 0 = shipwreck: unbanked seals return to their lairs,
+scrolls halved, respawn at your haven checkpoint.
 """
 from __future__ import annotations
 
@@ -54,6 +63,9 @@ SIDE_REWARD = 1                    # scrolls for a correct side answer
 FLEE_COST = 2                      # scrolls to gamble on escaping a battle
 GALE_BONUS = 2                     # extra movement from a Gale Charm
 HORN_BONUS = 2                     # extra STRIKE damage from a War Horn
+PLANKS_HEAL = 3                    # Health restored by Pitch & Planks
+HEAVY_EVERY = 3                    # bosses telegraph a heavy every Nth exchange
+HEAVY_MULT = 2                     # ...that lands for double damage
 
 COLORS = ["#e4572e", "#2e86ab", "#f6ae2d", "#8e5572", "#33ca7f", "#6457a6"]
 
@@ -68,17 +80,22 @@ UPGRADES = {
     "aegis":      {"name": "Aegis Shard",       "desc": "First hit each battle is halved"},
 }
 
-# market-isle stock — consumables plus the shipwright's permanent fittings
+# market-isle stock — consumables plus the shipwright's permanent fittings.
+# Prices are tuned against the d3 economy: a good shrine visit pays 1-3
+# scrolls, a cleared pack pays its total hp. Survival gear (planks, aegis)
+# is what boss runs are saved up for.
 SHOP_ITEMS = {
-    "fitting": {"name": "Ship Fitting", "cost": 8,
+    "fitting": {"name": "Ship Fitting", "cost": 7,
                 "desc": "Pick one of two permanent upgrades"},
     "hint":    {"name": "Hint Stone",   "cost": 2,
                 "desc": "Removes 2 wrong answers on any question"},
-    "gale":    {"name": "Gale Charm",   "cost": 3,
+    "gale":    {"name": "Gale Charm",   "cost": 2,
                 "desc": f"+{GALE_BONUS} on your next roll"},
+    "planks":  {"name": "Pitch & Planks", "cost": 3,
+                "desc": f"Patch {PLANKS_HEAL} Health, even mid-battle"},
     "aegis_charm": {"name": "Aegis Charm", "cost": 4,
                 "desc": "Blocks the next damage you take"},
-    "horn":    {"name": "War Horn",     "cost": 5,
+    "horn":    {"name": "War Horn",     "cost": 4,
                 "desc": f"+{HORN_BONUS} on your next STRIKE"},
 }
 
@@ -107,7 +124,8 @@ class Player:
         self.cargo: list[str] = []         # sigil fragments aboard (not yet safe)
         self.banked = 0
         self.upgrades: list[str] = []
-        self.items = {"hint": 0, "gale": 0, "aegis_charm": 0, "horn": 0}
+        self.items = {"hint": 0, "gale": 0, "planks": 0,
+                      "aegis_charm": 0, "horn": 0}
         self.next_roll_bonus = 0           # armed Gale Charms
         self.streak = 0
         self.puzzles_solved = 0
@@ -357,20 +375,28 @@ class Game:
                 self._next_turn()
                 return
             self.board.spawn_boss(nid)
-            self.battle = {"node": nid, "stance": None,
+            self.battle = {"node": nid, "stance": None, "round": 0,
+                           "charging": False,
                            "used_items": [], "first_hit_taken": False}
             self._say(f"👑 {node['monster']['name']} rises — {p.name}'s trial begins!")
             self._bump("battle")
             return
         monster = self.board.alive_monster(nid)
-        ambush = not node.get("elite") or self.rng.random() < 0.6
+        # inside a realm the dungeon curve sets the ambush odds: the deeper
+        # you push, the more surely something finds you. Hub hunting grounds
+        # are dangerous waters, not a toll booth — half the landings pass.
+        if node.get("depth"):
+            ambush = self.rng.random() < min(0.85, 0.45 + 0.1 * node["depth"])
+        else:
+            ambush = self.rng.random() < 0.5
         if node.get("encounter") and not monster and ambush:
             node["monster"] = self.board.random_pack(node, self.rng)
             monster = node["monster"]
             self._say(f"⚔ {monster['name']} ambush {p.name}"
                       + (" in the wilds!" if node.get("region") else " in open water!"))
         if monster:
-            self.battle = {"node": nid, "stance": None,
+            self.battle = {"node": nid, "stance": None, "round": 0,
+                           "charging": False,
                            "used_items": [], "first_hit_taken": False}
             if not node.get("encounter"):
                 self._say(f"{monster['name']} bars {p.name}'s way!")
@@ -484,13 +510,25 @@ class Game:
     # ── consumables ──────────────────────────────────────────────────────────
     def use_item_charm(self, pid: str, item: str):
         """Spend a carried consumable: hint (during your question), gale
-        (before rolling), horn (before picking a battle stance).
+        (before rolling), horn (before picking a battle stance), planks
+        (patch the hull any time on your turn, even mid-battle).
         Aegis Charms trigger on their own when you take damage."""
         p = self.player_by_pid(pid)
         if not p or self.current.pid != pid:
             raise GameError("Not your turn.")
         if p.items.get(item, 0) <= 0:
             raise GameError("You don't carry one.")
+        if item == "planks":
+            if self.phase not in ("roll", "sail", "battle", "shrine", "haven", "shop"):
+                raise GameError("Steady your hands first — not now.")
+            if p.hull >= p.max_hull:
+                raise GameError("The hull is already sound.")
+            p.items["planks"] -= 1
+            healed = min(PLANKS_HEAL, p.max_hull - p.hull)
+            p.hull += healed
+            self.nonce += 1
+            self._say(f"🔨 {p.name} patches {healed} Health with pitch and planks.")
+            return
         if item == "hint":
             if self.phase != "question" or self.question is None:
                 raise GameError("No question to narrow.")
@@ -534,14 +572,17 @@ class Game:
     # ── battle (Paper-Mario turns: your move, then the enemies') ─────────────
     def stance(self, pid: str, stance: str, target: int = 0):
         self._require_turn(pid, "battle")
-        if stance not in ("attack", "magic"):
-            raise GameError("Choose STRIKE or MAGIC.")
+        if stance not in ("attack", "magic", "guard"):
+            raise GameError("Choose STRIKE, MAGIC, or GUARD.")
         m = self.board.alive_monster(self.battle["node"])
         enemies = m["enemies"]
         if not (0 <= target < len(enemies)) or enemies[target]["hp"] <= 0:
             target = next(i for i, e in enumerate(enemies) if e["hp"] > 0)
         boss = bool(m.get("boss")) or any(e["max_hp"] >= 5 for e in enemies)
-        tier = (2 if boss else 1) if stance == "attack" else 3
+        if stance == "guard":
+            tier = 1                       # reading the blow, not landing one
+        else:
+            tier = (2 if boss else 1) if stance == "attack" else 3
         self.battle["stance"] = stance
         self.battle["target"] = target
         self.qctx = {"kind": "battle", "island": self.battle["node"],
@@ -709,77 +750,122 @@ class Game:
             m = self.board.nodes[self.battle["node"]]["monster"]
             enemies = m["enemies"]
             stance = self.battle["stance"]
+            boss = bool(m.get("boss"))
+            heavy = bool(boss and self.battle.get("charging"))
             tgt = enemies[self.battle.get("target", 0)]
-            enemy_phase = {"evaded": False, "backfire": False,
-                           "attacker": None, "dmg": 0,
+            enemy_phase = {"evaded": False, "backfire": False, "blocked": False,
+                           "heavy": False, "attacker": None, "dmg": 0,
                            "target_idx": self.battle.get("target", 0),
                            "dealt": 0, "killed": False}
             if correct:
                 self._streak_bonus(p)
-                if stance == "attack":
-                    dmg = STRIKE_DMG + (1 if p.has("ram") else 0)
-                    horn = self.battle.get("horn")
-                    if horn:
-                        dmg += HORN_BONUS
-                        self.battle["horn"] = False
-                    note = f"{'📯 ' if horn else ''}⚔ Your blade bites {tgt['name']} for {dmg}!"
-                else:
-                    dmg = MAGIC_DMG + (1 if p.has("trident") else 0)
-                    note = f"✨ Arcane fire sears {tgt['name']} for {dmg}!"
+            else:
+                p.streak = 0
+
+            # ── your move ────────────────────────────────────────────────────
+            dmg = 0
+            if correct and stance == "attack":
+                dmg = STRIKE_DMG + (1 if p.has("ram") else 0)
+                horn = self.battle.get("horn")
+                if horn:
+                    dmg += HORN_BONUS
+                    self.battle["horn"] = False
+                note = f"{'📯 ' if horn else ''}⚔ Your blade bites {tgt['name']} for {dmg}!"
+            elif correct and stance == "magic":
+                dmg = MAGIC_DMG + (1 if p.has("trident") else 0)
+                note = f"✨ Arcane fire sears {tgt['name']} for {dmg}!"
+            elif correct and stance == "guard":
+                note = "🛡 You read the attack and set your stance."
+            if dmg:
                 tgt["hp"] -= dmg
                 enemy_phase["dealt"] = dmg
                 if tgt["hp"] <= 0:
                     enemy_phase["killed"] = True
                     note += f" {tgt['name']} falls!"
-                alive = [e for e in enemies if e["hp"] > 0]
-                if not alive:
-                    battle_over = True
-                    node = self.board.nodes[self.battle["node"]]
-                    if node["type"] == "pharos":
-                        self.winner = p.pid
-                        note = f"🏆 The Warden falls — {p.name} takes the PHAROS!"
-                    else:
-                        note += f" {m['name']} — defeated!"
-                        if node["type"] == "lair":
-                            node["defeated"].append(p.pid)
-                            node["monster"] = None      # your trial is done, forever
-                            p.cargo.append(node["region"])
-                            note += " The sigil fragment is aboard — sail it home."
-                        loot = sum(e["max_hp"] for e in enemies)
-                        p.scrolls += loot
-                        gained = loot
-                        self._bounty_event("slay", p, name=m["name"])
-                        if node.get("encounter"):
-                            node["monster"] = None     # the grounds fall quiet — for now
+
+            alive = [e for e in enemies if e["hp"] > 0]
+            if not alive:
+                battle_over = True
+                node = self.board.nodes[self.battle["node"]]
+                if node["type"] == "pharos":
+                    self.winner = p.pid
+                    note = f"🏆 The Warden falls — {p.name} takes the PHAROS!"
                 else:
-                    # your successful move also carries you clear of the counter
-                    enemy_phase["evaded"] = True
-                    enemy_phase["attacker"] = alive[0]["name"]
+                    note += f" {m['name']} — defeated!"
+                    if node["type"] == "lair":
+                        node["defeated"].append(p.pid)
+                        node["monster"] = None      # your trial is done, forever
+                        p.cargo.append(node["region"])
+                        note += " The sigil fragment is aboard — sail it home."
+                    loot = sum(e["max_hp"] for e in enemies)
+                    p.scrolls += loot
+                    gained = loot
+                    self._bounty_event("slay", p, name=m["name"])
+                    if node.get("encounter"):
+                        node["monster"] = None     # the grounds fall quiet — for now
             else:
-                p.streak = 0
-                if stance == "magic":
+                # a wounded boss enrages — and the fury lands this very round
+                if boss and not m.get("enraged"):
+                    if sum(e["hp"] for e in enemies) * 2 <= sum(e["max_hp"] for e in enemies):
+                        m["enraged"] = True
+                        for e in enemies:
+                            e["power"] += 1
+                        note += f" 🔥 {m['name']} ENRAGES — its blows land harder!"
+
+                # ── the enemies' move ────────────────────────────────────────
+                # Packs only punish a miss; a boss answers EVERY exchange.
+                front = alive[0]
+                if stance == "guard" and correct:
+                    if boss or True:            # a read blow is always turned
+                        enemy_phase["blocked"] = True
+                        enemy_phase["attacker"] = front["name"]
+                        enemy_phase["heavy"] = heavy
+                        note += (f" {front['name']}'s "
+                                 + ("HEAVY blow " if heavy else "attack ")
+                                 + "glances off your guard!")
+                elif not correct and stance == "magic" and not boss:
                     hit, blocked = self._absorb(p, MAGIC_BACKFIRE)
                     enemy_phase["backfire"] = True
                     enemy_phase["dmg"] = hit
                     note = ("🛡 The aegis charm eats the backfire."
                             if blocked else f"🔥 The spell backfires — {hit} damage!")
-                else:
-                    front = next(e for e in enemies if e["hp"] > 0)
-                    hit, blocked = self._absorb(p, front["power"])
+                    p.hull -= hit
+                elif boss or not correct:
+                    power = front["power"] * (HEAVY_MULT if heavy else 1)
+                    hit, blocked = self._absorb(p, power)
+                    pre = ""
                     if blocked:
-                        note = "🛡 The aegis charm turns the blow. "
+                        pre = "🛡 The aegis charm turns the blow. "
                     elif p.has("aegis") and not self.battle["first_hit_taken"]:
                         hit = max(1, hit // 2)
                         self.battle["first_hit_taken"] = True
-                        note = "Your Aegis shard flares — "
+                        pre = "Your Aegis shard flares — "
                     enemy_phase["attacker"] = front["name"]
                     enemy_phase["dmg"] = hit
+                    enemy_phase["heavy"] = heavy
                     if not blocked:
-                        note += f"💥 {front['name']} strikes for {hit}!"
-                p.hull -= hit
+                        pre += (f"💥 {front['name']} lands a HEAVY blow for {hit}!"
+                                if heavy else f"💥 {front['name']} strikes for {hit}!")
+                    note = (note + " " + pre).strip()
+                    p.hull -= hit
+                else:
+                    # your successful move carries you clear of the counter
+                    enemy_phase["evaded"] = True
+                    enemy_phase["attacker"] = front["name"]
+
                 if p.hull <= 0:
                     battle_over = True
+                    node = self.board.nodes[self.battle["node"]]
+                    if node["type"] == "pharos":
+                        self.board.reset_warden()   # a fresh Warden per challenger
                     self._shipwreck(p)
+                elif boss:
+                    # the exchange count drives the telegraphed heavy blows
+                    self.battle["round"] += 1
+                    self.battle["charging"] = (
+                        self.battle["round"] % HEAVY_EVERY == HEAVY_EVERY - 1)
+                    if self.battle["charging"]:
+                        note += f" ⚠ {m['name']} rears back, gathering a heavy blow…"
             self._last_enemy_phase = enemy_phase
 
         # side answers: rivals who guessed right skim a scroll
@@ -945,13 +1031,18 @@ class Game:
         node = self.board.nodes[self.battle["node"]]
         boss = bool(m.get("boss")) or any(e["max_hp"] >= 5 for e in m["enemies"])
         return {"name": m["name"], "tier": m["tier"], "domain": m["domain"],
-                "boss": boss,
+                "boss": boss, "model": m.get("model"),
+                "enraged": bool(m.get("enraged")),
+                "round": self.battle.get("round", 0),
+                "charging": bool(self.battle.get("charging")),
                 "enemies": [{"name": e["name"], "hp": max(0, e["hp"]),
-                             "max_hp": e["max_hp"], "power": e["power"]}
+                             "max_hp": e["max_hp"], "power": e["power"],
+                             "model": e.get("model")}
                             for e in m["enemies"]],
                 "strike_tier": 2 if boss else 1,
                 "node": self.battle["node"], "is_lair": node["type"] == "lair",
                 "is_pharos": node["type"] == "pharos",
+                "region": node.get("region"),
                 "target": self.battle.get("target", 0),
                 "horn": bool(self.battle.get("horn")),
                 "used_items": self.battle["used_items"]}
@@ -963,6 +1054,10 @@ class Game:
         base["name"] = node["name"]
         if node.get("region"):
             base["region"] = node["region"]
+        if node.get("depth"):
+            base["depth"] = node["depth"]
+        if node.get("mode"):
+            base["mode"] = node["mode"]
         if node.get("gate_angle") is not None:
             base["gate_angle"] = node["gate_angle"]
         if node["type"] == "sea":
@@ -1007,7 +1102,9 @@ class Game:
             "phase": self.phase,
             "board": {"nodes": nodes, "edges": edges,
                       "domains": DOMAIN_INFO, "home": "home",
-                      "regions": {t: REGION_POOL[t]["name"]
+                      "regions": {t: {"name": REGION_POOL[t]["name"],
+                                      "mode": REGION_POOL[t].get("mode", "sail"),
+                                      "boss": REGION_POOL[t]["boss"][0]}
                                   for t in self.board.regions}},
             "players": [p.public() for p in self.players],
             "host": self.players[0].pid if self.players else None,
@@ -1032,5 +1129,7 @@ class Game:
             "log": self.log,
             "config": {"relics_to_win": RELICS_TO_WIN, "tier_reward": TIER_REWARD,
                        "streak_at": STREAK_AT, "max_hull": MAX_HULL,
-                       "flee_cost": FLEE_COST, "shop_items": SHOP_ITEMS},
+                       "flee_cost": FLEE_COST, "shop_items": SHOP_ITEMS,
+                       "die_sides": 3, "heavy_every": HEAVY_EVERY,
+                       "heavy_mult": HEAVY_MULT, "planks_heal": PLANKS_HEAL},
         }

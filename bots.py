@@ -65,8 +65,13 @@ def _target_score(g: G.Game, p, nid: str) -> float:
     if ntype == "home":
         return 40 + 90 * len(p.cargo) + (35 if p.hull <= 2 else 0) - 30
     if ntype == "lair" and p.pid not in node.get("defeated", []):
+        # bosses counter every round now — only sail in prepared
+        prepared = (p.hull >= p.max_hull - 1
+                    and (p.items.get("planks", 0) > 0
+                         or p.items.get("aegis_charm", 0) > 0
+                         or p.max_hull > 6))
         strength = p.hull + (2 if p.has("ram") else 0)
-        return 25 + strength * 8 - 30
+        return (25 + strength * 8 - 30) if prepared else 4
     if ntype == "shrine" and node.get("charges", 0) > 0:
         return 45 if p.scrolls < 6 else 22
     if ntype == "puzzle" and not node.get("solved"):
@@ -109,18 +114,44 @@ def decide_shrine_tier(g: G.Game, pid: str, skill: Skill, rng: random.Random) ->
 
 
 def decide_battle(g: G.Game, pid: str, rng: random.Random) -> str:
-    """'attack' | 'magic' | 'flee' for the stance phase."""
+    """'attack' | 'magic' | 'guard' | 'flee' | 'planks' for the stance phase."""
     p = g.player_by_pid(pid)
     m = g.board.alive_monster(g.battle["node"])
+    boss = bool(m.get("boss"))
     alive = [e for e in m["enemies"] if e["hp"] > 0]
     total_hp = sum(e["hp"] for e in alive)
     power = max(e["power"] for e in alive)
+    # patch the hull before choosing a stance if it's getting desperate
+    if p.items.get("planks", 0) > 0 and p.hull <= p.max_hull - G.PLANKS_HEAL \
+            and (p.hull <= 3 or boss):
+        return "planks"
+    if boss:
+        # a telegraphed heavy is the round to guard, not to trade blows
+        if g.battle.get("charging") and (p.hull <= 4 or rng.random() < 0.6):
+            return "guard"
+        return "magic"
     if p.hull <= 1 or (p.hull <= 2 and total_hp >= 4):
         return "flee"
     # magic when the pack is meaty or the miss is cheaper than its counter
     if total_hp >= 3 or power > 1:
         return "magic"
     return "attack"
+
+
+def decide_shop(g: G.Game, pid: str) -> str | None:
+    """What to buy at a market isle, if anything. Bots shop like captains
+    preparing for a boss run: survival gear first, then fittings."""
+    p = g.player_by_pid(pid)
+    items = p.items
+    if items.get("planks", 0) < 1 and p.scrolls >= 5:
+        return "planks"
+    if items.get("aegis_charm", 0) < 1 and p.scrolls >= 7:
+        return "aegis_charm"
+    if p.scrolls >= G.SHOP_ITEMS["fitting"]["cost"] + 3 and len(p.upgrades) < 6:
+        return "fitting"
+    if items.get("hint", 0) < 1 and p.scrolls >= 6:
+        return "hint"
+    return None
 
 
 def decide_answer(g: G.Game, skill: Skill, rng: random.Random) -> int:

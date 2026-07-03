@@ -183,10 +183,10 @@ async def dispatch(pid: str | None, kind: str, msg: dict) -> str | None:
             p = g.add_player(f"bot:{secrets.token_hex(4)}", skill.name, is_bot=True)
             table.bots[p.pid] = skill
         elif kind == "roll":
-            die = secrets.randbelow(6) + 1
+            die = secrets.randbelow(3) + 1       # a d3: close-quarters sailing
             p = g.player_by_pid(pid)
             if p and p.has("star_chart"):        # roll two, sail with the higher
-                die = max(die, secrets.randbelow(6) + 1)
+                die = max(die, secrets.randbelow(3) + 1)
             g.roll(pid, die)
             await broadcast_event({"type": "dice", "pid": pid, "value": die})
         elif kind == "sail":
@@ -278,10 +278,18 @@ async def bot_move(nonce: int, tag: str, pid: str):
         if err:
             err = await dispatch(pid, "pass", {})
     elif phase == "shop":
-        err = await dispatch(pid, "pass", {})
+        buy = bots.decide_shop(g, pid)
+        if buy:
+            err = await dispatch(pid, "shop_buy", {"item": buy})
+        if not buy or err:
+            err = await dispatch(pid, "pass", {})
     elif phase == "battle":
         choice = bots.decide_battle(g, pid, rng)
-        if choice == "flee":
+        if choice == "planks":
+            err = await dispatch(pid, "use", {"item": "planks"})
+            if err:                                    # can't patch: fight on
+                err = await dispatch(pid, "stance", {"stance": "magic"})
+        elif choice == "flee":
             err = await dispatch(pid, "flee", {})
             if err:                                    # broke, or it's a trial
                 err = await dispatch(pid, "stance", {"stance": "attack"})
