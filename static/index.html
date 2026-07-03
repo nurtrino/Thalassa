@@ -1,0 +1,180 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta name="theme-color" content="#0b141d">
+<title>THALASSA</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%230f1b28'/%3E%3Cpath d='M8 41c4 8.5 14 12.5 24 12.5S52 49.5 56 41l-7 2.5H15Z' fill='%23c9a227'/%3E%3Crect x='30' y='10' width='4' height='28' rx='1.5' fill='%23c9a227'/%3E%3Cpath d='M35 12c9 2.5 14.5 9.5 16 20H35Z' fill='%23e8c65f'/%3E%3Cpath d='M29 15c-7.5 3.5-11.5 9.5-12.5 17H29Z' fill='%23a07d1c'/%3E%3C/svg%3E">
+<link rel="preload" href="/static/fonts/cinzel-var.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="/static/fonts/alegreya-var.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="/static/style.css">
+<script type="importmap">
+{ "imports": { "three": "/static/vendor/three.module.min.js" } }
+</script>
+</head>
+<body>
+
+<!-- ── 3D world (z 0) — scene.js mounts the renderer + .scenefade here ──── -->
+<div id="world"></div>
+
+<button id="muteBtn" aria-label="Sound on / off">
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+    <path d="M4 9.5v5h3.5L13 19V5L7.5 9.5H4Z"/>
+    <path class="wave" d="M16.5 9a4.4 4.4 0 0 1 0 6"/>
+    <path class="wave" d="M18.8 6.8a7.6 7.6 0 0 1 0 10.4"/>
+  </svg>
+</button>
+
+<!-- ── title screen ─────────────────────────────────────────────────────── -->
+<div id="lobby" class="overlay">
+  <div class="panel title-panel">
+    <div class="title-hero">
+      <svg class="laurel" viewBox="0 0 60 110" aria-hidden="true" focusable="false">
+        <path d="M46 104 C 20 84, 12 50, 28 6" fill="none" stroke="#c9a227" stroke-width="3" stroke-linecap="round"/>
+        <g fill="#c9a227">
+          <path d="M43 95 Q 24 90 16 100 Q 34 108 43 95 Z"/>
+          <path d="M35 82 Q 17 74 8 82 Q 25 94 35 82 Z"/>
+          <path d="M29 67 Q 13 57 4 63 Q 19 78 29 67 Z"/>
+          <path d="M26 51 Q 12 39 3 43 Q 15 60 26 51 Z"/>
+          <path d="M26 36 Q 15 22 6 24 Q 14 43 26 36 Z"/>
+          <path d="M28 21 Q 20 8 11 8 Q 16 27 28 21 Z"/>
+        </g>
+        <g fill="#a07d1c">
+          <path d="M45 90 Q 56 76 55 62 Q 42 74 45 90 Z"/>
+          <path d="M37 74 Q 46 60 44 46 Q 32 58 37 74 Z"/>
+          <path d="M31 57 Q 38 43 35 30 Q 24 42 31 57 Z"/>
+          <path d="M29 40 Q 34 26 30 14 Q 21 27 29 40 Z"/>
+        </g>
+      </svg>
+      <div class="title-name">
+        <h1 class="gilt">THALASSA</h1>
+        <p class="tagline">Four realms wait beyond the mountain wall</p>
+      </div>
+      <svg class="laurel flip" viewBox="0 0 60 110" aria-hidden="true" focusable="false">
+        <path d="M46 104 C 20 84, 12 50, 28 6" fill="none" stroke="#c9a227" stroke-width="3" stroke-linecap="round"/>
+        <g fill="#c9a227">
+          <path d="M43 95 Q 24 90 16 100 Q 34 108 43 95 Z"/>
+          <path d="M35 82 Q 17 74 8 82 Q 25 94 35 82 Z"/>
+          <path d="M29 67 Q 13 57 4 63 Q 19 78 29 67 Z"/>
+          <path d="M26 51 Q 12 39 3 43 Q 15 60 26 51 Z"/>
+          <path d="M26 36 Q 15 22 6 24 Q 14 43 26 36 Z"/>
+          <path d="M28 21 Q 20 8 11 8 Q 16 27 28 21 Z"/>
+        </g>
+        <g fill="#a07d1c">
+          <path d="M45 90 Q 56 76 55 62 Q 42 74 45 90 Z"/>
+          <path d="M37 74 Q 46 60 44 46 Q 32 58 37 74 Z"/>
+          <path d="M31 57 Q 38 43 35 30 Q 24 42 31 57 Z"/>
+          <path d="M29 40 Q 34 26 30 14 Q 21 27 29 40 Z"/>
+        </g>
+      </svg>
+    </div>
+
+    <div id="joinForm">
+      <input id="nameInput" maxlength="16" placeholder="Your name, captain" autocomplete="off" spellcheck="false">
+      <button id="joinBtn" class="big">Join the Voyage</button>
+      <p id="lobbyErr" class="err"></p>
+    </div>
+
+    <div id="waitRoom" class="hidden">
+      <ul id="lobbyPlayers"></ul>
+      <div class="waitbtns">
+        <button id="addBotBtn" class="small hidden">Invite a Philosopher</button>
+        <button id="copyLink" class="small">Copy Invite Link</button>
+      </div>
+      <button id="startBtn" class="big hidden">Set Sail</button>
+      <p id="waitMsg" class="tag">waiting for the host&hellip;</p>
+    </div>
+
+    <div class="title-howto">
+      <div class="howto-card">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="4" width="16" height="16" rx="3.5" fill="none" stroke="#c9a227" stroke-width="1.8"/><circle cx="9" cy="9" r="1.7" fill="#c9a227"/><circle cx="12" cy="12" r="1.7" fill="#c9a227"/><circle cx="15" cy="15" r="1.7" fill="#c9a227"/></svg>
+        <strong>Sail</strong>
+        <span>Roll the bronze die &mdash; one to three &mdash; and pick your course.</span>
+      </div>
+      <div class="howto-card">
+        <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="#c9a227" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M6.5 20V8.5h3V20"/><path d="M14.5 20V8.5h3V20"/><path d="M4 8.5h16"/><path d="M9 8.5l3-4.5 3 4.5"/></svg>
+        <strong>Realms</strong>
+        <span>Frost, sand, jungle and amber vale wait beyond the wall.</span>
+      </div>
+      <div class="howto-card">
+        <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="#c9a227" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l7 2.8v6c0 4.2-3 7.3-7 9.2-4-1.9-7-5-7-9.2v-6Z"/><path d="M12 7.5v5"/></svg>
+        <strong>Fight</strong>
+        <span>Answer to strike. Guard to turn a heavy blow aside.</span>
+      </div>
+      <div class="howto-card">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2.6l2.3 7.1L21.4 12l-7.1 2.3L12 21.4l-2.3-7.1L2.6 12l7.1-2.3Z" fill="none" stroke="#c9a227" stroke-width="1.8" stroke-linejoin="round"/></svg>
+        <strong>Relics</strong>
+        <span>Slay each realm's tyrant and carry its relic home.</span>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ── in-game HUD (z 10) — app.js fills every container ───────────────── -->
+<div id="hud" class="hidden">
+  <div id="players"></div>
+  <div id="turnBanner"></div>
+  <div id="objective"></div>
+  <div id="compass"></div>
+  <div id="bounties" class="hidden"></div>
+  <div id="tray"></div>
+  <div id="dice" class="hidden">
+    <div class="die" id="die1"><div class="cube"></div></div>
+  </div>
+  <div id="log"></div>
+  <div id="toasts"></div>
+  <div id="itembelt"></div>
+</div>
+
+<!-- player inspector (z 25) -->
+<div id="uppanel" class="hidden"></div>
+
+<!-- shop bottom sheet -->
+<div id="shopPanel" class="hidden"></div>
+
+<!-- ── battle screen (z 15) ─────────────────────────────────────────────── -->
+<div id="battleHud" class="hidden">
+  <div class="cinebar top"></div>
+  <div class="cinebar bot"></div>
+  <div id="bfoe"></div>
+  <div id="bmon"></div>
+  <div id="bturn"></div>
+  <div id="bship"></div>
+  <div id="bactions"></div>
+</div>
+
+<!-- damage / reward flash (z 14) -->
+<div id="flash"></div>
+
+<!-- ── question scroll ──────────────────────────────────────────────────── -->
+<div id="qmodal" class="overlay hidden">
+  <div id="qcard">
+    <div id="qhead"><span id="qkind"></span><span id="qdomain"></span></div>
+    <div id="qtimer"><div id="qtimerBar"></div></div>
+    <p id="qtext"></p>
+    <div id="qitems"></div>
+    <div id="qopts"></div>
+    <p id="qnote"></p>
+  </div>
+</div>
+
+<!-- ── minigame card ────────────────────────────────────────────────────── -->
+<div id="mgmodal" class="overlay hidden">
+  <div id="mgcard">
+    <div id="mghead"><span id="mgkind"></span><span id="mgisle"></span></div>
+    <div id="mgtimer"><div id="mgtimerBar"></div></div>
+    <p id="mgprompt"></p>
+    <div id="mgboard"></div>
+    <p id="mgnote"></p>
+  </div>
+</div>
+
+<!-- ── generic modal: intro · upgrade pick · winner ─────────────────────── -->
+<div id="modal" class="overlay hidden">
+  <div class="panel" id="modalBody"></div>
+</div>
+
+<script type="module" src="/static/app.js"></script>
+</body>
+</html>

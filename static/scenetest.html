@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>scene smoke test</title>
+<script type="importmap">{ "imports": { "three": "/static/vendor/three.module.min.js" } }</script>
+<style>
+  html,body{margin:0;height:100%;overflow:hidden;background:#000}
+  #world{position:fixed;inset:0}
+  .scenefade{position:fixed;inset:0;background:#06090d;opacity:0;
+             transition:opacity .45s;pointer-events:none}
+  .hidden{display:none!important}
+</style>
+</head>
+<body>
+<div id="world"></div>
+<script type="module">
+import { createWorld } from '/static/scene.js';
+
+const fx = await (await fetch('/static/fixture.json')).json();
+const room = fx.room;
+const you = fx.you;
+
+window.__stage = null;
+const world = createWorld(document.getElementById('world'), {
+  onNodeClick: id => console.log('click', id),
+  onStageChange: s => { window.__stage = s; console.log('stage', s); },
+});
+world.update(room, you);
+window.__world = world;
+window.__room = room;
+window.__you = you;
+
+// helpers the screenshot driver calls
+window.__moveTo = (nodeId) => {
+  room.players[0].node = nodeId;
+  world.update(room, you);
+};
+window.__battle = (spec) => {
+  // spec: {node, name, model, boss, enemies:[{name,hp,max_hp,power,model}], region}
+  room.battle = Object.assign({
+    tier: 3, domain: 'clio', strike_tier: 2, target: 0, horn: false,
+    used_items: [], round: 0, charging: false, enraged: false,
+    is_lair: true, is_pharos: false,
+  }, spec);
+  room.phase = 'battle';
+  room.turn = you;
+  world.update(room, you);
+};
+window.__endBattle = () => { room.battle = null; room.phase = 'roll'; world.update(room, you); };
+window.__play = (k, p) => world.battlePlay(k, p);
+window.__ready = true;
+</script>
+</body>
+</html>

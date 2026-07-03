@@ -1,0 +1,1130 @@
+/*
+ * scene.js — Thalassa world orchestrator (Agent B).
+ *
+ * One renderer, many stages. A Stage is a self-contained THREE.Scene for one
+ * region of the game world: the hub archipelago or one of the four realms
+ * behind the mountain wall. The battle diorama (battle.js) is a further,
+ * separate stage. The viewer sees exactly one stage at a time; switches go
+ * through a 0.6s ink fade (div.scenefade, styled by Agent D).
+ *
+ * Contract notes / deviations (see docs/FRONTEND-CONTRACTS.md, Agent B):
+ * - battlePlay('target'|'targeted', {idx}) is forwarded to
+ *   battleStage.setTargeted(idx) — scene.js is app.js's only path to the
+ *   battle stage, and the contract gives setTargeted no other transport.
+ *   Every other kind goes straight to battleStage.play(kind, payload).
+ * - buildRealmBackdrop groups are positioned at the realm's node centroid
+ *   and yawed so their dense side faces away from the realm's gate node
+ *   (realm node coordinates come from the server and are not origin-centred).
+ */
+import * as THREE from 'three';
+import { OrbitControls } from './vendor/OrbitControls.js';
+import { hashStr, mulberry32, flat } from './util.js';
+import { themeFor } from './themes.js';
+import { makeWater, makeGround } from './water.js';
+import { buildIsland, makeShip, makeParticles, nameSprite } from './islands.js';
+import { buildMountainWall, buildRealmBackdrop } from './wall.js';
+import { getMonster, animateMonster, preloadMonsters } from './monsters.js';
+import { createBattleStage } from './battle.js';
+
+const FADE_MS = 480;               // fade-to-black hold before the swap
+const GOLD = 0xffd75e;
+
+/* preallocated scratch — the render loop must not allocate */
+const _vA = new THREE.Vector3();
+const _vB = new THREE.Vector3();
+const _vC = new THREE.Vector3();
+const _vD = new THREE.Vector3();
+
+/* ── little canvas textures (clouds, sun glow, wake foam) ───────────────── */
+
+function puffTexture(r, g, b) {
+  const c = document.createElement('canvas');
+  c.width = c.height = 256;
+  const ctx = c.getContext('2d');
+  const blob = (x, y, rad, a) => {
+    const gr = ctx.createRadialGradient(x, y, rad * 0.12, x, y, rad);
+    gr.addColorStop(0, `rgba(${r},${g},${b},${a})`);
+    gr.addColorStop(0.6, `rgba(${r},${g},${b},${a * 0.45})`);
+    gr.addColorStop(1, `rgba(${r},${g},${b},0)`);
+    ctx.fillStyle = gr;
+    ctx.fillRect(0, 0, 256, 256);
+  };
+  blob(128, 148, 96, 0.9);
+  blob(84, 128, 66, 0.85);
+  blob(174, 124, 70, 0.85);
+  blob(126, 102, 56, 0.8);
+  ctx.globalCompositeOperation = 'source-atop';
+  const sh = ctx.createLinearGradient(0, 90, 0, 240);
+  sh.addColorStop(0, 'rgba(255,255,255,0)');
+  sh.addColorStop(1, 'rgba(120,130,150,0.34)');
+  ctx.fillStyle = sh;
+  ctx.fillRect(0, 0, 256, 256);
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  return tex;
+}
+
+function radialTexture(stops) {
+  const c = document.createElement('canvas');
+  c.width = c.height = 128;
+  const ctx = c.getContext('2d');
+  const g = ctx.createRadialGradient(64, 64, 0, 64, 64, 64);
+  for (const [k, col] of stops) g.addColorStop(k, col);
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, 128, 128);
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  return tex;
+}
+
+let TEX_CLOUD = null, TEX_GLOW = null, TEX_WAKE = null;
+function ensureTextures() {
+  if (TEX_CLOUD) return;
+  TEX_CLOUD = puffTexture(255, 255, 255);
+  TEX_GLOW = radialTexture([
+    [0, 'rgba(255,250,225,1)'], [0.18, 'rgba(255,240,190,0.9)'],
+    [0.5, 'rgba(255,225,150,0.25)'], [1, 'rgba(255,220,140,0)'],
+  ]);
+  TEX_WAKE = radialTexture([
+    [0, 'rgba(255,255,255,0.85)'], [0.45, 'rgba(230,250,255,0.5)'],
+    [1, 'rgba(220,245,255,0)'],
+  ]);
+}
+
+/* ── per-stage sky dome (legacy shader, themed) ─────────────────────────── */
+function makeSky(sky) {
+  const geo = new THREE.SphereGeometry(1500, 24, 14);
+  const mat = new THREE.ShaderMaterial({
+    side: THREE.BackSide, depthWrite: false, fog: false,
+    uniforms: {
+      zenith: { value: new THREE.Color(sky.zenith) },
+      mid: { value: new THREE.Color(sky.mid) },
+      horizon: { value: new THREE.Color(sky.horizon) },
+    },
+    vertexShader: `varying vec3 vP; void main(){ vP = position;
+      gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }`,
+    fragmentShader: `uniform vec3 zenith; uniform vec3 mid; uniform vec3 horizon; varying vec3 vP;
+      void main(){
+        float h = normalize(vP).y;
+        vec3 c = h > 0.25 ? mix(mid, zenith, smoothstep(0.25, 0.8, h))
+                          : mix(horizon, mid, smoothstep(-0.05, 0.25, h));
+        gl_FragColor = vec4(c, 1.0);
+      }`,
+  });
+  const m = new THREE.Mesh(geo, mat);
+  m.renderOrder = -10;
+  return m;
+}
+
+function makeSunGlow(colorHex) {
+  const sp = new THREE.Sprite(new THREE.SpriteMaterial({
+    map: TEX_GLOW, transparent: true, blending: THREE.AdditiveBlending,
+    depthWrite: false, fog: false, color: new THREE.Color(colorHex).lerp(new THREE.Color(0xffffff), 0.4),
+  }));
+  sp.scale.set(220, 220, 1);
+  return sp;
+}
+
+function makeCloud(rng, big, tint) {
+  const cl = new THREE.Group();
+  const n = 4 + Math.floor(rng() * 3);
+  for (let j = 0; j < n; j++) {
+    const sp = new THREE.Sprite(new THREE.SpriteMaterial({
+      map: TEX_CLOUD, transparent: true, opacity: 0.88, depthWrite: false, color: tint,
+    }));
+    const s = (16 + rng() * 18) * big;
+    sp.scale.set(s, s * 0.62, 1);
+    sp.position.set((j - n / 2) * 9 * big + (rng() - 0.5) * 6,
+                    rng() * 5 * big, (rng() - 0.5) * 8 * big);
+    cl.add(sp);
+  }
+  return cl;
+}
+
+/* gulls: two flapping wing planes on a slow circle (hub ambience) */
+function makeGulls(rng, count) {
+  const gulls = [];
+  for (let i = 0; i < count; i++) {
+    const bird = new THREE.Group();
+    for (const s of [-1, 1]) {
+      const wing = new THREE.Mesh(new THREE.PlaneGeometry(0.9, 0.28),
+        flat(0xffffff, { side: THREE.DoubleSide }));
+      wing.position.x = s * 0.45;
+      wing.userData.side = s;
+      bird.add(wing);
+    }
+    bird.userData = {
+      r: 50 + rng() * 170, h: 22 + rng() * 22,
+      speed: 0.05 + rng() * 0.08, phase: rng() * 6.28, flap: 4 + rng() * 3,
+    };
+    gulls.push(bird);
+  }
+  return gulls;
+}
+
+/* dolphin pods porpoising through open water (hub only) */
+function makeDolphins(rng, count) {
+  const pods = [];
+  for (let i = 0; i < count; i++) {
+    const pod = new THREE.Group();
+    const n = 2 + Math.floor(rng() * 2);
+    for (let j = 0; j < n; j++) {
+      const d = new THREE.Group();
+      const body = new THREE.Mesh(new THREE.CapsuleGeometry(0.24, 1.0, 3, 6), flat(0x3d6b7d));
+      body.rotation.x = Math.PI / 2;
+      const fin = new THREE.Mesh(new THREE.ConeGeometry(0.13, 0.32, 4), flat(0x2f4e5c));
+      fin.position.y = 0.3;
+      d.add(body, fin);
+      d.userData = { off: j * 1.9 };
+      pod.add(d);
+    }
+    pod.userData = {
+      cx: -200 + rng() * 400, cz: -200 + rng() * 400,
+      r: 16 + rng() * 26, speed: 0.09 + rng() * 0.07, ph: rng() * 6.28,
+    };
+    pods.push(pod);
+  }
+  return pods;
+}
+
+/* ── view keys: island groups rebuild only when this changes ────────────── */
+function viewKey(node) {
+  return [node.type, node.monster ? node.monster.hp : '-',
+          node.charges ?? '-', node.solved ?? '-',
+          (node.defeated || []).length, (node.stash || []).length,
+          node.flotsam ?? '-', node.depth ?? '-', node.mode ?? '-',
+          node.region ?? '-'].join(':');
+}
+
+function disposeDeep(root) {
+  root.traverse((o) => {
+    if (o.geometry) o.geometry.dispose();
+    const m = o.material;
+    if (Array.isArray(m)) { for (const mm of m) mm.dispose(); }
+    else if (m) {
+      if (o.name === 'nametag' && m.map) m.map.dispose();  // per-ship canvas
+      m.dispose();
+    }
+  });
+}
+
+/* ═════════════════════════════════════════════════════════════════════════
+ *  createWorld
+ * ═══════════════════════════════════════════════════════════════════════ */
+export function createWorld(container, handlers = {}) {
+  ensureTextures();
+
+  /* renderer */
+  const renderer = new THREE.WebGLRenderer({ antialias: true });
+  renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+  renderer.shadowMap.enabled = true;
+  renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+  renderer.toneMapping = THREE.ACESFilmicToneMapping;
+  renderer.toneMappingExposure = 1.05;
+  container.appendChild(renderer.domElement);
+
+  /* the fade curtain — CSS (Agent D) provides the .45s opacity transition */
+  const fadeEl = document.createElement('div');
+  fadeEl.className = 'scenefade';
+  fadeEl.style.opacity = '0';
+  container.appendChild(fadeEl);
+
+  /* camera + close chase controls */
+  const camera = new THREE.PerspectiveCamera(48, 1, 0.1, 4000);
+  camera.position.set(0, 34, 58);
+  const controls = new OrbitControls(camera, renderer.domElement);
+  controls.enableDamping = true;
+  controls.dampingFactor = 0.06;
+  controls.enablePan = false;
+  controls.minDistance = 16;
+  controls.maxDistance = 84;
+  controls.maxPolarAngle = 1.12;
+  controls.autoRotateSpeed = 0.45;
+  controls.target.set(0, 1.5, 0);
+
+  /* battle stage (separate module, rendered instead of a board stage) */
+  const battleStage = createBattleStage(renderer);
+
+  /* ── board bookkeeping ──────────────────────────────────────────────── */
+  const stages = {};          // stageId → Stage
+  let nodeById = {};          // id → node snapshot
+  let nbrs = {};              // id → [ids]
+  let boardSig = '';
+  let lastRoom = null;
+  let myPid = null;
+  let viewFollowPid = null;   // whose ship the camera hugs this frame
+  let lobbyMode = false;
+  let cameraAnchored = false;
+  let preloadedCaptain = false;
+
+  let activeBoardId = null;   // board stage currently shown (also under battle)
+  let battleOn = false;
+  let battleKey = null;
+  let fading = false;
+  let pendingTarget = null;
+  let savedCam = null;        // board camera frozen while battling
+
+  const ships = {};           // pid → ship record
+
+  /* shared groups that ride along into whichever stage is active */
+  const highlights = new THREE.Group();   // reachable rings
+  let hiKey = '';
+  const fx = new THREE.Group();           // wake sprites live here
+
+  /* wake pool: fixed sprites, zero allocation during play */
+  const WAKE_N = 90;
+  const wakePool = [];
+  for (let i = 0; i < WAKE_N; i++) {
+    const sp = new THREE.Sprite(new THREE.SpriteMaterial({
+      map: TEX_WAKE, transparent: true, depthWrite: false, opacity: 0,
+    }));
+    sp.visible = false;
+    sp.userData = { t0: 0, life: 1.5 };
+    fx.add(sp);
+    wakePool.push(sp);
+  }
+  let wakeHead = 0;
+  function spawnWake(x, y, z, size) {
+    const sp = wakePool[wakeHead];
+    wakeHead = (wakeHead + 1) % WAKE_N;
+    sp.visible = true;
+    sp.position.set(x, y, z);
+    sp.scale.set(size, size, 1);
+    sp.userData.t0 = performance.now();
+    sp.userData.s0 = size;
+  }
+  function tickWake(now) {
+    for (let i = 0; i < WAKE_N; i++) {
+      const sp = wakePool[i];
+      if (!sp.visible) continue;
+      const k = (now - sp.userData.t0) / 1500;
+      if (k >= 1) { sp.visible = false; sp.material.opacity = 0; continue; }
+      sp.material.opacity = 0.5 * (1 - k) * (1 - k);
+      const s = sp.userData.s0 * (1 + k * 1.9);
+      sp.scale.set(s, s, 1);
+    }
+  }
+
+  /* ── stage membership ───────────────────────────────────────────────── */
+  function stageHasNode(stageId, nodeId) {
+    const n = nodeById[nodeId];
+    if (!n) return false;
+    if (stageId === 'hub') return !n.region || n.type === 'gate';
+    return n.region === stageId;
+  }
+  function memberNodes(stageId, room) {
+    const out = [];
+    for (const n of room.board?.nodes || []) {
+      if (stageId === 'hub' ? (!n.region || n.type === 'gate') : n.region === stageId) out.push(n);
+    }
+    return out;
+  }
+  function stageForViewer(room, you) {
+    const me = room.players?.find((p) => p.pid === you);
+    if (!me || !me.node) return activeBoardId || 'hub';
+    const n = nodeById[me.node];
+    if (!n) return activeBoardId || 'hub';
+    if (n.type === 'gate') {
+      if (activeBoardId && stageHasNode(activeBoardId, me.node)) return activeBoardId;
+      return 'hub';
+    }
+    return n.region || 'hub';
+  }
+
+  /* ── stage construction ─────────────────────────────────────────────── */
+  function stageCenter(stageId, room) {
+    if (stageId === 'hub') return new THREE.Vector3(0, 0, 0);
+    const nodes = memberNodes(stageId, room);
+    const c = new THREE.Vector3();
+    if (!nodes.length) return c;
+    for (const n of nodes) { c.x += n.x; c.z += n.z; }
+    c.x /= nodes.length; c.z /= nodes.length;
+    return c;
+  }
+
+  function buildStage(stageId, room) {
+    const theme = themeFor(stageId);
+    const scene = new THREE.Scene();
+    scene.background = new THREE.Color(theme.fog.color);
+    scene.fog = new THREE.Fog(theme.fog.color, theme.fog.near, theme.fog.far);
+    const center = stageCenter(stageId, room);
+    const rng = mulberry32(hashStr('stage:' + stageId));
+
+    const sky = makeSky(theme.sky);
+    sky.position.set(center.x, 0, center.z);
+    scene.add(sky);
+
+    const sunDir = new THREE.Vector3().fromArray(theme.sun.position).normalize();
+    const sun = new THREE.DirectionalLight(theme.sun.color, theme.sun.intensity);
+    sun.castShadow = true;
+    sun.shadow.mapSize.set(2048, 2048);
+    sun.shadow.camera.left = -120; sun.shadow.camera.right = 120;
+    sun.shadow.camera.top = 120; sun.shadow.camera.bottom = -120;
+    sun.shadow.camera.near = 10;
+    sun.shadow.camera.far = 900;
+    sun.shadow.bias = -0.0004;
+    sun.position.copy(center).addScaledVector(sunDir, 380);
+    sun.target.position.copy(center);
+    scene.add(sun, sun.target);
+    scene.add(new THREE.HemisphereLight(theme.hemi.sky, theme.hemi.ground, theme.hemi.intensity));
+    scene.add(new THREE.AmbientLight(theme.ambient, 0.35));
+
+    const glow = makeSunGlow(theme.sun.color);
+    glow.position.copy(center).addScaledVector(sunDir, 1300);
+    scene.add(glow);
+
+    const surf = theme.ground === 'sand' ? makeGround(theme, 3000) : makeWater(theme, 3000);
+    surf.mesh.position.x += center.x;
+    surf.mesh.position.z += center.z;
+    scene.add(surf.mesh);
+
+    /* enclosure: hub gets the mountain wall with its four passes; realms a
+     * surrounding crescent backdrop, dense side away from the way home */
+    let wall = null;
+    if (stageId === 'hub') {
+      const gates = (room.board?.nodes || [])
+        .filter((n) => n.type === 'gate')
+        .map((n) => ({
+          angle: n.gate_angle !== undefined ? n.gate_angle : Math.atan2(n.z, n.x),
+          realm: n.region,
+        }));
+      wall = buildMountainWall({ radius: 560, gates, theme });
+    } else {
+      wall = buildRealmBackdrop(theme, { radius: 520 });
+      wall.position.set(center.x, 0, center.z);
+      const gate = memberNodes(stageId, room).find((n) => n.type === 'gate');
+      if (gate) wall.rotation.y = Math.atan2(gate.x - center.x, gate.z - center.z) + Math.PI;
+    }
+    scene.add(wall);
+
+    /* drifting clouds, tinted faintly toward the horizon color */
+    const cloudTint = new THREE.Color(0xffffff).lerp(new THREE.Color(theme.sky.horizon), 0.22);
+    const clouds = [];
+    for (let i = 0; i < 10; i++) {
+      const cl = makeCloud(rng, 0.9 + rng() * 1.6, cloudTint);
+      cl.userData = { a: rng() * Math.PI * 2, r: 140 + rng() * 300 };
+      cl.position.y = 72 + rng() * 70;
+      clouds.push(cl);
+      scene.add(cl);
+    }
+
+    /* themed particles (snow / leaves / motes / dust); follow the camera */
+    let particles = null;
+    if (theme.particles) {
+      particles = makeParticles(theme.particles);
+      scene.add(particles.points);
+    }
+
+    /* hub-only fauna */
+    let gulls = null, dolphins = null;
+    if (stageId === 'hub') {
+      gulls = makeGulls(rng, 6);
+      for (const b of gulls) scene.add(b);
+      dolphins = makeDolphins(rng, 4);
+      for (const p of dolphins) scene.add(p);
+    }
+
+    const laneGroup = new THREE.Group();
+    scene.add(laneGroup);
+
+    return {
+      id: stageId, theme, scene, center, rng,
+      sun, sunDir, glow, surf, wall, clouds, particles, gulls, dolphins,
+      islands: {},           // nodeId → {key, group, proxy, R, plateauY, fxBits}
+      proxyList: [],
+      laneGroup, laneKey: '',
+    };
+  }
+
+  function destroyStage(st) {
+    disposeDeep(st.scene);
+    st.scene.clear();
+  }
+
+  /* ── island / lane sync (viewKey semantics) ─────────────────────────── */
+  const FX_NAMES = ['foam', 'bob', 'beacon', 'pharosfire', 'monster'];
+  function cacheIslandFx(isle) {
+    isle.fxBits = {};
+    for (const nm of FX_NAMES) {
+      const o = isle.group.getObjectByName(nm);
+      if (o) isle.fxBits[nm] = o;
+    }
+  }
+
+  function syncStage(st, room) {
+    const nodes = memberNodes(st.id, room);
+    const domains = room.board?.domains || {};
+    const present = new Set();
+    let proxiesDirty = false;
+    for (const node of nodes) {
+      present.add(node.id);
+      const key = viewKey(node);
+      const existing = st.islands[node.id];
+      if (existing && existing.key === key) continue;
+      if (existing) {
+        st.scene.remove(existing.group, existing.proxy);
+        disposeDeep(existing.group);
+        existing.proxy.geometry.dispose();
+      }
+      const built = buildIsland(node, st.theme, domains);
+      built.group.position.set(node.x, 0, node.z);
+      const R = built.R;
+      const proxy = new THREE.Mesh(
+        new THREE.CylinderGeometry(R + 2.0, R + 2.0, 9, 8),
+        new THREE.MeshBasicMaterial({ visible: false }));
+      proxy.position.set(node.x, 3, node.z);
+      proxy.userData.node = node.id;
+      st.scene.add(built.group, proxy);
+      st.islands[node.id] = {
+        key, group: built.group, proxy, R, plateauY: built.plateauY,
+      };
+      cacheIslandFx(st.islands[node.id]);
+      proxiesDirty = true;
+    }
+    for (const id of Object.keys(st.islands)) {
+      if (present.has(id)) continue;
+      const isle = st.islands[id];
+      st.scene.remove(isle.group, isle.proxy);
+      disposeDeep(isle.group);
+      isle.proxy.geometry.dispose();
+      delete st.islands[id];
+      proxiesDirty = true;
+    }
+    if (proxiesDirty) st.proxyList = Object.values(st.islands).map((i) => i.proxy);
+
+    /* lanes: subtle dashes between member nodes only */
+    const memberSet = present;
+    const edges = (room.board?.edges || []).filter(([a, b]) => memberSet.has(a) && memberSet.has(b));
+    const ekey = edges.map((e) => e.join('~')).join('|');
+    if (ekey !== st.laneKey) {
+      st.laneKey = ekey;
+      disposeDeep(st.laneGroup);
+      st.laneGroup.clear();
+      for (const [a, b] of edges) {
+        const na = nodeById[a], nb = nodeById[b];
+        if (!na || !nb) continue;
+        _vA.set(na.x, 0.16, na.z);
+        _vB.set(nb.x, 0.16, nb.z);
+        _vC.subVectors(_vB, _vA);
+        const len = _vC.length();
+        _vC.normalize();
+        const gapA = (st.islands[a]?.R ?? 5) * 1.3, gapB = (st.islands[b]?.R ?? 5) * 1.3;
+        if (len < gapA + gapB + 2) continue;
+        const pts = [_vA.clone().addScaledVector(_vC, gapA),
+                     _vA.clone().addScaledVector(_vC, len - gapB)];
+        const geo = new THREE.BufferGeometry().setFromPoints(pts);
+        const mat = new THREE.LineDashedMaterial({
+          color: 0xffffff, transparent: true, opacity: 0.32,
+          dashSize: 2.0, gapSize: 2.8 });
+        const line = new THREE.Line(geo, mat);
+        line.computeLineDistances();
+        st.laneGroup.add(line);
+      }
+    }
+  }
+
+  /* ── routing helpers (visual sail paths along real lanes) ───────────── */
+  function sailPath(from, to) {
+    if (!nbrs[from] || !nbrs[to]) return null;
+    const prev = { [from]: null };
+    const dq = [from];
+    while (dq.length) {
+      const cur = dq.shift();
+      if (cur === to) break;
+      for (const nb of nbrs[cur] || []) {
+        if (nb in prev) continue;
+        if (nb !== to && nodeById[nb]?.type === 'pharos') continue;
+        prev[nb] = cur;
+        dq.push(nb);
+      }
+    }
+    if (!(to in prev)) return null;
+    const path = [];
+    for (let cur = to; cur !== null; cur = prev[cur]) path.unshift(cur);
+    return path;
+  }
+
+  function slotFor(nodeId, slotIdx, st) {
+    const n = nodeById[nodeId];
+    const isle = st && st.islands[nodeId];
+    const R = isle?.R ?? 4;
+    const a = (slotIdx / 6) * Math.PI * 2 + 0.8;
+    const r = R * 1.55 + 1.2;
+    return new THREE.Vector3((n?.x ?? 0) + Math.cos(a) * r, 0, (n?.z ?? 0) + Math.sin(a) * r);
+  }
+
+  function lanePoint(nid, fromPos, st) {
+    const n = nodeById[nid];
+    const p = new THREE.Vector3(n.x, 0, n.z);
+    if (n.type !== 'sea') {
+      const r = (st?.islands[nid]?.R ?? 8) * 1.25 + 3.5;
+      _vD.subVectors(p, fromPos).normalize();
+      p.x += -_vD.z * r;
+      p.z += _vD.x * r;
+    }
+    return p;
+  }
+
+  /* ── ships & the walking captain ────────────────────────────────────── */
+  function makeTurnMarker() {
+    const m = new THREE.Mesh(new THREE.ConeGeometry(0.36, 0.75, 6),
+      flat(GOLD, { emissive: 0x9a6a10 }));
+    m.name = 'turnMarker';
+    m.rotation.x = Math.PI;
+    m.position.y = 4.6;
+    return m;
+  }
+
+  function ensureShip(p, idx) {
+    let rec = ships[p.pid];
+    const tagKey = p.name + '|' + p.color;
+    if (rec && rec.tagKey !== tagKey) { removeShip(p.pid); rec = null; }
+    if (rec) return rec;
+    const root = new THREE.Group();
+    const galley = makeShip(p.color);
+    galley.scale.setScalar(2);
+    galley.name = 'galley';
+    const tag = nameSprite(p.name, p.color);
+    tag.position.y = 5.2;
+    root.add(galley, tag);
+    rec = {
+      pid: p.pid, root, galley, captain: null, captainReq: false,
+      tag, tagKey, color: p.color,
+      node: p.node, idx, stageId: null, mode: 'sail',
+      anim: null, phase: Math.random() * 6, lastWake: 0, needPlace: true,
+    };
+    ships[p.pid] = rec;
+    return rec;
+  }
+
+  function removeShip(pid) {
+    const rec = ships[pid];
+    if (!rec) return;
+    if (rec.stageId && stages[rec.stageId]) stages[rec.stageId].scene.remove(rec.root);
+    disposeDeep(rec.root);
+    delete ships[pid];
+  }
+
+  function setShipStage(rec, stageId) {
+    if (rec.stageId === stageId) return;
+    if (rec.stageId && stages[rec.stageId]) stages[rec.stageId].scene.remove(rec.root);
+    rec.stageId = stageId;
+    if (stageId && stages[stageId]) {
+      stages[stageId].scene.add(rec.root);
+      rec.needPlace = true;
+    }
+  }
+
+  function applyMode(rec) {
+    const foot = rec.mode === 'foot';
+    rec.galley.visible = !foot || !rec.captain;
+    if (rec.captain) rec.captain.visible = foot;
+    if (foot && !rec.captain && !rec.captainReq) {
+      rec.captainReq = true;
+      getMonster('captain', { tint: rec.color }).then((g) => {
+        if (!ships[rec.pid]) return;               // player left meanwhile
+        g.name = 'captain';
+        g.scale.setScalar(1.8);
+        rec.captain = g;
+        rec.root.add(g);
+        applyMode(rec);
+      }).catch(() => {});
+    }
+  }
+
+  function startTravel(rec, toNode, st) {
+    const route = sailPath(rec.prevNode, toNode);
+    const pts = [rec.root.position.clone()];
+    if (route && route.length > 2) {
+      for (const nid of route.slice(1, -1)) {
+        if (nodeById[nid]) pts.push(lanePoint(nid, pts[pts.length - 1], st));
+      }
+    }
+    pts.push(slotFor(toNode, rec.idx, st));
+    let total = 0;
+    const legs = [];
+    for (let i = 1; i < pts.length; i++) {
+      const len = pts[i].distanceTo(pts[i - 1]);
+      legs.push(len);
+      total += len;
+    }
+    const foot = rec.mode === 'foot';
+    rec.anim = {
+      pts, legs, total, t0: performance.now(),
+      dur: foot ? Math.min(6200, 700 + total * 42) : Math.min(5200, 500 + total * 26),
+    };
+  }
+
+  function syncShips(room, you) {
+    const playersByPid = {};
+    room.players?.forEach((p, idx) => {
+      playersByPid[p.pid] = p;
+      const rec = ensureShip(p, idx);
+      rec.idx = idx;
+      const node = nodeById[p.node];
+      const mode = node?.mode === 'foot' ? 'foot' : 'sail';
+      if (mode !== rec.mode) { rec.mode = mode; applyMode(rec); }
+      else if (mode === 'foot' && !rec.captain) applyMode(rec);
+
+      if (rec.node !== p.node) {
+        rec.prevNode = rec.node;
+        rec.node = p.node;
+        const inActive = stageHasNode(activeBoardId, p.node);
+        const fromIn = stageHasNode(activeBoardId, rec.prevNode);
+        if (inActive && fromIn && rec.stageId === activeBoardId && !rec.needPlace) {
+          startTravel(rec, p.node, stages[activeBoardId]);
+        } else {
+          rec.anim = null;
+          rec.needPlace = true;
+        }
+      }
+      /* attach to the active stage only when its node lives there */
+      setShipStage(rec, stageHasNode(activeBoardId, rec.node) ? activeBoardId : null);
+      if (rec.needPlace && rec.stageId && stages[rec.stageId]) {
+        rec.root.position.copy(slotFor(rec.node, rec.idx, stages[rec.stageId]));
+        rec.needPlace = false;
+      }
+      /* turn marker */
+      const isTurn = p.pid === room.turn && room.phase !== 'lobby' && room.phase !== 'finished';
+      let marker = rec.root.getObjectByName('turnMarker');
+      if (isTurn && !marker) rec.root.add(makeTurnMarker());
+      else if (!isTurn && marker) {
+        rec.root.remove(marker);
+        marker.geometry.dispose();
+        marker.material.dispose();
+      }
+    });
+    for (const pid of Object.keys(ships)) {
+      if (!playersByPid[pid]) removeShip(pid);
+    }
+    viewFollowPid = ships[you] ? you : room.turn;
+  }
+
+  /* ── reachable highlight rings ──────────────────────────────────────── */
+  function syncHighlights(room, you) {
+    const st = stages[activeBoardId];
+    if (!st) return;
+    const myTurn = room.turn === you && room.phase === 'sail' && !room.battle;
+    const ids = myTurn
+      ? Object.keys(room.reachable || {}).filter((id) => stageHasNode(activeBoardId, id)).sort()
+      : [];
+    const key = activeBoardId + '#' + ids.join(',');
+    if (key === hiKey) return;
+    hiKey = key;
+    disposeDeep(highlights);
+    highlights.clear();
+    for (const nid of ids) {
+      const isle = st.islands[nid];
+      const n = nodeById[nid];
+      const R = isle?.R ?? 5;
+      const ring = new THREE.Mesh(new THREE.RingGeometry(R * 1.34, R * 1.52, 40),
+        new THREE.MeshBasicMaterial({
+          color: GOLD, transparent: true, opacity: 0.9,
+          side: THREE.DoubleSide, depthWrite: false, fog: false }));
+      ring.rotation.x = -Math.PI / 2;
+      ring.position.set(n?.x ?? 0, 0.35, n?.z ?? 0);
+      ring.renderOrder = 5;
+      highlights.add(ring);
+    }
+  }
+
+  /* ── stage switching (with the ink fade) ────────────────────────────── */
+  function snapBehindShip(rec) {
+    const yaw = rec.root.rotation.y;
+    _vA.set(Math.cos(yaw), 0, -Math.sin(yaw));            // ship forward (+x model axis)
+    controls.target.copy(rec.root.position).addScaledVector(_vA, 3);
+    controls.target.y = 1.6;
+    camera.position.copy(rec.root.position).addScaledVector(_vA, -26);
+    camera.position.y = 13;
+  }
+
+  function activateBoard(stageId) {
+    if (!stages[stageId] && lastRoom) stages[stageId] = buildStage(stageId, lastRoom);
+    const st = stages[stageId];
+    if (!st) return;
+    const prevId = activeBoardId;
+    activeBoardId = stageId;
+    if (lastRoom) syncStage(st, lastRoom);
+    /* move the ride-along groups into this scene */
+    st.scene.add(highlights, fx);
+    hiKey = '';
+    for (const sp of wakePool) sp.visible = false;
+    if (lastRoom) {
+      syncShips(lastRoom, myPid);
+      syncHighlights(lastRoom, myPid);
+    }
+    if (prevId !== stageId) {
+      const mine = ships[myPid];
+      if (mine && mine.stageId === stageId) snapBehindShip(mine);
+    }
+  }
+
+  function enterBattle(room) {
+    const b = room.battle;
+    const node = nodeById[b.node];
+    const theme = themeFor(b.region || node?.region || 'hub');
+    const fighter = room.players?.find((p) => p.pid === room.turn);
+    const heroKind = node?.mode === 'foot' ? 'captain' : 'ship';
+    battleKey = b.node + '|' + (fighter?.pid || '') + '|' + (b.round != null ? 'r' : '');
+    battleStage.enter({
+      battle: b, room, you: myPid, theme,
+      heroColor: fighter?.color || '#e4572e', heroKind,
+    });
+    const w = container.clientWidth || 1, h = container.clientHeight || 1;
+    battleStage.resize(w, h);
+  }
+
+  function applyTarget(tgt) {
+    if (tgt === 'battle') {
+      if (!battleOn) {
+        savedCam = { pos: camera.position.clone(), target: controls.target.clone(), stage: activeBoardId };
+        battleOn = true;
+        controls.enabled = false;
+        if (lastRoom?.battle) enterBattle(lastRoom);
+      }
+    } else {
+      const wasBattle = battleOn;
+      if (battleOn) {
+        battleStage.exit();
+        battleOn = false;
+        battleKey = null;
+        controls.enabled = true;
+      }
+      activateBoard(tgt);
+      if (wasBattle && savedCam) {
+        if (savedCam.stage === tgt) {
+          camera.position.copy(savedCam.pos);
+          controls.target.copy(savedCam.target);
+        } else {
+          const mine = ships[myPid];
+          if (mine && mine.stageId === tgt) snapBehindShip(mine);
+        }
+        savedCam = null;
+      }
+    }
+  }
+
+  function desiredTarget(room) {
+    if (!room) return activeBoardId || 'hub';
+    if (room.battle) return 'battle';
+    return stageForViewer(room, myPid);
+  }
+
+  function requestStage(target) {
+    const current = battleOn ? 'battle' : activeBoardId;
+    if (fading) { pendingTarget = target; return; }
+    if (target === current) return;
+    if (activeBoardId === null && target !== 'battle') {
+      /* very first board: no curtain, just appear */
+      activateBoard(target);
+      handlers.onStageChange?.(target);
+      return;
+    }
+    fading = true;
+    pendingTarget = target;
+    fadeEl.style.opacity = '1';
+    setTimeout(() => {
+      const tgt = pendingTarget;
+      applyTarget(tgt);
+      fadeEl.style.opacity = '0';
+      fading = false;
+      pendingTarget = null;
+      handlers.onStageChange?.(tgt);
+      /* the world may have moved on while the curtain was down */
+      const want = desiredTarget(lastRoom);
+      if (want !== (battleOn ? 'battle' : activeBoardId)) requestStage(want);
+    }, FADE_MS);
+  }
+
+  /* ── snapshot sync (idempotent) ─────────────────────────────────────── */
+  function clearWorld() {
+    for (const pid of Object.keys(ships)) removeShip(pid);
+    for (const id of Object.keys(stages)) {
+      destroyStage(stages[id]);
+      delete stages[id];
+    }
+    activeBoardId = null;
+    hiKey = '';
+    cameraAnchored = false;
+  }
+
+  function update(room, you) {
+    myPid = you;
+    lastRoom = room;
+    if (!room) return;
+    lobbyMode = room.phase === 'lobby';
+
+    const nodes = room.board?.nodes || [];
+    nodeById = {};
+    for (const n of nodes) nodeById[n.id] = n;
+    nbrs = {};
+    for (const [a, b] of room.board?.edges || []) {
+      (nbrs[a] = nbrs[a] || []).push(b);
+      (nbrs[b] = nbrs[b] || []).push(a);
+    }
+    if (!nodes.length) return;
+
+    /* rematch / new sea detection */
+    const home = nodeById.home;
+    const sig = `${home?.x},${home?.z}:${room.code}:${nodes.length}`;
+    if (boardSig && boardSig !== sig) clearWorld();
+    boardSig = sig;
+
+    if (!preloadedCaptain && nodes.some((n) => n.mode === 'foot')) {
+      preloadedCaptain = true;
+      preloadMonsters(['captain']);
+    }
+
+    /* which stage should the viewer be seeing? */
+    requestStage(desiredTarget(room));
+
+    /* keep the visible board stage in sync (also under a battle, so the
+     * return trip is instant) */
+    if (activeBoardId && stages[activeBoardId]) {
+      syncStage(stages[activeBoardId], room);
+      syncShips(room, you);
+      syncHighlights(room, you);
+    }
+
+    /* battle re-key: a brand-new fight arriving while one is showing */
+    if (battleOn && room.battle) {
+      const fighter = room.players?.find((p) => p.pid === room.turn);
+      const key = room.battle.node + '|' + (fighter?.pid || '') + '|' + (room.battle.round != null ? 'r' : '');
+      if (key !== battleKey) {
+        battleStage.exit();
+        enterBattle(room);
+      }
+    }
+
+    /* lobby: park the view on Home Port and drift */
+    if (lobbyMode && !cameraAnchored && stages[activeBoardId]?.islands.home) {
+      cameraAnchored = true;
+      const hp = nodeById.home;
+      controls.target.set(hp.x, 1.5, hp.z);
+      camera.position.set(hp.x + 8, 26, hp.z + 48);
+    }
+  }
+
+  /* ── clicking islands (proxy cylinders on the active stage) ─────────── */
+  const ray = new THREE.Raycaster();
+  const pointer = new THREE.Vector2();
+  let downAt = null;
+  renderer.domElement.addEventListener('pointerdown', (e) => { downAt = [e.clientX, e.clientY]; });
+  renderer.domElement.addEventListener('pointerup', (e) => {
+    if (!downAt) return;
+    const moved = Math.hypot(e.clientX - downAt[0], e.clientY - downAt[1]);
+    downAt = null;
+    if (moved > 6 || battleOn || fading) return;
+    const st = stages[activeBoardId];
+    if (!st || !st.proxyList.length) return;
+    const rect = renderer.domElement.getBoundingClientRect();
+    pointer.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
+    pointer.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
+    ray.setFromCamera(pointer, camera);
+    const hit = ray.intersectObjects(st.proxyList, false)[0];
+    if (hit) handlers.onNodeClick?.(hit.object.userData.node);
+  });
+
+  /* ── resize ─────────────────────────────────────────────────────────── */
+  function resize() {
+    const w = container.clientWidth || 1, h = container.clientHeight || 1;
+    camera.aspect = w / h;
+    camera.updateProjectionMatrix();
+    renderer.setSize(w, h);
+    battleStage.resize(w, h);
+  }
+  window.addEventListener('resize', resize);
+  resize();
+
+  /* ── per-frame animation ────────────────────────────────────────────── */
+  function tickAmbience(st, t) {
+    st.surf.update(t);
+    st.wall?.userData?.update?.(t);
+    if (st.particles) {
+      st.particles.points.position.x = controls.target.x;
+      st.particles.points.position.z = controls.target.z;
+      st.particles.update(t);
+    }
+    for (let i = 0; i < st.clouds.length; i++) {
+      const cl = st.clouds[i];
+      cl.userData.a += 0.00022;
+      cl.position.x = st.center.x + Math.cos(cl.userData.a) * cl.userData.r;
+      cl.position.z = st.center.z + Math.sin(cl.userData.a) * cl.userData.r;
+    }
+    if (st.gulls) {
+      for (const bird of st.gulls) {
+        const u = bird.userData;
+        const a = t * u.speed + u.phase;
+        bird.position.set(Math.cos(a) * u.r, u.h + Math.sin(t * 0.7 + u.phase) * 1.2, Math.sin(a) * u.r);
+        bird.rotation.y = -a - Math.PI / 2;
+        for (const wing of bird.children) {
+          wing.rotation.x = Math.sin(t * u.flap) * 0.55 * wing.userData.side;
+        }
+      }
+    }
+    if (st.dolphins) {
+      for (const pod of st.dolphins) {
+        const u = pod.userData;
+        const a = t * u.speed + u.ph;
+        for (const d of pod.children) {
+          const off = d.userData.off;
+          const aa = a - off * 0.045;
+          const hop = Math.sin(t * 1.9 + u.ph + off);
+          d.position.set(u.cx + Math.cos(aa) * u.r, hop * 1.0 - 0.4, u.cz + Math.sin(aa) * u.r);
+          d.rotation.y = -aa;
+          d.rotation.x = -Math.cos(t * 1.9 + u.ph + off) * 0.55;
+        }
+      }
+    }
+    /* island bits cached at build: foam pulse, buoy bob, beacon spin, fires */
+    for (const id in st.islands) {
+      const isle = st.islands[id];
+      const fxb = isle.fxBits;
+      const px = isle.group.position.x, pz = isle.group.position.z;
+      if (fxb.foam) {
+        const s = 1 + Math.sin(t * 1.3 + px) * 0.045;
+        fxb.foam.scale.set(s, s, 1);
+      }
+      if (fxb.bob) {
+        fxb.bob.position.y = Math.sin(t * 1.7 + px * 0.5) * 0.14;
+        fxb.bob.rotation.z = Math.sin(t * 1.3 + pz * 0.4) * 0.08;
+      }
+      if (fxb.beacon) fxb.beacon.rotation.y = t * 0.5;
+      if (fxb.pharosfire) {
+        const pulse = 1 + Math.sin(t * 2.2) * 0.16;
+        fxb.pharosfire.scale.set(pulse, pulse, pulse);
+      }
+      if (fxb.monster) fxb.monster.position.y += Math.sin(t * 2 + pz) * 0.0035;
+    }
+  }
+
+  function tickShips(st, t, now) {
+    for (const pid in ships) {
+      const rec = ships[pid];
+      if (rec.stageId !== st.id) continue;
+      let moving = false;
+      if (rec.anim) {
+        const k = Math.min(1, (now - rec.anim.t0) / rec.anim.dur);
+        const e = k < 0.5 ? 2 * k * k : 1 - Math.pow(-2 * k + 2, 2) / 2;
+        let dAlong = e * rec.anim.total;
+        let seg = 0;
+        while (seg < rec.anim.legs.length - 1 && dAlong > rec.anim.legs[seg]) {
+          dAlong -= rec.anim.legs[seg];
+          seg++;
+        }
+        const a = rec.anim.pts[seg], b = rec.anim.pts[seg + 1];
+        const f = rec.anim.legs[seg] > 0 ? dAlong / rec.anim.legs[seg] : 1;
+        rec.root.position.lerpVectors(a, b, Math.min(1, f));
+        _vA.subVectors(b, a);
+        if (_vA.lengthSq() > 0.01) {
+          const want = Math.atan2(-_vA.z, _vA.x);
+          let diff = want - rec.root.rotation.y;
+          while (diff > Math.PI) diff -= Math.PI * 2;
+          while (diff < -Math.PI) diff += Math.PI * 2;
+          rec.root.rotation.y += diff * 0.15;          // smooth helm turns
+        }
+        moving = true;
+        if (k >= 1) { rec.anim = null; moving = false; }
+        /* wake foam while the galley sails */
+        if (moving && rec.galley.visible && now - rec.lastWake > 95) {
+          rec.lastWake = now;
+          const yaw = rec.root.rotation.y;
+          spawnWake(
+            rec.root.position.x - Math.cos(yaw) * 2.6,
+            0.14,
+            rec.root.position.z + Math.sin(yaw) * 2.6,
+            1.3 + Math.random() * 0.5);
+        }
+      }
+      if (rec.galley.visible) {
+        rec.galley.position.y = Math.sin(t * 1.9 + rec.phase) * 0.1;
+        rec.galley.rotation.z = Math.sin(t * 1.4 + rec.phase) * 0.04;
+      }
+      if (rec.captain && rec.captain.visible) {
+        animateMonster(rec.captain, t + rec.phase, moving ? 'walk' : 'idle');
+      }
+      const marker = rec.root.getObjectByName('turnMarker');
+      if (marker) {
+        marker.rotation.y = t * 2.2;
+        marker.position.y = 4.6 + Math.sin(t * 2.6) * 0.18;
+      }
+    }
+  }
+
+  function tickHighlights(t) {
+    let hi = 0;
+    for (const ring of highlights.children) {
+      ring.material.opacity = 0.55 + Math.sin(t * 3.5 + hi++) * 0.25;
+      const s = 1 + Math.sin(t * 3.5 + hi) * 0.035;
+      ring.scale.set(s, s, 1);
+    }
+  }
+
+  function tickCamera(st, t) {
+    controls.autoRotate = lobbyMode;
+    if (!lobbyMode) {
+      const rec = viewFollowPid ? ships[viewFollowPid] : null;
+      if (rec && rec.stageId === st.id) {
+        _vA.copy(rec.root.position);
+        _vA.y = 1.6;
+        _vB.subVectors(_vA, controls.target);
+        if (_vB.lengthSq() > 0.0001) {
+          _vB.multiplyScalar(rec.anim ? 0.1 : 0.06);
+          controls.target.add(_vB);
+          camera.position.add(_vB);
+        }
+      }
+    }
+    controls.update();
+    /* keep the tight shadow frustum (and the sun) glued to the action */
+    st.sun.position.copy(controls.target).addScaledVector(st.sunDir, 380);
+    st.sun.target.position.copy(controls.target);
+  }
+
+  const clock = new THREE.Clock();
+  let tPrev = 0;
+  renderer.setAnimationLoop(() => {
+    const t = clock.getElapsedTime();
+    const dt = Math.min(0.1, t - tPrev);
+    tPrev = t;
+    if (battleOn) {
+      battleStage.update(t, dt);
+      renderer.render(battleStage.scene, battleStage.camera);
+      return;
+    }
+    const st = stages[activeBoardId];
+    if (!st) return;
+    const now = performance.now();
+    tickAmbience(st, t);
+    tickShips(st, t, now);
+    tickWake(now);
+    tickHighlights(t);
+    tickCamera(st, t);
+    renderer.render(st.scene, camera);
+  });
+
+  /* ── public API ─────────────────────────────────────────────────────── */
+  function battlePlay(kind, payload) {
+    if (!battleOn) return;
+    if (kind === 'target' || kind === 'targeted' || kind === 'set_target') {
+      battleStage.setTargeted(payload && typeof payload === 'object' ? (payload.idx ?? null) : (payload ?? null));
+      return;
+    }
+    battleStage.play(kind, payload);
+  }
+
+  const api = {
+    update,
+    battlePlay,
+    battleActive: () => battleOn,
+    currentStage: () => (battleOn ? 'battle' : (activeBoardId || 'hub')),
+  };
+
+  /* debug handle for dev tooling / screenshot scripts */
+  window.__thalassa = {
+    scene: () => (battleOn ? battleStage.scene : stages[activeBoardId]?.scene),
+    camera, controls, ships, stages,
+  };
+
+  return api;
+}
