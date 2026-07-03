@@ -40,9 +40,11 @@ import riddles_typed
 
 # time limit (seconds) per kind — the server enforces these.
 # Simon has NO clock: one wrong tap is the failure, not the seconds.
-TIME_LIMITS = {"riddle": 30, "tetromino": 45, "nonogram": 30,
-               "simon": None, "anagram": 30, "ravens": 30,
-               "sequence": 30, "lights_out": 45, "sliding": 60}
+# 20s across the board — nonogram (picross) gets 30 for its fiddlier grid;
+# simon stays untimed (a wrong note, not the clock, is its failure).
+TIME_LIMITS = {"riddle": 20, "tetromino": 20, "nonogram": 30,
+               "simon": None, "anagram": 20, "ravens": 20,
+               "sequence": 20, "lights_out": 20, "sliding": 20}
 
 INTERACTIVE = ("tetromino", "nonogram", "simon", "anagram", "ravens", "riddle",
                "sequence", "lights_out", "sliding")

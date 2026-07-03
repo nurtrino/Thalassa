@@ -142,6 +142,10 @@ document.addEventListener('pointerdown', (e) => {
 document.addEventListener('keydown', () => { audio.init(); audio.startMusic(); }, { passive: true });
 
 $('joinBtn').onclick = () => { audio.init(); audio.startMusic(); audio.sfx.join(); joined = true; connect(); };
+$('resetBtn').onclick = () => {
+  if (!confirm('Reset the table? This ends any game in progress and returns everyone to a fresh, empty lobby.')) return;
+  fetch('/reset', { method: 'POST' }).finally(() => location.reload());
+};
 $('nameInput').addEventListener('keydown', (e) => { if (e.key === 'Enter') $('joinBtn').click(); });
 $('startBtn').onclick = () => send({ type: 'start' });
 $('addBotBtn').onclick = () => send({ type: 'add_bot' });
@@ -309,7 +313,19 @@ function reactAudio(prev, next) {
 }
 
 function beat(ms, fn) { beatTimers.push(setTimeout(fn, ms)); }
-function clearBeats() { beatTimers.forEach(clearTimeout); beatTimers = []; }
+function clearBeats() { beatTimers.forEach(clearTimeout); beatTimers = []; bHullShown = null; }
+
+/* During a reveal the server's hull is already the POST-hit value, but the
+ * blow lands ~1.4s later in the choreography. Hold the hearts at the pre-hit
+ * count until the strike actually connects, so they never drop early. */
+let bHullShown = null;
+function refreshBHearts() {
+  const fighter = room && room.players.find((p) => p.pid === room.turn);
+  const el = $('bship');
+  if (!fighter || !el) return;
+  const hp = bHullShown != null ? bHullShown : fighter.hull;
+  el.innerHTML = `<div class="bsub"><strong>${esc(fighter.name)}</strong></div>${heartRow(hp, fighter.max_hull)}`;
+}
 
 function flashScreen(color) {
   const f = $('flash');
@@ -335,6 +351,13 @@ function setBTurn(text) {
  * Legacy timing feel preserved (900 / 1500 / 2200 / 2600ms). */
 function playBattleBeats(rv) {
   const ep = rv.enemy_phase || {};
+  // if a blow is about to land on the hero, hold the hearts at the pre-hit
+  // count now (the server hull is already docked) and drop them when it hits
+  const fighter = room && room.players.find((p) => p.pid === room.turn);
+  const heroDmg = ep.dmg > 0 ? ep.dmg : 0;
+  bHullShown = (heroDmg && fighter) ? fighter.hull + heroDmg : null;
+  const landHit = () => { bHullShown = null; refreshBHearts(); };
+  refreshBHearts();
   const idx = ep.target_idx ?? 0;
   const stance = (room?.turn === you && myStance)
     ? myStance
@@ -398,6 +421,7 @@ function playBattleBeats(rv) {
           if (ep.heavy) audio.sfx.roar();
           flashScreen('red');
           shake(ep.heavy);
+          landHit();
         });
         chargeAt = 2400;
       }
@@ -411,6 +435,7 @@ function playBattleBeats(rv) {
       audio.sfx.hurt();
       flashScreen('red');
       shake();
+      landHit();
     });
     chargeAt = 2200;
   } else if (ep.dmg > 0) {
@@ -425,6 +450,7 @@ function playBattleBeats(rv) {
       if (ep.heavy) audio.sfx.roar();
       flashScreen('red');
       shake(ep.heavy);
+      landHit();
     });
     if (rv.battle_over) {
       beat(2100, () => {
@@ -980,10 +1006,12 @@ function renderBattle() {
     setBTurn(mine ? '' : `${esc(fighter?.name || '')} faces the question…`);
   }
 
-  /* hero health — hearts, so it never reads like the enemy's HP bar */
+  /* hero health — hearts, so it never reads like the enemy's HP bar. During a
+   * reveal, hold at the pre-hit count until the blow lands (see bHullShown). */
+  const shownHull = (room.phase === 'reveal' && bHullShown != null) ? bHullShown : fighter?.hull;
   $('bship').innerHTML = fighter ? `
     <div class="bsub"><strong>${esc(fighter.name)}</strong></div>
-    ${heartRow(fighter.hull, fighter.max_hull)}` : '';
+    ${heartRow(shownHull, fighter.max_hull)}` : '';
 
   /* stance dock */
   const actions = $('bactions');

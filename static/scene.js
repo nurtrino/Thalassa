@@ -663,17 +663,22 @@ export function createWorld(container, handlers = {}) {
     /* Densify the route, then push every sample out of each island's
        footprint — the hull arcs around land instead of cutting across it.
        Endpoints (current position, destination slot) stay fixed. */
+    // Clearance is island footprint + a berth wide enough for the GALLEY's
+    // own reach: its bow and stern sit ~4 units off centre and swing inward on
+    // a turn, so the path (which only tracks the hull's centre) must stand off
+    // far enough that the whole hull clears, not just its midpoint.
+    const HULL_CLEAR = 5.0;
     const solids = [];
     for (const [nid, isle] of Object.entries(st.islands)) {
       const n = nodeById[nid];
       if (!n || n.type === 'sea' || n.type === 'gate') continue;
-      solids.push({ x: n.x, z: n.z, r: (isle.R ?? 8) * 1.3 + 1.6 });
+      solids.push({ x: n.x, z: n.z, r: (isle.R ?? 8) * 1.2 + HULL_CLEAR });
     }
     const pts = [];
     pts.push(rawPts[0].clone());
     for (let i = 1; i < rawPts.length; i++) {
       const a = rawPts[i - 1], b = rawPts[i];
-      const nSeg = Math.max(1, Math.ceil(a.distanceTo(b) / 3));
+      const nSeg = Math.max(1, Math.ceil(a.distanceTo(b) / 2));   // finer: less chord sag
       for (let s = 1; s <= nSeg; s++) {
         pts.push(new THREE.Vector3().lerpVectors(a, b, s / nSeg));
       }
@@ -697,7 +702,7 @@ export function createWorld(container, handlers = {}) {
       }
     };
     pushOut();
-    for (let pass = 0; pass < 2; pass++) {   // soften the tangent kinks…
+    for (let pass = 0; pass < 3; pass++) {   // soften the tangent kinks…
       for (let i = 1; i < pts.length - 1; i++) {
         pts[i].x = pts[i].x * 0.6 + (pts[i - 1].x + pts[i + 1].x) * 0.2;
         pts[i].z = pts[i].z * 0.6 + (pts[i - 1].z + pts[i + 1].z) * 0.2;

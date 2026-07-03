@@ -29,7 +29,7 @@ def test_riddle_typed_deal_and_check():
         if d["kind"] != "riddle":
             continue
         seen += 1
-        assert d["limit"] == 30
+        assert d["limit"] == puzzles.TIME_LIMITS["riddle"]
         assert isinstance(d["text"], str) and d["text"]
         assert d["category"]
         # answer lives ONLY in secret — never in the client-facing payload

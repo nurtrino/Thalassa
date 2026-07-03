@@ -373,6 +373,16 @@ async def index():
     return FileResponse(os.path.join(BASE, "static", "index.html"))
 
 
+@app.post("/reset")
+async def reset_table():
+    """Wipe the single shared table back to a fresh, empty lobby. Exposed over
+    HTTP so the join screen can offer it before any WebSocket is opened."""
+    table.reset()
+    table.touch()
+    await broadcast()
+    return {"ok": True}
+
+
 app.mount("/static", StaticFiles(directory=os.path.join(BASE, "static")), name="static")
 
 
