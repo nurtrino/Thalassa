@@ -338,15 +338,28 @@ function playBattleBeats(rv) {
 
   if (rv.was_correct) {
     if (ep.blocked) {
-      /* GUARD read the blow */
+      /* GUARD riposte: read the blow, turn it aside, drive it back */
       audio.sfx.correct();
-      setBTurn(`${icon('guard', 16)} YOUR MOVE — you read the ${ep.heavy ? '<strong>HEAVY</strong> ' : ''}blow and set your stance…`);
+      setBTurn(`${icon('guard', 16)} YOUR MOVE — you read ${foe}'s ${ep.heavy ? '<strong>HEAVY</strong> ' : ''}blow…`);
       beat(900, () => {
         world.battlePlay('guard_block', { heavy: ep.heavy });
         audio.sfx.hit();
-        setBTurn(`${icon('guard', 16)} ${foe}'s ${ep.heavy ? '<strong>HEAVY</strong> ' : ''}blow <strong>glances off your guard!</strong>`);
+        setBTurn(`${icon('guard', 16)} …and <strong>turn it aside!</strong>`);
       });
-      chargeAt = 2200;
+      beat(1600, () => {
+        world.battlePlay('player_hit', { idx, dmg: ep.dealt, stance: 'attack' });
+        audio.sfx.hit();
+        flashScreen('gold');
+        setBTurn(`${icon('guard', 16)} You drive the blow back on ${foe} for <strong>${ep.dealt}</strong>!`);
+        if (ep.killed) beat(500, () => world.battlePlay('enemy_die', { idx }));
+      });
+      if (rv.battle_over) {
+        beat(2100, () => audio.sfx.laurel());
+        beat(2500, () => world.battlePlay('victory'));
+        beat(3100, () => setBTurn(`${icon('laurel', 18)} <strong>VICTORY!</strong>`));
+        return;
+      }
+      chargeAt = 2900;
     } else {
       /* STRIKE / MAGIC lands */
       audio.sfx.hit();
@@ -599,12 +612,28 @@ function renderObjective() {
 }
 
 function renderTurnBanner() {
-  const p = room.players.find((x) => x.pid === room.turn);
   const el = $('turnBanner');
-  if (!p || room.phase === 'finished') { el.innerHTML = ''; el.style.display = 'none'; return; }
+  const players = room.players || [];
+  const ti = players.findIndex((x) => x.pid === room.turn);
+  if (ti < 0 || room.phase === 'finished' || room.phase === 'lobby') {
+    el.innerHTML = ''; el.style.display = 'none'; return;
+  }
   el.style.display = '';
-  el.innerHTML = `<span class="dot" style="background:${p.color}"></span> ` +
-    (room.turn === you ? '<strong>Your turn, captain</strong>' : `${esc(p.name)}'s turn`);
+  // rotate so the active captain leads — the strip then reads left-to-right
+  // in the exact order the captains will take their turns
+  const order = players.slice(ti).concat(players.slice(0, ti));
+  const short = (s) => (s.length > 10 ? esc(s.slice(0, 9)) + '…' : esc(s));
+  el.innerHTML = '<div class="turnorder">' + order.map((p, i) => {
+    const me = p.pid === you;
+    const cls = ['tocap', i === 0 ? 'active' : '', me ? 'me' : '',
+                 p.connected === false ? 'gone' : ''].filter(Boolean).join(' ');
+    const name = i === 0 && me ? 'You' : short(p.name);
+    return `<span class="${cls}" title="${esc(p.name)}${me ? ' (you)' : ''}` +
+      `${i === 0 ? " — now" : i === 1 ? ' — next' : ''}">` +
+      `<span class="dot" style="background:${p.color}"></span>` +
+      `<span class="toname">${name}</span>` +
+      (p.bot ? icon('bot', 11) : '') + '</span>';
+  }).join('<span class="toarrow">›</span>') + '</div>';
 }
 
 /* ── compass (top-right) ────────────────────────────────────────────────── */
@@ -983,7 +1012,7 @@ function renderBattle() {
      'Tier III question · 3 damage · a miss backfires for 1');
   mk(`${icon('guard', 18)} GUARD<span class="tierchip">I</span>`,
      'battlebtn guard', () => move('guard'),
-     'Read the blow — success turns the whole enemy phase aside');
+     'Riposte — turn the blow aside and drive it back for its power (2× a heavy)');
   if (!b.boss) {
     const fleeCost = room.config?.flee_cost ?? 2;
     mk(`${icon('flee', 16)} FLEE`, 'battlebtn ghost', () => send({ type: 'flee' }),
@@ -1492,8 +1521,9 @@ function renderModal() {
           harder its packs bite.</li>
         <li><strong>Fight</strong> — answer to STRIKE (tier I–II) or cast
           MAGIC (III). Tyrants telegraph <strong>heavy blows</strong> — GUARD
-          (I) reads the blow and turns the whole strike aside. Pitch &amp;
-          planks patch the hull, even mid-battle.</li>
+          (I) reads the blow and <strong>drives it back on the attacker</strong>
+          (doubled on a heavy). Pitch &amp; planks patch the hull, even
+          mid-battle.</li>
         <li><strong>Haul it home</strong> — slay a realm's tyrant to take its
           sigil seal. Shipwreck drops it back at the lair; sail home and bank
           it to make it safe.</li>

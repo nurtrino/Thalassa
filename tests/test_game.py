@@ -957,6 +957,48 @@ def test_boss_heavy_telegraph_cycle_and_guard():
     assert not g.battle["charging"]               # the cycle resets
 
 
+def test_guard_riposte_reflects_the_blow():
+    g, (p0, p1), lair = boss_battle()
+    p = g.player_by_pid(p0)
+    p.max_hull = 30
+    p.hull = 30
+    front = g.board.alive_monster(lair)["enemies"][0]
+    power = front["power"]
+    hp_before = front["hp"]
+    # a normal exchange: a read blow is turned back on the attacker for its
+    # own power, and you take nothing
+    g.stance(p0, "guard")
+    put_question(g, correct=1)
+    g.answer(p0, 1)
+    ep = g.reveal["enemy_phase"]
+    assert ep["blocked"] and ep["riposte"]
+    assert ep["dealt"] == power
+    assert p.hull == 30
+    assert g.board.alive_monster(lair)["enemies"][0]["hp"] == hp_before - power
+
+
+def test_guard_riposte_doubles_on_a_heavy():
+    g, (p0, p1), lair = boss_battle()
+    p = g.player_by_pid(p0)
+    p.max_hull = 30
+    p.hull = 30
+    power = g.board.alive_monster(lair)["enemies"][0]["power"]
+    # burn two exchanges to reach the telegraphed heavy on exchange 3
+    for _ in range(2):
+        g.stance(p0, "guard")
+        put_question(g, correct=0)
+        g.answer(p0, 1)                           # miss → take the counter
+        g.advance_after_reveal()
+    hull_before = p.hull                          # already dinged by two misses
+    g.stance(p0, "guard")                         # heavy round, read it clean
+    put_question(g, correct=2)
+    g.answer(p0, 2)
+    ep = g.reveal["enemy_phase"]
+    assert ep["heavy"] and ep["riposte"]
+    assert ep["dealt"] == power * G.HEAVY_MULT
+    assert p.hull == hull_before                  # the heavy never lands on you
+
+
 def test_boss_heavy_hits_double_when_not_guarded():
     g, (p0, p1), lair = boss_battle()
     p = g.player_by_pid(p0)

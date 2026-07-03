@@ -25,8 +25,8 @@ RELICS_TO_WIN banked seals.
 Battles are stance, target, trivia:
     STRIKE  tier-I/II question → 1 damage      miss → the front enemy hits
     MAGIC   tier-III question  → 3 damage      miss → 1 backfire self-damage
-    GUARD   tier-I question    → no damage; success turns the enemy blow
-            aside entirely (the answer is how well you read the attack)
+    GUARD   tier-I question    → riposte: read the blow, turn it aside AND
+            drive it back on the attacker for its own power (2x on a heavy)
     FLEE    2 scrolls, 50/50: slip away clean, or take a free hit (no
             retreat from a trial or the Warden)
 
@@ -602,7 +602,7 @@ class Game:
             target = next(i for i, e in enumerate(enemies) if e["hp"] > 0)
         boss = bool(m.get("boss")) or any(e["max_hp"] >= 5 for e in enemies)
         if stance == "guard":
-            tier = 1                       # reading the blow, not landing one
+            tier = 1                       # reading the blow to turn it back
         else:
             tier = (2 if boss else 1) if stance == "attack" else 3
         self.battle["stance"] = stance
@@ -786,6 +786,7 @@ class Game:
 
             # ── your move ────────────────────────────────────────────────────
             dmg = 0
+            victim = tgt                       # which enemy my blow lands on
             if correct and stance == "attack":
                 dmg = STRIKE_DMG + (1 if p.has("ram") else 0)
                 horn = self.battle.get("horn")
@@ -797,13 +798,27 @@ class Game:
                 dmg = MAGIC_DMG + (1 if p.has("trident") else 0)
                 note = f"✨ Arcane fire sears {tgt['name']} for {dmg}!"
             elif correct and stance == "guard":
-                note = "🛡 You read the attack and set your stance."
+                # riposte: read the incoming blow and drive it back on the
+                # attacker — doubled if it was a telegraphed heavy. Reading a
+                # heavy is your single biggest hit, so guard the right round.
+                fi = next((i for i, e in enumerate(enemies) if e["hp"] > 0),
+                          self.battle.get("target", 0))
+                victim = enemies[fi]
+                dmg = victim["power"] * (HEAVY_MULT if heavy else 1)
+                enemy_phase["blocked"] = True
+                enemy_phase["riposte"] = True
+                enemy_phase["attacker"] = victim["name"]
+                enemy_phase["heavy"] = heavy
+                enemy_phase["target_idx"] = fi
+                note = ("🛡 You read " + victim["name"] + "'s "
+                        + ("HEAVY blow" if heavy else "attack")
+                        + f" and turn it back for {dmg}!")
             if dmg:
-                tgt["hp"] -= dmg
+                victim["hp"] -= dmg
                 enemy_phase["dealt"] = dmg
-                if tgt["hp"] <= 0:
+                if victim["hp"] <= 0:
                     enemy_phase["killed"] = True
-                    note += f" {tgt['name']} falls!"
+                    note += f" {victim['name']} falls!"
 
             alive = [e for e in enemies if e["hp"] > 0]
             if not alive:
@@ -838,13 +853,7 @@ class Game:
                 # Packs only punish a miss; a boss answers EVERY exchange.
                 front = alive[0]
                 if stance == "guard" and correct:
-                    if boss or True:            # a read blow is always turned
-                        enemy_phase["blocked"] = True
-                        enemy_phase["attacker"] = front["name"]
-                        enemy_phase["heavy"] = heavy
-                        note += (f" {front['name']}'s "
-                                 + ("HEAVY blow " if heavy else "attack ")
-                                 + "glances off your guard!")
+                    pass          # the blow was read and turned back in your-move
                 elif not correct and stance == "magic" and not boss:
                     hit, blocked = self._absorb(p, MAGIC_BACKFIRE)
                     enemy_phase["backfire"] = True

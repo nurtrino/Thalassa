@@ -559,12 +559,37 @@ input:focus-visible, select:focus-visible {
 /* ── turn banner + objective (top-center) ── */
 #turnBanner {
   top: var(--s3); left: 50%; transform: translateX(-50%);
-  padding: 7px 22px;
+  padding: 5px 12px;
   font-family: var(--disp); font-weight: 700; font-size: 14px;
   letter-spacing: .1em; text-transform: uppercase;
   white-space: nowrap;
   color: var(--gilt);
+  max-width: 96vw; overflow: hidden;
 }
+.turnorder {
+  display: flex; align-items: center; gap: 2px;
+  overflow-x: auto; max-width: 100%;
+}
+.turnorder::-webkit-scrollbar { display: none; }
+.tocap {
+  display: inline-flex; align-items: center; gap: 5px;
+  padding: 3px 9px; border-radius: 999px;
+  font-size: 11.5px; letter-spacing: .06em;
+  color: var(--bone); opacity: .5; flex: none;
+  transition: opacity .2s, background .2s;
+}
+.tocap .dot { width: 8px; height: 8px; }
+.tocap .toname { font-weight: 600; }
+.tocap svg { opacity: .7; }
+.tocap.active {
+  opacity: 1; color: var(--gilt);
+  background: color-mix(in srgb, var(--gilt) 16%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--gilt) 40%, transparent);
+}
+.tocap.active .dot { box-shadow: 0 0 6px 1px currentColor; }
+.tocap.me .toname { text-decoration: underline; text-underline-offset: 2px; }
+.tocap.gone { opacity: .28; filter: grayscale(1); }
+.toarrow { color: var(--gilt); opacity: .4; font-size: 13px; flex: none; }
 #objective {
   top: 56px; left: 50%; transform: translateX(-50%);
   display: flex; align-items: center; gap: var(--s2);
