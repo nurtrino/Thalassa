@@ -468,12 +468,20 @@ _ORIG_DEAL = P.deal          # pristine — monkeypatched fakes must wrap THIS
 def land_on_puzzle(g, pid, monkeypatch=None, force_kind=None):
     """Land on a puzzle node, optionally forcing the dealt kind."""
     pz = find_node(g, "puzzle")
-    if force_kind:
+    if force_kind == "mc":
+        # No live multiple-choice puzzle today (riddle is now typed-answer);
+        # synthesize the MC deal a future "sequence" kind will use, so the
+        # puzzle→question→upgrade-pick flow stays covered.
+        def fake_deal(rng, used):
+            return {"kind": "sequence", "limit": 30,
+                    "text": "2, 4, 6, 8, … — what comes next?",
+                    "options": ["9", "10", "12", "7"], "correct": 1}
+        monkeypatch.setattr(G.puzzles, "deal", fake_deal)
+    elif force_kind:
         def fake_deal(rng, used):
             while True:
                 d = _ORIG_DEAL(rng, used)
-                if d["kind"] == force_kind or \
-                   (force_kind == "mc" and d["kind"] in ("riddle", "sequence")):
+                if d["kind"] == force_kind:
                     return d
         monkeypatch.setattr(G.puzzles, "deal", fake_deal)
     force_land(g, pid, pz)
@@ -536,6 +544,26 @@ def test_minigame_flow_success_and_timeout(monkeypatch):
     assert not g2.board.nodes[pz2]["solved"]
     assert g2.player_by_pid(q0).scrolls == 2              # simon failure tithe
     assert g2.current.pid == q1 and g2.phase == "roll"
+
+
+def test_minigame_riddle_typed_flow(monkeypatch):
+    # riddle is a typed-answer minigame (like anagram): read text, type answer
+    g, (p0, p1) = make_game(seed=17)
+    pz = land_on_puzzle(g, p0, monkeypatch, force_kind="riddle")
+    assert g.phase == "minigame"
+    mg = g.minigame
+    assert mg["kind"] == "riddle" and mg["limit"] == P.TIME_LIMITS["riddle"]
+    snap = g.to_dict(p0)
+    assert snap["minigame"]["kind"] == "riddle"
+    assert snap["minigame"]["text"]                       # prompt is public
+    assert "secret" not in snap["minigame"]               # answer never leaks
+    # a wrong answer keeps the phase alive (retry until the clock runs out)
+    with pytest.raises(GameError):
+        g.minigame_submit(p0, "definitely-not-it")
+    assert g.phase == "minigame"
+    g.minigame_submit(p0, mg["data"]["secret"]["answer"])
+    assert g.phase == "upgrade_pick"
+    assert g.board.nodes[pz]["solved"]
 
 
 def test_hull_plates_and_sandals_effects():

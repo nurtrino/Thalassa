@@ -1228,6 +1228,18 @@ body.shake #world { animation: shake .45s; }
   font-family: var(--disp); font-weight: 700; font-size: 18px;
 }
 
+/* riddle (typed answer) */
+.riddlecat {
+  font-family: var(--disp); font-size: 12px; font-weight: 700;
+  letter-spacing: .18em; text-transform: uppercase; color: var(--bronze-deep);
+  margin-bottom: var(--s2);
+}
+.riddletext {
+  font-family: var(--body); font-size: 19px; line-height: 1.5; color: var(--sepia);
+  text-align: center; white-space: pre-line; max-width: 440px;
+  margin: 0 auto var(--s3);
+}
+
 .ravgrid { display: grid; grid-template-columns: repeat(3, 62px); gap: 6px; }
 .ravcell {
   width: 62px; height: 62px;

@@ -17,52 +17,27 @@ Five interactive/generated kinds (client never receives fields in "secret"):
   · ravens     Raven's-matrix: 3×3 glyph grid follows hidden row/col rules;
                pick the missing ninth tile.
 
-Plus "riddle" — ★ PLACEHOLDER hand-written brain teasers at low weight.
-Replace with your own; good sources: Project Gutenberg (Sam Loyd, Dudeney —
-public domain), Martin Gardner / Smullyan collections, Puzzling StackExchange
-(CC BY-SA), MindYourDecisions, NPR Sunday Puzzle, Mensa/GCHQ puzzle books.
-Riddle format: {"text", "options" (4), "correct" (one of options)}.
+Plus "riddle" — a typed-answer brain teaser (like anagram, an INTERACTIVE
+minigame): the player reads a themed riddle and types the answer against a 30s
+clock. The answer rides in "secret"; the checker normalizes case, whitespace,
+leading articles and punctuation, and accepts spelling variants. Content lives
+in riddles_typed.RIDDLES (50 riddles across 5 THALASSA themes).
 """
 from __future__ import annotations
 
 import random
+
+import riddles_typed
 
 # time limit (seconds) per kind — the server enforces these.
 # Simon has NO clock: one wrong tap is the failure, not the seconds.
 TIME_LIMITS = {"riddle": 30, "tetromino": 45, "nonogram": 30,
                "simon": None, "anagram": 30, "ravens": 30}
 
-INTERACTIVE = ("tetromino", "nonogram", "simon", "anagram", "ravens")
+INTERACTIVE = ("tetromino", "nonogram", "simon", "anagram", "ravens", "riddle")
 
-# ── canned riddles (PLACEHOLDERS — swap in your own set) ─────────────────────
-RIDDLES: list[dict] = [
-    {"text": "I am taken from a mine and shut in a wooden case, from which I am "
-             "never released — yet almost everyone uses me. What am I?",
-     "options": ["Pencil lead", "A diamond", "Coal", "A nail"],
-     "correct": "Pencil lead"},
-    {"text": "A farmer must ferry a wolf, a goat, and a cabbage across a river. The "
-             "boat holds the farmer and one item. Unattended, wolf eats goat, goat "
-             "eats cabbage. Minimum crossings?",
-     "options": ["7", "5", "9", "11"], "correct": "7"},
-    {"text": "Two guards, two doors: one door frees you, one dooms you; one guard "
-             "always lies, one always tells the truth. One question to find freedom?",
-     "options": [
-         "Ask either: “Which door would the other guard call safe?” — take the opposite",
-         "Ask either: “Are you the liar?” — trust whoever says no",
-         "Ask either: “Which door is safe?” — take the door indicated",
-         "No single question can settle it"],
-     "correct": "Ask either: “Which door would the other guard call safe?” — take the opposite"},
-    {"text": "A snail climbs a 10 m well: up 3 m by day, back 2 m by night. "
-             "On which day does it get out?",
-     "options": ["Day 8", "Day 10", "Day 7", "Day 9"], "correct": "Day 8"},
-    {"text": "A cube painted red is cut into 27 equal cubes. How many small cubes "
-             "have exactly two painted faces?",
-     "options": ["12", "8", "6", "9"], "correct": "12"},
-    {"text": "Using 3, 3, 8, 8 each exactly once with + − × ÷ and parentheses, "
-             "which expression makes 24?",
-     "options": ["8 ÷ (3 − 8 ÷ 3)", "(8 + 8) × 3 ÷ 3", "3 × 8 + 3 − 8", "(3 + 3) × 8 ÷ 8"],
-     "correct": "8 ÷ (3 − 8 ÷ 3)"},
-]
+# ── typed-answer riddles — content + normalization live in riddles_typed ─────
+RIDDLES = riddles_typed.RIDDLES
 
 # ── anagram wordlist (mythology / seafaring / worldly — 6-9 letters) ─────────
 WORDS = [
@@ -309,13 +284,21 @@ def check_ravens(data: dict, idx) -> bool:
     return isinstance(idx, int) and idx == data["secret"]["correct"]
 
 
+# ── riddle (typed answer) ────────────────────────────────────────────────────
+def check_riddle(data: dict, guess) -> bool:
+    if not isinstance(guess, str):
+        return False
+    return riddles_typed.check_riddle(data["secret"], guess)
+
+
 # ── dealing & checking ───────────────────────────────────────────────────────
 _WEIGHTS = [("tetromino", 3), ("nonogram", 3), ("simon", 3),
             ("anagram", 3), ("ravens", 3), ("riddle", 1)]
 _GENERATORS = {"tetromino": gen_tetromino, "nonogram": gen_nonogram,
                "simon": gen_simon, "anagram": gen_anagram, "ravens": gen_ravens}
 _CHECKERS = {"tetromino": check_tetromino, "nonogram": check_nonogram,
-             "simon": check_simon, "anagram": check_anagram, "ravens": check_ravens}
+             "simon": check_simon, "anagram": check_anagram, "ravens": check_ravens,
+             "riddle": check_riddle}
 
 
 def deal(rng: random.Random, used_riddles: set[int]) -> dict:
@@ -329,11 +312,10 @@ def deal(rng: random.Random, used_riddles: set[int]) -> dict:
             idx = rng.choice(fresh)
             used_riddles.add(idx)
             r = RIDDLES[idx]
-            options = r["options"][:]
-            rng.shuffle(options)
+            # typed-answer minigame: text is public, answer stays in secret
             return {"kind": "riddle", "limit": TIME_LIMITS["riddle"],
-                    "text": r["text"], "options": options,
-                    "correct": options.index(r["correct"])}
+                    "text": r["prompt"], "category": r["category"],
+                    "secret": {"answer": r["answer"], "accept": r["accept"]}}
     data = _GENERATORS[kind](rng)
     data.update({"kind": kind, "limit": TIME_LIMITS[kind]})
     return data

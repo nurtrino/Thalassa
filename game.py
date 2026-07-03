@@ -760,14 +760,14 @@ class Game:
                 if pool:
                     self.rng.shuffle(pool)
                     self.upgrade_offer = pool[:2]
-                    note = "The riddle yields — choose your prize."
+                    note = "The puzzle yields — choose your prize."
                 else:
                     p.scrolls += 3
                     gained = 3
-                    note = "The riddle yields 3 scrolls."
+                    note = "The puzzle yields 3 scrolls."
             else:
                 p.streak = 0
-                note = "The riddle keeps its secret. It can be tried again."
+                note = "The puzzle keeps its secret. It can be tried again."
         elif kind == "battle":
             m = self.board.nodes[self.battle["node"]]["monster"]
             enemies = m["enemies"]

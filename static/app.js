@@ -29,7 +29,7 @@ const KIND_LABEL = {
 const MG_LABEL = {
   tetromino: 'Sigil of the Isle', nonogram: 'The Weaver’s Grid',
   simon: 'Echoes of the Muses', anagram: 'The Scattered Letters',
-  ravens: 'The Pattern of Fate',
+  ravens: 'The Pattern of Fate', riddle: 'Riddle of the Isle',
 };
 const MG_PROMPT = {
   tetromino: 'Drag each piece onto the grid. No rotating — they fit as given.',
@@ -37,6 +37,7 @@ const MG_PROMPT = {
   simon: 'Watch the sequence, then repeat it. One wrong note fails it.',
   anagram: 'Unscramble the word.',
   ravens: 'Find the pattern. Pick the missing tile.',
+  riddle: 'Read the riddle and type your answer.',
 };
 const TIER_ROMAN = { 1: 'I', 2: 'II', 3: 'III' };
 const UP_ICON = {
@@ -1193,6 +1194,7 @@ function renderMinigame() {
   else if (m.kind === 'simon') renderSimon(board, m, mine, fresh);
   else if (m.kind === 'anagram') renderAnagram(board, m, mine, fresh);
   else if (m.kind === 'ravens') renderRavens(board, m, mine, fresh);
+  else if (m.kind === 'riddle') renderRiddle(board, m, mine, fresh);
 }
 
 /* tetromino — Talos-style sigil fill: drag to place, no rotation */
@@ -1465,6 +1467,44 @@ function renderAnagram(board, m, mine, fresh) {
     const submit = () => {
       if (input.value.trim().length === m.length) send({ type: 'solve', payload: input.value.trim() });
       else $('mgnote').textContent = `Needs ${m.length} letters.`;
+    };
+    go.onclick = submit;
+    input.addEventListener('keydown', (e) => { if (e.key === 'Enter') submit(); });
+    row.append(input, go);
+    board.appendChild(row);
+    setTimeout(() => input.focus(), 100);
+  }
+}
+
+/* riddle — read the teaser, type the answer (like anagram, no fixed length) */
+function renderRiddle(board, m, mine, fresh) {
+  if (!fresh) return;
+  board.innerHTML = '';
+  if (m.category) {
+    const cat = document.createElement('div');
+    cat.className = 'riddlecat';
+    cat.textContent = m.category;
+    board.appendChild(cat);
+  }
+  const text = document.createElement('div');
+  text.className = 'riddletext';
+  text.textContent = m.text;
+  board.appendChild(text);
+  if (mine) {
+    const row = document.createElement('div');
+    row.className = 'agrow';
+    const input = document.createElement('input');
+    input.className = 'aginput';
+    input.maxLength = 32;
+    input.placeholder = 'your answer';
+    input.autocomplete = 'off';
+    const go = document.createElement('button');
+    go.className = 'act';
+    go.textContent = 'ANSWER';
+    const submit = () => {
+      const v = input.value.trim();
+      if (v) send({ type: 'solve', payload: v });
+      else $('mgnote').textContent = 'Type an answer.';
     };
     go.onclick = submit;
     input.addEventListener('keydown', (e) => { if (e.key === 'Enter') submit(); });

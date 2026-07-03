@@ -19,6 +19,46 @@ def test_deal_covers_all_kinds_and_hides_secrets():
     assert "riddle" in kinds
 
 
+# ── riddle (typed answer) ────────────────────────────────────────────────────
+def test_riddle_typed_deal_and_check():
+    rng = random.Random(3)
+    used: set[int] = set()
+    seen = 0
+    for _ in range(400):
+        d = puzzles.deal(rng, used)
+        if d["kind"] != "riddle":
+            continue
+        seen += 1
+        assert d["limit"] == 30
+        assert isinstance(d["text"], str) and d["text"]
+        assert d["category"]
+        # answer lives ONLY in secret — never in the client-facing payload
+        assert "answer" in d["secret"]
+        assert "answer" not in {k for k in d if k != "secret"}
+        ans = d["secret"]["answer"]
+        assert puzzles.check("riddle", d, ans)
+        assert puzzles.check("riddle", d, f"  The {ans.upper()}. ")   # normalized
+        for alt in d["secret"]["accept"]:
+            assert puzzles.check("riddle", d, alt)
+        assert not puzzles.check("riddle", d, "zzzznotananswer")
+        assert not puzzles.check("riddle", d, 123)                    # non-str rejected
+    assert seen >= 3, "riddle should be dealt within 400 draws"
+
+
+def test_riddle_pool_does_not_repeat_until_exhausted():
+    rng = random.Random(1)
+    used: set[int] = set()
+    texts = []
+    for _ in range(2000):
+        d = puzzles.deal(rng, used)
+        if d["kind"] == "riddle":
+            texts.append(d["text"])
+        if len(used) >= len(puzzles.RIDDLES):
+            break
+    # no repeat while the pool still has fresh riddles
+    assert len(texts) == len(set(texts))
+
+
 # ── tetromino ────────────────────────────────────────────────────────────────
 def test_tetromino_generation_and_check():
     rng = random.Random(4)
