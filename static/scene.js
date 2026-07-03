@@ -148,6 +148,7 @@ const STORM_FRAG = `
   varying vec3 vW;
   varying float vH;
   uniform float t; uniform float uOp; uniform float uScale; uniform float uDrift;
+  uniform float uSolid;
   uniform vec3 cA; uniform vec3 cB;
   uniform float boltA; uniform float boltI;
   float hash(vec3 p) {
@@ -178,7 +179,9 @@ const STORM_FRAG = `
     // ragged top silhouette and a base that melts into the sea
     float top = smoothstep(1.04, 0.42 + d * 0.5, vH);
     float base = smoothstep(-0.1, 0.14, vH);
-    float alpha = smoothstep(0.38, 0.66, d) * top * base * uOp;
+    float aWisp = smoothstep(0.38, 0.66, d) * top * base;
+    float aSolid = top * step(-1.0, vH);          // opaque core: only the crown fades
+    float alpha = mix(aWisp, aSolid, uSolid) * uOp;
     vec3 col = mix(cA, cB, clamp(smoothstep(0.3, 0.85, d) * 0.75 + vH * 0.35, 0.0, 1.0));
     // lightning diffusing through the cloud around the bolt angle
     float ang = atan(vW.z, vW.x);
@@ -192,11 +195,11 @@ const STORM_FRAG = `
 
 function stormWallMaterial(opts) {
   return new THREE.ShaderMaterial({
-    transparent: true, depthWrite: false, side: THREE.DoubleSide,
+    transparent: true, depthWrite: !!opts.solid, side: THREE.DoubleSide,
     uniforms: {
       t: { value: 0 },
       uOp: { value: opts.op }, uScale: { value: opts.scale },
-      uDrift: { value: opts.drift },
+      uDrift: { value: opts.drift }, uSolid: { value: opts.solid || 0 },
       cA: { value: new THREE.Color(opts.cA) }, cB: { value: new THREE.Color(opts.cB) },
       uH0: { value: opts.h0 }, uH1: { value: opts.h1 },
       boltA: { value: 0 }, boltI: { value: 0 },
@@ -1088,16 +1091,16 @@ function bannerTexture(title, sub, colorHex, dark = false) {
 }
 
 /* ── regions: the archipelago transforms as you sail north ──────────────── */
+// the Safe Isles — one tropical home region; subtle palette drift by ring
 const REGIONS = [
-  { name: 'The Inner Isles', bands: [0, 1],
-    palette: { grass: 0x5cb04b, grass2: 0x3d7d3a, sand: 0xeadfae },
-    flora: 'palm', label: '#9fd6a8' },
-  { name: 'The Middle Waters', bands: [2],
+  { bands: [0, 1],
+    palette: { grass: 0x5cb04b, grass2: 0x3d7d3a, sand: 0xeadfae }, flora: 'palm' },
+  { bands: [2],
     palette: { grass: 0xa8b06b, grass2: 0x7d9455, sand: 0xf6efdc, rock: 0xdad5c8 },
-    flora: 'olive', label: '#f0e8d0' },
-  { name: 'The Outer Shoals', bands: [3],
+    flora: 'olive' },
+  { bands: [3],
     palette: { grass: 0x63985a, grass2: 0x40684a, sand: 0xdccf9f, rock: 0x8a8474 },
-    flora: 'cypress', label: '#cfe4d2' },
+    flora: 'cypress' },
 ];
 const regionFor = (band) => REGIONS.find((r) => r.bands.includes(band ?? 0)) || REGIONS[0];
 
@@ -1493,6 +1496,12 @@ export function createWorld(container, onIslandClick) {
       storm.add(mesh);
       return mesh;
     };
+    // the CORE: fully opaque — no sky, no sun, no light passes through
+    const core = shell(new THREE.CylinderGeometry(WALL_R + 8, WALL_R + 20, 380, 160, 40, true),
+      { op: 1.0, scale: 0.011, drift: 0.8, cA: 0x191722, cB: 0x59536a,
+        h0: -40, h1: 330, solid: 1 });
+    core.position.y = 160;
+    core.renderOrder = 2;
     // outer rampart — tall, dense, slightly flared
     shell(new THREE.CylinderGeometry(WALL_R + 30, WALL_R + 55, 340, 160, 30, true),
       { op: 1.0, scale: 0.0105, drift: 1.0, cA: 0x1f1c2a, cB: 0x6e6880,
@@ -1566,35 +1575,6 @@ export function createWorld(container, onIslandClick) {
   const banners = {};      // id → {key, sprite}
   const ships = {};        // pid → {group, target, idx, phase, anim}
   const traders = [];      // neutral NPC ships drifting the lanes (set dressing)
-  const regionLabels = new THREE.Group();   // chart-style names on the water
-  scene.add(regionLabels);
-
-  function buildRegionLabels(nodes) {
-    regionLabels.clear();
-    for (const reg of REGIONS) {
-      const own = nodes.filter((n) => reg.bands.includes(n.band) && n.type !== 'sea');
-      if (!own.length) continue;
-      const rr = own.reduce((s, n) => s + Math.hypot(n.x, n.z), 0) / own.length;
-      const cx = 0;
-      const cz = rr > 40 ? rr - 46 : 118;
-      const c = document.createElement('canvas');
-      c.width = 1024; c.height = 128;
-      const ctx = c.getContext('2d');
-      ctx.font = 'italic 76px Georgia, serif';
-      ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-      ctx.fillStyle = reg.label;
-      ctx.fillText(reg.name.toUpperCase(), 512, 64);
-      const tex = new THREE.CanvasTexture(c);
-      tex.colorSpace = THREE.SRGBColorSpace;
-      const plane = new THREE.Mesh(new THREE.PlaneGeometry(110, 13.75),
-        new THREE.MeshBasicMaterial({ map: tex, transparent: true, opacity: 0.38,
-          depthWrite: false }));
-      plane.rotation.x = -Math.PI / 2;
-      plane.position.set(cx, 0.12, cz + 26);   // along the ring's southern arc
-      plane.renderOrder = 2;
-      regionLabels.add(plane);
-    }
-  }
   let laneGroup = new THREE.Group();
   let laneKey = '';
   let boardSig = '';
@@ -1777,7 +1757,6 @@ export function createWorld(container, onIslandClick) {
   }
 
   function clearBoard() {
-    regionLabels.clear();
     for (const tr of traders.splice(0)) scene.remove(tr.group);
     for (const id of Object.keys(islands)) {
       scene.remove(islands[id].group);
@@ -1813,7 +1792,6 @@ export function createWorld(container, onIslandClick) {
     const fullSig = `${homeNode?.x},${homeNode?.z}:${room.code}`;
     if (boardSig && boardSig !== fullSig) clearBoard();     // new sea (rematch)
     boardSig = fullSig;
-    if (!regionLabels.children.length) buildRegionLabels(nodes);
 
     const present = new Set();
     for (const node of nodes) {

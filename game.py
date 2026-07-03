@@ -231,7 +231,7 @@ class Game:
             {"kind": "bank1", "text": "First to bank a relic", "reward": 4},
             {"kind": "bank2", "text": "First to bank 2 relics", "reward": 6},
             {"kind": "puzzles2", "text": "First to crack 2 puzzle isles", "reward": 5},
-            {"kind": "far", "text": "First to reach the Outer Shoals", "reward": 5},
+            {"kind": "far", "text": "First to reach the storm's edge", "reward": 5},
             {"kind": "scrolls12", "text": "First to hold 12 scrolls", "reward": 5},
         ]
         self.rng.shuffle(pool)
