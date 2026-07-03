@@ -1,21 +1,24 @@
 """
-Thalassa server — rooms, WebSockets, and the orchestration around game.py.
+Thalassa server — one shared game, WebSockets, and the orchestration
+around game.py.
 
-FastAPI + native WebSockets, one process (in-memory rooms — keep the deploy at
-a single instance). The engine (game.py) owns the rules; this file owns IO:
-dice RNG, question fetching (questions.py), phase timers, broadcast.
+FastAPI + native WebSockets, one process, ONE game: everyone who opens the
+site lands in the same voyage. The first player to join is the host. The
+engine (game.py) owns the rules; this file owns IO: dice RNG, question
+fetching (questions.py), phase timers, broadcast.
 
     GET  /              → the app (static/index.html)
-    POST /api/rooms     → {"code": "ABCD"}  create a room
     GET  /healthz       → ok (health check)
-    WS   /ws/{code}     → game protocol (JSON messages)
+    WS   /ws            → game protocol (JSON messages)
 
 Client → server: hello{token,name} · start · roll · sail{node} · wager{tier}
-                 · trial · oracle{accept} · claim{domains[3]} · trade{give,get}
+                 · trial · oracle · claim{domains[3]} · trade{give,get}
                  · build{kind} · pass · answer{idx} · vote{domain}
                  · skip · kick{pid} · rematch · ping
-Server → client: snapshot{you,room} · dice{pid,d1,d2} · error{msg}
-                 · fatal{msg} (then close) · pong
+Server → client: snapshot{you,room} · dice{pid,d1,d2} · error{msg} · pong
+
+If the table empties out mid-game it resets to a fresh lobby after a grace
+period, so a finished or abandoned voyage never blocks new players.
 """
 from __future__ import annotations
 
@@ -25,7 +28,7 @@ import secrets
 import time
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
 from game import Game, GameError
@@ -35,24 +38,27 @@ BASE = os.path.dirname(os.path.abspath(__file__))
 QUESTION_SECS = float(os.environ.get("QUESTION_SECS", "35"))
 REVEAL_SECS = float(os.environ.get("REVEAL_SECS", "5"))
 VOTE_SECS = float(os.environ.get("VOTE_SECS", "25"))
-ROOM_IDLE_SECS = 60 * 60
-ROOM_MAX_AGE = 24 * 3600
-MAX_ROOMS = 200
-CODE_ALPHABET = "ABCDEFGHJKMNPQRSTUVWXYZ"   # no I/L/O — unambiguous on phones
+ABANDON_RESET_SECS = float(os.environ.get("ABANDON_RESET_SECS", "300"))
 
 
-class Room:
-    def __init__(self, code: str):
-        self.game = Game(code)
+class Table:
+    """The single shared game and its connections."""
+
+    def __init__(self):
+        self.game = Game("THALASSA")
         self.sockets: dict[WebSocket, str | None] = {}   # ws → pid (None = spectator)
-        self.created = time.monotonic()
         self.last_active = time.monotonic()
 
     def touch(self):
         self.last_active = time.monotonic()
 
+    def reset(self):
+        self.game = Game("THALASSA")
+        for ws in self.sockets:
+            self.sockets[ws] = None      # everyone rejoins via a fresh hello
 
-rooms: dict[str, Room] = {}
+
+table = Table()
 bank = QuestionBank()
 app = FastAPI(title="Thalassa")
 
@@ -66,28 +72,28 @@ async def _send(ws: WebSocket, payload: dict) -> bool:
         return False
 
 
-async def broadcast(room: Room):
-    snap = room.game.to_dict()
+async def broadcast():
+    snap = table.game.to_dict()
     dead = []
-    for ws, pid in list(room.sockets.items()):
+    for ws, pid in list(table.sockets.items()):
         if not await _send(ws, {"type": "snapshot", "you": pid, "room": snap}):
             dead.append(ws)
     for ws in dead:
-        await _drop_socket(room, ws)
+        await _drop_socket(ws)
 
 
-async def broadcast_event(room: Room, payload: dict):
-    for ws in list(room.sockets):
+async def broadcast_event(payload: dict):
+    for ws in list(table.sockets):
         await _send(ws, payload)
 
 
-async def _drop_socket(room: Room, ws: WebSocket):
-    pid = room.sockets.pop(ws, None)
-    if pid and pid not in room.sockets.values():
-        p = room.game.player_by_pid(pid)
+async def _drop_socket(ws: WebSocket):
+    pid = table.sockets.pop(ws, None)
+    if pid and pid not in table.sockets.values():
+        p = table.game.player_by_pid(pid)
         if p:
             p.connected = False
-            await broadcast(room)
+            await broadcast()
 
 
 # ── phase timers (all guarded by the game nonce) ─────────────────────────────
@@ -95,75 +101,64 @@ def schedule(coro):
     asyncio.get_running_loop().create_task(coro)
 
 
-async def fetch_question(room: Room, nonce: int):
-    g = room.game
+async def fetch_question(nonce: int):
+    g = table.game
     if g.qctx is None:
         return
     q = await bank.get(g.qctx["domain"], g.qctx["tier"])
     if g.nonce == nonce and g.phase == "question" and g.question is None:
         g.set_question(q, deadline=time.time() + QUESTION_SECS)
-        schedule(question_timer(room, g.nonce))
-        await broadcast(room)
+        schedule(question_timer(g.nonce))
+        await broadcast()
 
 
-async def question_timer(room: Room, nonce: int):
+async def question_timer(nonce: int):
     await asyncio.sleep(QUESTION_SECS + 1)
-    g = room.game
+    g = table.game
     if g.nonce == nonce and g.phase == "question":
         g.timeout_question()
-        await broadcast(room)
+        await broadcast()
         if g.phase == "reveal":
-            schedule(reveal_timer(room, g.nonce))
+            schedule(reveal_timer(g.nonce))
 
 
-async def reveal_timer(room: Room, nonce: int):
+async def reveal_timer(nonce: int):
     await asyncio.sleep(REVEAL_SECS)
-    g = room.game
+    g = table.game
     if g.nonce == nonce and g.phase == "reveal":
         g.advance_after_reveal()
-        await broadcast(room)
-        after_phase_change(room)
+        await broadcast()
+        after_phase_change()
 
 
-async def vote_timer(room: Room, nonce: int):
+async def vote_timer(nonce: int):
     await asyncio.sleep(VOTE_SECS)
-    g = room.game
+    g = table.game
     if g.nonce == nonce and g.phase == "symposium_vote":
-        await finish_vote(room)
+        await finish_vote()
 
 
-async def finish_vote(room: Room):
-    g = room.game
+async def finish_vote():
+    g = table.game
     g.tally_votes(secrets.randbelow(4))
-    await broadcast(room)
-    schedule(fetch_question(room, g.nonce))
+    await broadcast()
+    schedule(fetch_question(g.nonce))
 
 
-def after_phase_change(room: Room):
+def after_phase_change():
     """Kick off whatever the new phase demands (question fetch, vote timer)."""
-    g = room.game
+    g = table.game
     if g.phase == "question" and g.question is None:
-        schedule(fetch_question(room, g.nonce))
+        schedule(fetch_question(g.nonce))
     elif g.phase == "symposium_vote":
-        schedule(vote_timer(room, g.nonce))
+        schedule(vote_timer(g.nonce))
 
 
 # ── HTTP ─────────────────────────────────────────────────────────────────────
 @app.get("/healthz")
 async def healthz():
-    return {"ok": True, "rooms": len(rooms), "questions": bank.counts()}
-
-
-@app.post("/api/rooms")
-async def create_room():
-    if len(rooms) >= MAX_ROOMS:
-        return JSONResponse({"error": "Server is full, try again later."}, status_code=503)
-    for _ in range(50):
-        code = "".join(secrets.choice(CODE_ALPHABET) for _ in range(4))
-        if code not in rooms:
-            rooms[code] = Room(code)
-            return {"code": code}
-    return JSONResponse({"error": "Could not allocate a room code."}, status_code=500)
+    return {"ok": True, "phase": table.game.phase,
+            "players": len(table.game.players), "questions": bank.counts()}
 
 
 @app.get("/")
@@ -175,21 +170,16 @@ app.mount("/static", StaticFiles(directory=os.path.join(BASE, "static")), name="
 
 
 # ── WebSocket protocol ───────────────────────────────────────────────────────
-@app.websocket("/ws/{code}")
-async def ws_endpoint(ws: WebSocket, code: str):
+@app.websocket("/ws")
+async def ws_endpoint(ws: WebSocket):
     await ws.accept()
-    room = rooms.get(code.upper())
-    if room is None:
-        await _send(ws, {"type": "fatal", "msg": "No such room — check the code."})
-        await ws.close()
-        return
-    g = room.game
     pid: str | None = None
     try:
         while True:
             msg = await ws.receive_json()
             kind = msg.get("type")
-            room.touch()
+            g = table.game
+            table.touch()
 
             if kind == "ping":
                 await _send(ws, {"type": "pong"})
@@ -206,75 +196,74 @@ async def ws_endpoint(ws: WebSocket, code: str):
                         pid = g.add_player(token, str(msg.get("name", ""))).pid
                     except GameError as e:
                         await _send(ws, {"type": "error", "msg": str(e)})
-                        pid = None       # room full → stay as spectator
+                        pid = None       # table full → stay as spectator
                 # else: game in progress → spectator
-                room.sockets[ws] = pid
-                await broadcast(room)
+                table.sockets[ws] = pid
+                await broadcast()
                 continue
 
-            if ws not in room.sockets:
+            if ws not in table.sockets:
                 await _send(ws, {"type": "error", "msg": "Say hello first."})
                 continue
 
             try:
                 if kind == "start":
                     g.start(pid)
-                    await broadcast(room)
+                    await broadcast()
                 elif kind == "roll":
                     d1, d2 = secrets.randbelow(6) + 1, secrets.randbelow(6) + 1
                     g.roll(pid, d1, d2)
-                    await broadcast_event(room, {"type": "dice", "pid": pid,
-                                                 "d1": d1, "d2": d2})
-                    await broadcast(room)
+                    await broadcast_event({"type": "dice", "pid": pid, "d1": d1, "d2": d2})
+                    await broadcast()
                 elif kind == "sail":
                     g.sail(pid, str(msg.get("node", "")))
-                    await broadcast(room)
-                    after_phase_change(room)
+                    await broadcast()
+                    after_phase_change()
                 elif kind == "wager":
                     g.wager(pid, int(msg.get("tier", 0)))
-                    await broadcast(room)
-                    after_phase_change(room)
+                    await broadcast()
+                    after_phase_change()
                 elif kind == "trial":
                     g.trial(pid)
-                    await broadcast(room)
-                    after_phase_change(room)
+                    await broadcast()
+                    after_phase_change()
                 elif kind == "oracle":
                     g.oracle_accept(pid)
-                    await broadcast(room)
-                    after_phase_change(room)
+                    await broadcast()
+                    after_phase_change()
                 elif kind == "claim":
                     doms = [str(d) for d in (msg.get("domains") or [])]
                     g.oracle_claim(pid, doms)
-                    await broadcast(room)
+                    await broadcast()
                 elif kind == "trade":
                     g.trade(pid, str(msg.get("give", "")), str(msg.get("get", "")))
-                    await broadcast(room)
+                    await broadcast()
                 elif kind == "build":
                     g.build(pid, str(msg.get("kind", "")))
-                    await broadcast(room)
+                    await broadcast()
                 elif kind == "pass":
                     g.pass_turn(pid)
-                    await broadcast(room)
+                    await broadcast()
                 elif kind == "answer":
                     g.answer(pid, int(msg.get("idx", -1)))
-                    await broadcast(room)
+                    await broadcast()
                     if g.phase == "reveal":
-                        schedule(reveal_timer(room, g.nonce))
+                        schedule(reveal_timer(g.nonce))
                 elif kind == "vote":
                     g.vote_domain(pid, str(msg.get("domain", "")))
                     if g.all_votes_in():
-                        await finish_vote(room)
+                        await finish_vote()
                     else:
-                        await broadcast(room)
+                        await broadcast()
                 elif kind == "skip":
                     g.skip_turn(pid)
-                    await broadcast(room)
+                    await broadcast()
                 elif kind == "kick":
                     g.remove_player(pid, str(msg.get("pid", "")))
-                    await broadcast(room)
+                    await broadcast()
                 elif kind == "rematch":
                     g.rematch(pid)
-                    await broadcast(room)
+                    await broadcast()
                 else:
                     await _send(ws, {"type": "error", "msg": f"Unknown message: {kind}"})
             except GameError as e:
@@ -284,21 +273,26 @@ async def ws_endpoint(ws: WebSocket, code: str):
     except WebSocketDisconnect:
         pass
     finally:
-        await _drop_socket(room, ws)
+        await _drop_socket(ws)
 
 
 # ── background upkeep ────────────────────────────────────────────────────────
-async def room_gc():
+async def abandoned_game_reset():
+    """A deserted mid-game table goes back to a fresh lobby so the single
+    shared game can never get stuck for the next visitors."""
     while True:
-        await asyncio.sleep(300)
-        now = time.monotonic()
-        for code, room in list(rooms.items()):
-            empty_and_idle = not room.sockets and now - room.last_active > ROOM_IDLE_SECS
-            if empty_and_idle or now - room.created > ROOM_MAX_AGE:
-                rooms.pop(code, None)
+        await asyncio.sleep(30)
+        g = table.game
+        if g.phase == "lobby":
+            continue
+        anyone_here = any(pid for pid in table.sockets.values())
+        idle = time.monotonic() - table.last_active
+        if not anyone_here and idle > ABANDON_RESET_SECS:
+            table.reset()
+            await broadcast()
 
 
 @app.on_event("startup")
 async def startup():
     schedule(bank.refill_loop())
-    schedule(room_gc())
+    schedule(abandoned_game_reset())

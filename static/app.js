@@ -27,40 +27,30 @@ world = createWorld($('world'), (node) => {
   }
 });
 
-const hashCode = location.hash.replace('#', '').toUpperCase();
-if (hashCode.length === 4) $('codeInput').value = hashCode;
 $('nameInput').value = localStorage.getItem('thalassa_name') || '';
 
-$('createBtn').onclick = async () => {
-  const r = await fetch('/api/rooms', { method: 'POST' });
-  const j = await r.json();
-  if (j.error) return showLobbyErr(j.error);
-  connect(j.code);
-};
-$('joinBtn').onclick = () => {
-  const code = $('codeInput').value.trim().toUpperCase();
-  if (code.length !== 4) return showLobbyErr('Room codes are 4 letters.');
-  connect(code);
-};
-$('codeInput').addEventListener('keydown', (e) => { if (e.key === 'Enter') $('joinBtn').click(); });
+$('joinBtn').onclick = () => connect();
+$('nameInput').addEventListener('keydown', (e) => { if (e.key === 'Enter') $('joinBtn').click(); });
 
 function showLobbyErr(msg) { $('lobbyErr').textContent = msg; }
 
-function connect(code) {
+let pingInterval = null;
+
+function connect() {
   const name = $('nameInput').value.trim() || 'Captain';
   localStorage.setItem('thalassa_name', name);
-  location.hash = code;
   const proto = location.protocol === 'https:' ? 'wss' : 'ws';
-  ws = new WebSocket(`${proto}://${location.host}/ws/${code}`);
+  ws = new WebSocket(`${proto}://${location.host}/ws`);
   ws.onopen = () => send({ type: 'hello', token, name });
   ws.onmessage = (ev) => handle(JSON.parse(ev.data));
   ws.onclose = () => {
     if (room && room.phase !== 'finished') {
       toast('Connection lost — reconnecting…', true);
-      setTimeout(() => connect(code), 1500);
+      setTimeout(() => connect(), 1500);
     }
   };
-  setInterval(() => { if (ws?.readyState === 1) send({ type: 'ping' }); }, 25000);
+  clearInterval(pingInterval);
+  pingInterval = setInterval(() => { if (ws?.readyState === 1) send({ type: 'ping' }); }, 25000);
 }
 
 function send(obj) { if (ws?.readyState === 1) ws.send(JSON.stringify(obj)); }
@@ -92,7 +82,6 @@ function render() {
   $('hud').classList.toggle('hidden', inLobby);
   if (inLobby) return renderLobby();
 
-  $('roomTag').textContent = room.code;
   renderPlayers();
   renderTurnBanner();
   renderTray();
@@ -104,7 +93,6 @@ function render() {
 function renderLobby() {
   $('joinForm').classList.add('hidden');
   $('waitRoom').classList.remove('hidden');
-  $('roomCode').textContent = room.code;
   const ul = $('lobbyPlayers');
   ul.innerHTML = '';
   for (const p of room.players) {

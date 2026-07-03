@@ -54,7 +54,6 @@ input, select {
   padding: 10px 12px; background: #fff;
   width: 100%; margin: 8px 0; text-align: center;
 }
-#codeInput { text-transform: uppercase; letter-spacing: 8px; font-weight: bold; }
 
 button {
   font: inherit; cursor: pointer; border: 0; border-radius: 10px;
@@ -68,13 +67,7 @@ button.big {
   background: var(--gold); color: #3d2c07; font-weight: bold;
 }
 button.small { font-size: 13px; padding: 6px 10px; background: #7a8ca0; }
-.joinRow { display: flex; gap: 8px; align-items: center; }
-.joinRow input { flex: 1; }
 
-.code {
-  font-size: 42px; font-weight: bold; letter-spacing: 12px;
-  color: var(--blue); margin: 6px 0 10px;
-}
 #lobbyPlayers { list-style: none; margin: 14px 0; text-align: left; }
 #lobbyPlayers li { padding: 6px 4px; border-bottom: 1px dashed #d8ceb4; }
 #lobbyPlayers em { color: #968b71; font-size: 13px; }
@@ -85,13 +78,6 @@ button.small { font-size: 13px; padding: 6px 10px; background: #7a8ca0; }
 
 /* ── HUD ────────────────────────────────────────────────────────────────── */
 #hud > div { position: fixed; z-index: 10; }
-
-#roomTag {
-  top: 10px; right: 12px;
-  background: rgba(247, 244, 236, .9);
-  border: 2px solid var(--gold); border-radius: 8px;
-  padding: 4px 12px; font-weight: bold; letter-spacing: 4px;
-}
 
 #players {
   top: 10px; left: 10px;

@@ -1,19 +1,19 @@
 # THALASSA 🏛️
 
 A 2–6 player, 30-minute strategy trivia board game set in a tropical Greek
-archipelago — rendered in 3D, played from your phones/browsers with a
-4-letter room code.
+archipelago — rendered in 3D, played from your phones/browsers. One server,
+one shared table: everyone who opens the site joins the same voyage.
 
 Trivia · dice · resources · placement. Not your average trivia game: the
 question floor starts at "hmm" and goes up from there.
 
 ## How a voyage works
 
-1. One player opens the site, enters a name, hits **CREATE VOYAGE** → gets a
-   4-letter room code (the creator is the host). Friends join with the code
-   or the shareable `…/#CODE` link.
+1. Open the site, enter a name, hit **JOIN THE VOYAGE**. The first captain
+   to join is the host; friends just open the same URL.
 2. Host hits **SET SAIL**. Everyone sees the 3D archipelago; ships start at
-   the Port of Piraeus.
+   the Port of Piraeus. Anyone arriving mid-game spectates until the next
+   game.
 3. On your turn, roll 2d6 and **sail using either one die** (your choice) —
    the glowing islands are in range. Then the island decides:
 
@@ -49,7 +49,7 @@ games playable (`TRIVIA_OFFLINE=1` forces this — handy for dev).
 | Board | `board.py` | Island graph (13 nodes), domains, BFS reachability. |
 | Engine | `game.py` | Pure rules state machine — phases, wagers, trials, economy, buildings, symposium. No IO; unit-tested. |
 | Questions | `questions.py` | The Trivia API v2 client: per-domain/difficulty prefetch pools, dedupe, rate limiting, offline fallback. |
-| Server | `server.py` | FastAPI: rooms, WebSocket protocol, dice RNG, phase timers, broadcast. |
+| Server | `server.py` | FastAPI: the single shared table, WebSocket protocol, dice RNG, phase timers, broadcast. |
 | Client | `static/` | Vanilla JS + vendored Three.js: procedural 3D archipelago (water shader, temples, palms, triremes), CSS-3D dice, question cards. |
 
 No build step — the frontend is plain ES modules; Three.js r160 is vendored
@@ -72,6 +72,7 @@ TRIVIA_OFFLINE=1 .venv/bin/uvicorn server:app --port 5070
 | `QUESTION_SECS` | `35` | Answer window per question. |
 | `REVEAL_SECS` | `5` | How long the answer reveal stays up. |
 | `VOTE_SECS` | `25` | Symposium vote timeout (majority of cast votes wins). |
+| `ABANDON_RESET_SECS` | `300` | A deserted mid-game table resets to a fresh lobby after this long. |
 
 ## Tests
 
@@ -82,6 +83,6 @@ TRIVIA_OFFLINE=1 .venv/bin/uvicorn server:app --port 5070
 
 ## Deploy
 
-`render.yaml` is a ready Render Blueprint (single instance — rooms are in
-process memory). Set `TRIVIA_API_KEY` in the dashboard after the first
+`render.yaml` is a ready Render Blueprint (single instance — the game lives
+in process memory). Set `TRIVIA_API_KEY` in the dashboard after the first
 deploy.

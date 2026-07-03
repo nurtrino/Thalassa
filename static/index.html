@@ -21,16 +21,10 @@
     <p class="tag">Sail the isles · wager your wits · earn the laurels</p>
     <div id="joinForm">
       <input id="nameInput" maxlength="16" placeholder="Your name, captain" autocomplete="off">
-      <button id="createBtn" class="big">CREATE VOYAGE</button>
-      <div class="joinRow">
-        <input id="codeInput" maxlength="4" placeholder="CODE" autocomplete="off">
-        <button id="joinBtn">JOIN</button>
-      </div>
+      <button id="joinBtn" class="big">JOIN THE VOYAGE</button>
       <p id="lobbyErr" class="err"></p>
     </div>
     <div id="waitRoom" class="hidden">
-      <p>Room code</p>
-      <div id="roomCode" class="code"></div>
       <button id="copyLink" class="small">copy invite link</button>
       <ul id="lobbyPlayers"></ul>
       <button id="startBtn" class="big hidden">SET SAIL</button>
@@ -49,7 +43,6 @@
   </div>
   <div id="tray"></div>
   <div id="toasts"></div>
-  <div id="roomTag"></div>
 </div>
 
 <!-- ── question card ────────────────────────────────────────────────────── -->
