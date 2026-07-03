@@ -116,13 +116,96 @@ function puffTexture(r, g, b) {
   blob(84, 128, 66, 0.85);
   blob(174, 124, 70, 0.85);
   blob(126, 102, 56, 0.8);
+  // shade the underside so puffs read as lit from above
+  ctx.globalCompositeOperation = 'source-atop';
+  const sh = ctx.createLinearGradient(0, 60, 0, 240);
+  sh.addColorStop(0, 'rgba(255,255,255,0)');
+  sh.addColorStop(1, `rgba(${Math.round(r*0.55)},${Math.round(g*0.55)},${Math.round(b*0.62)},0.5)`);
+  ctx.fillStyle = sh;
+  ctx.fillRect(0, 0, 256, 256);
+  ctx.globalCompositeOperation = 'source-over';
   const tex = new THREE.CanvasTexture(c);
   tex.colorSpace = THREE.SRGBColorSpace;
   return tex;
 }
+
+/* ── the storm wall: continuous animated cloud, shader-built ─────────────
+   Concentric shells sample seamless 3D value-noise in WORLD space, so the
+   wall has no seams, a ragged boiling top, and depth from parallax. A
+   lightning angle/intensity uniform lets bolts glow through the cloud. */
+const STORM_VERT = `
+  varying vec3 vW;
+  varying float vH;
+  uniform float uH0; uniform float uH1;
+  void main() {
+    vec4 wp = modelMatrix * vec4(position, 1.0);
+    vW = wp.xyz;
+    vH = (wp.y - uH0) / (uH1 - uH0);
+    gl_Position = projectionMatrix * viewMatrix * wp;
+  }`;
+const STORM_FRAG = `
+  precision highp float;
+  varying vec3 vW;
+  varying float vH;
+  uniform float t; uniform float uOp; uniform float uScale; uniform float uDrift;
+  uniform vec3 cA; uniform vec3 cB;
+  uniform float boltA; uniform float boltI;
+  float hash(vec3 p) {
+    p = fract(p * 0.3183099 + 0.1);
+    p *= 17.0;
+    return fract(p.x * p.y * p.z * (p.x + p.y + p.z));
+  }
+  float vnoise(vec3 x) {
+    vec3 i = floor(x); vec3 f = fract(x);
+    f = f * f * (3.0 - 2.0 * f);
+    return mix(mix(mix(hash(i), hash(i + vec3(1,0,0)), f.x),
+                   mix(hash(i + vec3(0,1,0)), hash(i + vec3(1,1,0)), f.x), f.y),
+               mix(mix(hash(i + vec3(0,0,1)), hash(i + vec3(1,0,1)), f.x),
+                   mix(hash(i + vec3(0,1,1)), hash(i + vec3(1,1,1)), f.x), f.y), f.z);
+  }
+  float fbm(vec3 p) {
+    float v = 0.0; float a = 0.52;
+    for (int i = 0; i < 5; i++) { v += a * vnoise(p); p = p * 2.03 + 11.5; a *= 0.5; }
+    return v;
+  }
+  void main() {
+    // slow angular drift keeps the wall churning around the ring
+    float ca = cos(t * 0.008 * uDrift), sa = sin(t * 0.008 * uDrift);
+    vec3 q = vec3(vW.x * ca - vW.z * sa, vW.y * 0.55, vW.x * sa + vW.z * ca) * uScale;
+    float n1 = fbm(q + vec3(0.0, -t * 0.045, 0.0));
+    float n2 = fbm(q * 1.9 + vec3(t * 0.03, t * 0.018, 4.7));
+    float d = n1 * 0.68 + n2 * 0.32;
+    // ragged top silhouette and a base that melts into the sea
+    float top = smoothstep(1.04, 0.42 + d * 0.5, vH);
+    float base = smoothstep(-0.1, 0.14, vH);
+    float alpha = smoothstep(0.38, 0.66, d) * top * base * uOp;
+    vec3 col = mix(cA, cB, clamp(smoothstep(0.3, 0.85, d) * 0.75 + vH * 0.35, 0.0, 1.0));
+    // lightning diffusing through the cloud around the bolt angle
+    float ang = atan(vW.z, vW.x);
+    float dd = abs(mod(ang - boltA + 3.14159, 6.28318) - 3.14159);
+    float glow = boltI * exp(-5.0 * dd);
+    col += vec3(0.72, 0.78, 1.0) * glow * (0.4 + d);
+    alpha = min(1.0, alpha + glow * 0.15);
+    if (alpha < 0.01) discard;
+    gl_FragColor = vec4(col, alpha);
+  }`;
+
+function stormWallMaterial(opts) {
+  return new THREE.ShaderMaterial({
+    transparent: true, depthWrite: false, side: THREE.DoubleSide,
+    uniforms: {
+      t: { value: 0 },
+      uOp: { value: opts.op }, uScale: { value: opts.scale },
+      uDrift: { value: opts.drift },
+      cA: { value: new THREE.Color(opts.cA) }, cB: { value: new THREE.Color(opts.cB) },
+      uH0: { value: opts.h0 }, uH1: { value: opts.h1 },
+      boltA: { value: 0 }, boltI: { value: 0 },
+    },
+    vertexShader: STORM_VERT,
+    fragmentShader: STORM_FRAG,
+  });
+}
 const TEX_CLOUD = puffTexture(255, 255, 255);
-const TEX_STORM = puffTexture(58, 54, 70);
-const TEX_STORM2 = puffTexture(92, 86, 106);
 const TEX_MIST = puffTexture(226, 236, 240);
 
 function cloudSprite(tex, size, opacity = 1) {
@@ -1400,40 +1483,30 @@ export function createWorld(container, onIslandClick) {
   // the storm wall — a ring of boiling dark cloud that seals the region
   const WALL_R = 640;
   const storm = new THREE.Group();
+  const stormMats = [];
   {
-    // three stacked banks of soft dark cloud, boiling slowly
-    const BANKS = [
-      { n: 64, y: 14, h: 26, size: [60, 110], tex: TEX_STORM, op: 0.95 },
-      { n: 52, y: 55, h: 34, size: [70, 130], tex: TEX_STORM, op: 0.88 },
-      { n: 44, y: 98, h: 40, size: [60, 120], tex: TEX_STORM2, op: 0.7 },
-    ];
-    for (const bank of BANKS) {
-      for (let i = 0; i < bank.n; i++) {
-        const a = (i / bank.n) * Math.PI * 2 + Math.random() * 0.1;
-        const sp = cloudSprite(bank.tex,
-          bank.size[0] + Math.random() * (bank.size[1] - bank.size[0]), bank.op);
-        const r = WALL_R + (Math.random() - 0.5) * 70;
-        sp.position.set(Math.cos(a) * r, bank.y + Math.random() * bank.h, Math.sin(a) * r);
-        sp.userData = { bob: Math.random() * 6.28, y0: sp.position.y };
-        storm.add(sp);
-      }
-    }
-    // a curtain of grey fog rolling out ahead of the clouds
-    for (let i = 0; i < 40; i++) {
-      const a = (i / 40) * Math.PI * 2;
-      const sp = cloudSprite(TEX_MIST, 90 + Math.random() * 60, 0.28);
-      const r = WALL_R - 70 - Math.random() * 40;
-      sp.position.set(Math.cos(a) * r, 4 + Math.random() * 8, Math.sin(a) * r);
-      sp.userData = { bob: Math.random() * 6.28, y0: sp.position.y };
-      storm.add(sp);
-    }
-    const veil = new THREE.Mesh(
-      new THREE.CylinderGeometry(WALL_R + 60, WALL_R + 60, 240, 72, 1, true),
-      new THREE.MeshBasicMaterial({ color: 0x2c2836, transparent: true, opacity: 0.5,
-        side: THREE.DoubleSide, depthWrite: false }));
-    veil.position.y = 90;
-    veil.name = 'veil';
-    storm.add(veil);
+    const shell = (geo, opts) => {
+      const m = stormWallMaterial(opts);
+      stormMats.push(m);
+      const mesh = new THREE.Mesh(geo, m);
+      mesh.renderOrder = 3;
+      storm.add(mesh);
+      return mesh;
+    };
+    // outer rampart — tall, dense, slightly flared
+    shell(new THREE.CylinderGeometry(WALL_R + 30, WALL_R + 55, 340, 160, 30, true),
+      { op: 1.0, scale: 0.0105, drift: 1.0, cA: 0x1f1c2a, cB: 0x6e6880,
+        h0: -30, h1: 300 }).position.y = 135;
+    // inner face — lighter, counter-drifting for parallax depth
+    shell(new THREE.CylinderGeometry(WALL_R - 45, WALL_R - 20, 260, 150, 26, true),
+      { op: 0.6, scale: 0.016, drift: -1.5, cA: 0x363240, cB: 0x8d8799,
+        h0: -20, h1: 235 }).position.y = 112;
+    // the roll cloud grinding along the sea at the wall's foot
+    const roll = shell(new THREE.TorusGeometry(WALL_R - 30, 58, 16, 120),
+      { op: 0.92, scale: 0.02, drift: 0.7, cA: 0x2b2836, cB: 0x7b7488,
+        h0: -40, h1: 85 });
+    roll.rotation.x = Math.PI / 2;
+    roll.position.y = 12;
   }
   scene.add(storm);
   // lightning inside the wall
@@ -2148,12 +2221,10 @@ export function createWorld(container, onIslandClick) {
       controls.update();
     }
 
-    // the storm broods: sky and light darken as your boat nears the wall
-    storm.rotation.y = t * 0.006;
-    for (const puff of storm.children) {
-      if (puff.userData.y0 !== undefined) {
-        puff.position.y = puff.userData.y0 + Math.sin(t * 0.4 + puff.userData.bob) * 2.6;
-      }
+    // the storm broods: the wall churns, and bolts glow through the cloud
+    for (const m of stormMats) {
+      m.uniforms.t.value = t;
+      if (m.uniforms.boltI.value > 0.01) m.uniforms.boltI.value *= 0.86;
     }
     for (const m of mists) {
       m.position.x += m.userData.vx * 0.05;
@@ -2162,11 +2233,15 @@ export function createWorld(container, onIslandClick) {
         m.position.set(-Math.random() * 400 + 200, m.position.y, -Math.random() * 400 + 200);
       }
     }
-    // lightning cracks somewhere along the wall now and then
     if (Math.random() < 0.007) {
       const a = Math.random() * Math.PI * 2;
-      lightning.position.set(Math.cos(a) * WALL_R, 45 + Math.random() * 50, Math.sin(a) * WALL_R);
-      lightning.intensity = 1400 + Math.random() * 900;
+      lightning.position.set(Math.cos(a) * (WALL_R - 70), 55 + Math.random() * 60,
+                             Math.sin(a) * (WALL_R - 70));
+      lightning.intensity = 1600 + Math.random() * 900;
+      for (const m of stormMats) {
+        m.uniforms.boltA.value = a;
+        m.uniforms.boltI.value = 1.15;
+      }
     }
     if (lightning.intensity > 1) lightning.intensity *= 0.82;
     {
