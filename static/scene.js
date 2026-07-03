@@ -433,33 +433,13 @@ function makeDock(len = 5.2) {
   return g;
 }
 
-/* monsters: dark spiked beasts with burning eyes; scale by max hp */
+/* map monster totem: the SAME archetype model the battle uses, so what you
+   see on the chart is what you fight — plus a menacing ember glow */
 function makeMonster(rng, m) {
-  const g = new THREE.Group();
-  const scale = 0.8 + m.max_hp * 0.22;
-  const body = new THREE.Mesh(
-    displace(new THREE.IcosahedronGeometry(0.9 * scale, 1), 0.42 * scale, rng() * 100),
-    flat(COL.monster));
-  body.position.y = 0.95 * scale;
-  body.castShadow = true;
-  g.add(body);
-  const nSpikes = 5 + Math.floor(rng() * 4);
-  for (let i = 0; i < nSpikes; i++) {
-    const sp = new THREE.Mesh(new THREE.ConeGeometry(0.14 * scale, 0.7 * scale, 5), flat(0x1d1a22));
-    const a = rng() * 6.28, t = rng() * 1.2;
-    sp.position.set(Math.cos(a) * 0.7 * scale, (0.8 + t) * scale, Math.sin(a) * 0.7 * scale);
-    sp.rotation.set(rng() - 0.5, 0, rng() - 0.5);
-    sp.castShadow = true;
-    g.add(sp);
-  }
-  const eyeMat = new THREE.MeshBasicMaterial({ color: 0xff3b2f });
-  for (const dx of [-0.28, 0.28]) {
-    const eye = new THREE.Mesh(new THREE.SphereGeometry(0.09 * scale, 6, 5), eyeMat);
-    eye.position.set(dx * scale, 1.15 * scale, 0.78 * scale);
-    g.add(eye);
-  }
+  const per = m.count > 1 ? Math.max(1, Math.round(m.max_hp / m.count)) : m.max_hp;
+  const g = makeEnemy(m.name, Math.min(8, per));
   const glow = new THREE.PointLight(0xff5030, 3 + m.max_hp, 7 + m.max_hp);
-  glow.position.y = 1.4 * scale;
+  glow.position.y = 2.2;
   g.add(glow);
   g.name = 'monster';
   return g;
@@ -538,10 +518,11 @@ function makeFlotsam(rng) {
   return g;
 }
 
-/* ── battle enemies: four procedural archetypes, tinted per name ────────── */
+/* ── battle enemies: five procedural archetypes, tinted per name ────────── */
 function enemyArchetype(name) {
   const n = name.toLowerCase();
   if (/harp|bird/.test(n)) return 'wing';
+  if (/wolf|lion|boar/.test(n)) return 'beast';
   if (/siren|empusa|gorgon|sphinx|drowned/.test(n)) return 'spirit';
   if (/hydra|ketos|skylla|charybdis|typhon|dragon|serpent/.test(n)) return 'serpent';
   return 'brute';
@@ -623,6 +604,41 @@ function makeEnemy(name, maxHp) {
         g.add(wing);
       }
     }
+  } else if (kind === 'beast') {                  // quadruped: wolves & kin
+    const body = new THREE.Mesh(displace(new THREE.SphereGeometry(0.62 * s, 8, 6), 0.14 * s, seed), flat(tint));
+    body.scale.set(1.55, 0.85, 0.8);
+    body.position.y = 0.85 * s;
+    body.castShadow = true;
+    g.add(body);
+    for (const fx of [-0.55, 0.55]) {
+      for (const fz of [-0.28, 0.28]) {
+        const leg = new THREE.Mesh(new THREE.CylinderGeometry(0.09 * s, 0.07 * s, 0.8 * s, 5), flat(tint));
+        leg.position.set(fx * s, 0.4 * s, fz * s);
+        g.add(leg);
+      }
+    }
+    const head = new THREE.Mesh(displace(new THREE.SphereGeometry(0.34 * s, 8, 6), 0.08 * s, seed + 3), flat(tint));
+    head.position.set(0.95 * s, 1.15 * s, 0);
+    head.castShadow = true;
+    g.add(head);
+    const snout = new THREE.Mesh(new THREE.ConeGeometry(0.14 * s, 0.42 * s, 5), flat(tint));
+    snout.rotation.z = -Math.PI / 2;
+    snout.position.set(1.3 * s, 1.08 * s, 0);
+    g.add(snout);
+    for (const side of [-1, 1]) {
+      const ear = new THREE.Mesh(new THREE.ConeGeometry(0.09 * s, 0.28 * s, 4), flat(tint));
+      ear.position.set(0.88 * s, 1.48 * s, side * 0.18 * s);
+      g.add(ear);
+    }
+    const tail = new THREE.Mesh(new THREE.ConeGeometry(0.09 * s, 0.7 * s, 5), flat(tint));
+    tail.rotation.z = Math.PI / 2 + 0.5;
+    tail.position.set(-1.0 * s, 1.05 * s, 0);
+    g.add(tail);
+    for (const dz of [-0.13, 0.13]) {
+      const eye = new THREE.Mesh(new THREE.SphereGeometry(0.07 * s, 6, 5), eyeMat);
+      eye.position.set(1.16 * s, 1.24 * s, dz * s);
+      g.add(eye);
+    }
   } else {                                        // brute
     const body = new THREE.Mesh(displace(new THREE.IcosahedronGeometry(0.75 * s, 1), 0.22 * s, seed), flat(tint));
     body.scale.set(1, 1.35, 0.9);
@@ -642,8 +658,8 @@ function makeEnemy(name, maxHp) {
     g.add(head);
     const oneEye = /cyclops/.test(name.toLowerCase());
     if (oneEye) {
-      const eye = new THREE.Mesh(new THREE.SphereGeometry(0.13 * s, 6, 5), eyeMat);
-      eye.position.set(0, 2.3 * s, 0.36 * s);
+      const eye = new THREE.Mesh(new THREE.SphereGeometry(0.15 * s, 6, 5), eyeMat);
+      eye.position.set(0, 2.32 * s, 0.36 * s);
       g.add(eye);
     } else {
       addEyes(2.3 * s, 0.34 * s, 0.16);
@@ -656,6 +672,46 @@ function makeEnemy(name, maxHp) {
         g.add(horn);
       }
     }
+    if (/satyr/.test(name.toLowerCase())) {
+      for (const side of [-1, 1]) {
+        const horn = new THREE.Mesh(new THREE.ConeGeometry(0.06 * s, 0.3 * s, 4), flat(0xb9a06a));
+        horn.position.set(side * 0.22 * s, 2.55 * s, 0.06 * s);
+        horn.rotation.z = side * -0.85;
+        g.add(horn);
+      }
+    }
+    if (/raider|laestrygon|brigand/.test(name.toLowerCase())) {
+      // shoulder pauldrons: raiders read as armed men, not blobs
+      for (const side of [-1, 1]) {
+        const pad = new THREE.Mesh(new THREE.SphereGeometry(0.24 * s, 6, 5), flat(0x6a5a40));
+        pad.scale.y = 0.6;
+        pad.position.set(side * 0.62 * s, 1.85 * s, 0);
+        g.add(pad);
+      }
+      const blade = new THREE.Mesh(new THREE.ConeGeometry(0.06 * s, 0.9 * s, 4), flat(0xd8d4c8));
+      blade.position.set(0.95 * s, 1.95 * s, 0.15 * s);
+      blade.rotation.z = -0.3;
+      g.add(blade);
+    }
+  }
+  // bosses wear a golden crown — the relic guardians should read instantly
+  if (maxHp >= 5) {
+    const crown = new THREE.Group();
+    const band = new THREE.Mesh(new THREE.CylinderGeometry(0.3 * s, 0.34 * s, 0.16 * s, 8, 1, true),
+      flat(0xd9a441, { emissive: 0x7a5a10, side: THREE.DoubleSide }));
+    crown.add(band);
+    for (let i = 0; i < 5; i++) {
+      const spike = new THREE.Mesh(new THREE.ConeGeometry(0.05 * s, 0.2 * s, 4), flat(0xd9a441, { emissive: 0x7a5a10 }));
+      const a = (i / 5) * Math.PI * 2;
+      spike.position.set(Math.cos(a) * 0.3 * s, 0.16 * s, Math.sin(a) * 0.3 * s);
+      crown.add(spike);
+    }
+    const crownY = { wing: 1.85, spirit: 2.75, serpent: 2.95, beast: 1.62, brute: 2.62 }[kind] ?? 2.6;
+    crown.position.y = crownY * s;
+    if (kind === 'beast') crown.position.x = 0.95 * s;
+    if (kind === 'serpent') crown.position.x = -Math.sin(2.4) * 0.8 * s;
+    crown.name = 'crown';
+    g.add(crown);
   }
   g.userData.scaleS = s;
   return g;
@@ -846,6 +902,19 @@ function buildIsland(node, domains) {
       beast.position.y = terrain.heightAt(0.25) + 0.55;   // clear of the slope
       beast.position.x = R * 0.1;
       g.add(beast);
+    } else if (node.type === 'monster') {
+      // calm hunting grounds: a bone-stake warning that ambushes happen here
+      const stake = new THREE.Mesh(new THREE.CylinderGeometry(0.09, 0.12, 2.4, 6), flat(COL.woodDark));
+      stake.position.set(R * 0.1, terrain.heightAt(0.25) + 1.1, 0);
+      const skull = new THREE.Mesh(displace(new THREE.SphereGeometry(0.34, 8, 6), 0.07, seed + 9), flat(0xe8e2d2));
+      skull.position.set(R * 0.1, terrain.heightAt(0.25) + 2.4, 0);
+      g.add(stake, skull);
+      for (const side of [-1, 1]) {
+        const bone = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, 1.1, 5), flat(0xe8e2d2));
+        bone.position.set(R * 0.1, terrain.heightAt(0.25) + 1.7, 0.05);
+        bone.rotation.z = side * 0.8;
+        g.add(bone);
+      }
     }
     if (node.type === 'lair' && !node.relic_taken) {
       const beacon = makeRelicBeacon();
@@ -895,20 +964,49 @@ function buildIsland(node, domains) {
 function bannerFor(node, domains) {
   if (node.type === 'shrine' && (node.charges ?? 0) > 0) {
     const info = domains[node.domain];
-    return bannerTexture(info?.name || '?', `${info?.field || ''} · ${'✦'.repeat(node.charges)}`,
+    return bannerTexture(node.name || info?.name || '?',
+      `${info?.field || ''} · ${'✦'.repeat(node.charges)}`,
       DOMAIN_COLORS[node.domain]);
   }
-  if ((node.type === 'monster' || node.type === 'lair') && node.monster) {
-    const sub = node.type === 'lair' ? '⚱ relic lair' : 'blocks the way';
-    return bannerTexture(node.monster.name, sub, '#c0392b', true);
+  if (node.type === 'lair' && node.monster) {
+    return bannerTexture(node.monster.name, `👑 boss · relic of ${node.name || '?'}`, '#c0392b', true);
+  }
+  if (node.type === 'monster') {
+    return node.monster
+      ? bannerTexture(node.monster.name, `ambush at ${node.name || '?'}`, '#c0392b', true)
+      : bannerTexture(node.name || 'Hunting Grounds', '⚔ chance of ambush', '#b1543a', true);
   }
   if (node.type === 'fleece') {
     return bannerTexture('The Golden Fleece', node.monster ? 'guarded by the dragon' : '', '#d9a441');
   }
-  if (node.type === 'haven') return bannerTexture('Haven', 'repairs for scrolls', '#2e9e8f');
-  if (node.type === 'puzzle' && !node.solved) return bannerTexture('Puzzle Isle', 'upgrades await', '#7d5ba6');
+  if (node.type === 'haven') return bannerTexture(node.name || 'Haven', '⚓ repairs & shipwright', '#2e9e8f');
+  if (node.type === 'puzzle' && !node.solved) return bannerTexture(node.name || 'Puzzle Isle', '🧩 upgrades await', '#7d5ba6');
   if (node.type === 'home') return bannerTexture('Home Port', 'bank relics here', '#2d5bb9');
   return null;
+}
+
+/* floating name tag above a captain's ship — units must read at a glance */
+function nameSprite(name, colorHex) {
+  const c = document.createElement('canvas');
+  c.width = 256; c.height = 64;
+  const ctx = c.getContext('2d');
+  ctx.font = 'bold 30px Georgia, serif';
+  const w = Math.min(244, ctx.measureText(name).width + 30);
+  ctx.fillStyle = 'rgba(22,17,30,0.78)';
+  ctx.beginPath(); ctx.roundRect(128 - w / 2, 8, w, 48, 14); ctx.fill();
+  ctx.strokeStyle = colorHex; ctx.lineWidth = 4; ctx.stroke();
+  ctx.fillStyle = '#f6efdc';
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.fillText(name, 128, 33);
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  const sp = new THREE.Sprite(new THREE.SpriteMaterial({
+    map: tex, transparent: true, fog: false, depthTest: false }));
+  sp.scale.set(5.6, 1.4, 1);
+  sp.position.y = 4.7;
+  sp.renderOrder = 8;
+  sp.name = 'nametag';
+  return sp;
 }
 
 /* ── the world ──────────────────────────────────────────────────────────── */
@@ -997,12 +1095,35 @@ export function createWorld(container, onIslandClick) {
     scene.add(bird);
   }
 
+  // dolphin pods porpoising through open water — the sea should feel lived-in
+  const dolphinPods = [];
+  for (let i = 0; i < 6; i++) {
+    const pod = new THREE.Group();
+    const n = 2 + Math.floor(Math.random() * 2);
+    for (let j = 0; j < n; j++) {
+      const d = new THREE.Group();
+      const body = new THREE.Mesh(new THREE.CapsuleGeometry(0.24, 1.0, 3, 6), flat(0x3d6b7d));
+      body.rotation.x = Math.PI / 2;
+      const fin = new THREE.Mesh(new THREE.ConeGeometry(0.13, 0.32, 4), flat(0x2f4e5c));
+      fin.position.y = 0.3;
+      d.add(body, fin);
+      d.userData = { off: j * 1.9 };
+      pod.add(d);
+    }
+    pod.userData = { cx: -190 + Math.random() * 380, cz: -330 + Math.random() * 540,
+                     r: 12 + Math.random() * 20, speed: 0.09 + Math.random() * 0.07,
+                     ph: Math.random() * 6.28 };
+    dolphinPods.push(pod);
+    scene.add(pod);
+  }
+
   // dynamic board state
   const islands = {};      // id → {key, group, proxy, R}
   let nbrs = {};           // id → [ids] (for sail-path routing)
   let nodeMeta = {};       // id → {x, z, type, blocked}
   const banners = {};      // id → {key, sprite}
   const ships = {};        // pid → {group, target, idx, phase, anim}
+  const traders = [];      // neutral NPC ships drifting the lanes (set dressing)
   let laneGroup = new THREE.Group();
   let laneKey = '';
   let boardSig = '';
@@ -1184,6 +1305,7 @@ export function createWorld(container, onIslandClick) {
   }
 
   function clearBoard() {
+    for (const tr of traders.splice(0)) scene.remove(tr.group);
     for (const id of Object.keys(islands)) {
       scene.remove(islands[id].group);
       scene.remove(islands[id].proxy);
@@ -1321,8 +1443,64 @@ export function createWorld(container, onIslandClick) {
     return new THREE.Vector3(node.x + Math.cos(a) * r, 0, node.z + Math.sin(a) * r);
   }
 
+  /* neutral traders: little grey-sailed merchantmen forever working the lanes */
+  function ensureTraders() {
+    if (traders.length || Object.keys(nodeMeta).length < 20) return;
+    const ids = Object.keys(nodeMeta).filter((id) => !nodeMeta[id].blocked);
+    for (let i = 0; i < 3; i++) {
+      const g = makeShip('#9aa3ad');
+      g.scale.setScalar(0.62);
+      const at = ids[Math.floor(Math.random() * ids.length)];
+      g.position.set(nodeMeta[at].x, 0, nodeMeta[at].z);
+      scene.add(g);
+      traders.push({ group: g, at, prev: null, anim: null });
+    }
+  }
+
+  function traderPoint(nid, fromPos) {
+    // aim beside islands, not through their peaks
+    const meta = nodeMeta[nid];
+    const p = new THREE.Vector3(meta.x, 0, meta.z);
+    if (meta.type !== 'sea') {
+      const r = (islands[nid]?.R ?? 5) + 2.5;
+      const dir = p.clone().sub(fromPos).normalize();
+      p.add(new THREE.Vector3(-dir.z, 0, dir.x).multiplyScalar(r));
+    }
+    return p;
+  }
+
+  function tickTraders(now) {
+    for (const tr of traders) {
+      if (!tr.anim) {
+        const all = (nbrs[tr.at] || []).filter((nb) => nodeMeta[nb]);
+        const opts = all.filter((nb) => !nodeMeta[nb].blocked && nb !== tr.prev);
+        const pool = opts.length ? opts : all;
+        if (!pool.length) continue;
+        const next = pool[Math.floor(Math.random() * pool.length)];
+        const from = tr.group.position.clone();
+        const to = traderPoint(next, from);
+        tr.anim = { from, to, t0: now, dur: 2000 + from.distanceTo(to) * 160 };
+        tr.prev = tr.at;
+        tr.at = next;
+      } else {
+        const k = (now - tr.anim.t0) / tr.anim.dur;
+        if (k >= 1) { tr.group.position.copy(tr.anim.to); tr.anim = null; continue; }
+        const pos = tr.anim.from.clone().lerp(tr.anim.to, k);
+        pos.y = Math.sin(now * 0.0021 + tr.anim.dur) * 0.09;
+        tr.group.position.copy(pos);
+        const dir = tr.anim.to.clone().sub(tr.anim.from);
+        const want = Math.atan2(dir.x, dir.z);
+        let dd = want - tr.group.rotation.y;
+        while (dd > Math.PI) dd -= Math.PI * 2;
+        while (dd < -Math.PI) dd += Math.PI * 2;
+        tr.group.rotation.y += dd * 0.06;
+      }
+    }
+  }
+
   function update(room, you) {
     syncBoard(room);
+    ensureTraders();
     syncArena(room);
     anchorToHome();
     controls.autoRotate = room.phase === 'lobby' && !battleFocus;
@@ -1339,6 +1517,7 @@ export function createWorld(container, onIslandClick) {
     room.players.forEach((p, idx) => {
       if (!ships[p.pid]) {
         const group = makeShip(p.color);
+        group.add(nameSprite(p.name, p.color));
         group.position.copy(slotFor(p.node, idx));
         scene.add(group);
         ships[p.pid] = { group, target: p.node, idx, phase: Math.random() * 6, anim: null };
@@ -1449,6 +1628,19 @@ export function createWorld(container, onIslandClick) {
       bird.rotation.y = -a - Math.PI / 2;
       for (const wing of bird.children) {
         wing.rotation.x = Math.sin(t * u.flap) * 0.55 * wing.userData.side;
+      }
+    }
+    tickTraders(performance.now());
+    for (const pod of dolphinPods) {
+      const u = pod.userData;
+      const a = t * u.speed + u.ph;
+      for (const d of pod.children) {
+        const off = d.userData.off;
+        const aa = a - off * 0.045;
+        const hop = Math.sin(t * 1.9 + u.ph + off);
+        d.position.set(u.cx + Math.cos(aa) * u.r, hop * 1.0 - 0.4, u.cz + Math.sin(aa) * u.r);
+        d.rotation.y = -aa;
+        d.rotation.x = -Math.cos(t * 1.9 + u.ph + off) * 0.55;
       }
     }
     for (const isle of Object.values(islands)) {
