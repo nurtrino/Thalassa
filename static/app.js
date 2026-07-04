@@ -963,6 +963,9 @@ function renderTray() {
     return;
   }
   if (!mine) {
+    // while the other captains play, YOUR trader stays open for business
+    trayBtn(tray, `${icon('market', 14)} trader`, 'ghost small',
+            () => { shopRemote = !shopRemote; shopClosed = false; renderShop(); });
     if (you === room.host) {
       trayBtn(tray, 'skip turn', 'ghost small', () => send({ type: 'skip' }));
     }
@@ -1016,10 +1019,14 @@ function renderTray() {
    consumables only, the shipwright stays ashore). */
 function renderShop() {
   const panel = $('shopPanel');
-  const remote = room.phase === 'roll' && shopRemote;
-  const mine = room.turn === you && !world.arriving() &&
-    (room.phase === 'shop' || remote);
-  if (room.phase !== 'roll') shopRemote = false;
+  // the ship's trader answers at any QUIET moment: before your own roll, or
+  // whenever another captain holds the dice. Your own busy phases close him.
+  const remote = shopRemote && (room.turn !== you || room.phase === 'roll');
+  const mine = remote ||
+    (room.phase === 'shop' && room.turn === you && !world.arriving());
+  if (room.turn === you && room.phase !== 'roll' && room.phase !== 'shop') {
+    shopRemote = false;
+  }
   if (!mine || shopClosed) {
     panel.classList.add('hidden');
     if (room.phase !== 'shop') shopClosed = false;

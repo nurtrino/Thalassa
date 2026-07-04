@@ -925,25 +925,146 @@ export function makeVineMat(rng, s = 1) {
   return g;
 }
 
-/* a wind-heaped dune for the Bleached Reach's sand sea — a long ridge with
-   a trailing shoulder, tall enough to actually cast a crest shadow */
+/* a wind-heaped dune for the Bleached Reach's sand sea: a low-poly RIDGE —
+   a long four-sided crest, faceted like everything else in this world, with
+   a shorter echo ridge behind it. Reads as swept sand, not a beached blob. */
 export function makeDune(rng, sandHex, s = 1) {
   const g = new THREE.Group();
-  const dune = new THREE.Mesh(new THREE.SphereGeometry(3.0 * s, 8, 6), flat(sandHex));
-  dune.scale.set(1.6 + rng() * 1.0, 0.42 + rng() * 0.16, 0.85 + rng() * 0.3);
-  dune.position.y = 0.04;
-  dune.castShadow = true;
-  dune.receiveShadow = true;
-  g.add(dune);
-  if (rng() < 0.6) {
-    const shoulder = new THREE.Mesh(new THREE.SphereGeometry(1.9 * s, 7, 5), flat(sandHex));
-    shoulder.scale.set(1.4 + rng() * 0.7, 0.36 + rng() * 0.12, 0.8);
-    shoulder.position.set((2.6 + rng() * 1.6) * s, 0.03, (rng() - 0.5) * 2.4 * s);
-    shoulder.rotation.y = (rng() - 0.5) * 0.8;
-    shoulder.castShadow = true;
-    shoulder.receiveShadow = true;
-    g.add(shoulder);
+  const tone = new THREE.Color(sandHex).offsetHSL(0, 0.02, 0.02 + rng() * 0.05);
+  const ridge = new THREE.Mesh(new THREE.ConeGeometry(3.2 * s, 2.0 * s, 4), flat(tone));
+  ridge.scale.set(2.3 + rng() * 1.1, 0.55 + rng() * 0.2, 0.8 + rng() * 0.25);
+  ridge.rotation.y = (rng() - 0.5) * 0.5;
+  ridge.position.y = 0.5 * s;                    // apex up, skirt sunk in the sand
+  ridge.castShadow = true;
+  ridge.receiveShadow = true;
+  g.add(ridge);
+  if (rng() < 0.7) {
+    const echo = new THREE.Mesh(new THREE.ConeGeometry(2.0 * s, 1.2 * s, 4), flat(tone));
+    echo.scale.set(1.9 + rng() * 0.9, 0.5 + rng() * 0.18, 0.75);
+    echo.rotation.y = (rng() - 0.5) * 0.7;
+    echo.position.set((rng() - 0.5) * 3 * s, 0.28 * s, (3.2 + rng() * 1.8) * s);
+    echo.castShadow = true;
+    echo.receiveShadow = true;
+    g.add(echo);
   }
+  return g;
+}
+
+/* the desert tyrant's LAIR: a stepped sandstone tomb half-swallowed by the
+   dunes — mastaba tiers, a black doorway, twin obelisks on the approach */
+export function makeTomb(rng) {
+  const g = new THREE.Group();
+  const stone = flat(0xd9c49a);
+  const stoneDk = flat(0xb99f74);
+  const tiers = [
+    [10.4, 1.2, 8.2, 0.6],
+    [8.6, 1.7, 6.8, 1.95],
+    [6.6, 1.6, 5.2, 3.55],
+    [4.6, 1.5, 3.6, 5.05],
+  ];
+  tiers.forEach(([w, h, d, y], i) => {
+    const t = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), i % 2 ? stoneDk : stone);
+    t.position.y = y;
+    t.castShadow = true;
+    t.receiveShadow = true;
+    g.add(t);
+  });
+  const cap = new THREE.Mesh(new THREE.ConeGeometry(2.9, 1.6, 4), stone);
+  cap.rotation.y = Math.PI / 4;
+  cap.position.y = 6.6;
+  cap.castShadow = true;
+  g.add(cap);
+  // the doorway: a black void in a raised stone frame, facing the trail
+  const frame = new THREE.Mesh(new THREE.BoxGeometry(2.6, 3.0, 0.7), stoneDk);
+  frame.position.set(0, 1.5, 4.15);
+  frame.castShadow = true;
+  const door = new THREE.Mesh(new THREE.BoxGeometry(1.5, 2.2, 0.3),
+    flat(0x14100a, { emissive: 0x000000 }));
+  door.position.set(0, 1.25, 4.45);
+  g.add(frame, door);
+  // twin sandstone obelisks flanking the approach
+  for (const x of [-3.6, 3.6]) {
+    const shaft = new THREE.Mesh(new THREE.CylinderGeometry(0.34, 0.55, 3.4, 4), stone);
+    shaft.rotation.y = Math.PI / 4;
+    shaft.position.set(x, 1.7, 5.4);
+    shaft.castShadow = true;
+    const tip = new THREE.Mesh(new THREE.ConeGeometry(0.4, 0.6, 4),
+      flat(COL.gold, { emissive: 0x7a5a10, emissiveIntensity: 0.5 }));
+    tip.rotation.y = Math.PI / 4;
+    tip.position.set(x, 3.7, 5.4);
+    g.add(shaft, tip);
+  }
+  // drifted sand piled against the walls, and the last visitor's remains
+  for (let i = 0; i < 3; i++) {
+    const drift = makeDune(rng, 0xe8d8ac, 0.45 + rng() * 0.3);
+    const a = rng() * 6.28;
+    drift.position.set(Math.cos(a) * 6.5, 0, Math.sin(a) * 5.5);
+    drift.rotation.y = rng() * 6.28;
+    g.add(drift);
+  }
+  const bones = makeRibs(rng);
+  bones.scale.setScalar(0.8);
+  bones.position.set(-4.6, 0.05, 3.4);
+  g.add(bones);
+  const glow = new THREE.PointLight(0xffb066, 4, 12, 2);
+  glow.position.set(0, 2.2, 5.2);
+  g.add(glow);
+  return g;
+}
+
+/* the Amber Vale's LAIR: a mossy barrow — an earthen crypt-mound with a
+   megalith door and a ring of leaning standing stones */
+export function makeBarrow(rng) {
+  const g = new THREE.Group();
+  const earth = flat(0x5c5433);
+  const moss = flat(0x51682d);
+  const mound = new THREE.Mesh(
+    displace(new THREE.SphereGeometry(6.2, 10, 8), 0.5, seedFrom(rng)), earth);
+  mound.scale.set(1.15, 0.5, 1);
+  mound.position.y = 0.2;
+  mound.castShadow = true;
+  mound.receiveShadow = true;
+  g.add(mound);
+  for (let i = 0; i < 4; i++) {                 // moss creeping up the mound
+    const patch = new THREE.Mesh(new THREE.SphereGeometry(1.6 + rng() * 1.2, 7, 5), moss);
+    patch.scale.y = 0.3;
+    const a = rng() * 6.28, r = 2.5 + rng() * 2.5;
+    patch.position.set(Math.cos(a) * r, 1.4 + rng() * 0.9, Math.sin(a) * r * 0.8);
+    g.add(patch);
+  }
+  // megalithic portal set into the mound's face
+  const rock = flat(0x6f6a5c);
+  for (const x of [-1.35, 1.35]) {
+    const jamb = new THREE.Mesh(new THREE.BoxGeometry(1.0, 3.0, 1.0), rock);
+    jamb.position.set(x, 1.5, 5.6);
+    jamb.rotation.z = -x * 0.04;
+    jamb.castShadow = true;
+    g.add(jamb);
+  }
+  const lintel = new THREE.Mesh(new THREE.BoxGeometry(4.2, 0.9, 1.2), rock);
+  lintel.position.set(0, 3.2, 5.6);
+  lintel.castShadow = true;
+  const maw = new THREE.Mesh(new THREE.BoxGeometry(1.7, 2.4, 0.4), flat(0x0c0f08));
+  maw.position.set(0, 1.2, 5.75);
+  g.add(lintel, maw);
+  // a ring of leaning stones keeps watch around the mound
+  for (let i = 0; i < 6; i++) {
+    const a = (i / 6) * Math.PI * 2 + 0.5;
+    const st = new THREE.Mesh(
+      new THREE.BoxGeometry(0.8 + rng() * 0.4, 1.7 + rng() * 1.2, 0.6), rock);
+    st.position.set(Math.cos(a) * 8.6, 0.85, Math.sin(a) * 8.0);
+    st.rotation.set((rng() - 0.5) * 0.25, rng() * 6.28, (rng() - 0.5) * 0.25);
+    st.castShadow = true;
+    g.add(st);
+  }
+  const skull = new THREE.Mesh(
+    displace(new THREE.SphereGeometry(0.5, 8, 6), 0.12, seedFrom(rng)), flat(COL.bone));
+  skull.scale.set(1.2, 0.8, 0.9);
+  skull.position.set(2.6, 0.3, 6.4);
+  g.add(skull);
+  const glow = new THREE.PointLight(0x9fd8a0, 3.5, 11, 2);
+  glow.position.set(0, 1.8, 6.4);
+  g.add(glow);
   return g;
 }
 
@@ -991,20 +1112,20 @@ export function makeRealmField(theme, nodes, segs, rng) {
     }
   };
   if (theme.id === 'ice') {
-    scatter(38, 16, 22, 115, () => makeBerg(rng, 0.7 + rng() * 0.9));
-    scatter(34, 13, 20, 115, () => makeFloe(rng, 0.8 + rng() * 0.9));
+    scatter(60, 16, 22, 115, () => makeBerg(rng, 0.7 + rng() * 0.9));
+    scatter(52, 13, 20, 115, () => makeFloe(rng, 0.8 + rng() * 0.9));
   } else if (theme.id === 'jungle') {
-    scatter(52, 13, 20, 115, () => makeVineMat(rng, 0.65 + rng() * 0.7));
+    scatter(80, 13, 20, 115, () => makeVineMat(rng, 0.65 + rng() * 0.7));
   } else if (theme.id === 'desert') {
-    scatter(170, 9, 15, 130, () => makeDune(rng, theme.palette.sand, 0.7 + rng() * 1.2));
-    scatter(44, 10, 16, 130, () => floraFor(theme, rng, 0.8 + rng() * 0.6));
-    scatter(14, 10, 16, 130, () => makeRock(rng, 0.5 + rng() * 0.7, theme.palette.rock));
-    scatter(8, 12, 18, 130, () => (rng() < 0.5 ? makeCairn(rng) : makeRibs(rng)));
+    scatter(240, 9, 15, 130, () => makeDune(rng, theme.palette.sand, 0.7 + rng() * 1.1));
+    scatter(60, 10, 16, 130, () => floraFor(theme, rng, 0.8 + rng() * 0.6));
+    scatter(20, 10, 16, 130, () => makeRock(rng, 0.5 + rng() * 0.7, theme.palette.rock));
+    scatter(10, 12, 18, 130, () => (rng() < 0.5 ? makeCairn(rng) : makeRibs(rng)));
   } else if (theme.id === 'autumn') {
     // the Vale is WALL-TO-WALL forest: a deep tree band hugging every track,
     // thick enough that the fog line always lands inside the woods
-    scatter(430, 8.5, 11, 75, () => floraFor(theme, rng, 1.1 + rng() * 0.9));
-    scatter(30, 9, 12, 75, () => makeRock(rng, 0.4 + rng() * 0.7, theme.palette.rock));
+    scatter(560, 8.5, 11, 75, () => floraFor(theme, rng, 1.1 + rng() * 0.9));
+    scatter(40, 9, 12, 75, () => makeRock(rng, 0.4 + rng() * 0.7, theme.palette.rock));
   }
   return g;
 }
@@ -1566,6 +1687,22 @@ export function buildIsland(node, theme, domains) {
     const cp = makeCheckpointBeacon();
     cp.position.set(-R * 0.25, terrain.heightAt(0.25), R * 0.25);
     g.add(cp);
+  } else if (node.type === 'lair' && foot) {
+    // ON FOOT the tyrant doesn't get a dark island — it gets a HOUSE:
+    // a sandstone tomb in the Bleached Reach, a mossy barrow in the Vale
+    terrain = makeTerrain({ seed, R, H: 1.2, mode: 'flat', palette: { ...footPal } });
+    const den = theme.id === 'desert' ? makeTomb(rng0) : makeBarrow(rng0);
+    den.position.y = terrain.heightAt(0.1);
+    den.rotation.y = Math.atan2(-node.x, -node.z);   // door faces back down the trail
+    g.add(den);
+    const beacon = makeRelicBeacon();
+    beacon.position.set(-R * 0.52, terrain.heightAt(0.52), R * 0.34);
+    g.add(beacon);
+    if (node.monster) {
+      const totem = makeMonsterTotem(rng0, node.monster);
+      totem.position.set(R * 0.5, terrain.heightAt(0.5) + 0.3, R * 0.2);
+      g.add(totem);
+    }
   } else if (node.type === 'monster' || node.type === 'lair') {
     const dark = node.type === 'lair';
     terrain = makeTerrain({ seed, R, H: dark ? 3.6 : 2.6, mode: 'peak',

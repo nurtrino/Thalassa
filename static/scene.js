@@ -559,6 +559,29 @@ export function createWorld(container, handlers = {}) {
         _vC.normalize();
         const gapA = (st.islands[a]?.R ?? 5) * 1.3, gapB = (st.islands[b]?.R ?? 5) * 1.3;
         if (len < gapA + gapB + 2) continue;
+        if (na.mode === 'foot' || nb.mode === 'foot') {
+          // ON LAND the route is a real TRAIL: worn flagstones through the
+          // sand or the leaf-litter, not a ghost line on the ground
+          const stoneHex = st.theme.id === 'autumn' ? 0x8d7c60 : 0xe6d7ae;
+          const trailRng = mulberry32(hashStr('trail:' + a + '~' + b));
+          const run = len - gapA - gapB;
+          const nStones = Math.max(2, Math.floor(run / 3.2));
+          const stoneMat = flat(stoneHex);
+          for (let i = 0; i <= nStones; i++) {
+            const d = gapA + (i / nStones) * run;
+            const stone = new THREE.Mesh(
+              new THREE.CylinderGeometry(0.45 + trailRng() * 0.35,
+                                         0.55 + trailRng() * 0.4, 0.12, 6),
+              stoneMat);
+            stone.position.set(
+              na.x + _vC.x * d + (trailRng() - 0.5) * 1.4, 0.07,
+              na.z + _vC.z * d + (trailRng() - 0.5) * 1.4);
+            stone.rotation.y = trailRng() * 3.14;
+            stone.receiveShadow = true;
+            st.laneGroup.add(stone);
+          }
+          continue;
+        }
         const pts = [_vA.clone().addScaledVector(_vC, gapA),
                      _vA.clone().addScaledVector(_vC, len - gapB)];
         const geo = new THREE.BufferGeometry().setFromPoints(pts);

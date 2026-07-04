@@ -131,6 +131,22 @@ def test_lairs_wall_passage_but_take_landings():
             assert len(g.board.neighbors[far]) > 1
 
 
+def test_any_roll_reaches_an_adjacent_lair():
+    """The altar takes ANY roll: standing one step from the boss door, every
+    die face offers the lair as a landfall — no exact-count circling."""
+    g, (p0, p1) = make_game()
+    p = g.player_by_pid(p0)
+    lair = g.board.lairs()[0]
+    nb = g.board.neighbors[lair][0]
+    for die in (1, 2, 3):
+        p.node = nb
+        g.phase = "roll"
+        g.turn_idx = 0
+        g.reachable = {}
+        g.roll(p0, die)
+        assert lair in g.reachable, f"a {die} should still reach the altar"
+
+
 def shallow_monster(g):
     """A realm hunting ground near a pass (depth ≤ 2 → tier-1 packs)."""
     return next(nid for nid, n in g.board.nodes.items()
@@ -739,10 +755,16 @@ def test_remote_trader_sells_charms_before_a_roll():
         g.shop_buy(p0, "fitting")                     # shipwright stays ashore
     with pytest.raises(GameError):
         g.shop_buy(p0, "golden_fleece")               # relics are land-only
-    with pytest.raises(GameError):
-        g.shop_buy(p1, "planks")                      # not your turn
+    q = g.player_by_pid(p1)
+    q.scrolls = 10
+    g.shop_buy(p1, "planks")                          # idle rivals may shop too
+    assert q.items["planks"] == 1
     g.roll(p0, 1)                                     # trading doesn't eat the roll
     assert g.phase == "sail"
+    with pytest.raises(GameError):
+        g.shop_buy(p0, "planks")                      # mid-sail: hands are full
+    g.shop_buy(p1, "gale")                            # …but the idle rival may
+    assert q.items["gale"] == 1
 
 
 def test_legendary_relics_bought_outright_and_apply():

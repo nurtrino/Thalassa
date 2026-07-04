@@ -280,9 +280,9 @@ class Board:
             Because it sits on a loop, an exact roll can always be tuned to
             land there — no more 'can't roll the checkpoint'.
 
-        The desert is much simpler — a straight trail with a single elite
-        fork and the haven bypass — and it is crossed on foot (as is the
-        Amber Vale's forest track)."""
+        The desert is just as LONG but much simpler — one near-straight
+        trail with a single elite fork and the haven bypass — and it is
+        crossed on foot (as is the Amber Vale's forest track)."""
         info = REGION_POOL[theme]
         mode = info.get("mode", "sail")
         trail = "Dune Trail" if mode == "foot" else "Open Sea"
@@ -321,7 +321,7 @@ class Board:
         # but themed wilds between them (waypoint count per lane is fixed, so
         # the road is the same number of turns as the old sprawling layout).
         lair_id = f"r{gi}_L"
-        lair = place(lair_id, R0 + 295, ang + rng.uniform(-0.02, 0.02), 9)
+        lair = place(lair_id, R0 + 385, ang + rng.uniform(-0.02, 0.02), 9)
         lair.pop("look", None)
         lair["type"] = "lair"
         lair["name"] = info["name"]
@@ -332,35 +332,12 @@ class Board:
 
         # a junction node both roads share, just before the altar
         junc_id = f"r{gi}_j"
-        place(junc_id, R0 + 212, ang + rng.uniform(-0.02, 0.02), 8)
+        place(junc_id, R0 + 330, ang + rng.uniform(-0.02, 0.02), 8)
 
-        # ── the FINAL LOOP: a ring of approach nodes circling the altar ──────
-        # The boss sits on a small loop instead of a dead-end spur, so exact
-        # rolls always have a way to land on it — circle the ring to line up
-        # your step count instead of bouncing back and forth forever.
-        appL_id, appR_id, appF_id = f"r{gi}_aL", f"r{gi}_aR", f"r{gi}_aF"
-        # a TRUE circle of approach nodes around the altar, so no ring lane
-        # ever cuts across the lair island itself
-        lx, lz = lair["x"], lair["z"]
-        jx, jz = self.nodes[junc_id]["x"], self.nodes[junc_id]["z"]
-        aj = math.atan2(jz - lz, jx - lx)      # bearing altar → junction
-        rho = 40.0
-        for nid, off, depth in ((appL_id, 1.15, 8), (appR_id, -1.15, 8),
-                                (appF_id, math.pi, 9)):
-            px = lx + math.cos(aj + off) * rho
-            pz = lz + math.sin(aj + off) * rho
-            place(nid, math.hypot(px, pz), math.atan2(pz, px), depth)
-        # junction feeds both sides of the ring; the ring wraps around the
-        # altar and every ring node touches it, so there are many exact-step
-        # approaches to choose from (the cycle closes THROUGH the far node,
-        # never across the altar's own coast).
-        self._link(junc_id, appL_id)
-        self._link(junc_id, appR_id)
-        self._link(appL_id, appF_id)
-        self._link(appR_id, appF_id)
-        self._link(appL_id, lair_id)
-        self._link(appR_id, lair_id)
-        self._link(appF_id, lair_id)
+        # ── the FINAL APPROACH: one straight lane to the altar ──────────────
+        # No ring, no loop: the movement rule lets ANY roll end on a lair it
+        # can reach, so the boss door needs no exact-count machinery at all.
+        self._link(junc_id, lair_id)
 
         def make_haven(node):
             node["type"] = "haven"
@@ -378,16 +355,18 @@ class Board:
         side = rng.choice([-1, 1])
         simple = mode == "foot" and theme == "desert"
 
-        # ── the MAIN ROAD: an arc of stops bowing out to one side ────────────
-        # desert: a short straight trail; elsewhere: the long scenic spine
-        plan = (["sea", "haven", "shrine", "weak"] if simple else
-                ["sea", "weak", "sea", "shrine", "weak", "sea"])
+        # ── the MAIN ROAD: a LONG arc of stops bowing out to one side ────────
+        # Every realm is a proper trek now — eight stops thick with POIs. The
+        # desert keeps the same length but stays SIMPLE: one fork, one bypass.
+        plan = (["sea", "weak", "sea", "haven", "sea", "shrine", "weak", "sea"]
+                if simple else
+                ["sea", "weak", "sea", "shrine", "sea", "weak", "sea", "weak"])
         main = [gate_id]
         n = len(plan)
         loop_a = loop_b = None                 # where the haven loop hangs
         for i, kind in enumerate(plan):
             t = (i + 1) / (n + 1)
-            radius = R0 + 38 + t * (212 - 48)
+            radius = R0 + 38 + t * (330 - 42)
             bow = 0.13 if simple else 0.34
             a = ang + side * bow * math.sin(math.pi * t)      # bow out, then back
             depth = 1 + (i * 3) // n                          # 1 … 3 up the spine
@@ -407,9 +386,9 @@ class Board:
                 elif loop_a and loop_b is None and kind != "haven":
                     loop_b = nid                               # stop after it
             else:
-                if i == 2:
+                if i == 3:
                     loop_a = nid                               # loop leaves here
-                elif i == 3:
+                elif i == 4:
                     loop_b = nid                               # …and rejoins here
         main.append(junc_id)
         for u, v in zip(main, main[1:]):
@@ -445,7 +424,7 @@ class Board:
         for i in range(count):
             nid = f"r{gi}_s{i}"
             t = (i + 1) / (count + 1)
-            radius = R0 + 62 + t * (212 - 85)
+            radius = R0 + 70 + t * (330 - 95)
             a = ang - side * 0.19 * math.sin(math.pi * t)     # hugs the far side
             make_monster(place(nid, radius, a, 5 + i), elite=True, depth=5 + i)
             self._link(prev, nid)

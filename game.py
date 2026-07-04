@@ -238,7 +238,11 @@ class Game:
         there, whatever the die said — you make landfall at the pass and
         cross into (or out of) the realm on a later turn. Without this,
         exact rolls near the wall strand you with destinations on the far
-        side of the mountains."""
+        side of the mountains.
+
+        THE TYRANTS' ALTARS TAKE ANY ROLL: a lair your sail touches is
+        always a legal landfall, however much die is left — no circling in
+        front of the boss door to line up an exact count."""
         cur = {(p.node, None)}
         stops: set[str] = set()
         for step in range(steps):
@@ -252,9 +256,12 @@ class Game:
                 for nb in fwd:
                     if self._wall(p, nb) and (not last or not self._can_land(p, nb)):
                         continue
-                    if self.board.nodes[nb]["type"] == "gate":
+                    ntype = self.board.nodes[nb]["type"]
+                    if ntype == "gate":
                         stops.add(nb)              # the pass halts the voyage
                         continue
+                    if ntype == "lair":
+                        stops.add(nb)              # the altar takes ANY roll
                     nxt.add((nb, node))
             cur = nxt
             if not cur:
@@ -512,17 +519,21 @@ class Game:
         self._next_turn()
 
     # ── markets ──────────────────────────────────────────────────────────────
-    # The BASIC market (consumables) travels with you: buy any time before a
-    # dice roll, or ashore at a market isle. The shipwright's permanent wares
-    # — fittings and legendary relics — are sold at LAND markets only.
+    # The BASIC market (consumables) travels with you: buy at ANY quiet
+    # moment — before your own roll, or while the other captains take their
+    # turns. Only your own busy moments (sailing, battling, answering) close
+    # the stall. The shipwright's permanent wares — fittings and legendary
+    # relics — are sold at LAND markets only.
     def shop_buy(self, pid: str, item: str):
         """Buy from the trader. Consumables cap at ITEM_CAP so nobody stacks
         buffs; a fitting ends the shop visit with an upgrade choice."""
-        if self.phase not in ("shop", "roll") or not self.players \
-                or self.current.pid != pid:
+        p = self.player_by_pid(pid)
+        if self.phase in ("lobby", "finished") or not self.players or not p:
             raise GameError("The trader isn't listening right now.")
-        remote = self.phase == "roll"
-        p = self.current
+        at_market = self.phase == "shop" and self.current.pid == pid
+        remote = not at_market
+        if remote and self.current.pid == pid and self.phase != "roll":
+            raise GameError("No time to trade — your hands are full.")
         if item in RELICS or item == "fitting":
             if remote:
                 raise GameError("The shipwright's wares are sold ashore, "
