@@ -37,12 +37,13 @@ from __future__ import annotations
 import random
 
 import riddles_typed
+import tetromino6
 
 # time limit (seconds) per kind — the server enforces these.
 # Simon has NO clock: one wrong tap is the failure, not the seconds.
 # 20s across the board — nonogram (picross) gets 30 for its fiddlier grid;
 # simon stays untimed (a wrong note, not the clock, is its failure).
-TIME_LIMITS = {"riddle": 20, "tetromino": 20, "nonogram": 30,
+TIME_LIMITS = {"riddle": 20, "tetromino": 90, "nonogram": 30,
                "simon": None, "anagram": 20, "ravens": 20,
                "sequence": 20, "lights_out": 20, "sliding": 20}
 
@@ -430,6 +431,11 @@ _CHECKERS = {"tetromino": check_tetromino, "nonogram": check_nonogram,
              "simon": check_simon, "anagram": check_anagram, "ravens": check_ravens,
              "riddle": check_riddle, "sequence": check_sequence,
              "lights_out": check_lights_out, "sliding": check_sliding}
+
+# The Sigil of the Isle is now a 6×6 board (9 tetrominoes, NO rotation), dealt
+# from a bank of 20 fixed solvable instances. check_tetromino is size-agnostic
+# and unchanged. Piece/secret format matches the game's exactly.
+_GENERATORS["tetromino"] = lambda rng: dict(rng.choice(tetromino6.BANK)["public"])
 
 
 def deal(rng: random.Random, used_riddles: set[int]) -> dict:

@@ -1535,7 +1535,8 @@ function renderMinigame() {
 }
 
 /* tetromino — Talos-style sigil fill: drag to place, no rotation */
-const PIECE_COLORS = ['#e4572e', '#2e86ab', '#f6ae2d', '#8e5572', '#33ca7f', '#6457a6', '#c9a227'];
+const PIECE_COLORS = ['#e4572e', '#2e86ab', '#f6ae2d', '#8e5572', '#33ca7f',
+                      '#6457a6', '#c9a227', '#4a7d6b', '#a34d78'];
 
 function renderTetromino(board, m, mine, fresh) {
   if (fresh) {
