@@ -17,6 +17,7 @@ export const PROP_IDS = [
   // environment props
   'iceberg', 'sand_dune', 'barrel', 'fishing_net', 'brazier', 'stone_well',
   'sarcophagus', 'ruined_arch', 'banner_pole', 'campfire', 'lily_pads', 'tide_pool',
+  'buoy', 'ice_floe', 'tomb', 'barrow', 'monster_totem', 'waymarker_stone',
   // biome flora
   'pine_tree', 'pine_snow', 'palm_tree', 'cypress_tree', 'olive_tree',
   'autumn_tree', 'jungle_tree', 'cactus', 'dead_scrub', 'fern_cluster', 'reeds',
@@ -57,7 +58,10 @@ function ensure(id) {
       const h = Math.max(0.001, box.max.y - box.min.y);
       s.scale.setScalar((PROP_HEIGHTS[id] || 1.6) / h);
       const b2 = new THREE.Box3().setFromObject(s);
-      s.position.y -= b2.min.y;
+      // Ground it, then SINK ~8% so any base slab/disc/pot Meshy insists on
+      // adding is buried below the terrain surface — no floating base ever, and
+      // props nestle into the ground like real board-game pieces.
+      s.position.y -= b2.min.y + 0.08 * (b2.max.y - b2.min.y);
       return s;
     })
     .catch(() => null);   // missing prop → placed as nothing

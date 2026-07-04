@@ -11,8 +11,8 @@ from meshy_structures import STYLE, NEGATIVE  # noqa: F401  (no-base style)
 TIER_POLY = {"prop": 5000}
 
 
-def P(pid, prompt, rank=50):
-    return dict(id=pid, rank=rank, tier="prop", prompt=prompt)
+def P(pid, prompt, rank=50, **extra):
+    return dict(id=pid, rank=rank, tier="prop", prompt=prompt, **extra)
 
 
 MODELS = [
@@ -35,9 +35,14 @@ MODELS = [
       "An old round stone well with a low circular wall, a little wooden roof on "
       "posts, and a bucket on a rope. Palette: grey mossy stone, brown wood."),
     P("sarcophagus",
-      "An ancient Egyptian stone sarcophagus, a carved rectangular coffin with a "
-      "stylized pharaoh face and hieroglyphs, lid slightly ajar. Palette: "
-      "sandstone tan with faded blue and gold paint."),
+      "An ancient Egyptian anthropoid mummy sarcophagus: a closed coffin shaped "
+      "like a wrapped human body, with a large stylized golden pharaoh face and "
+      "headdress carved on the lid and crossed arms over the chest. It is a solid "
+      "one-piece mummy-case coffin standing slightly tilted — NOT a treasure "
+      "chest, NOT a rectangular box, no hinged opening lid. Palette: gold face "
+      "and blue-striped nemes headdress, sandstone body.",
+      negative=(NEGATIVE + ", treasure chest, box, crate, hinged lid, open chest, "
+                "rectangular trunk, coffer")),
     P("ruined_arch",
       "A broken ancient stone archway, two weathered pillars holding a cracked "
       "arch with chunks missing, vines creeping up. Palette: weathered grey "
@@ -56,6 +61,35 @@ MODELS = [
       "A low weathered rock shelf holding a small tide pool of water with bits "
       "of seaweed and a starfish. Palette: grey wet rock, teal water, green "
       "seaweed."),
+    P("buoy",
+      "A floating sea marker buoy, a striped conical float with a small caged "
+      "warning lantern on top, bobbing. Palette: red-and-white stripes, amber "
+      "lantern."),
+    P("ice_floe",
+      "A flat floating raft of pack ice, a low jagged slab of pale blue-white "
+      "ice floating flat on the water surface. Palette: glacier blue-white "
+      "ice."),
+    P("tomb",
+      "An ancient Egyptian tomb entrance: a clean solid sandstone doorway with a "
+      "flat lintel and a dark rectangular opening, flanked by two seated jackal "
+      "statues. Tidy and intact — no jumbled broken rubble or messy debris piled "
+      "on top. Ominous boss lair. Palette: sandstone tan, dark opening, faded "
+      "blue-and-gold trim.",
+      negative=(NEGATIVE + ", rubble on top, jumbled blocks, messy debris, "
+                "broken collapsed roof, floating stones")),
+    P("barrow",
+      "An ancient burial barrow, a grassy earthen mound with a dark stone "
+      "doorway of three big lintel stones leading inside, ringed by a few leaning "
+      "mossy standing stones. Ominous boss lair. Palette: green grassy mound, "
+      "grey mossy stone, dark entrance."),
+    P("monster_totem",
+      "A menacing dark stone totem megalith, a tall jagged spiked black monolith "
+      "carved with a snarling face and glowing red eyes, ominous and tribal. "
+      "Palette: near-black stone, glowing red eyes."),
+    P("waymarker_stone",
+      "A weathered carved waymarker standing stone, a tall runestone slab "
+      "leaning slightly, covered in moss with faint carved markings. Palette: "
+      "grey mossy stone."),
 ]
 
 

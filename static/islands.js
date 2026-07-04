@@ -1123,7 +1123,7 @@ export function makeRealmField(theme, nodes, segs, rng) {
   if (theme.id === 'ice') {
     scatter(60, 16, 22, 115, () => makeBerg(rng, 0.7 + rng() * 0.9));
     scatter(52, 13, 20, 115, () => makeFloe(rng, 0.8 + rng() * 0.9));
-    scatter(14, 12, 18, 115, prop(['ice_shard', 'iceberg'], 0.7, 1.3));
+    scatter(14, 12, 18, 115, prop(['ice_shard', 'iceberg', 'ice_floe'], 0.7, 1.3));
     scatter(4, 14, 20, 115, prop(['shipwreck', 'driftwood'], 0.9, 1.4));
   } else if (theme.id === 'jungle') {
     scatter(80, 13, 20, 115, () => makeVineMat(rng, 0.65 + rng() * 0.7));
@@ -1141,10 +1141,10 @@ export function makeRealmField(theme, nodes, segs, rng) {
     scatter(560, 8.5, 11, 75, () => floraFor(theme, rng, 1.1 + rng() * 0.9));
     scatter(40, 9, 12, 75, () => makeRock(rng, 0.4 + rng() * 0.7, theme.palette.rock));
     scatter(16, 9, 13, 75, prop(['dead_tree', 'mushroom_cluster', 'boulder', 'cairn'], 0.7, 1.4));
-    scatter(12, 9, 13, 75, prop(['autumn_tree', 'campfire', 'stone_well', 'barrel'], 0.8, 1.5));
+    scatter(12, 9, 13, 75, prop(['autumn_tree', 'campfire', 'stone_well', 'barrel', 'waymarker_stone'], 0.8, 1.5));
   } else {
     // hub / aegean open water: flotsam only — the good stuff is ashore
-    scatter(8, 12, 17, 120, prop(['driftwood', 'fishing_net'], 0.7, 1.1));
+    scatter(8, 12, 17, 120, prop(['driftwood', 'fishing_net', 'buoy'], 0.7, 1.1));
   }
   return g;
 }
@@ -1731,7 +1731,9 @@ export function buildIsland(node, theme, domains) {
     // ON FOOT the tyrant doesn't get a dark island — it gets a HOUSE:
     // a sandstone tomb in the Bleached Reach, a mossy barrow in the Vale
     terrain = mt({ seed, R, H: 1.2, mode: 'flat', palette: { ...footPal } });
-    const den = theme.id === 'desert' ? makeTomb(rng0) : makeBarrow(rng0);
+    // Meshy boss-den model (falls back to nothing until loaded; the relic
+    // beacon + totem FX below still mark the lair)
+    const den = propGroup(theme.id === 'desert' ? 'tomb' : 'barrow', 2.6);
     den.position.y = terrain.heightAt(0.1);
     den.rotation.y = Math.atan2(-node.x, -node.z);   // door faces back down the trail
     g.add(den);

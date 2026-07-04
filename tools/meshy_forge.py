@@ -158,7 +158,7 @@ def submit_preview(key, model):
     body = {
         "mode": "preview",
         "prompt": full_prompt(model),
-        "negative_prompt": model.get("negative") or MP.NEGATIVE,
+        "negative_prompt": (model.get("negative") or MP.NEGATIVE)[:800],
         "ai_model": "meshy-6",
         "model_type": "lowpoly",
         "topology": "triangle",
@@ -188,7 +188,7 @@ def submit_retexture(key, model_url, style_prompt):
     body = {
         "model_url": model_url,
         "text_style_prompt": f"{style_prompt}. {MP.STYLE}"[:600],
-        "negative_prompt": MP.NEGATIVE,
+        "negative_prompt": MP.NEGATIVE[:800],
         "enable_pbr": True,
     }
     return _submit("/v1/retexture", key, body, "retexture submit")["result"]

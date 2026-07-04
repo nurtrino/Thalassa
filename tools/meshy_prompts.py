@@ -32,17 +32,25 @@ STYLE = (
     "matte clay finish (roughness ~0.9), solid flat hand-painted colours, "
     "stylized tabletop board-game miniature, chunky silhouette that reads at a "
     "distance, full body, standing in a neutral relaxed pose facing forward, "
-    "centered, symmetrical, plain empty background, single character, "
-    "game-ready clean topology"
+    "centered, symmetrical, supported ONLY by its own feet/body with absolutely "
+    "nothing underneath it — no base, no plinth, no disc, no ground — plain "
+    "empty background, single character, game-ready clean topology"
+)
+
+# The single most-repeated art note: NOTHING may sit under a model. Reused by
+# every manifest (structures/props/flora/env import it) so the ban is uniform.
+NO_BASE = (
+    ", base, plinth, pedestal, platform, stand, podium, dais, stylobate, socle, "
+    "slab, disc under the feet, round base, display base, figurine base, trophy "
+    "base, statue base, mount, ground plane, floor, tile, paved ground, terrain, "
+    "diorama base, nothing underneath, standing on a base"
 )
 
 NEGATIVE = (
     "photorealistic, realistic skin pores, smooth subsurface scattering, "
     "high-frequency surface noise, grungy PBR dirt, busy cluttered background, "
-    "base, plinth, stand, pedestal, platform, socle, display base, ground "
-    "plane, disc under the feet, terrain, text, logo, watermark, signature, "
-    "multiple characters, extra limbs, deformed anatomy, motion blur, "
-    "depth of field"
+    "text, logo, watermark, signature, multiple characters, extra limbs, "
+    "deformed anatomy, motion blur, depth of field" + NO_BASE
 )
 
 # tier → default target polycount (low-poly budget). Bosses read big, so they
@@ -109,20 +117,28 @@ MODELS = [
              "Palette: weathered tan-and-grey sandstone body, blue-and-gold "
              "striped headdress, amber eye-glow.")),
     dict(id="stag_king", rank=5, tier="boss",
+         negative=(NEGATIVE + ", human figure, person, rider, humanoid, human "
+                   "face on the body, second creature, man sitting on the stag"),
          prompt=(
              "The Stag King: a towering regal elk-lord of the autumn forest on "
-             "long legs. Enormous branching bone-white antlers with many tines "
-             "(the signature feature, huge), a deep amber and chestnut coat with "
-             "autumn-gold accents, and a small gold crown nestled between the "
-             "antlers. Pale glowing eyes. Palette: deep amber-chestnut fur, "
-             "bone-white antlers, autumn-gold accents.")),
+             "long legs, a majestic DEER/ELK animal only (no human figure, no "
+             "rider, no person on its back). Enormous branching bone-white "
+             "antlers with many tines (the signature feature, huge), a deep amber "
+             "and chestnut coat with autumn-gold accents, and a small gold crown "
+             "resting between the antlers on the head. Pale glowing eyes. "
+             "Palette: deep amber-chestnut fur, bone-white antlers, autumn-gold "
+             "accents.")),
     dict(id="kraken", rank=6, tier="boss",
+         negative=(NEGATIVE + ", floating ring, detached loop, separate tentacle, "
+                   "disconnected part, floating object, halo"),
          prompt=(
              "The Kraken: a mountainous sea-monster rising from the water on "
-             "eight thick muscular tentacles that curl and sway. A huge teal "
-             "mantle head with heavy-lidded amber lamp-eyes and a hooked bone "
-             "beak. Barnacle and suction-cup detail. Palette: teal and deep sea-"
-             "green mantle, amber glowing eyes, bone beak.")),
+             "eight thick muscular tentacles that curl and sway. All eight "
+             "tentacles are firmly attached to the body — no detached or floating "
+             "loops or rings. A huge teal mantle head with heavy-lidded amber "
+             "lamp-eyes and a hooked bone beak. Barnacle and suction-cup detail. "
+             "Palette: teal and deep sea-green mantle, amber glowing eyes, bone "
+             "beak.")),
     dict(id="warden", rank=7, tier="boss",
          prompt=(
              "The Warden of the Pharos: a colossal pale-marble sentinel guardian "
@@ -171,18 +187,26 @@ MODELS = [
                          "vines, green crystal core and eyes"),
          ]),
     dict(id="shambler", rank=11, tier="elite",
+         negative=(NEGATIVE + ", floating debris, disconnected branches, holes, "
+                   "gaps, hollow arch, broken mesh, stray twigs floating"),
          prompt=(
-             "A Wickerwood Shambler: a hulking four-legged beast made of tangled "
-             "dry-brown wood and wicker branches, a bristling mane of twigs, "
-             "curved horns, moss accents, and amber glowing eyes. Bulky and "
-             "lumbering. Palette: dry brown wood, green moss, amber glow.")),
+             "A Wickerwood Shambler: a hulking FOUR-LEGGED beast standing solidly "
+             "on four sturdy wooden legs, its body a bulky mass of tangled dry-"
+             "brown wood and wicker branches with a clear head at the front. A "
+             "bristling mane of twigs, curved horns, moss accents, amber glowing "
+             "eyes. A solid readable animal silhouette — no floating loose twigs, "
+             "no holes, not a hollow arch. Palette: dry brown wood, green moss, "
+             "amber glow.")),
     dict(id="scorpion", rank=12, tier="elite",
+         negative=(NEGATIVE + ", missing tail, no tail, no stinger, tailless"),
          prompt=(
-             "A Glass Scorpion: a desert scorpion with a flat faceted body, "
-             "eight walking legs, two large pincer claws, and a tail arced "
-             "forward over its back ending in a stinger. Translucent pale "
-             "desert-glass material, glassy and faceted. Amber glowing eyes. "
-             "Palette: pale glassy tan, amber glow.")),
+             "A Glass Scorpion: a desert scorpion with a flat faceted body, eight "
+             "walking legs, two large pincer claws at the front, and — most "
+             "importantly — a long segmented TAIL that arcs up and forward over "
+             "its back ending in a sharp curved STINGER (the raised curled tail "
+             "and stinger MUST be present and prominent). Translucent pale desert-"
+             "glass material, glassy and faceted. Amber glowing eyes. Palette: "
+             "pale glassy tan, amber glow.")),
     dict(id="shade", rank=13, tier="elite",
          prompt=(
              "A Horned Shade: a sinister hooded phantom priest with no legs, "
@@ -211,19 +235,27 @@ MODELS = [
              "accents. Palette: dusky grey-brown feathers, pale-blue rime "
              "accents.")),
     dict(id="stalker", rank=17, tier="elite",
+         negative=(NEGATIVE + ", melted, spindly mess, blob, unrecognizable, "
+                   "too many legs, tangled thin legs, formless"),
          prompt=(
-             "A Floe Stalker: a gaunt elongated four-legged ice predator with "
-             "long thin legs, a row of translucent ice spikes down the back, a "
-             "thin tail, and an eerie pale glow. Palette: pale ice-blue, "
-             "translucent spikes.")),
+             "A Floe Stalker: a gaunt four-legged ice predator beast with a "
+             "clear solid readable body, a wolfish head, and four distinct sturdy "
+             "legs it stands on. A row of translucent ice spikes down its back "
+             "and a thin tail, an eerie pale glow. A recognizable animal, NOT "
+             "spindly, melted, or formless. Palette: pale ice-blue body, "
+             "translucent back spikes.")),
 
     # ── HEAVIES / mid (3) ────────────────────────────────────────────────────
     dict(id="cyclops", rank=20, tier="heavy",
+         negative=(NEGATIVE + ", two eyes, second eye, pair of eyes, normal face"),
          prompt=(
-             "A Cyclops Herdsman: a big heavy one-eyed brute giant with a single "
-             "large centered glowing eye, slab shoulders, a bulky torso, crude "
-             "hide garb, and a heavy wooden club in one hand. Ruddy giant skin. "
-             "Palette: ruddy skin, brown hide, pale glowing eye.")),
+             "A Cyclops Herdsman: a big heavy one-eyed brute giant. EXACTLY ONE "
+             "single large eye centered in the middle of its forehead (one-eyed, "
+             "cyclops, NO second eye, no pair of eyes, just one big central eye). "
+             "Slab shoulders, a bulky torso, crude hide garb, and one hand "
+             "gripping a big heavy wooden club raised over the shoulder. Ruddy "
+             "giant skin. Palette: ruddy skin, brown hide, pale glowing single "
+             "eye.")),
     dict(id="drowned", rank=21, tier="heavy",
          prompt=(
              "A Drowned Sailor: a waterlogged undead sailor with pallid greenish "
@@ -237,8 +269,10 @@ MODELS = [
              "flowing hair, ghostly arms. Palette: teal robe, aqua glow.")),
     dict(id="serpent", rank=23, tier="mid",
          prompt=(
-             "A Reef Serpent: a long sea-snake with a reared fanged head, side "
-             "fins, and a body of shrinking teal scaled coils trailing behind. "
+             "A Reef Serpent: a long sea-snake reared up with its fanged head "
+             "held level and tilted FORWARD, looking straight ahead at the viewer "
+             "(the head faces forward, NOT tilted up at the sky), mouth snarling. "
+             "Side fins and a body of shrinking teal scaled coils trailing behind. "
              "Glowing eyes. Palette: teal scales, glowing eyes."),
          variants=[
              dict(id="serpent_dust",
@@ -261,11 +295,16 @@ MODELS = [
              "a small curly tail. Palette: dark brown-black bristle, ivory "
              "tusks.")),
     dict(id="jaguar", rank=26, tier="mid",
+         negative=(NEGATIVE + ", puddle, splat, black pool, shadow, shadow plane, "
+                   "liquid, melted mass, blob, spilled ink, smoke, mist, wisp, "
+                   "ghostly trail, aura on the ground"),
          prompt=(
-             "A Jaguar Shade: a sleek muscular big cat in a low prowling stance "
-             "with a long thin tail. Near-black charcoal coat with a faint green "
-             "shade-spirit glow and glowing green eyes. Palette: charcoal-black, "
-             "green glow.")),
+             "A sleek muscular SOLID black panther big cat, an ordinary opaque "
+             "solid-bodied jaguar standing firmly and clearly on all four paws in "
+             "a low prowling stance, with a long tail and glowing green eyes. A "
+             "completely solid clean cat with nothing beneath its paws — no "
+             "shadow, no puddle, no pool, no splat, no melted mass, no smoke. "
+             "Palette: solid matte charcoal-black fur, green glowing eyes.")),
     dict(id="wolf", rank=27, tier="mid",
          prompt=(
              "A grey wolf: a lean predatory wolf with pointed ears, a snout, a "
@@ -277,10 +316,14 @@ MODELS = [
                          "ruff, cold cyan glowing eyes"),
          ]),
     dict(id="stag", rank=28, tier="mid",
+         negative=(NEGATIVE + ", melted legs, merged legs, fused legs, webbed "
+                   "legs, malformed legs, legs blending together"),
          prompt=(
-             "A Stag Spirit: a graceful slender deer with modest bone antlers, "
-             "slim legs, a thin tail, and gentle pale-blue spectral glowing "
-             "eyes. Ghostly. Palette: soft brown, pale-blue spectral glow.")),
+             "A Stag Spirit: a graceful slender deer standing on FOUR clean "
+             "separate slim legs, each a distinct straight leg ending in a small "
+             "hoof (legs not merged, melted, or webbed together). Modest bone "
+             "antlers, a thin tail, gentle pale-blue spectral glowing eyes. "
+             "Ghostly. Palette: soft brown, pale-blue spectral glow.")),
 
     # ── GRUNTS (4) ───────────────────────────────────────────────────────────
     dict(id="raider", rank=30, tier="grunt",
@@ -343,11 +386,13 @@ MODELS = [
              "helm and shield, neutral grey tunic, tanned skin.")),
     dict(id="skiff", rank=40, tier="prop",
          prompt=(
-             "A hostile little raider skiff: a small ragged-sailed wooden raider "
-             "dinghy boat with a single mast, a torn dirty sail, a row of oars, "
-             "and a menacing glowing amber lantern at the prow. Not a creature, "
-             "a boat. Palette: dark weathered wood, dirty sail, amber lantern "
-             "glow.")),
+             "A hostile little raider skiff boat with a SINGLE straight upright "
+             "mast standing vertically from the centre of the deck carrying one "
+             "torn dirty square sail, a row of oars along the sides, and a "
+             "menacing glowing amber lantern at the pointed prow. The mast is "
+             "centred and vertical, firmly stepped into the deck, not tilted, "
+             "not floating, not misplaced. Palette: dark weathered wood, dirty "
+             "sail, amber lantern glow.")),
 ]
 
 # Drop the intentional placeholder / any skipped rows.
