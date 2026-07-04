@@ -1,0 +1,7 @@
+# Meshy pipeline — never commit these
+.forge_*.log
+.meshy_state.json
+.meshy_structures_state.json
+*.tmp*
+samples/gallery/
+__pycache__/

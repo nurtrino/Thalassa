@@ -4,3 +4,11 @@ __pycache__/
 .pytest_cache/
 .env
 static/fixture.json
+
+# Meshy pipeline — raw HD intermediates (huge, reproducible) and run artifacts
+static/assets/monsters/_meshy/
+tools/.forge_*.log
+tools/.meshy_state.json
+tools/.meshy_structures_state.json
+tools/samples/
+tools/*.tmp*
