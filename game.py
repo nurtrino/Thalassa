@@ -991,7 +991,8 @@ class Game:
                         node["monster"] = None      # your trial is done, forever
                         p.cargo.append(node["region"])
                         note += " The sigil fragment is aboard — sail it home."
-                    loot = sum(e["max_hp"] for e in enemies)
+                    # spoils: one scroll per basic foe, ten for a boss-tier one
+                    loot = sum(10 if e["max_hp"] >= 5 else 1 for e in enemies)
                     p.scrolls += loot
                     gained = loot
                     if node.get("encounter") or node["type"] == "sea":
