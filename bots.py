@@ -65,13 +65,18 @@ def _target_score(g: G.Game, p, nid: str) -> float:
     if ntype == "home":
         return 40 + 90 * len(p.cargo) + (35 if p.hull <= 2 else 0) - 30
     if ntype == "lair" and p.pid not in node.get("defeated", []):
-        # bosses counter every round now — only sail in prepared
-        prepared = (p.hull >= p.max_hull - 1
+        # bosses counter every round now — only sail in prepared. Deep in the
+        # lair's own realm, press ON to it rather than retreating the whole
+        # road: the realm haven can top the hull up on the way.
+        here = g.board.nodes.get(p.node, {})
+        same_realm = here.get("region") == node.get("region")
+        prepared = (p.hull >= p.max_hull - (2 if same_realm else 1)
                     and (p.items.get("planks", 0) > 0
                          or p.items.get("aegis_charm", 0) > 0
                          or p.max_hull > 6))
         strength = p.hull + (2 if p.has("ram") else 0)
-        return (25 + strength * 8 - 30) if prepared else 4
+        base = (25 + strength * 8 - 30) if prepared else 4
+        return base + (20 if same_realm and prepared else 0)
     if ntype == "shrine" and node.get("charges", 0) > 0:
         return 45 if p.scrolls < 6 else 22
     if ntype == "puzzle" and not node.get("solved"):
@@ -133,6 +138,18 @@ def decide_battle(g: G.Game, pid: str, rng: random.Random) -> str:
     if total_hp >= 3 or power > 1:
         return "magic"
     return "attack"
+
+
+def decide_remote_buy(g: G.Game, pid: str) -> str | None:
+    """The ship's trader, called up before a roll: keep survival kit aboard.
+    Boss runs die to empty pockets — a prepared captain always sails with
+    planks and a ward."""
+    p = g.player_by_pid(pid)
+    if p.items.get("planks", 0) < 1 and p.scrolls >= 5:
+        return "planks"
+    if p.items.get("aegis_charm", 0) < 1 and p.scrolls >= 8:
+        return "aegis_charm"
+    return None
 
 
 def decide_shop(g: G.Game, pid: str) -> str | None:

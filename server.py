@@ -280,6 +280,10 @@ async def bot_move(nonce: int, tag: str, pid: str):
         return
     phase = g.phase
     if phase == "roll":
+        # a prepared captain provisions from the ship's trader before rolling
+        buy = bots.decide_remote_buy(g, pid)
+        if buy:
+            await dispatch(pid, "shop_buy", {"item": buy})
         err = await dispatch(pid, "roll", {})
     elif phase == "sail":
         node = bots.decide_sail(g, pid, rng)

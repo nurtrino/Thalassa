@@ -68,7 +68,7 @@ HEAVY_MULT = 2                     # ...that lands for double damage
 ITEM_CAP = 2                       # max carried of each consumable charm
 KRAKEN_CHANCE = 0.10               # hub crossings: odds the kraken blocks you
 KRAKEN_RIDDLES = 3                 # ...and how many mind-riddles it poses
-SPHINX_CHANCE = 0.45               # desert crossings: odds the Sphinx stops you
+SPHINX_CHANCE = 0.35               # desert crossings: odds the Sphinx stops you
 
 COLORS = ["#e4572e", "#2e86ab", "#f6ae2d", "#8e5572", "#33ca7f", "#6457a6"]
 
@@ -391,9 +391,11 @@ class Game:
         if node.get("encounter") and node.get("depth"):
             chance = min(0.85, 0.45 + 0.1 * node["depth"])
         elif ntype == "sea" and node.get("depth"):
-            chance = min(0.5, 0.2 + 0.05 * node["depth"])
+            # quieter open water: battles are meatier now (puzzles!), and the
+            # roads are longer — the hunting grounds carry the realm's teeth
+            chance = min(0.35, 0.12 + 0.04 * node["depth"])
         elif ntype == "sea" and not node.get("region"):
-            chance = 0.14          # a rare small skirmish in the hub sea-lanes
+            chance = 0.12          # a rare small skirmish in the hub sea-lanes
         else:
             chance = 0.0
         if ntype == "sea" and p.has("poseidon_favor"):
