@@ -1195,7 +1195,7 @@ def test_hub_sea_is_calm_but_not_empty():
         if g.phase == "minigame" and g.minigame.get("kraken"):
             krakens += 1
             assert g.minigame["kind"] == "ravens"          # a test of pure IQ
-            assert g.minigame["limit"] == 15               # 15s per riddle
+            assert g.minigame["limit"] == P.TIME_LIMITS["ravens"]
             g.kraken = None
             g.minigame = None
             g._next_turn()

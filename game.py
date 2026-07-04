@@ -1083,10 +1083,11 @@ class Game:
                 raise GameError("Not solved — the enemy circles…")
             return
         if mg.get("kraken"):
-            self._flash(ok, "Correct!" if ok else "Wrong!")
             if ok:
+                self._flash(True, "Correct!")
                 self._kraken_next()
             else:
+                self._flash(False, "Wrong — the Kraken drags you under. Lose a turn!")
                 self._kraken_fail()               # one wrong pick: it has you
             return
         if mg.get("sphinx"):
@@ -1174,7 +1175,9 @@ class Game:
 
     def _sphinx_fail(self):
         p = self.current
+        ans = puzzles.answer_text("riddle", self.minigame.get("data")) if self.minigame else ""
         self.minigame = None
+        self._flash(False, f"Wrong — the answer was {ans}" if ans else "The Sphinx sweeps you back!")
         back = p.prev_node if p.prev_node in self.board.nodes else p.node
         steps = 1
         # sometimes she flings you TWO spaces down the road
@@ -1213,7 +1216,9 @@ class Game:
         p = self.current
         p.streak = 0
         kind = self.minigame["kind"] if self.minigame else None
+        ans = puzzles.answer_text(kind, self.minigame.get("data")) if self.minigame else ""
         self.minigame = None
+        self._flash(False, f"Wrong — the answer was {ans}" if ans else "Time's up!")
         msg = f"The puzzle of {self.board.nodes[nid]['name']} defeats {p.name} — it can be tried again."
         if kind == "simon" and p.scrolls > 0:
             p.scrolls -= 1                 # the Muses take a tithe for a broken echo

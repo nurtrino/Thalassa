@@ -20,7 +20,7 @@ def test_deal_yields_6x6_no_secret_leak():
         d = puzzles.deal(rng, used)
         if d["kind"] == "tetromino":
             assert d["w"] == 6 and d["h"] == 6 and len(d["pieces"]) == 9
-            assert d["limit"] == 90
+            assert d["limit"] == puzzles.TIME_LIMITS["tetromino"]
             assert "secret" not in {k for k in d if k != "secret"}
             break
     else:

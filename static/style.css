@@ -1729,6 +1729,8 @@ body.touring #mapBtn, body.touring #dice, body.touring #shopPanel { display: non
   padding: 10px 40px; border-radius: 14px;
   background: rgba(8, 11, 20, .55); backdrop-filter: blur(2px);
 }
+.verdictBanner.long { font-size: 26px; letter-spacing: .04em; max-width: min(88vw, 620px);
+  text-align: center; line-height: 1.3; text-transform: none; }
 .verdictBanner.good { color: #7CFFB2; text-shadow: 0 0 30px rgba(60, 220, 130, .8);
   border: 2px solid rgba(124, 255, 178, .5); }
 .verdictBanner.bad { color: #ff7a6b; text-shadow: 0 0 30px rgba(224, 70, 40, .8);

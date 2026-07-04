@@ -405,14 +405,18 @@ function showVerdictBanner(ok, text) {
   (ok ? audio.sfx.correct : audio.sfx.wrong)?.();
   const d = document.createElement('div');
   d.className = 'verdictBanner ' + (ok ? 'good' : 'bad');
+  if (text && text.length > 14) d.classList.add('long');   // shrink for a full sentence
   d.textContent = text;
   document.body.appendChild(d);
+  // a correct verdict just blips (0.5s, no hang); a wrong one lingers so the
+  // revealed answer can actually be read
+  const dur = ok ? 500 : 2200;
   d.animate(
-    [{ opacity: 0, transform: 'translate(-50%,-50%) scale(.7)' },
-     { opacity: 1, transform: 'translate(-50%,-50%) scale(1)', offset: 0.2 },
-     { opacity: 1, transform: 'translate(-50%,-50%) scale(1)', offset: 0.75 },
-     { opacity: 0, transform: 'translate(-50%,-50%) scale(1.05)' }],
-    { duration: 1400, easing: 'ease-out' }).onfinish = () => d.remove();
+    [{ opacity: 0, transform: 'translate(-50%,-50%) scale(.8)' },
+     { opacity: 1, transform: 'translate(-50%,-50%) scale(1)', offset: 0.18 },
+     { opacity: 1, transform: 'translate(-50%,-50%) scale(1)', offset: 0.8 },
+     { opacity: 0, transform: 'translate(-50%,-50%) scale(1.03)' }],
+    { duration: dur, easing: 'ease-out' }).onfinish = () => d.remove();
 }
 
 /* what to shout when a battle opens */

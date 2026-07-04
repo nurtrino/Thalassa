@@ -43,9 +43,9 @@ import tetromino6
 # Simon has NO clock: one wrong tap is the failure, not the seconds.
 # 20s across the board — nonogram (picross) gets 30 for its fiddlier grid;
 # simon stays untimed (a wrong note, not the clock, is its failure).
-TIME_LIMITS = {"riddle": 20, "tetromino": 90, "nonogram": 30,
-               "simon": None, "anagram": 20, "ravens": 15,
-               "sequence": 20, "lights_out": 20, "sliding": 20}
+TIME_LIMITS = {"riddle": 27.5, "tetromino": 97.5, "nonogram": 37.5,
+               "simon": None, "anagram": 27.5, "ravens": 22.5,
+               "sequence": 27.5, "lights_out": 27.5, "sliding": 60}
 
 INTERACTIVE = ("tetromino", "nonogram", "simon", "anagram", "ravens", "riddle",
                "sequence", "lights_out", "sliding")
@@ -473,6 +473,20 @@ def deal_kind(rng: random.Random, kind: str) -> dict:
     data = _GENERATORS[kind](rng)
     data.update({"kind": kind, "limit": TIME_LIMITS[kind]})
     return data
+
+
+def answer_text(kind: str, data: dict | None) -> str:
+    """A short, human-readable form of the correct answer, for the on-screen
+    'the answer was…' reveal on a failed puzzle. Empty for the grid puzzles
+    (tetromino/nonogram/simon/lights-out/sliding) whose answer is a layout."""
+    if not data:
+        return ""
+    s = data.get("secret", {}) or {}
+    if kind == "anagram":
+        return str(s.get("word", "")).upper()
+    if kind in ("riddle", "sequence"):
+        return str(s.get("answer", ""))
+    return ""
 
 
 def deal_battle(rng: random.Random) -> dict:
