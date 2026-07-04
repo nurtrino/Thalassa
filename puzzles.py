@@ -43,7 +43,7 @@ import tetromino6
 # Simon has NO clock: one wrong tap is the failure, not the seconds.
 # 20s across the board — nonogram (picross) gets 30 for its fiddlier grid;
 # simon stays untimed (a wrong note, not the clock, is its failure).
-TIME_LIMITS = {"riddle": 27.5, "tetromino": 97.5, "nonogram": 37.5,
+TIME_LIMITS = {"riddle": 27.5, "tetromino": 97.5, "nonogram": 84.375,
                "simon": None, "anagram": 27.5, "ravens": 22.5,
                "sequence": 27.5, "lights_out": 27.5, "sliding": 60}
 
