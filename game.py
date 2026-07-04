@@ -675,19 +675,16 @@ class Game:
         self.battle["target"] = target
 
         # ── what challenge does this round pose? ─────────────────────────────
-        # Battles draw from THREE decks: 45% multiple-choice (the general Open
-        # Trivia DB — a fight can test anything), 25% combat puzzles, and 30%
-        # typed JEOPARDY! clues (music & literature — you type the answer on a
-        # 15-second clock). The temples keep the themed-category trivia gimmick;
-        # battles do not. Bosses rotate all three so a trial tests the whole
-        # mind. Puzzles in combat never include riddles (those are the Sphinx's).
+        # Battles draw from TWO decks: typed JEOPARDY! clues (the star) and
+        # combat puzzles. No more general multiple-choice — the Open Trivia DB is
+        # gone. The temples keep the themed-category trivia gimmick; battles do
+        # not. Puzzles in combat never include riddles (those are the Sphinx's).
         if boss:
-            # bosses lean on the typed clues too — jeopardy on 2 of every 3 rounds
-            mode = ("jeopardy", "puzzle", "jeopardy", "mc")[self.battle["round"] % 4]
+            # bosses lean hard on the typed clues — jeopardy on 3 of every 4 rounds
+            mode = ("jeopardy", "puzzle", "jeopardy", "jeopardy")[self.battle["round"] % 4]
         else:
-            # typed JEOPARDY! is the star (~55%); puzzles 20%, general MC 25%
-            r = self.rng.random()
-            mode = "puzzle" if r < 0.20 else ("mc" if r < 0.45 else "jeopardy")
+            # typed JEOPARDY! dominates (~78%); the rest are combat puzzles
+            mode = "puzzle" if self.rng.random() < 0.22 else "jeopardy"
         forced = getattr(self, "_force_mode", None)     # DEV_CHEATS test hook only
         if forced:
             mode = forced
