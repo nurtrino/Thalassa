@@ -151,8 +151,10 @@ export function buildMountainWall({ radius = 560, gates = [], theme }) {
   const haze = new THREE.Color(theme.sky.horizon);
   const geoms = [];
   const rows = [
-    { r: radius,      n: 42, hMin: 72, hMax: 122, bMin: 44, bMax: 66, snowline: 0.55, haze: 0.55 },
-    { r: radius - 48, n: 34, hMin: 46, hMax: 86,  bMin: 30, bMax: 50, snowline: 0.62, haze: 0.45 },
+    // an extra OUTER row seals every sightline — the ring reads SOLID from above
+    { r: radius + 46, n: 44, hMin: 64, hMax: 108, bMin: 48, bMax: 70, snowline: 0.55, haze: 0.6 },
+    { r: radius,      n: 56, hMin: 72, hMax: 122, bMin: 50, bMax: 74, snowline: 0.55, haze: 0.55 },
+    { r: radius - 48, n: 46, hMin: 46, hMax: 86,  bMin: 34, bMax: 54, snowline: 0.62, haze: 0.45 },
     { r: radius - 86, n: 24, hMin: 14, hMax: 32,  bMin: 16, bMax: 28, snowline: 2.0, haze: 0.4 }, // foothill rubble, no snow
   ];
   for (const row of rows) {

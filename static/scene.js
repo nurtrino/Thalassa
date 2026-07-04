@@ -1537,10 +1537,20 @@ export function createWorld(container, handlers = {}) {
     mapMode = {
       saved: { pos: camera.position.clone(), target: controls.target.clone() },
       bounds: b,
-      H: extent * 0.85, Hmin: extent * 0.3, Hmax: extent * 1.2,
+      H: extent * 0.72, Hmin: extent * 0.25, Hmax: extent * 1.15,
       tx: (b.minX + b.maxX) / 2, tz: (b.minZ + b.maxZ) / 2,
       keys: new Set(), drag: null, snapped: false,
+      // the stage fog is tuned for deck height — from a chart-view altitude
+      // it swallows every isle and bleaches the sea. Push it far out while
+      // the chart is open so the REAL islands and blue water show.
+      fogSave: st.scene.fog
+        ? { stageId: activeBoardId, near: st.scene.fog.near, far: st.scene.fog.far }
+        : null,
     };
+    if (st.scene.fog) {
+      st.scene.fog.near = extent * 1.6;
+      st.scene.fog.far = extent * 5.0;
+    }
     controls.enabled = false;
     skipCinematic();
     return true;
@@ -1548,6 +1558,14 @@ export function createWorld(container, handlers = {}) {
 
   function exitMapView() {
     if (!mapMode) return;
+    const fs = mapMode.fogSave;
+    if (fs) {
+      const st = stages[fs.stageId];
+      if (st?.scene.fog) {
+        st.scene.fog.near = fs.near;
+        st.scene.fog.far = fs.far;
+      }
+    }
     camera.position.copy(mapMode.saved.pos);
     controls.target.copy(mapMode.saved.target);
     controls.enabled = true;
