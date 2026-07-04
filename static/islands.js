@@ -1080,6 +1080,34 @@ export function makeRealmField(theme, nodes, segs, rng, heightAt = null) {
   const foot = theme.id === 'desert' || theme.id === 'autumn';
   const prop = (ids, lo, hi) => () =>
     propGroup(ids[(rng() * ids.length) | 0], lo + rng() * (hi - lo));
+
+  // a worn dirt path laid over the trail: crisp ribbon quads down each lane
+  // segment, riding the ground height so it never floats or sinks. The route
+  // reads at a glance and the tree band stands well clear of it either side.
+  if (foot && segs.length) {
+    const HW = 2.6;                                 // path half-width
+    const pathCol = theme.id === 'autumn' ? 0x6a4a28 : 0xc7a468;
+    const verts = [];
+    for (const s of segs) {
+      const ax = s[0], az = s[1], bx = s[2], bz = s[3];
+      const dx = bx - ax, dz = bz - az;
+      const len = Math.hypot(dx, dz) || 1e-6;
+      const px = -dz / len * HW, pz = dx / len * HW;   // perpendicular offset
+      const ay = groundY(ax, az) + 0.06, by = groundY(bx, bz) + 0.06;
+      // two triangles: (A+perp, A-perp, B-perp) and (A+perp, B-perp, B+perp)
+      const A1 = [ax + px, ay, az + pz], A2 = [ax - px, ay, az - pz];
+      const B1 = [bx + px, by, bz + pz], B2 = [bx - px, by, bz - pz];
+      verts.push(...A1, ...A2, ...B2, ...A1, ...B2, ...B1);
+    }
+    const pg = new THREE.BufferGeometry();
+    pg.setAttribute('position', new THREE.Float32BufferAttribute(verts, 3));
+    pg.computeVertexNormals();
+    const pathMesh = new THREE.Mesh(pg,
+      new THREE.MeshStandardMaterial({ color: pathCol, roughness: 1, flatShading: true }));
+    pathMesh.receiveShadow = true;
+    pathMesh.renderOrder = 1;
+    g.add(pathMesh);
+  }
   if (foot) {
     scatter(7, 11, 16, 120, prop(['boulder', 'ruined_column', 'broken_statue', 'cairn', 'ruined_arch'], 0.7, 1.3));
   } else {
@@ -1103,12 +1131,13 @@ export function makeRealmField(theme, nodes, segs, rng, heightAt = null) {
     scatter(20, 12, 16, 240, () => propGroup('dead_scrub', 0.8 + rng() * 0.6));
     scatter(9, 22, 24, 240, () => propGroup('cairn', 1.0 + rng() * 0.6));
   } else if (theme.id === 'autumn') {
-    // the Vale is WALL-TO-WALL forest: a deep tree band hugging every track,
-    // thick enough that the fog line always lands inside the woods
-    scatter(560, 8.5, 11, 75, () => floraFor(theme, rng, 1.1 + rng() * 0.9));
-    scatter(40, 9, 12, 75, () => makeRock(rng, 0.4 + rng() * 0.7, theme.palette.rock));
-    scatter(16, 9, 13, 75, prop(['dead_tree', 'mushroom_cluster', 'boulder', 'cairn'], 0.7, 1.4));
-    scatter(12, 9, 13, 75, prop(['autumn_tree', 'campfire', 'stone_well', 'barrel', 'waymarker_stone'], 0.8, 1.5));
+    // the Vale is a wooded MAZE: trees stand well back off the track (laneClear
+    // 15) so the dirt path always reads with clear ground to either side, but
+    // still close enough that the fog line lands inside the woods
+    scatter(300, 15, 12, 82, () => floraFor(theme, rng, 1.1 + rng() * 0.9));
+    scatter(30, 15, 12, 82, () => makeRock(rng, 0.4 + rng() * 0.7, theme.palette.rock));
+    scatter(12, 15, 13, 82, prop(['dead_tree', 'mushroom_cluster', 'boulder', 'cairn'], 0.7, 1.4));
+    scatter(9, 15, 13, 82, prop(['autumn_tree', 'campfire', 'stone_well', 'barrel', 'waymarker_stone'], 0.8, 1.5));
   } else {
     // hub / aegean open water: flotsam only — the good stuff is ashore
     scatter(8, 12, 17, 120, prop(['driftwood', 'fishing_net', 'buoy'], 0.7, 1.1));
@@ -1471,21 +1500,24 @@ export function buildIsland(node, theme, domains) {
   if (node.type === 'sea') {
     if (foot) {
       if (theme.id === 'autumn') {
-        // a forest track through the Amber Vale: a mossy waymarker stone
-        // swallowed by a DENSE grove — the vale is wall-to-wall trees
-        const stone = makeRock(rng0, 0.8, 0x8a7a62);
-        stone.position.y = 0.35;
-        g.add(stone);
-        for (let i = 0; i < 9 + Math.floor(rng0() * 5); i++) {
-          const tree = floraFor(theme, rng0, 0.9 + rng0() * 1.0);
-          const a = rng0() * 6.28;
-          const r = 2.2 + rng0() * 5.6;
-          tree.position.set(Math.cos(a) * r, 0, Math.sin(a) * r);
-          g.add(tree);
-        }
-        g.add(sandRippleRing(3.2, 0xb98a3e));       // drifted leaves, not sand
+        // a maze waypoint on the forest track: JUST a little worn circle on the
+        // ground — a trodden dirt ring where the path forks. No grove crowding
+        // the stop; the trees are held back in the field, off the trail.
+        const disc = new THREE.Mesh(
+          new THREE.CircleGeometry(2.0, 20),
+          flat(0x5f4326, { roughness: 1 }));
+        disc.rotation.x = -Math.PI / 2;
+        disc.position.y = 0.05;
+        disc.receiveShadow = true;
+        g.add(disc);
+        const ring = new THREE.Mesh(
+          new THREE.RingGeometry(2.0, 2.5, 20),
+          flat(0x795536, { roughness: 1 }));
+        ring.rotation.x = -Math.PI / 2;
+        ring.position.y = 0.04;
+        g.add(ring);
         g.position.set(node.x, 0, node.z);
-        return { group: g, R: 3.4, plateauY: 0 };
+        return { group: g, R: 2.2, plateauY: 0 };
       }
       // an open waypoint on the trek: just a cairn, maybe a lone cactus or
       // dry bush — the sand stays flat and empty (no heaped dune mounds)

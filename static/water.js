@@ -148,6 +148,13 @@ export function makeGround(theme, size = 3000, opts = {}) {
   const sandHot = sand.clone().lerp(new THREE.Color(0xffffff), 0.18);
   const c = new THREE.Color();
 
+  // a trodden dirt path baked right into the floor along the trail, so the
+  // route reads clearly even before the waypoint markers stream in. Autumn is
+  // a bare-earth track worn through the leaf litter; the desert a packed lane.
+  const pathCol = new THREE.Color(theme.id === 'autumn' ? 0x6b4a28 : 0xc7a468);
+  const pathEdge = new THREE.Color(theme.id === 'autumn' ? 0x7d5c34 : 0xd8b878);
+  const PATH_W = 5.0;                                // half-width of the worn lane
+
   const pos = geo.attributes.position;
   const col = new Float32Array(pos.count * 3);
   for (let i = 0; i < pos.count; i++) {
@@ -158,6 +165,12 @@ export function makeGround(theme, size = 3000, opts = {}) {
     const stripe = 0.5 + 0.5 * Math.sin(x * 0.085 + z * 0.14 + Math.sin(x * 0.013 + p2) * 2.4);
     c.copy(sandDeep).lerp(sand, 0.45 + stripe * 0.55);
     if (y > 1.6) c.lerp(sandHot, Math.min(1, (y - 1.6) * 0.22)); // sunlit crests
+    // paint the path: full dirt down the centre, feathering into a scuffed edge
+    const pd = segDist(x + cx, z + cz);
+    if (pd < PATH_W + 2.2) {
+      const core = 1 - smooth(PATH_W - 1.5, PATH_W + 2.2, pd);
+      c.lerp(pd < PATH_W - 1 ? pathCol : pathEdge, core * (0.6 + stripe * 0.25));
+    }
     col[i * 3] = c.r; col[i * 3 + 1] = c.g; col[i * 3 + 2] = c.b;
   }
   geo.setAttribute('color', new THREE.BufferAttribute(col, 3));

@@ -1064,6 +1064,21 @@ def test_realms_run_one_main_road_with_teeth():
                         if n["type"] == "gate" and n.get("region") == theme)
             lair = next(nid for nid in realm if realm[nid]["type"] == "lair")
 
+            if theme == "autumn":
+                # the Amber Vale is a MAZE, not a road: a normal complement of
+                # foes (some guarding dead-end spurs), blind-alley dead-ends, a
+                # shrine and a haven, boss always reachable through the fog.
+                monsters = [n for n in realm.values() if n["type"] == "monster"]
+                assert len(monsters) >= 3
+                assert any(n.get("elite") for n in monsters)   # guarded spurs
+                assert any(n["type"] == "shrine" for n in realm.values())
+                assert any(n["type"] == "haven" for n in realm.values())
+                assert bfs(b, gate, lair) >= 6
+                deadends = [nid for nid in realm
+                            if len(b.neighbors[nid]) == 1 and nid != gate]
+                assert len(deadends) >= 3
+                continue
+
             # the SHORTCUT: elite grounds in deep water (desert keeps it small)
             elites = [n for nid, n in realm.items()
                       if n["type"] == "monster" and n.get("elite")]

@@ -359,6 +359,53 @@ class Board:
             node.pop("look", None)
 
         side = rng.choice([-1, 1])
+        maze = mode == "foot" and theme == "autumn"
+        if maze:
+            # The Amber Vale is a wooded LABYRINTH: a weaving main track that
+            # carries a normal complement of foes plus a shrine and a haven,
+            # threaded with dead-end spurs that fork off the path and simply
+            # stop — some guarded by an elite, most just blind alleys in the fog.
+            plan = ["sea", "weak", "sea", "shrine", "weak", "sea", "haven", "weak"]
+            main = [gate_id]
+            n = len(plan)
+            for i, kind in enumerate(plan):
+                t = (i + 1) / (n + 1)
+                radius = R0 + 80 + t * (330 - 88)
+                a = ang + side * 0.32 * math.sin(math.pi * t * 1.7)   # weave
+                depth = 1 + (i * 3) // n
+                node = place(f"r{gi}_m{i}", radius, a, depth)
+                if kind == "weak":
+                    make_monster(node, elite=False, depth=min(2, depth))
+                elif kind == "haven":
+                    make_haven(node)
+                elif kind == "shrine":
+                    make_shrine(node)
+                main.append(f"r{gi}_m{i}")
+            main.append(junc_id)
+            for u, v in zip(main, main[1:]):
+                self._link(u, v)
+            # dead-end spurs — the maze's blind alleys, forking off the interior
+            # stops and stopping after a step or two of empty wilds
+            for si, k in enumerate((1, 2, 3, 5, 6)):
+                if k >= len(main) - 1:
+                    continue
+                hn = self.nodes[main[k]]
+                hr = math.hypot(hn["x"], hn["z"])
+                ha = math.atan2(hn["z"], hn["x"])
+                off = (-side if si % 2 == 0 else side) * (0.14 + 0.045 * (si % 3))
+                depth_end = 5 + si                   # spur ends run deep
+                prev = main[k]
+                length = 1 + (si % 2)                 # 1–2 stops deep, then stops
+                for j in range(length):
+                    node = place(f"r{gi}_d{si}_{j}", hr + (j + 1) * 22,
+                                 ha + off * (j + 1), 2)
+                    # two of the spurs are GUARDED — an elite lurks at the dead end
+                    if j == length - 1 and si in (0, 2):
+                        make_monster(node, elite=True, depth=depth_end)
+                    self._link(prev, f"r{gi}_d{si}_{j}")
+                    prev = f"r{gi}_d{si}_{j}"
+            return
+
         simple = mode == "foot" and theme == "desert"
 
         # ── the MAIN ROAD: a LONG arc of stops bowing out to one side ────────
