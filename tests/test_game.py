@@ -1730,6 +1730,31 @@ def test_typed_and_choice_answers_dont_cross():
         g.answer_text(p0, "b")
 
 
+def test_correct_answer_but_boss_counter_kills_is_marked_death():
+    # A boss answers every exchange — a heavy counter can drop you even on a
+    # right answer. The reveal must flag player_dead so the client shows YOU DIED,
+    # not VICTORY (the boss is still standing).
+    g, (p0, p1) = make_game()
+    mon = find_node(g, "monster")
+    g.board.nodes[mon]["monster"] = {
+        "name": "Boss", "tier": 2, "domain": "clio", "boss": True,
+        "enemies": [{"name": "B", "hp": 30, "max_hp": 30, "power": 9}]}
+    p = g.player_by_pid(p0)
+    p.prev_node = p.node
+    p.node = mon
+    p.hull = 1
+    g.battle = {"node": mon, "stance": None, "round": 0, "charging": True,
+                "used_items": [], "first_hit_taken": True}
+    g._bump("battle")
+    g._force_mode = "mc"
+    g.stance(p0, "attack", 0)
+    put_question(g)
+    g.answer(p0, 0)                                 # correct, but the counter lands
+    assert g.reveal["was_correct"] and g.reveal["battle_over"]
+    assert g.reveal["player_dead"]                  # → YOU DIED, not VICTORY
+    assert pack(g, mon)[0]["hp"] > 0                # boss survived
+
+
 def test_jeopardy_answer_matching():
     C = questions.check_jeopardy
     assert C("Hemingway", "(Ernest) Hemingway")

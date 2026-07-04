@@ -148,8 +148,14 @@ async def reveal_timer(nonce: int):
     g = table.game
     # battle reveals are snappy — the card flashes the answer then clears so
     # the diorama plays your move and the enemy's, and the next stance is
-    # quick to arrive. Shrine/puzzle reveals get the full reading window.
-    dur = 3.4 if (g.reveal or {}).get("kind") == "battle" else REVEAL_SECS
+    # quick to arrive. But a battle that ENDS (a kill, or your shipwreck) gets a
+    # long hold so the final blow lands and the VICTORY / YOU DIED screen reads
+    # before we cut away. Shrine/puzzle reveals get the full reading window.
+    rv = g.reveal or {}
+    if rv.get("kind") == "battle":
+        dur = 5.6 if rv.get("battle_over") else 3.4
+    else:
+        dur = REVEAL_SECS
     await asyncio.sleep(dur)
     g = table.game
     if g.nonce == nonce and g.phase == "reveal":

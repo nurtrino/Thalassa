@@ -63,8 +63,13 @@ const FLOATERS = new Set(['wraith', 'shade', 'siren', 'warden',
 const BOATS = new Set(['skiff']);
 
 /* a few Meshy sculpts came out of the auto-rig facing ±Z instead of the
- * game's +X convention — square them up at template time */
-const MODEL_YAW = { sphinx: Math.PI / 2, monkey: Math.PI / 2, harpy: Math.PI / 2 };
+ * game's +X convention — square them up at template time. The whole avian
+ * family (harpy + the birds/vulture, and the poison re-tint) shares the wrong
+ * facing, so they all get the same quarter-turn. */
+const MODEL_YAW = {
+  sphinx: Math.PI / 2, monkey: Math.PI / 2, harpy: Math.PI / 2,
+  bird: Math.PI / 2, bird_poison: Math.PI / 2, vulture: Math.PI / 2,
+};
 
 const loader = new GLTFLoader();
 const templates = new Map();     // id → Promise<Group>  (never rejects)

@@ -292,6 +292,12 @@ function applyStage(stageId) {
     if (stageId !== 'hub') audio.sfx.oracle();
   }
   if (stageId !== 'battle') lastStage = stageId;
+  // switch the overworld track the instant a realm's stage engages, so the music
+  // matches where you actually are through the gate (not a snapshot later)
+  if (stageId !== 'battle' && room && REALM_MUSIC.has(realm)
+      && !['question', 'minigame', 'reveal', 'upgrade_pick', 'lobby'].includes(room.phase)) {
+    audio.setScene(realmMusic(realm));
+  }
   renderMapBtn();          // the Vale has no chart — hide the button there
 }
 
@@ -345,6 +351,42 @@ function showAnnounce(title, sub, color) {
      { opacity: 0, transform: 'translateX(-50%) scale(1.04) translateY(-8px)' }],
     { duration: 2600, easing: 'cubic-bezier(.2,.9,.2,1)' },
   ).onfinish = () => { d.remove(); if (announceEl === d) announceEl = null; };
+}
+
+/* The end of a fight gets its own full-screen beat — a gold VICTORY when the
+   last foe falls, a red YOU DIED when your hull gives out — held over the
+   diorama while the killing blow settles, then cleared as the scene cuts. */
+let battleEndEl = null;
+function showBattleEnd(kind, sub) {
+  battleEndEl?.remove();
+  const win = kind === 'win';
+  const color = win ? '#f0c674' : '#e0472f';
+  const wash = win ? 'rgba(28,20,4,.30)' : 'rgba(46,4,4,.52)';
+  const d = document.createElement('div');
+  battleEndEl = d;
+  d.style.cssText =
+    'position:fixed;inset:0;z-index:24;display:flex;flex-direction:column;' +
+    'align-items:center;justify-content:center;pointer-events:none;opacity:0;' +
+    `background:radial-gradient(ellipse at center, ${wash}, rgba(3,4,7,.85))`;
+  d.innerHTML =
+    `<div style="font-family:var(--disp,serif);font-weight:800;` +
+    `font-size:clamp(46px,12vw,128px);letter-spacing:.14em;text-transform:uppercase;` +
+    `color:${color};text-shadow:0 5px 34px rgba(0,0,0,.92),0 0 52px ${color}55">` +
+    (win ? 'Victory' : 'You Died') + '</div>' +
+    (sub ? `<div style="margin-top:12px;font-family:var(--disp,serif);font-weight:700;` +
+      `font-size:clamp(14px,2.6vw,21px);letter-spacing:.12em;text-transform:uppercase;` +
+      `color:#ece4d5;text-shadow:0 2px 12px rgba(0,0,0,.9)">${esc(sub)}</div>` : '');
+  document.body.appendChild(d);
+  d.animate([{ opacity: 0, transform: 'scale(1.08)' },
+             { opacity: 1, transform: 'scale(1)' }],
+    { duration: 550, fill: 'forwards', easing: 'ease-out' });
+}
+function clearBattleEnd() {
+  const d = battleEndEl;
+  if (!d) return;
+  battleEndEl = null;
+  d.animate([{ opacity: 1 }, { opacity: 0 }], { duration: 350, fill: 'forwards' })
+    .onfinish = () => d.remove();
 }
 
 /* The Pharos cutscene: the three earned seals are set into the door, the
@@ -527,7 +569,14 @@ function reactAudio(prev, next) {
   else if (battleish) scene = 'battle';
   else if (puzzleish) scene = 'puzzle';
   else if (next.phase === 'finished' || next.pharos_open) scene = 'endgame';
-  else if (REALM_MUSIC.has(curRealm)) scene = realmMusic(curRealm);   // open sea → the realm's own theme (desert alternates)
+  else {
+    // open sea → the realm's own theme (desert alternates). Prefer the LIVE
+    // active stage over curRealm so the track can't lag or flip mid-crossing.
+    const stg = world.currentStage?.();
+    const realm = REALM_MUSIC.has(stg) ? stg
+      : (REALM_MUSIC.has(curRealm) ? curRealm : null);
+    if (realm) scene = realmMusic(realm);
+  }
   audio.setScene(scene);
 
   /* duck under trivia cards — and under Simon, whose tones need the spotlight */
@@ -617,7 +666,7 @@ function playBattleBeats(rv) {
       });
       if (rv.battle_over) {
         beat(2100, () => audio.sfx.laurel());
-        beat(2500, () => world.battlePlay('victory'));
+        beat(2500, () => { world.battlePlay('victory'); showBattleEnd('win'); });
         beat(3100, () => setBTurn(`${icon('laurel', 18)} <strong>VICTORY!</strong>`));
         return;
       }
@@ -632,10 +681,24 @@ function playBattleBeats(rv) {
       setBTurn(`${icon(stance === 'magic' ? 'magic' : 'strike', 16)} YOUR MOVE — you hit for <strong>${ep.dealt}</strong>!`);
       if (ep.killed) beat(500, () => world.battlePlay('enemy_die', { idx }));
 
-      if (rv.battle_over) {
-        beat(500, () => audio.sfx.laurel());
-        beat(900, () => world.battlePlay('victory'));
-        beat(1500, () => setBTurn(`${icon('laurel', 18)} <strong>VICTORY!</strong>`));
+      if (rv.battle_over && !rv.player_dead) {
+        beat(900, () => audio.sfx.laurel());
+        beat(1300, () => { world.battlePlay('victory'); showBattleEnd('win'); });
+        beat(1900, () => setBTurn(`${icon('laurel', 18)} <strong>VICTORY!</strong>`));
+        return;
+      }
+      if (rv.battle_over && rv.player_dead) {
+        /* your blow landed — but the tyrant's counter drops you */
+        beat(1300, () => {
+          setBTurn(`ENEMY MOVE — ${foe} ${ep.heavy ? 'lands a <strong>HEAVY BLOW</strong>' : 'strikes'} for <strong>${ep.dmg}</strong>!`);
+          world.battlePlay('enemy_attack', { dmg: ep.dmg, heavy: ep.heavy });
+        });
+        beat(1700, () => { audio.sfx.hurt(); if (ep.heavy) audio.sfx.roar(); flashScreen('red'); shake(ep.heavy); landHit(); });
+        beat(2300, () => {
+          world.battlePlay('defeat');
+          setBTurn(`${icon('skull', 16)} <strong>SHIPWRECK…</strong>`);
+          showBattleEnd('death', 'The sea takes you back to your last haven.');
+        });
         return;
       }
       if (ep.evaded) {
@@ -690,7 +753,8 @@ function playBattleBeats(rv) {
     if (rv.battle_over) {
       beat(2100, () => {
         world.battlePlay('defeat');
-        setBTurn(`${icon('skull', 16)} <strong>SHIPWRECK…</strong> the sea takes you back.`);
+        setBTurn(`${icon('skull', 16)} <strong>SHIPWRECK…</strong>`);
+        showBattleEnd('death', 'The sea takes you back to your last haven.');
       });
       return;
     }
@@ -713,6 +777,8 @@ function playBattleBeats(rv) {
 function render() {
   if (!room) return;
   world.update(room, you);
+  // the VICTORY / YOU DIED beat lives only over the closing battle reveal
+  if (room.phase !== 'reveal') clearBattleEnd();
   const inLobby = room.phase === 'lobby';
   $('lobby').classList.toggle('hidden', !inLobby);
   $('hud').classList.toggle('hidden', inLobby);

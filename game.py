@@ -923,6 +923,7 @@ class Game:
         note = ""
         gained = 0
         battle_over = False
+        player_dead = False
         if True:
             m = self.board.nodes[self.battle["node"]]["monster"]
             enemies = m["enemies"]
@@ -1041,6 +1042,7 @@ class Game:
 
                 if p.hull <= 0:
                     battle_over = True
+                    player_dead = True
                     node = self.board.nodes[self.battle["node"]]
                     if node["type"] == "pharos":
                         self.board.reset_warden()   # a fresh Warden per challenger
@@ -1060,6 +1062,7 @@ class Game:
             "kind": "battle", "challenge": challenge,
             "domain": (self.qctx or {}).get("domain"), "side": side or {},
             "battle_over": battle_over,
+            "player_dead": player_dead,
             "enemy_phase": enemy_phase,
             "monster": self._battle_public(),
         }

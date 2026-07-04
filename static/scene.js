@@ -1503,6 +1503,20 @@ export function createWorld(container, handlers = {}) {
         7 - 5.4 * ease,
         cine.gate.z + (o.z - cine.gate.z) * ease);
       controls.update();
+      // sail the BOAT itself from just before the arch, THROUGH the pass, to its
+      // berth — so you watch it come through the gate instead of popping past it
+      const gfp = focusPid(lastRoom);
+      const grec = gfp ? ships[gfp] : null;
+      if (grec && grec.stageId === st.id && grec.mode !== 'foot') {
+        const berth = slotFor(grec.node, grec.idx, st);
+        let bx = berth.x - cine.gate.x, bz = berth.z - cine.gate.z;
+        const bl = Math.hypot(bx, bz) || 1; bx /= bl; bz /= bl;   // gate → realm
+        _vA.set(cine.gate.x - bx * 26, 0, cine.gate.z - bz * 26);  // hub side of arch
+        grec.anim = null;                          // the cinematic steers it now
+        grec.root.position.lerpVectors(_vA, berth, ease);
+        grec.root.position.y = 0;
+        grec.root.rotation.y = Math.atan2(-bz, bx);
+      }
       st.sun.position.copy(controls.target).addScaledVector(st.sunDir, 380);
       st.sun.target.position.copy(controls.target);
       return true;
