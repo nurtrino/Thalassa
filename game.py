@@ -85,13 +85,13 @@ UPGRADES = {
 # outright, for a hoard of scrolls. They are the deep sink a lucky run saves
 # toward. Each grants a permanent upgrade (stored in the same upgrade list).
 RELICS = {
-    "golden_fleece": {"name": "Golden Fleece", "cost": 12,
+    "golden_fleece": {"name": "Golden Fleece", "cost": 30,
                       "desc": "+5 max Health and a full heal, here and now"},
-    "poseidon_favor": {"name": "Poseidon's Favor", "cost": 10,
+    "poseidon_favor": {"name": "Poseidon's Favor", "cost": 26,
                        "desc": "The sea parts for you — crossings never ambush you"},
-    "titan_ram":     {"name": "Adamant Ram", "cost": 14,
+    "titan_ram":     {"name": "Adamant Ram", "cost": 34,
                       "desc": "+2 STRIKE damage (stacks with the Bronze Ram)"},
-    "oracle_eye":    {"name": "Eye of the Oracle", "cost": 10,
+    "oracle_eye":    {"name": "Eye of the Oracle", "cost": 28,
                       "desc": "Every battle question opens with two lies already burned"},
 }
 

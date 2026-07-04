@@ -839,6 +839,15 @@ const MAP_POI = {
   pharos: { icon: 'crown',   label: 'The Pharos',   cls: 'pharos' },
 };
 
+/* the five territory categories, drawn as tinted zones on the chart */
+const MAP_REGIONS = {
+  ice:    { cat: 'Frostbound', color: '#7fd4ef' },
+  desert: { cat: 'Sunscorched', color: '#e8c27a' },
+  jungle: { cat: 'Overgrown',  color: '#6fd490' },
+  autumn: { cat: 'Amberwood',  color: '#f0a24f' },
+  hub:    { cat: 'Safe Haven', color: '#d9a441' },
+};
+
 function renderMapBtn() {
   $('mapBtn').classList.toggle('hidden', !room || room.phase === 'lobby');
   if (mapOpen) renderMap();
@@ -863,9 +872,36 @@ function renderMap() {
   const minX = Math.min(...xs), maxX = Math.max(...xs);
   const minZ = Math.min(...zs), maxZ = Math.max(...zs);
   const spanX = Math.max(1, maxX - minX), spanZ = Math.max(1, maxZ - minZ);
-  const PAD = 7;                                   // % breathing room at the edges
+  const PAD = 8;                                   // % breathing room at the edges
   const px = (x) => PAD + ((x - minX) / spanX) * (100 - 2 * PAD);
   const py = (z) => PAD + ((z - minZ) / spanZ) * (100 - 2 * PAD);
+
+  /* ── territory zones: a tinted blob per realm (and the hub) so you can
+     read the five categories at a glance, each with its name and climate ── */
+  const groups = {};
+  for (const n of nodes) {
+    const key = n.region || 'hub';
+    (groups[key] = groups[key] || []).push(n);
+  }
+  const zoneSvg = [];
+  const zoneLabels = [];
+  for (const [key, gs] of Object.entries(groups)) {
+    const info = MAP_REGIONS[key];
+    if (!info) continue;
+    const lxs = gs.map((n) => px(n.x)), lys = gs.map((n) => py(n.z));
+    const lo = { x: Math.min(...lxs), y: Math.min(...lys) };
+    const hi = { x: Math.max(...lxs), y: Math.max(...lys) };
+    const cx = (lo.x + hi.x) / 2, cy = (lo.y + hi.y) / 2;
+    const rx = (hi.x - lo.x) / 2 + 5.5, ry = (hi.y - lo.y) / 2 + 5.5;
+    zoneSvg.push(
+      `<ellipse cx="${cx.toFixed(2)}" cy="${cy.toFixed(2)}" rx="${rx.toFixed(2)}" ry="${ry.toFixed(2)}"` +
+      ` fill="${info.color}" fill-opacity="0.1" stroke="${info.color}" stroke-opacity="0.4"` +
+      ` stroke-width="0.4" stroke-dasharray="1.4 1.1"/>`);
+    const name = key === 'hub' ? 'The Isles of Peace' : (REALM_INFO[key]?.name || key);
+    zoneLabels.push(
+      `<div class="mapzone-label" style="left:${cx.toFixed(2)}%;top:${cy.toFixed(2)}%;--rc:${info.color}">` +
+      `<span class="mzname">${esc(name)}</span><span class="mzcat">${esc(info.cat)}</span></div>`);
+  }
 
   /* faint route lines under everything */
   const lines = edges.map(([a, b]) => {
@@ -888,8 +924,8 @@ function renderMap() {
     }
     const poi = MAP_POI[n.type];
     if (!poi) return '';
-    // Only the landmarks carry a written label — the many hub facilities would
-    // pile their names on top of each other, so those show as an icon you hover.
+    // Landmarks always carry a written label. The repeated hub facilities show
+    // a labelled icon too, but smaller — hover for the isle's full name.
     const landmark = ['home', 'gate', 'lair', 'pharos'].includes(n.type);
     let label = poi.label;
     let done = false;
@@ -899,11 +935,14 @@ function renderMap() {
       if ((n.defeated || []).length) done = true;
     }
     const tint = realm || '';
+    // label landmarks always, and realm-road facilities (they're spread out);
+    // the tightly-packed hub facilities stay icon-only, named on hover.
+    const showLabel = landmark || !!n.region;
     return `<span class="mapnode ${poi.cls}${done ? ' done' : ''}${landmark ? ' land' : ''}"` +
       ` style="left:${l}%;top:${t}%"${tint ? ` data-accent="${tint}"` : ''}` +
       ` title="${esc(n.name || label)}">` +
-      `<span class="mpin">${icon(poi.icon, landmark ? 15 : 13)}</span>` +
-      (landmark ? `<span class="mlabel">${esc(label)}</span>` : '') + `</span>`;
+      `<span class="mpin">${icon(poi.icon, landmark ? 17 : 14)}</span>` +
+      (showLabel ? `<span class="mlabel">${esc(label)}</span>` : '') + `</span>`;
   }).join('');
 
   /* player tokens — small offset when several share a node */
@@ -913,8 +952,8 @@ function renderMap() {
     if (!n) return '';
     const k = p.node;
     const seat = (atNode[k] = (atNode[k] || 0) + 1) - 1;
-    const ox = (seat % 2 ? 1 : -1) * Math.ceil(seat / 2) * 2.2;
-    const oy = seat >= 2 ? 2.2 : 0;
+    const ox = (seat % 2 ? 1 : -1) * Math.ceil(seat / 2) * 2.4;
+    const oy = seat >= 2 ? 2.4 : 0;
     const mine = p.pid === you;
     const initial = esc((p.name || '?').slice(0, 1).toUpperCase());
     return `<span class="maptoken${mine ? ' you' : ''}" title="${esc(p.name)}${mine ? ' (you)' : ''}"` +
@@ -922,10 +961,20 @@ function renderMap() {
       `--pc:${p.color}">${initial}</span>`;
   }).join('');
 
+  /* the region key — the five categories spelled out */
+  const regionKey = Object.entries(MAP_REGIONS).map(([key, info]) => {
+    const name = key === 'hub' ? 'Isles of Peace' : (REALM_INFO[key]?.name || key);
+    return `<span><i class="rg" style="background:${info.color}"></i>` +
+      `${esc(name)} <em>· ${esc(info.cat)}</em></span>`;
+  }).join('');
+
   body.innerHTML =
     `<div class="mapframe">` +
       `<div class="maptitle">${icon('compass', 16)} Chart of the Aegean</div>` +
+      `<div class="mapregionkey">${regionKey}</div>` +
       `<div class="mapplot">` +
+        `<svg class="mapzones" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">${zoneSvg.join('')}</svg>` +
+        zoneLabels.join('') +
         `<svg class="maproutes" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">${lines}</svg>` +
         marks + tokens +
       `</div>` +

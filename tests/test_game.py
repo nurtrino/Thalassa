@@ -737,7 +737,10 @@ def test_legendary_relics_bought_outright_and_apply():
     p = g.player_by_pid(p0)
     shop = find_node(g, "shop")
     force_land(g, p0, shop)
-    p.scrolls = 30
+    fleece = G.RELICS["golden_fleece"]["cost"]
+    favor = G.RELICS["poseidon_favor"]["cost"]
+    p.scrolls = fleece + favor + G.SHOP_ITEMS["fitting"]["cost"] + 5
+    purse = p.scrolls
     base_max = p.max_hull
 
     # Golden Fleece: +5 max Health, full heal, bought outright (no offer screen)
@@ -746,14 +749,14 @@ def test_legendary_relics_bought_outright_and_apply():
     assert p.has("golden_fleece")
     assert p.max_hull == base_max + 5 and p.hull == p.max_hull
     assert g.phase == "shop"                          # a relic keeps you browsing
-    assert p.scrolls == 30 - 12
+    assert p.scrolls == purse - fleece
 
     # can't buy the same relic twice
     with pytest.raises(GameError):
         g.shop_buy(p0, "golden_fleece")
 
     g.shop_buy(p0, "poseidon_favor")
-    assert p.has("poseidon_favor") and p.scrolls == 30 - 12 - 10
+    assert p.has("poseidon_favor") and p.scrolls == purse - fleece - favor
 
     # a relic never leaks into the random fitting pool
     g.shop_buy(p0, "fitting")
@@ -766,10 +769,11 @@ def test_relic_cost_is_enforced():
     p = g.player_by_pid(p0)
     shop = find_node(g, "shop")
     force_land(g, p0, shop)
-    p.scrolls = 5                                     # a Golden Fleece is 12
+    cheapest = min(r["cost"] for r in G.RELICS.values())
+    p.scrolls = cheapest - 1                          # one short of any relic
     with pytest.raises(GameError):
         g.shop_buy(p0, "golden_fleece")
-    assert not p.has("golden_fleece") and p.scrolls == 5
+    assert not p.has("golden_fleece") and p.scrolls == cheapest - 1
 
 
 def test_adamant_ram_stacks_strike_damage():

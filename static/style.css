@@ -1507,7 +1507,7 @@ body.shake #world { animation: shake .45s; }
 #mapSheet {
   position: relative;
   display: flex; flex-direction: column;
-  width: min(940px, 96vw); height: min(88vh, 760px);
+  width: min(1060px, 97vw); height: min(92vh, 840px);
   padding: var(--s4) var(--s4) var(--s3);
   color: #3a2c14;
   background:
@@ -1542,15 +1542,51 @@ body.shake #world { animation: shake .45s; }
   margin-bottom: var(--s2);
 }
 .maptitle svg { width: 18px; height: 18px; }
+
+/* the region key — five climate categories spelled out */
+.mapregionkey {
+  display: flex; flex-wrap: wrap; justify-content: center; gap: 5px 16px;
+  margin: 0 0 var(--s2);
+}
+.mapregionkey span {
+  display: inline-flex; align-items: center; gap: 6px;
+  font-family: var(--disp); font-weight: 700; font-size: 12px;
+  letter-spacing: .04em; color: #4a3413;
+}
+.mapregionkey em { font-style: italic; font-weight: 600; color: #7a5a2e; letter-spacing: .02em; }
+.mapregionkey .rg {
+  width: 12px; height: 12px; border-radius: 3px; flex: none;
+  border: 1px solid rgba(60, 40, 14, .45);
+}
+
 .mapplot {
   position: relative; flex: 1; min-height: 0; margin: 0 auto; width: 100%;
   border: 1px solid rgba(120, 88, 40, .32); border-radius: 8px;
+  overflow: hidden;
   background:
-    repeating-linear-gradient(0deg, transparent 0 26px, rgba(120, 90, 40, .05) 26px 27px),
-    repeating-linear-gradient(90deg, transparent 0 26px, rgba(120, 90, 40, .05) 26px 27px);
+    repeating-linear-gradient(0deg, transparent 0 30px, rgba(120, 90, 40, .045) 30px 31px),
+    repeating-linear-gradient(90deg, transparent 0 30px, rgba(120, 90, 40, .045) 30px 31px);
 }
+.mapzones { position: absolute; inset: 0; width: 100%; height: 100%; }
 .maproutes { position: absolute; inset: 0; width: 100%; height: 100%; }
-.maproutes line { stroke: rgba(90, 62, 24, .34); stroke-width: .35; stroke-dasharray: 1.2 1.1; }
+.maproutes line { stroke: rgba(90, 62, 24, .3); stroke-width: .3; stroke-dasharray: 1.1 1.2; }
+
+/* the big faded realm names sitting under each territory */
+.mapzone-label {
+  position: absolute; transform: translate(-50%, -50%);
+  display: flex; flex-direction: column; align-items: center; gap: 1px;
+  text-align: center; pointer-events: none; z-index: 1;
+  mix-blend-mode: multiply; opacity: .5;
+}
+.mapzone-label .mzname {
+  font-family: var(--disp); font-weight: 800;
+  font-size: clamp(11px, 1.7vw, 16px); letter-spacing: .12em; text-transform: uppercase;
+  color: var(--rc, #6b4a1c); white-space: nowrap;
+}
+.mapzone-label .mzcat {
+  font-family: var(--disp); font-weight: 700; font-size: 9px;
+  letter-spacing: .3em; text-transform: uppercase; color: var(--rc, #6b4a1c);
+}
 
 .mapdot {
   position: absolute; width: 5px; height: 5px; border-radius: 50%;
@@ -1576,9 +1612,18 @@ body.shake #world { animation: shake .45s; }
 .mapnode.land .mpin { width: 27px; height: 27px; padding: 5px; }
 .mapnode .mpin svg { width: 100%; height: 100%; }
 .mapnode .mlabel {
-  font-family: var(--disp); font-weight: 700; font-size: 9.5px; letter-spacing: .04em;
-  color: #5a3d18; white-space: nowrap; text-shadow: 0 1px 0 rgba(255, 250, 233, .7);
-  max-width: 92px; overflow: hidden; text-overflow: ellipsis;
+  margin-top: 1px;
+  font-family: var(--disp); font-weight: 700; font-size: 8.5px; letter-spacing: .03em;
+  color: #6a4a20; white-space: nowrap; text-shadow: 0 1px 0 rgba(255, 250, 233, .85);
+  max-width: 88px; overflow: hidden; text-overflow: ellipsis; opacity: .82;
+}
+/* landmark labels read as headers: larger, darker, on a faint parchment pill */
+.mapnode.land .mlabel {
+  font-size: 11px; font-weight: 800; letter-spacing: .05em; color: #3a2810;
+  opacity: 1; max-width: 128px;
+  padding: 1px 6px; border-radius: 4px;
+  background: rgba(247, 240, 214, .82);
+  box-shadow: 0 1px 3px rgba(60, 40, 14, .25);
 }
 .mapnode.home .mpin  { color: #7a5a12; border-color: #b8901e; background: #fbedbf; }
 .mapnode.gate .mpin  { color: #4a6070; }
