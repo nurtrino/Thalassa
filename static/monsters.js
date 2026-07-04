@@ -44,14 +44,14 @@ export const MONSTER_IDS = [
  * game (battle sizing, map placement, camera framing) is tuned in WORLD
  * heights. Normalize every template to its species height at load. */
 const HEIGHTS = {
-  wolf: 1.5, fox: 1.2, jackal: 1.3, boar: 1.5, stag: 2.0, jaguar: 1.4,
-  stalker: 1.7, shambler: 1.9, harpy: 1.7, bird: 1.2, vulture: 1.5,
-  raider: 1.8, faun: 1.7, monkey: 1.3, cyclops: 2.6, drowned: 1.8,
+  wolf: 1.5, fox: 0.95, jackal: 1.1, boar: 1.5, stag: 2.0, jaguar: 1.4,
+  stalker: 1.7, shambler: 1.9, harpy: 1.7, bird: 1.0, vulture: 1.25,
+  raider: 1.8, faun: 1.7, monkey: 1.1, cyclops: 2.6, drowned: 1.8,
   golem: 2.4, siren: 1.8, wraith: 1.8, shade: 1.8, serpent: 2.2, drake: 1.7,
   briar: 1.7, crab: 1.3, scorpion: 1.6, skiff: 2.2, captain: 1.8,
   stag_king: 3.4, wyrm: 3.6, colossus: 4.2, matriarch: 4.2, warden: 4.6,
   tyrant: 4.2, kraken: 4.4, sphinx: 3.6,
-  wolf_frost: 1.5, golem_tomb: 2.4, golem_jade: 2.4, bird_poison: 1.2,
+  wolf_frost: 1.5, golem_tomb: 2.4, golem_jade: 2.4, bird_poison: 1.0,
   serpent_dust: 2.2, serpent_bloom: 2.2,
 };
 

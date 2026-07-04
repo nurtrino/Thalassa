@@ -22,6 +22,26 @@ export const PROP_IDS = [
   'autumn_tree', 'jungle_tree', 'cactus', 'dead_scrub', 'fern_cluster', 'reeds',
 ];
 
+/* Natural WORLD height per prop (units; captain = 1.8). The old flat 1.6
+ * normalization made palms shorter than a man and icebergs knee-high —
+ * every id is now sized from the scale-review contact sheets
+ * (static/scaletest.html + tools sheets in the session log). */
+const PROP_HEIGHTS = {
+  // core filler
+  boulder: 1.4, ruined_column: 1.3, shipwreck: 3.0, crystal_cluster: 1.6,
+  broken_statue: 1.6, cairn: 1.4, dead_tree: 2.8, driftwood: 0.8,
+  amphora_pile: 1.0, coral: 1.1, mushroom_cluster: 1.0, ice_shard: 1.6,
+  bone_pile: 0.7, mossy_idol: 1.6,
+  // environment
+  iceberg: 4.5, sand_dune: 1.4, barrel: 0.9, fishing_net: 0.6, brazier: 1.2,
+  stone_well: 2.0, sarcophagus: 1.4, ruined_arch: 3.0, banner_pole: 2.6,
+  campfire: 0.8, lily_pads: 0.35, tide_pool: 0.5,
+  // biome flora
+  pine_tree: 3.8, pine_snow: 3.8, palm_tree: 3.6, cypress_tree: 3.6,
+  olive_tree: 2.6, autumn_tree: 3.2, jungle_tree: 3.4, cactus: 2.2,
+  dead_scrub: 1.0, fern_cluster: 0.9, reeds: 1.5,
+};
+
 const loader = new GLTFLoader();
 const templates = new Map();   // id → Promise<Group|null> (never rejects)
 
@@ -32,10 +52,10 @@ function ensure(id) {
     .then((gltf) => {
       const s = gltf.scene;
       s.traverse((o) => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; } });
-      // normalize to ~1.6 units tall and rest its base on the ground
+      // normalize to the prop's NATURAL height and rest it on the ground
       const box = new THREE.Box3().setFromObject(s);
       const h = Math.max(0.001, box.max.y - box.min.y);
-      s.scale.setScalar(1.6 / h);
+      s.scale.setScalar((PROP_HEIGHTS[id] || 1.6) / h);
       const b2 = new THREE.Box3().setFromObject(s);
       s.position.y -= b2.min.y;
       return s;

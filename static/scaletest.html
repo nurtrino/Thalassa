@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>model scale review</title>
+<script type="importmap">{ "imports": { "three": "/static/vendor/three.module.min.js" } }</script>
+<style>
+  html,body{margin:0;height:100%;background:#18242f;overflow:hidden}
+  #world{position:fixed;inset:0}
+  #label{position:fixed;left:10px;top:8px;color:#ffe9b0;font:16px/1.3 monospace;
+         text-shadow:0 1px 3px #000;white-space:pre}
+</style>
+</head>
+<body>
+<div id="world"></div>
+<div id="label"></div>
+<script type="module">
+/* Scale-review lineup: every model is shown next to the CAPTAIN (1.8u — the
+ * player figure) and a graduated meter pole, at the exact scale the game
+ * applies (monsters.js HEIGHTS / islands.js structure targets / props.js).
+ * Drive with window.__show(kind, id) → resolves when the model is placed. */
+import * as THREE from 'three';
+import { getMonster, MONSTER_IDS } from '/static/monsters.js';
+import { propGroup, PROP_IDS } from '/static/props.js';
+import { GLTFLoader } from '/static/vendor/GLTFLoader.js';
+
+const el = document.getElementById('world');
+const label = document.getElementById('label');
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setPixelRatio(1);
+renderer.setSize(innerWidth, innerHeight);
+renderer.shadowMap.enabled = true;
+renderer.outputColorSpace = THREE.SRGBColorSpace;
+el.appendChild(renderer.domElement);
+
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x22303c);
+scene.add(new THREE.HemisphereLight(0xe8f2ff, 0x3a4a58, 1.15));
+const sun = new THREE.DirectionalLight(0xfff1d6, 1.7);
+sun.position.set(30, 60, 40);
+sun.castShadow = true;
+scene.add(sun);
+scene.add(new THREE.AmbientLight(0x44586a, 0.55));
+
+const cam = new THREE.PerspectiveCamera(45, innerWidth / innerHeight, 0.1, 3000);
+
+/* stage: ground + 1-unit checker strip so distance reads too */
+const ground = new THREE.Mesh(new THREE.PlaneGeometry(400, 400),
+  new THREE.MeshStandardMaterial({ color: 0x51636f }));
+ground.rotation.x = -Math.PI / 2;
+ground.receiveShadow = true;
+scene.add(ground);
+const grid = new THREE.GridHelper(400, 400, 0x6a7c88, 0x435361);
+grid.position.y = 0.01;
+scene.add(grid);
+
+/* reference: graduated pole — alternating 1u bands up to 6u */
+const pole = new THREE.Group();
+for (let i = 0; i < 6; i++) {
+  const seg = new THREE.Mesh(new THREE.BoxGeometry(0.18, 1, 0.18),
+    new THREE.MeshStandardMaterial({ color: i % 2 ? 0xd9a441 : 0xf2ede0 }));
+  seg.position.y = i + 0.5;
+  pole.add(seg);
+}
+pole.position.set(-3.2, 0, 0);
+scene.add(pole);
+
+/* reference: the captain (player figure, 1.8u) */
+const refHolder = new THREE.Group();
+refHolder.position.set(-1.7, 0, 0);
+refHolder.rotation.y = Math.PI / 2;   // face the camera-ish
+scene.add(refHolder);
+getMonster('captain').then((m) => refHolder.add(m));
+
+/* structure targets — mirror islands.js mounts; unmounted ones use a review
+ * height so they can still be judged */
+const STRUCT = {
+  pharos: { h: 26 }, temple: { h: 4.6 }, temple_ice: { h: 4.6 },
+  temple_desert: { h: 4.6 }, temple_jungle: { h: 4.6 }, temple_autumn: { h: 4.6 },
+  market: { h: 3.2 }, obelisk: { h: 3.6 }, tents: { h: 2.3 },
+  lighthouse: { h: 4.6 }, dock: { len: 5.6 },
+  ship: { h: 3.0, note: 'UNMOUNTED' }, gate_portal: { h: 12, note: 'UNMOUNTED' },
+  sand_spire: { h: 2.6, note: 'UNMOUNTED' },
+};
+
+const gltf = new GLTFLoader();
+let current = null;
+
+function measure(obj) {
+  const box = new THREE.Box3().setFromObject(obj);
+  return { h: box.max.y - box.min.y, w: box.max.x - box.min.x,
+           d: box.max.z - box.min.z, box };
+}
+
+function frame(h, w) {
+  const size = Math.max(h * 1.15, w * 0.7, 2.6);
+  const dist = size * 2.3;
+  cam.position.set(dist * 0.25, Math.max(1.7, h * 0.55), dist);
+  cam.lookAt(-0.5, Math.max(1.1, h * 0.42), 0);
+}
+
+window.__show = async (kind, id) => {
+  if (current) { scene.remove(current); current = null; }
+  const holder = new THREE.Group();
+  holder.position.set(1.6, 0, 0);
+  if (kind === 'monster') {
+    const m = await getMonster(id);
+    holder.add(m);
+  } else if (kind === 'prop') {
+    holder.add(propGroup(id, 1));
+    await new Promise((r) => setTimeout(r, 900));   // async pop-in
+  } else {
+    const spec = STRUCT[id] || { h: 4 };
+    const g = await gltf.loadAsync(`/static/assets/structures/${id}.glb`);
+    const s = g.scene;
+    const box = new THREE.Box3().setFromObject(s);
+    const k = spec.h ? spec.h / (box.max.y - box.min.y)
+                     : spec.len / (box.max.x - box.min.x);
+    s.scale.setScalar(k);
+    const b2 = new THREE.Box3().setFromObject(s);
+    s.position.set(-(b2.max.x + b2.min.x) / 2, -b2.min.y, -(b2.max.z + b2.min.z) / 2);
+    holder.add(s);
+  }
+  scene.add(holder);
+  current = holder;
+  await new Promise((r) => setTimeout(r, 120));
+  const m = measure(holder);
+  frame(m.h, Math.max(m.w, m.d));
+  const note = (STRUCT[id] && STRUCT[id].note) ? ' ' + STRUCT[id].note : '';
+  label.textContent = `${kind}:${id}${note}\nH=${m.h.toFixed(2)}u  W=${m.w.toFixed(2)}u  D=${m.d.toFixed(2)}u   (captain=1.8u, pole bands=1u)`;
+  renderer.render(scene, cam);
+  return { h: m.h, w: m.w, d: m.d };
+};
+
+window.__ids = {
+  monster: MONSTER_IDS,
+  prop: PROP_IDS,
+  structure: Object.keys(STRUCT),
+};
+
+renderer.setAnimationLoop(() => renderer.render(scene, cam));
+window.__ready = true;
+</script>
+</body>
+</html>

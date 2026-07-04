@@ -98,13 +98,47 @@ const COL = {
   wood: 0x9a6b3f, woodDark: 0x74502f, bone: 0xe8e2d2,
 };
 
-/* ── terrain (radial sculpted mesh, vertex-colored) — ported from legacy ── */
+/* ── terrain — REVAMPED procedural island engine ─────────────────────────
+ * Real-island rules, no radial artifacts:
+ *   · the COASTLINE is seeded 2D noise sampled around a circle — every isle
+ *     an organic, asymmetric blob (never a star, never symmetric)
+ *   · HEIGHT follows the mode profile, with noise RELIEF that fades in
+ *     toward the rim — the heart of the island stays exactly on heightAt()
+ *     so buildings and flora never float
+ *   · COLOURS band by elevation like a real shore — wet sand, dry beach, a
+ *     dithered blend into grass, noise-patched rock — with every band line
+ *     wavered by world-space noise. NOTHING is a function of angle: no
+ *     pinwheels, no bullseyes, no swirl.
+ */
+function makeNoise2D(seed) {
+  const rng = mulberry32(seed);
+  const perm = new Uint8Array(512);
+  const srcp = Array.from({ length: 256 }, (_, i) => i);
+  for (let i = 255; i > 0; i--) {
+    const j = (rng() * (i + 1)) | 0;
+    const t = srcp[i]; srcp[i] = srcp[j]; srcp[j] = t;
+  }
+  for (let i = 0; i < 512; i++) perm[i] = srcp[i & 255];
+  const val = (ix, iz) => perm[(ix & 255) + perm[iz & 255]] / 255;
+  return (x, z) => {
+    const ix = Math.floor(x), iz = Math.floor(z);
+    const fx = x - ix, fz = z - iz;
+    const sx = fx * fx * (3 - 2 * fx), sz = fz * fz * (3 - 2 * fz);
+    const a = val(ix, iz), b = val(ix + 1, iz);
+    const c = val(ix, iz + 1), d = val(ix + 1, iz + 1);
+    return a + (b - a) * sx + (c - a) * sz + (a - b - c + d) * sx * sz;
+  };
+}
+
 export function makeTerrain({ seed, R, H, mode = 'hill', palette = {}, lobes = 0, tex = null }) {
   const rng = mulberry32(seed);
-  const SEG_A = 44, SEG_R = 13;
-  const ex = 0.78 + rng() * 0.55;
-  const ez = 0.78 + rng() * 0.55;
-  const rugged = 0.8 + rng() * (mode === 'mesa' ? 0.7 : 1.4);
+  const noise = makeNoise2D((seed ^ 0x9e3779) >>> 0);
+  const fbm = (x, z) => (noise(x, z) + 0.5 * noise(x * 2.13 + 37.7, z * 2.13 - 19.1)
+                         + 0.25 * noise(x * 4.31 - 53.3, z * 4.31 + 11.9)) / 1.75;
+  const SEG_A = 48, SEG_R = 13;
+  const ex = 0.8 + rng() * 0.5;
+  const ez = 0.8 + rng() * 0.5;
+  const rugged = 0.6 + rng() * (mode === 'mesa' ? 0.5 : 1.0);
   const hueDrift = (c, dh, ds, dl) => {
     const hsl = {};
     c.getHSL(hsl);
@@ -120,13 +154,12 @@ export function makeTerrain({ seed, R, H, mode = 'hill', palette = {}, lobes = 0
     grass2: hueDrift(new THREE.Color(palette.grass2 ?? COL.grass2), gShift, 0, (rng() - 0.5) * 0.08),
     rock: new THREE.Color(palette.rock ?? COL.rock),
   };
-  const h1a = (0.07 + rng() * 0.12) * rugged, h1k = 2 + Math.floor(rng() * 2), h1p = rng() * 6.28;
-  const h2a = (0.05 + rng() * 0.09) * rugged, h2k = 4 + Math.floor(rng() * 3), h2p = rng() * 6.28;
-  const h3a = (0.02 + rng() * 0.07) * rugged, h3k = 7 + Math.floor(rng() * 5), h3p = rng() * 6.28;
-  const edge = (a) => (1 + h1a * Math.sin(a * h1k + h1p) + h2a * Math.sin(a * h2k + h2p)
-                         + h3a * Math.sin(a * h3k + h3p))
-                      * (1 + lobes * Math.sin(2 * a + h1p));
-  const bump = (a, rr) => 1 + 0.16 * Math.sin(a * 3 + h1p + rr * 5) * rr;
+  // the coastline: noise around the unit circle — organic and closed
+  const eoff = rng() * 90;
+  const ephase = rng() * 6.28;
+  const edge = (a) => (0.78 + 0.52 * rugged
+                        * fbm(Math.cos(a) * 2.3 + eoff, Math.sin(a) * 2.3 + eoff))
+                      * (1 + lobes * Math.sin(2 * a + ephase));
   const smooth = (a, b, x) => {
     const k = Math.min(1, Math.max(0, (x - a) / (b - a)));
     return k * k * (3 - 2 * k);
@@ -142,31 +175,55 @@ export function makeTerrain({ seed, R, H, mode = 'hill', palette = {}, lobes = 0
   const pos = [], col = [], idx = [], uvs = [];
   const RINGS = SEG_R + 3;
   const heightAt = (rr) => Math.max(0, profile(Math.min(rr, 1)));
+  const _sand = new THREE.Color();
 
   for (let ri = 0; ri <= RINGS; ri++) {
     for (let ai = 0; ai < SEG_A; ai++) {
       const a = (ai / SEG_A) * Math.PI * 2;
-      let rr, y;
-      if (ri <= SEG_R) {
-        rr = ri / SEG_R;
-        y = heightAt(rr) * bump(a, rr);
-        if (ri === SEG_R) y = 0.08;
-      } else {
-        const k = ri - SEG_R;
-        rr = 1 + k * 0.09;
-        y = -k * 1.15;
-      }
+      let rr;
+      if (ri <= SEG_R) rr = ri / SEG_R;
+      else rr = 1 + (ri - SEG_R) * 0.09;
       const wr = rr * R * edge(a);
       const px = Math.cos(a) * wr * ex, pz = Math.sin(a) * wr * ez;
+      let y;
+      if (ri <= SEG_R) {
+        // relief fades IN toward the rim: the heart stays on heightAt()
+        const relief = 1 + (fbm(px * 0.16 + 5.1, pz * 0.16 - 8.7) - 0.5)
+                         * 0.8 * rugged * smooth(0.4, 0.95, rr);
+        y = heightAt(rr) * relief;
+        if (ri === SEG_R) y = 0.08;                     // the waterline lip
+      } else {
+        y = -(ri - SEG_R) * 1.15;                       // submerged flank
+      }
       pos.push(px, y, pz);
       uvs.push(px / GROUND_TILE, pz / GROUND_TILE);
+
       const c = new THREE.Color();
       const hFrac = y / Math.max(H, 0.001);
-      if (ri > SEG_R) c.copy(ri === SEG_R + 1 ? P.sandWet : P.rock).multiplyScalar(0.75);
-      else if (y < 0.42) c.copy(rr > 0.93 ? P.sandWet : P.sand);
-      else if (mode === 'mesa' && hFrac > 0.62 && rr > 0.42) c.copy(P.rock);
-      else if (mode === 'peak' && hFrac > 0.55) c.copy(P.rock).lerp(new THREE.Color(COL.rockDark), (hFrac - 0.55) * 1.6);
-      else c.copy(P.grass).lerp(P.grass2, (Math.sin(a * 5 + rr * 9 + h2p) + 1) / 2);
+      const n = fbm(px * 0.42 + 11.3, pz * 0.42 - 23.9); // slow world mottle
+      const dither = (n - 0.5) * 0.24;                   // wavers every band line
+      if (ri > SEG_R) {
+        c.copy(ri === SEG_R + 1 ? P.sandWet : P.rock).multiplyScalar(0.75);
+      } else {
+        const beachTop = Math.min(0.34, H * 0.2)
+          + dither * Math.min(1, H * 0.55);              // wandering shoreline
+        if (rr > 0.94) c.copy(P.sandWet);
+        else if (y < beachTop) c.copy(P.sand);
+        else if (mode === 'mesa' && rr > 0.5 + dither * 0.5 && rr < 0.96) {
+          c.copy(P.rock);   // the carved cliff walls
+        } else if (mode === 'peak' && hFrac + dither > 0.53) {
+          c.copy(P.rock).lerp(new THREE.Color(COL.rockDark),
+            Math.min(1, Math.max(0, (hFrac - 0.53) * 1.6)));
+        } else {
+          // grassland: two tones in soft world-space patches, sun-dried in spots
+          c.copy(P.grass).lerp(P.grass2, fbm(px * 0.5 - 31.7, pz * 0.5 + 47.3));
+          c.lerp(P.sand, smooth(0.62, 0.92, n) * 0.16);
+          // dithered beach→grass blend so the shore is never a hard ring
+          const k = smooth(beachTop, beachTop + Math.min(0.32, H * 0.24), y);
+          _sand.copy(P.sand);
+          c.lerpColors(_sand, c, k);
+        }
+      }
       col.push(c.r, c.g, c.b);
     }
   }
