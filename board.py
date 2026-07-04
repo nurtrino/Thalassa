@@ -263,17 +263,22 @@ class Board:
         self._insert_waypoints(rng)
 
     def _grow_region(self, gi: int, theme: str, ang: float, rings, names, rng):
-        """A pass through the mountain wall, then a FORK: two ways to the boss.
+        """A pass through the mountain wall, then ONE MAIN ROAD to the boss —
+        with teeth on the side:
 
-          · The PERILOUS road — short and straight, but every stop is an elite
-            hunting ground in deep water. Race it if your ship can take the
-            beating.
-          · The LONG road — a wide arc of many stops, mostly quiet sailing with
-            a haven to camp and a shrine for scrolls, and only a couple of weak
-            packs. Slow, but survivable.
+          · The MAIN ROAD — a long arc of stops: quiet water, weak packs, a
+            shrine. The spine every captain can walk.
+          · The SHORTCUT — branches off the main road early and rejoins at the
+            junction: far fewer stops, but every one an elite hunting ground
+            in deep water. Risk it to shave turns.
+          · The HAVEN LOOP — a short side-loop that leaves the main road and
+            rejoins it one stop later, carrying a GUARANTEED haven checkpoint.
+            Because it sits on a loop, an exact roll can always be tuned to
+            land there — no more 'can't roll the checkpoint'.
 
-        Both rejoin at a junction just short of the boss altar. The desert
-        realm is crossed on foot; its 'sea' stops are dune trail, not water."""
+        The desert is much simpler — a straight trail with a single elite
+        fork and the haven bypass — and it is crossed on foot (as is the
+        Amber Vale's forest track)."""
         info = REGION_POOL[theme]
         mode = info.get("mode", "sail")
         trail = "Dune Trail" if mode == "foot" else "Open Sea"
@@ -342,47 +347,95 @@ class Board:
         self._link(appR_id, lair_id)
         self._link(appF_id, lair_id)
 
-        # ── the PERILOUS road: 3 elite grounds, straight and deep ────────────
-        hard = [gate_id]
-        for i in range(1, 4):
-            nid = f"r{gi}_h{i}"
-            a = ang + rng.uniform(-0.04, 0.04)
-            make_monster(place(nid, R0 + i * 88, a, 4 + i), elite=True, depth=4 + i)
-            hard.append(nid)
-        hard.append(junc_id)
-        for u, v in zip(hard, hard[1:]):
-            self._link(u, v)
+        def make_haven(node):
+            node["type"] = "haven"
+            node["name"] = names.pop()
+            node.pop("look", None)
 
-        # ── the LONG road: a wide safe arc with a haven and a shrine ─────────
+        def make_shrine(node):
+            node["type"] = "shrine"
+            node["name"] = names.pop()
+            node["domain"] = rng.choice(DOMAINS)
+            node["charges"] = SHRINE_CHARGES
+            node["tier"] = 2
+            node.pop("look", None)
+
         side = rng.choice([-1, 1])
-        plan = ["sea", "weak", "haven", "sea", "weak", "shrine", "sea"]
-        rng2 = plan[:]
-        long = [gate_id]
+        simple = mode == "foot" and theme == "desert"
+
+        # ── the MAIN ROAD: an arc of stops bowing out to one side ────────────
+        # desert: a short straight trail; elsewhere: the long scenic spine
+        plan = (["sea", "haven", "shrine", "weak"] if simple else
+                ["sea", "weak", "sea", "shrine", "weak", "sea"])
+        main = [gate_id]
         n = len(plan)
+        loop_a = loop_b = None                 # where the haven loop hangs
         for i, kind in enumerate(plan):
             t = (i + 1) / (n + 1)
-            radius = R0 + 55 + t * (360 - 55)
-            a = ang + side * 0.62 * math.sin(math.pi * t)     # bow out, then back
-            depth = 1 + i // 3                                 # shallow: 1,1,1,2,2,2,3
-            nid = f"r{gi}_e{i}"
+            radius = R0 + 55 + t * (340 - 75)
+            bow = 0.2 if simple else 0.55
+            a = ang + side * bow * math.sin(math.pi * t)      # bow out, then back
+            depth = 1 + (i * 3) // n                          # 1 … 3 up the spine
+            nid = f"r{gi}_m{i}"
             node = place(nid, radius, a, depth)
             if kind == "weak":
                 make_monster(node, elite=False, depth=min(2, depth))
             elif kind == "haven":
-                node["type"] = "haven"
-                node["name"] = names.pop()
-                node.pop("look", None)
+                make_haven(node)
             elif kind == "shrine":
-                node["type"] = "shrine"
-                node["name"] = names.pop()
-                node["domain"] = rng.choice(DOMAINS)
-                node["charges"] = SHRINE_CHARGES
-                node["tier"] = 2
-                node.pop("look", None)
-            long.append(nid)
-        long.append(junc_id)
-        for u, v in zip(long, long[1:]):
+                make_shrine(node)
+            main.append(nid)
+            if simple:
+                # the desert haven gets a BYPASS so it sits on a loop
+                if kind == "haven":
+                    loop_a, loop_b = main[-2], None            # stop before it
+                elif loop_a and loop_b is None and kind != "haven":
+                    loop_b = nid                               # stop after it
+            else:
+                if i == 2:
+                    loop_a = nid                               # loop leaves here
+                elif i == 3:
+                    loop_b = nid                               # …and rejoins here
+        main.append(junc_id)
+        for u, v in zip(main, main[1:]):
             self._link(u, v)
+
+        # ── the HAVEN LOOP / desert bypass: a checkpoint on a cycle ──────────
+        if simple:
+            # bypass runs parallel past the haven: loop_a → v0 → loop_b
+            v0 = f"r{gi}_v0"
+            mid_a = (self.nodes[loop_a]["x"] + self.nodes[loop_b]["x"]) / 2
+            mid_z = (self.nodes[loop_a]["z"] + self.nodes[loop_b]["z"]) / 2
+            r_mid = math.hypot(mid_a, mid_z)
+            a_mid = math.atan2(mid_z, mid_a) - side * 0.14
+            place(v0, r_mid, a_mid, 1)
+            self._link(loop_a, v0)
+            self._link(v0, loop_b)
+        else:
+            # the loop bulges AWAY from the main arc's bow and carries the haven
+            v0, v1 = f"r{gi}_v0", f"r{gi}_v1"
+            ra = math.hypot(self.nodes[loop_a]["x"], self.nodes[loop_a]["z"])
+            rb = math.hypot(self.nodes[loop_b]["x"], self.nodes[loop_b]["z"])
+            aa = math.atan2(self.nodes[loop_a]["z"], self.nodes[loop_a]["x"])
+            make_haven(place(v0, ra + 20, aa - side * 0.24, 1))
+            place(v1, rb + 15, aa - side * 0.14, 1)
+            self._link(loop_a, v0)
+            self._link(v0, v1)
+            self._link(v1, loop_b)
+
+        # ── the SHORTCUT: fewer stops, all elite, rejoins at the junction ────
+        branch = main[1]                       # leaves the road at the first stop
+        count = 1 if simple else 2
+        prev = branch
+        for i in range(count):
+            nid = f"r{gi}_s{i}"
+            t = (i + 1) / (count + 1)
+            radius = R0 + 90 + t * (340 - 120)
+            a = ang - side * 0.30 * math.sin(math.pi * t)     # hugs the far side
+            make_monster(place(nid, radius, a, 5 + i), elite=True, depth=5 + i)
+            self._link(prev, nid)
+            prev = nid
+        self._link(prev, junc_id)
 
     def _insert_waypoints(self, rng):
         """Split every island-to-island edge into a chain of open-sea nodes,

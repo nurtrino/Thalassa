@@ -69,7 +69,8 @@ const THEMES = {
 
   jungle: {
     id: 'jungle',
-    water: { deep: 0x0b5548, shallow: 0x35b287, sparkle: 0.65, chop: 0.8 },
+    // silt-brown river water — the Verdigris Deep runs muddy, not blue
+    water: { deep: 0x4a3a1c, shallow: 0x8a7440, sparkle: 0.4, chop: 0.7 },
     ground: 'water',
     sky: { zenith: 0x1f7fae, mid: 0x7cc4ad, horizon: 0xdcecb4 },
     fog: { color: 0x86b294, near: 24, far: 260 },
@@ -84,14 +85,15 @@ const THEMES = {
 
   autumn: {
     id: 'autumn',
+    // crossed ON FOOT now: the 'ground' plane is a leaf-litter forest floor
     water: { deep: 0x4e3c1e, shallow: 0xd0913c, sparkle: 1.5, chop: 0.85 },
-    ground: 'water',
+    ground: 'sand',
     sky: { zenith: 0x3c4e88, mid: 0xd88c50, horizon: 0xf8ce74 },
     fog: { color: 0xe3b184, near: 48, far: 300 },
     sun: { color: 0xffc274, intensity: 1.65, position: [250, 85, 150] },
     hemi: { sky: 0xf3d2a0, ground: 0x6e4a2e, intensity: 0.7 },
     ambient: 0x362619,
-    palette: { grass: 0xc9772e, grass2: 0x9c4f22, sand: 0xe8d5a8, rock: 0x8a6a52 },
+    palette: { grass: 0xc9772e, grass2: 0x5e5a24, sand: 0x9a8a46, rock: 0x8a6a52 },
     flora: 'autumn',
     particles: 'leaves',
     wall: { rock: 0x74584a, snow: 0xf6e9d2, glow: 0xf0a24f },

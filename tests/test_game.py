@@ -981,46 +981,60 @@ def test_desert_realm_is_crossed_on_foot():
         assert all(n.get("mode") == "sail" for n in sailing)
 
 
-def test_realms_fork_into_a_hard_and_an_easy_road():
+def test_realms_run_one_main_road_with_teeth():
+    """Each realm: a MAIN road (weak packs, a shrine), an elite SHORTCUT that
+    rejoins at the junction and genuinely saves distance, and a HAVEN that
+    sits ON A LOOP so an exact roll can always be tuned to land there."""
     import collections
+
+    def bfs(b, s, t, avoid=()):
+        q, seen = collections.deque([(s, 0)]), {s, *avoid}
+        while q:
+            cur, d = q.popleft()
+            if cur == t:
+                return d
+            for nb in b.neighbors[cur]:
+                if nb not in seen:
+                    seen.add(nb)
+                    q.append((nb, d + 1))
+        return -1
+
     for seed in range(5):
         b = Board(seed)
         for theme in b.regions:
+            realm = {nid: n for nid, n in b.nodes.items()
+                     if n.get("region") == theme}
             gate = next(nid for nid, n in b.nodes.items()
                         if n["type"] == "gate" and n.get("region") == theme)
-            lair = next(nid for nid, n in b.nodes.items()
-                        if n["type"] == "lair" and n["region"] == theme)
+            lair = next(nid for nid in realm if realm[nid]["type"] == "lair")
 
-            # the PERILOUS road exists: elite grounds in deep water
-            hard = [n for nid, n in b.nodes.items()
-                    if "_h" in nid and n.get("region") == theme
-                    and n["type"] == "monster"]
-            assert len(hard) == 3
-            assert all(n.get("elite") and n["depth"] >= 5 for n in hard)
+            # the SHORTCUT: elite grounds in deep water (desert keeps it small)
+            elites = [n for nid, n in realm.items()
+                      if n["type"] == "monster" and n.get("elite")]
+            want = 1 if theme == "desert" else 2
+            assert len(elites) == want
+            assert all(n["depth"] >= 5 for n in elites)
 
-            # the LONG road exists: a haven, a shrine, and only weak packs
-            easy_mon = [n for nid, n in b.nodes.items()
-                        if "_e" in nid and n.get("region") == theme
-                        and n["type"] == "monster"]
-            assert easy_mon and all(not n.get("elite") and n["depth"] <= 2
-                                    for n in easy_mon)
-            realm = [n for n in b.nodes.values() if n.get("region") == theme]
-            assert any(n["type"] == "haven" for n in realm)
-            assert any(n["type"] == "shrine" for n in realm)
+            # the MAIN road: only weak packs, plus a shrine to pray at
+            weak = [n for nid, n in realm.items()
+                    if n["type"] == "monster" and not n.get("elite")]
+            assert weak and all(n["depth"] <= 2 for n in weak)
+            assert any(n["type"] == "shrine" for n in realm.values())
 
-            # both roads reach the boss; the wilds are a real crawl (not a
-            # 2-roll sprint) — shortest approach is many exact steps
-            def bfs(s, t):
-                q = collections.deque([(s, 0)]); seen = {s}
-                while q:
-                    cur, d = q.popleft()
-                    if cur == t:
-                        return d
-                    for nb in b.neighbors[cur]:
-                        if nb not in seen:
-                            seen.add(nb); q.append((nb, d + 1))
-                return -1
-            assert bfs(gate, lair) >= 10
+            # the HAVEN sits on a loop: its two road-neighbours stay connected
+            # even with the haven removed — you can always circle to land on it
+            havens = [nid for nid, n in realm.items() if n["type"] == "haven"]
+            assert havens
+            for h in havens:
+                nbrs = b.neighbors[h]
+                assert len(nbrs) >= 2
+                assert bfs(b, nbrs[0], nbrs[-1], avoid=(h,)) > 0
+
+            # the shortcut genuinely SHORTENS the trek — and the trek is real
+            short_ids = [nid for nid in realm if "_s" in nid]
+            full = bfs(b, gate, lair)
+            main_only = bfs(b, gate, lair, avoid=short_ids)
+            assert 10 <= full < main_only
 
 
 def test_realm_spines_carry_depth():

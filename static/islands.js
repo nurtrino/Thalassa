@@ -1118,6 +1118,23 @@ export function buildIsland(node, theme, domains) {
 
   if (node.type === 'sea') {
     if (foot) {
+      if (theme.id === 'autumn') {
+        // a forest track through the Amber Vale: a mossy waymarker stone in
+        // a grove of amber trees, on a carpet of fallen leaves
+        const stone = makeRock(rng0, 0.8, 0x8a7a62);
+        stone.position.y = 0.35;
+        g.add(stone);
+        for (let i = 0; i < 4 + Math.floor(rng0() * 3); i++) {
+          const tree = floraFor(theme, rng0, 0.9 + rng0() * 0.8);
+          const a = rng0() * 6.28;
+          const r = 2.4 + rng0() * 3.4;
+          tree.position.set(Math.cos(a) * r, 0, Math.sin(a) * r);
+          g.add(tree);
+        }
+        g.add(sandRippleRing(2.4, 0xb98a3e));       // drifted leaves, not sand
+        g.position.set(node.x, 0, node.z);
+        return { group: g, R: 3.4, plateauY: 0 };
+      }
       // dune waypoints on the trek: a cairn, or the bones of the last caravan
       const marker = rng0() < 0.6 ? makeCairn(rng0) : makeRibs(rng0);
       marker.scale.setScalar(1.4);
@@ -1236,7 +1253,18 @@ export function buildIsland(node, theme, domains) {
     g.add(rk);
   } else if (node.type === 'haven') {
     terrain = makeTerrain({ seed, R, H: foot ? 1.2 : 1.8, mode: 'flat', palette: { ...footPal } });
-    if (foot) {
+    if (foot && theme.id === 'autumn') {
+      // a woodland camp: tents in a clearing ringed by amber trees
+      const t = makeTents(rng0);
+      t.position.y = terrain.heightAt(0.2);
+      g.add(t);
+      for (let i = 0; i < 3; i++) {
+        const tree = floraFor(theme, rng0, 0.9 + rng0() * 0.4);
+        const a = rng0() * 6.28;
+        tree.position.set(Math.cos(a) * R * 0.55, terrain.heightAt(0.55), Math.sin(a) * R * 0.55);
+        g.add(tree);
+      }
+    } else if (foot) {
       const oasis = makeOasis(rng0, theme);
       oasis.position.y = terrain.heightAt(0.15) + 0.02;
       g.add(oasis);
