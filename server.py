@@ -153,6 +153,7 @@ async def minigame_timer(nonce: int, limit: float):
     g = table.game
     if g.nonce == nonce and g.phase == "minigame":
         g.minigame_timeout()
+        after_phase_change()          # a timed-out puzzle-battle → arm the reveal timer
         await broadcast()
 
 
@@ -166,6 +167,12 @@ def after_phase_change():
         if limit:                            # simon runs without a clock
             g.minigame["deadline"] = time.time() + limit
             schedule(minigame_timer(g.nonce, limit))
+    elif g.phase == "reveal":
+        # ANY path into a reveal must arm the timer that advances it — trivia
+        # answers, puzzle-battle solves, timeouts, all of it. Missing this on the
+        # puzzle-solve path froze the battle after the enemy's blow. The nonce
+        # guard makes a duplicate schedule a harmless no-op.
+        schedule(reveal_timer(g.nonce))
 
 
 # ── shared action dispatch (humans over WS, bots from the driver) ───────────
@@ -216,9 +223,7 @@ async def dispatch(pid: str | None, kind: str, msg: dict) -> str | None:
             if g.phase == "question" and g.players and g.current.pid != pid:
                 g.side_answer(pid, idx)
             else:
-                g.answer(pid, idx)
-                if g.phase == "reveal":
-                    schedule(reveal_timer(g.nonce))
+                g.answer(pid, idx)   # → reveal timer armed by after_phase_change
         elif kind == "solve":
             g.minigame_submit(pid, msg.get("payload"))
         elif kind == "pick":
