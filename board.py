@@ -137,6 +137,10 @@ ENCOUNTERS_HEAVY = [
     ("The Drowned Crew", "Drowned Sailor", 2, 2, "drowned"),
     ("Sirens' Kin", "Siren", 2, 2, "siren"),
     ("Deep Serpents", "Deep Serpent", 3, 2, "serpent"),
+    # bronze constructs of the old myths — rare, imposing outer-water guardians
+    # (both are boss-scale models, so they loom like a mini-boss when they rise)
+    ("The Bronze Colossus", "Bronze Colossus", 5, 2, "colossus"),
+    ("Bronze Sentinels", "Bronze Sentinel", 4, 2, "warden"),
 ]
 
 REGIONS_PER_GAME = 4       # passes through the mountains, one realm beyond each

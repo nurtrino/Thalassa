@@ -395,7 +395,20 @@ export function createWorld(container, handlers = {}) {
     glow.position.copy(center).addScaledVector(sunDir, 1300);
     scene.add(glow);
 
-    const surf = theme.ground === 'sand' ? makeGround(theme, 3000) : makeWater(theme, 3000);
+    // trail segments (world space) — needed up-front so the desert floor can
+    // keep the LANES flat and roll dunes only in the wilds between them
+    let groundSegs = [];
+    if (stageId !== 'hub') {
+      const gm = memberNodes(stageId, room);
+      const gById = new Map(gm.map((n) => [n.id, n]));
+      for (const [a, b] of room.board?.edges || []) {
+        const na = gById.get(a), nb = gById.get(b);
+        if (na && nb) groundSegs.push([na.x, na.z, nb.x, nb.z]);
+      }
+    }
+    const surf = theme.ground === 'sand'
+      ? makeGround(theme, 3000, { center, segs: groundSegs })
+      : makeWater(theme, 3000);
     surf.mesh.position.x += center.x;
     surf.mesh.position.z += center.z;
     scene.add(surf.mesh);
@@ -429,7 +442,7 @@ export function createWorld(container, handlers = {}) {
         const na = byId.get(a), nb = byId.get(b);
         if (na && nb) segs.push([na.x, na.z, nb.x, nb.z]);
       }
-      scene.add(makeRealmField(theme, members, segs, rng));
+      scene.add(makeRealmField(theme, members, segs, rng, surf.heightAt));
     }
 
     /* drifting clouds, tinted faintly toward the horizon color */

@@ -72,7 +72,8 @@ function structTemplate(id) {
 /* Every landmark the map mounts — preloaded by the loading screen */
 export function preloadStructures() {
   return ['pharos', 'temple', 'temple_ice', 'temple_desert', 'temple_jungle',
-          'temple_autumn', 'market', 'dock', 'obelisk', 'tents', 'lighthouse']
+          'temple_autumn', 'market', 'dock', 'obelisk', 'tents', 'lighthouse',
+          'gate_portal', 'sand_spire']
     .map((id) => structTemplate(id));
 }
 
@@ -261,7 +262,37 @@ export function makeTerrain({ seed, R, H, mode = 'hill', palette = {}, lobes = 0
   }));
   mesh.receiveShadow = true;
   mesh.castShadow = true;
-  return { mesh, heightAt, rng };
+
+  // exact surface samplers so props sit ON the sculpted ground, not on the
+  // smooth radial profile (which ignores the noise relief and the ex/ez /
+  // coastline warp — the cause of floating / half-buried trees).
+  const relief = (px, pz, rr) =>
+    1 + (fbm(px * 0.16 + 5.1, pz * 0.16 - 8.7) - 0.5)
+        * 0.8 * rugged * smooth(0.4, 0.95, Math.min(rr, 1));
+  // world point for a compass direction + normalized radius (matches a vertex)
+  const place = (a, rr) => {
+    const wr = rr * R * edge(a);
+    const x = Math.cos(a) * wr * ex, z = Math.sin(a) * wr * ez;
+    return { x, y: Math.max(0, profile(Math.min(rr, 1))) * relief(x, z, rr), z };
+  };
+  // surface height beneath any local (x,z)
+  const surfaceY = (x, z) => {
+    const ax = x / ex, az = z / ez;
+    const a = Math.atan2(az, ax);
+    const rr = Math.min(1, Math.hypot(ax, az) / (R * edge(a) || 1));
+    return Math.max(0, profile(rr)) * relief(x, z, rr);
+  };
+  return { mesh, heightAt, place, surfaceY, rng };
+}
+
+// a jetty seated on the real coastline at `angle`, sized to the island so it
+// rests on the beach and reaches over the water — never clipping or floating
+function placeDock(terrain, angle, len = 5.0) {
+  const p = terrain.place(angle, 0.9);
+  const dock = makeDock(len);
+  dock.position.set(p.x, Math.max(0.12, p.y), p.z);
+  dock.rotation.y = -angle - Math.PI / 2;    // planks run seaward along the radius
+  return dock;
 }
 
 /* ── water-line dressings ───────────────────────────────────────────────── */
@@ -463,28 +494,8 @@ function makeDeadScrub(rng, s = 1) {
 
 /* wind-carved sandstone hoodoo */
 function makeSandSpire(rng, s = 1) {
-  const g = new THREE.Group();
-  const tones = [0xc98a4a, 0xd9a266, 0xb87a40];
-  let y = 0;
-  const n = 3 + Math.floor(rng() * 2);
-  for (let i = 0; i < n; i++) {
-    const r = (0.55 - i * 0.1) * s * (0.85 + rng() * 0.3);
-    const h = (0.5 + rng() * 0.5) * s;
-    const disc = new THREE.Mesh(
-      displace(new THREE.CylinderGeometry(r * 0.85, r, h, 7), r * 0.3, seedFrom(rng)),
-      flat(tones[i % 3]));
-    disc.position.y = y + h / 2;
-    disc.castShadow = true;
-    g.add(disc);
-    y += h * 0.9;
-  }
-  const cap = new THREE.Mesh(
-    displace(new THREE.DodecahedronGeometry(0.4 * s, 0), 0.2 * s, seedFrom(rng)), flat(tones[0]));
-  cap.position.y = y + 0.2 * s;
-  cap.castShadow = true;
-  g.add(cap);
-  g.rotation.y = rng() * 6.28;
-  return g;
+  // the Meshy sculpted hoodoo; ~2.6u tall at s=1, randomly spun
+  return glbProp('sand_spire', { h: 2.6 * s, ry: rng() * 6.28 });
 }
 
 /* tall emergent canopy tree with hanging vines */
@@ -648,7 +659,7 @@ function makeDock(len = 5.2) {
 
 function makeMarket(rng) {
   const g = new THREE.Group();
-  g.add(glbProp('market', { h: 3.2, ry: (rng() - 0.5) * 0.4 }));
+  g.add(glbProp('market', { h: 6.0, ry: (rng() - 0.5) * 0.4 }));   // a proper trading post
   return g;
 }
 
@@ -1010,9 +1021,10 @@ export function makeBarrow(rng) {
    choked channels, or the Vale's unbroken forest. `nodes` are the region's
    board nodes and `segs` its lane segments [x1,z1,x2,z2]; everything lands
    clear of both so the road itself stays readable. */
-export function makeRealmField(theme, nodes, segs, rng) {
+export function makeRealmField(theme, nodes, segs, rng, heightAt = null) {
   const g = new THREE.Group();
   if (!nodes.length) return g;
+  const groundY = heightAt || (() => 0);           // seat props on the dunes
   let minX = 1e9, maxX = -1e9, minZ = 1e9, maxZ = -1e9;
   for (const n of nodes) {
     minX = Math.min(minX, n.x); maxX = Math.max(maxX, n.x);
@@ -1043,7 +1055,7 @@ export function makeRealmField(theme, nodes, segs, rng) {
       const sd = segDist(x, z);
       if (sd < laneClear || sd > reach || nodeDist(x, z) < isleClear) continue;
       const o = make();
-      o.position.set(x, 0, z);
+      o.position.set(x, groundY(x, z), z);
       o.rotation.y = rng() * 6.28;
       g.add(o);
       placed++;
@@ -1063,20 +1075,21 @@ export function makeRealmField(theme, nodes, segs, rng) {
     scatter(6, 12, 17, 120, prop(['boulder'], 0.7, 1.2));   // sea stacks
   }
   if (theme.id === 'ice') {
-    scatter(60, 16, 22, 115, () => makeBerg(rng, 0.5 + rng() * 0.6));
-    scatter(52, 13, 20, 115, () => makeFloe(rng, 0.8 + rng() * 0.9));
-    scatter(14, 12, 18, 115, prop(['ice_shard', 'iceberg', 'ice_floe'], 0.7, 1.3));
+    scatter(60, 26, 22, 120, () => makeBerg(rng, 0.5 + rng() * 0.6));   // bergs stay clear of the lane
+    scatter(52, 21, 20, 120, () => makeFloe(rng, 0.8 + rng() * 0.9));
+    scatter(14, 19, 18, 120, prop(['ice_shard', 'iceberg', 'ice_floe'], 0.7, 1.3));
     scatter(4, 14, 20, 115, prop(['shipwreck', 'driftwood'], 0.9, 1.4));
   } else if (theme.id === 'jungle') {
     scatter(80, 13, 20, 115, () => makeVineMat(rng, 0.65 + rng() * 0.7));
     scatter(18, 12, 18, 115, prop(['lily_pads', 'lily_pads', 'coral', 'driftwood'], 0.8, 1.4));
   } else if (theme.id === 'desert') {
-    scatter(240, 9, 15, 130, () => makeDune(rng, theme.palette.sand, 0.7 + rng() * 1.1));
-    scatter(60, 10, 16, 130, () => floraFor(theme, rng, 0.8 + rng() * 0.6));
+    // the dunes are now sculpted into the GROUND itself (see water.makeGround);
+    // the Reach is dressed with hoodoos, scrub, ruins and bones on the sand
+    scatter(70, 10, 16, 130, () => floraFor(theme, rng, 0.8 + rng() * 0.6));
     scatter(20, 10, 16, 130, () => makeRock(rng, 0.5 + rng() * 0.7, theme.palette.rock));
     scatter(10, 12, 18, 130, () => propGroup(rng() < 0.5 ? 'cairn' : 'bone_pile', 0.9 + rng() * 0.6));
     scatter(16, 11, 17, 130, prop(['bone_pile', 'broken_statue', 'amphora_pile', 'ruined_column'], 0.7, 1.4));
-    scatter(14, 11, 17, 130, prop(['cactus', 'dead_scrub', 'sarcophagus', 'ruined_arch', 'sand_dune'], 0.8, 1.5));
+    scatter(14, 11, 17, 130, prop(['cactus', 'dead_scrub', 'sarcophagus', 'ruined_arch'], 0.8, 1.5));
   } else if (theme.id === 'autumn') {
     // the Vale is WALL-TO-WALL forest: a deep tree band hugging every track,
     // thick enough that the fog line always lands inside the woods
@@ -1096,27 +1109,10 @@ function makeMonsterTotem(rng, m) {
   const g = new THREE.Group();
   const hp = Math.min(10, m?.max_hp ?? 4);
   const s = 1 + hp * 0.12;
-  const core = new THREE.Mesh(
-    displace(new THREE.IcosahedronGeometry(0.9 * s, 1), 0.5 * s, seedFrom(rng)),
-    flat(0x4a4152, { emissive: 0x2c1414, emissiveIntensity: 0.6 }));
-  core.scale.set(1, 1.7, 1);
-  core.position.y = 1.35 * s;
-  core.castShadow = true;
-  g.add(core);
-  for (let i = 0; i < 4; i++) {
-    const a = rng() * 6.28;
-    const spike = new THREE.Mesh(new THREE.ConeGeometry(0.16 * s, (0.8 + rng() * 0.7) * s, 5),
-      flat(0x241f28));
-    spike.position.set(Math.cos(a) * 0.7 * s, (0.9 + rng() * 1.2) * s, Math.sin(a) * 0.7 * s);
-    spike.rotation.set((rng() - 0.5) * 1.1, 0, (rng() - 0.5) * 1.1);
-    g.add(spike);
-  }
-  const eyeMat = new THREE.MeshBasicMaterial({ color: 0xff3b2f });
-  for (const dx of [-0.24, 0.24]) {
-    const eye = new THREE.Mesh(new THREE.SphereGeometry(0.1 * s, 6, 5), eyeMat);
-    eye.position.set(dx * s, 2.0 * s, 0.62 * s);
-    g.add(eye);
-  }
+  // the Meshy carved totem (dark stone, red eyes) marks the lurking foe;
+  // the ember light + haze below are the gameplay "danger here" signal and
+  // stand in until the model streams in
+  g.add(propGroup('monster_totem', s * 0.85));
   const ember = new THREE.PointLight(0xff5030, 3 + hp, 7 + hp);
   ember.position.y = 2.2 * s;
   const haze = glowSprite(0xff4a26, 3.4 * s);
@@ -1401,19 +1397,22 @@ const ISLE_PROPS = {
 };
 
 function dressIsland(g, rng, theme, R, terrain) {
+  // props ride the ACTUAL surface via terrain.place(a, rr) — no more trees
+  // hovering over the noise bumps or sinking through them. Kept in the solid
+  // interior (rr ≤ ~0.6) so nothing perches on the wavy coastline.
   const n = 2 + Math.floor(rng() * 3);
   for (let i = 0; i < n; i++) {
     const a = rng() * 6.28;
-    const rr = 0.55 + rng() * 0.3;
-    const y = terrain.heightAt(rr);
-    if (y < 0.15) continue;
+    const rr = 0.34 + rng() * 0.26;
+    const p = terrain.place(a, rr);
+    if (p.y < 0.15) continue;
     if (rng() < 0.6) {
       const f = floraFor(theme, rng, 0.6 + rng() * 0.5);
-      f.position.set(Math.cos(a) * R * rr, y, Math.sin(a) * R * rr);
+      f.position.set(p.x, p.y, p.z);
       g.add(f);
     } else {
       const rk = makeRock(rng, 0.3 + rng() * 0.4, theme.palette.rock);
-      rk.position.set(Math.cos(a) * R * rr, y + 0.1, Math.sin(a) * R * rr);
+      rk.position.set(p.x, p.y + 0.1, p.z);
       g.add(rk);
     }
   }
@@ -1421,11 +1420,10 @@ function dressIsland(g, rng, theme, R, terrain) {
   const pool = ISLE_PROPS[theme.id] || ISLE_PROPS.hub;
   if (rng() < 0.55) {
     const a = rng() * 6.28;
-    const rr = 0.3 + rng() * 0.3;               // well inside the coast
-    const y = terrain.heightAt(rr);
-    if (y >= 0.15) {
+    const p = terrain.place(a, 0.3 + rng() * 0.25);
+    if (p.y >= 0.15) {
       const pr = propGroup(pool[(rng() * pool.length) | 0], 0.55 + rng() * 0.35);
-      pr.position.set(Math.cos(a) * R * rr, y - 0.06, Math.sin(a) * R * rr);
+      pr.position.set(p.x, p.y - 0.06, p.z);
       pr.rotation.y = rng() * 6.28;
       g.add(pr);
     }
@@ -1574,14 +1572,19 @@ export function buildIsland(node, theme, domains) {
 
   if (node.type === 'gate') {
     const accent = REALM_INFO[node.region]?.accent ?? '#d9a441';
+    // the Meshy stone portal marks the pass; the procedural towers/braziers
+    // stand in until it streams and keep the accent-lit flavor beside it
+    const fogFree = (o) => {
+      if (!o.material) return;
+      for (const m of (Array.isArray(o.material) ? o.material : [o.material])) m.fog = false;
+    };
     const portal = makeGatePortal(accent, seed, theme?.wall?.rock ?? 0x8a8f98);
     // the pass sits way out at the mountain wall — render it fog-free like the
     // wall itself so the gateway reads clearly instead of washing into haze
-    portal.traverse((o) => {
-      if (!o.material) return;
-      for (const m of (Array.isArray(o.material) ? o.material : [o.material])) m.fog = false;
-    });
+    portal.traverse(fogFree);
     g.add(portal);
+    // the sculpted archway itself, dropped in over the procedural frame
+    g.add(glbProp('gate_portal', { h: 12, onReady: (inst) => inst.traverse(fogFree) }));
     g.position.set(node.x, 0, node.z);
     // the channel must open RADIALLY (boat sails in from the isles, out to
     // the realm); towers flank it tangentially. π/2 − angle, not −angle,
@@ -1597,16 +1600,16 @@ export function buildIsland(node, theme, domains) {
 
   if (node.type === 'home') {
     terrain = mt({ seed, R, H: 1.7, mode: 'mesa', palette: { ...footPal } });
-    const dock = makeDock(6.0);
-    dock.position.set(1.2, 0.4, R * 0.72);
-    dock.rotation.y = Math.PI;
-    g.add(dock);
+    g.add(placeDock(terrain, 0.5, 6.0));           // jetty on the real shoreline
     const lh = makeLighthouse();
-    lh.position.set(-R * 0.38, terrain.heightAt(0.38), -R * 0.15);
+    lh.scale.setScalar(2.3);                       // a proper landmark tower
+    const lhp = terrain.place(3.9, 0.22);          // near the crown, on the surface
+    lh.position.set(lhp.x, lhp.y, lhp.z);
     g.add(lh);
-    for (const a of [2.6, 3.6]) {
+    for (const a of [2.6, 4.2]) {
       const palm = makePalm(rng0, 1.1);
-      palm.position.set(Math.cos(a) * R * 0.6, terrain.heightAt(0.6), Math.sin(a) * R * 0.6);
+      const pp = terrain.place(a, 0.55);
+      palm.position.set(pp.x, pp.y, pp.z);
       g.add(palm);
     }
   } else if (node.type === 'shrine') {
@@ -1618,11 +1621,11 @@ export function buildIsland(node, theme, domains) {
     g.add(shrine);
     if (foot) {
       const oasisPalm = makePalm(rng0, 0.9);
-      oasisPalm.position.set(R * 0.45, terrain.heightAt(0.45), R * 0.2);
+      oasisPalm.position.set(R * 0.45, terrain.surfaceY(R * 0.45, R * 0.2), R * 0.2);
       g.add(oasisPalm);
     } else {
       const fl = floraFor(theme, rng0, 1.0);
-      fl.position.set(R * 0.45, terrain.heightAt(0.45), R * 0.2);
+      fl.position.set(R * 0.45, terrain.surfaceY(R * 0.45, R * 0.2), R * 0.2);
       g.add(fl);
     }
   } else if (node.type === 'puzzle') {
@@ -1633,7 +1636,7 @@ export function buildIsland(node, theme, domains) {
     if (node.solved) ob.children.forEach((ch) => { if (ch.isPointLight) ch.intensity = 0; });
     g.add(ob);
     const rk = makeRock(rng0, 0.5, 0x8d94b8);
-    rk.position.set(-R * 0.4, terrain.heightAt(0.4) + 0.2, R * 0.3);
+    rk.position.set(-R * 0.4, terrain.surfaceY(-R * 0.4, R * 0.3) + 0.2, R * 0.3);
     g.add(rk);
   } else if (node.type === 'haven') {
     terrain = mt({ seed, R, H: foot ? 1.2 : 1.8, mode: 'flat', palette: { ...footPal } });
@@ -1645,7 +1648,8 @@ export function buildIsland(node, theme, domains) {
       for (let i = 0; i < 3; i++) {
         const tree = floraFor(theme, rng0, 0.9 + rng0() * 0.4);
         const a = rng0() * 6.28;
-        tree.position.set(Math.cos(a) * R * 0.55, terrain.heightAt(0.55), Math.sin(a) * R * 0.55);
+        const tx = Math.cos(a) * R * 0.55, tz = Math.sin(a) * R * 0.55;
+        tree.position.set(tx, terrain.surfaceY(tx, tz), tz);
         g.add(tree);
       }
     } else if (foot) {
@@ -1653,19 +1657,16 @@ export function buildIsland(node, theme, domains) {
       oasis.position.y = terrain.heightAt(0.15) + 0.02;
       g.add(oasis);
       const t = makeTents(rng0);
-      t.position.set(R * 0.35, terrain.heightAt(0.35), -R * 0.3);
+      t.position.set(R * 0.35, terrain.surfaceY(R * 0.35, -R * 0.3), -R * 0.3);
       t.scale.setScalar(0.85);
       g.add(t);
     } else {
       const t = makeTents(rng0);
       t.position.y = terrain.heightAt(0.2);
       g.add(t);
-      const dock = makeDock(3.8);
-      dock.position.set(0.5, 0.4, R * 0.8);
-      dock.rotation.y = Math.PI;
-      g.add(dock);
+      g.add(placeDock(terrain, Math.PI + (rng0() - 0.5), 4.0));
       const fl = floraFor(theme, rng0, 1.0);
-      fl.position.set(-R * 0.5, terrain.heightAt(0.5), -R * 0.2);
+      fl.position.set(-R * 0.5, terrain.surfaceY(-R * 0.5, -R * 0.2), -R * 0.2);
       g.add(fl);
     }
     // the checkpoint light: a permanent azure beam so a haven is
@@ -1684,11 +1685,11 @@ export function buildIsland(node, theme, domains) {
     den.rotation.y = Math.atan2(-node.x, -node.z);   // door faces back down the trail
     g.add(den);
     const beacon = makeRelicBeacon();
-    beacon.position.set(-R * 0.52, terrain.heightAt(0.52), R * 0.34);
+    beacon.position.set(-R * 0.52, terrain.surfaceY(-R * 0.52, R * 0.34), R * 0.34);
     g.add(beacon);
     if (node.monster) {
       const totem = makeMonsterTotem(rng0, node.monster);
-      totem.position.set(R * 0.5, terrain.heightAt(0.5) + 0.3, R * 0.2);
+      totem.position.set(R * 0.5, terrain.surfaceY(R * 0.5, R * 0.2) + 0.3, R * 0.2);
       g.add(totem);
     }
   } else if (node.type === 'monster' || node.type === 'lair') {
@@ -1743,22 +1744,20 @@ export function buildIsland(node, theme, domains) {
   } else if (node.type === 'shop') {
     terrain = mt({ seed, R, H: 1.6, mode: 'flat', palette: { ...footPal } });
     const stall = makeMarket(rng0);
-    stall.position.y = terrain.heightAt(0.15);
+    stall.position.y = terrain.heightAt(0.12);
     g.add(stall);
-    if (!foot) {
-      const dock = makeDock(4.4);
-      dock.position.set(0.8, 0.4, R * 0.86);
-      dock.rotation.y = Math.PI;
-      g.add(dock);
-    }
+    if (!foot) g.add(placeDock(terrain, Math.PI + (rng0() - 0.5), 4.6));
+    const fa = 2.2 + rng0();
+    const fp = terrain.place(fa, 0.5);
     const fl = floraFor(theme, rng0, 1.0);
-    fl.position.set(-R * 0.45, terrain.heightAt(0.45), -R * 0.25);
+    fl.position.set(fp.x, fp.y, fp.z);
     g.add(fl);
   } else {
     terrain = mt({ seed, R, H: 2.0, mode: 'hill', palette: { ...footPal } });
   }
 
-  if (node.type !== 'pharos') dressIsland(g, rng0, theme, R, terrain);
+  // the home port is hand-composed (dock, tower, palms) — no random set pieces
+  if (node.type !== 'pharos' && node.type !== 'home') dressIsland(g, rng0, theme, R, terrain);
 
   g.add(terrain.mesh);
   addSkirt(R);
@@ -2230,11 +2229,11 @@ export function makeBattleBackdrop(theme) {
   const BATTLE_PROPS = {
     hub: ['ruined_column', 'amphora_pile', 'broken_statue', 'olive_tree', 'cypress_tree'],
     ice: ['iceberg', 'ice_shard', 'pine_snow', 'crystal_cluster'],
-    desert: ['ruined_arch', 'bone_pile', 'cactus', 'sarcophagus', 'sand_dune'],
+    desert: ['ruined_arch', 'bone_pile', 'cactus', 'sarcophagus'],
     jungle: ['jungle_tree', 'mossy_idol', 'fern_cluster', 'mushroom_cluster', 'ruined_arch'],
     autumn: ['autumn_tree', 'dead_tree', 'mushroom_cluster', 'campfire', 'boulder'],
   };
-  const FLOATS = new Set(['iceberg', 'ice_shard', 'lily_pads', 'driftwood', 'sand_dune']);
+  const FLOATS = new Set(['iceberg', 'ice_shard', 'lily_pads', 'driftwood']);
   const picks = BATTLE_PROPS[id] || BATTLE_PROPS.hub;
   const n = picks.length + 2;                        // every pick shows at least once
   for (let i = 0; i < n; i++) {

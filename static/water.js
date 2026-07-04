@@ -75,7 +75,7 @@ export function makeWater(theme, size = 3000) {
   const mesh = new THREE.Mesh(geo, mat);
   mesh.position.y = -0.62;
   mesh.name = 'water';
-  return { mesh, update(t) { uniforms.t.value = t; } };
+  return { mesh, update(t) { uniforms.t.value = t; }, heightAt: () => 0 };
 }
 
 /*
@@ -83,8 +83,8 @@ export function makeWater(theme, size = 3000) {
  * with dune striping baked into vertex colors. Flat near the play area so
  * islands/props sit cleanly, rolling dunes toward the horizon.
  */
-export function makeGround(theme, size = 3000) {
-  const SEG = 150;
+export function makeGround(theme, size = 3000, opts = {}) {
+  const SEG = 260;
   const geo = new THREE.PlaneGeometry(size, size, SEG, SEG);
   geo.rotateX(-Math.PI / 2);
 
@@ -94,12 +94,54 @@ export function makeGround(theme, size = 3000) {
     const k = Math.min(1, Math.max(0, (x - a) / (b - a)));
     return k * k * (3 - 2 * k);
   };
-  const height = (x, z) => {
-    const r = Math.hypot(x, z);
-    const amp = 0.35 + smooth(110, 420, r) * 4.2;   // flat middle, dunes far out
-    return (Math.sin(x * 0.020 + z * 0.012 + p1) * 0.55
-          + Math.sin(x * 0.007 - z * 0.011 + p2) * 0.35
-          + Math.sin((x + z) * 0.031 + p3) * 0.18) * amp;
+
+  // The mesh is centred on the stage (translated by `center` in scene.js), so
+  // its local (x,z) equals world minus centre. The Bleached Reach now ROLLS
+  // with real dunes — but the roads must stay walkable, so dunes swell only
+  // AWAY from the trail: flat lanes, a dune sea in the wilds between them.
+  const cx = opts.center?.x ?? 0, cz = opts.center?.z ?? 0;
+  const segs = opts.segs || [];                    // world-space [x0,z0,x1,z1]
+  const isDesert = theme.id === 'desert';
+  const DUNE = isDesert ? 1.5 : 0;                 // dune height off the lanes
+  const segDist = (wx, wz) => {
+    if (!segs.length) return 1e9;
+    let d = 1e9;
+    for (const s of segs) {
+      const dx = s[2] - s[0], dz = s[3] - s[1];
+      const L2 = dx * dx + dz * dz || 1;
+      const t = Math.max(0, Math.min(1, ((wx - s[0]) * dx + (wz - s[1]) * dz) / L2));
+      d = Math.min(d, Math.hypot(s[0] + dx * t - wx, s[1] + dz * t - wz));
+    }
+    return d;
+  };
+  // a real dune SEA: continuous transverse ridges marching across the wind,
+  // their crest-lines wandering, crossed by a slower ground swell so it never
+  // reads as a washboard. NOT isolated humps — the sand rolls everywhere.
+  const wa = 0.7, ca = Math.cos(wa), sa = Math.sin(wa);   // prevailing wind axis
+  const dunes = (wx, wz) => {
+    const u = wx * ca + wz * sa;                    // down-wind
+    const v = -wx * sa + wz * ca;                   // across-wind (ridge line)
+    const ridge = Math.sin(u * 0.05 + Math.sin(v * 0.02 + p1) * 2.0
+                                     + Math.sin(v * 0.06 + p2) * 0.7);
+    const swell = Math.sin(u * 0.019 - v * 0.013 + p3) * 0.5;
+    const ripple = Math.sin(u * 0.19 + Math.sin(v * 0.05) * 3) * 0.1;  // wind ripples
+    return ridge + swell + ripple;                  // ≈ −1.6 … 1.6
+  };
+  // background relief that fills the far skyline the same way it always did
+  const bg = (lx, lz) =>
+      Math.sin(lx * 0.020 + lz * 0.012 + p1) * 0.55
+    + Math.sin(lx * 0.007 - lz * 0.011 + p2) * 0.35
+    + Math.sin((lx + lz) * 0.031 + p3) * 0.18;
+
+  // world-space height sampler (also handed to islands.js so props sit on the
+  // sand instead of floating above / sinking into the dunes). Only a NARROW
+  // corridor along each road is flattened — the dune sea rolls right up to it.
+  const heightAt = (wx, wz) => {
+    const lx = wx - cx, lz = wz - cz;
+    const r = Math.hypot(lx, lz);
+    const bgAmp = 0.35 + smooth(110, 420, r) * 4.2;
+    const lane = smooth(5, 15, segDist(wx, wz));    // flat only right on the road
+    return bg(lx, lz) * bgAmp + dunes(wx, wz) * lane * DUNE;
   };
 
   const sand = new THREE.Color(theme.palette.sand);
@@ -110,8 +152,8 @@ export function makeGround(theme, size = 3000) {
   const pos = geo.attributes.position;
   const col = new Float32Array(pos.count * 3);
   for (let i = 0; i < pos.count; i++) {
-    const x = pos.getX(i), z = pos.getZ(i);
-    const y = height(x, z);
+    const x = pos.getX(i), z = pos.getZ(i);        // local == world − centre
+    const y = heightAt(x + cx, z + cz);
     pos.setY(i, y);
     // dune striping: long diagonal ripples + darker hollows
     const stripe = 0.5 + 0.5 * Math.sin(x * 0.085 + z * 0.14 + Math.sin(x * 0.013 + p2) * 2.4);
@@ -122,10 +164,12 @@ export function makeGround(theme, size = 3000) {
   geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
   geo.computeVertexNormals();
 
+  const GY = -0.35;
   const mesh = new THREE.Mesh(geo,
     new THREE.MeshStandardMaterial({ vertexColors: true, flatShading: true, roughness: 1 }));
-  mesh.position.y = -0.35;
+  mesh.position.y = GY;
   mesh.receiveShadow = true;
   mesh.name = 'ground';
-  return { mesh, update() {} };
+  // sampler in the mesh's own frame (adds the mesh y-offset) for placement
+  return { mesh, update() {}, heightAt: (wx, wz) => GY + heightAt(wx, wz) };
 }
