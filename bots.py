@@ -98,9 +98,6 @@ def decide_sail(g: G.Game, pid: str, rng: random.Random) -> str:
     best, best_d = None, 1e9
     for nid in g.reachable:
         d = dist_to_goal.get(nid, 1e8)
-        # prefer stepping onto flotsam when it's on the way
-        if g.board.nodes[nid].get("flotsam"):
-            d -= 0.4
         if d < best_d:
             best, best_d = nid, d
     return best

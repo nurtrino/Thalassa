@@ -192,7 +192,7 @@ function viewKey(node) {
   return [node.type, node.monster ? node.monster.hp : '-',
           node.charges ?? '-', node.solved ?? '-',
           (node.defeated || []).length, (node.stash || []).length,
-          node.flotsam ?? '-', node.depth ?? '-', node.mode ?? '-',
+          node.depth ?? '-', node.mode ?? '-',
           node.region ?? '-'].join(':');
 }
 

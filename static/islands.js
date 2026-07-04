@@ -702,26 +702,6 @@ function makeBuoy(rng) {
   return g;
 }
 
-function makeFlotsam(rng) {
-  const g = new THREE.Group();
-  for (let i = 0; i < 3; i++) {
-    const crate = new THREE.Mesh(new THREE.BoxGeometry(0.55, 0.4, 0.55), flat(COL.woodDark));
-    const a = rng() * 6.28;
-    crate.position.set(Math.cos(a) * (0.4 + rng() * 0.5), 0.16, Math.sin(a) * (0.4 + rng() * 0.5));
-    crate.rotation.y = rng() * 1.5;
-    g.add(crate);
-  }
-  const barrel = new THREE.Mesh(new THREE.CylinderGeometry(0.24, 0.24, 0.5, 8), flat(COL.wood));
-  barrel.rotation.z = Math.PI / 2;
-  barrel.position.y = 0.2;
-  g.add(barrel);
-  const glint = new THREE.Mesh(new THREE.SphereGeometry(0.12, 6, 5),
-    flat(COL.gold, { emissive: 0x9a6a10 }));
-  glint.position.y = 0.5;
-  g.add(glint);
-  g.name = 'bob';
-  return g;
-}
 
 /* desert-trek waypoint: a traveller's cairn with a prayer flag */
 function makeCairn(rng) {
@@ -1120,11 +1100,7 @@ export function buildIsland(node, theme, domains) {
       g.position.set(node.x, 0, node.z);
       return { group: g, R: 3, plateauY: 0 };
     }
-    if (node.flotsam) {
-      const fl = makeFlotsam(rng0);
-      fl.scale.setScalar(1.6);
-      g.add(fl);
-    } else if (node.look === 'rocks') {
+    if (node.look === 'rocks') {
       for (let i = 0; i < 2 + Math.floor(rng0() * 2); i++) {
         const rk = makeRock(rng0, 0.9 + rng0() * 1.1, rng0() < 0.4 ? 0xd8d4c8 : pal.rock);
         const a = rng0() * 6.28;
@@ -1423,11 +1399,7 @@ export function makeShip(colorHex) {
   };
   g.add(post(-1.72, -0.5), post(1.84, Math.PI - 2.6));
 
-  // bronze ram tucked against the bow at the waterline (not slung below it)
-  const ram = new THREE.Mesh(new THREE.ConeGeometry(0.1, 0.46, 6), flat(0xc9a227, { emissive: 0x4a3a10 }));
-  ram.rotation.z = -Math.PI / 2;
-  ram.position.set(1.9, 0.42, 0);
-  g.add(ram);
+  // (no bronze ram — anything forward of the stem reads as floating in water)
 
   // mast planted through the deck into the hull (base y≈0.2), top unchanged at ~3.0
   const mast = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.08, 2.8, 7), flat(COL.woodDark));

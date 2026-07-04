@@ -153,7 +153,6 @@ _WAYPOINT_EVERY = 60.0        # aim for a sea node roughly every N world units
 _MAX_WAYPOINTS = 1            # per HUB lane — tuned for exact-roll d3 sailing
 _WAYPOINT_EVERY_REALM = 42.0  # realms are finer-grained: a real crawl
 _MAX_WAYPOINTS_REALM = 2      # per REALM lane
-_FLOTSAM_CHANCE = 0.25
 _SEA_LOOKS = ["buoy", "buoy", "buoy", "rocks", "rocks", "islet", "islet", "none"]
 # The Isles of Peace are exactly that — no hunting grounds, no ambushes. All
 # danger lives beyond the mountain passes. (Monsters are grown into the realm
@@ -295,7 +294,7 @@ class Board:
                     "region": theme, "depth": depth, "mode": mode,
                     "x": round(math.cos(a) * radius, 2),
                     "z": round(math.sin(a) * radius, 2),
-                    "flotsam": rng.random() < 0.3, "look": rng.choice(_SEA_LOOKS)}
+                    "look": rng.choice(_SEA_LOOKS)}
             self.nodes[nid] = node
             return node
 
@@ -307,12 +306,10 @@ class Board:
             node["elite"] = elite
             node["name"] = names.pop()
             node.pop("look", None)
-            node.pop("flotsam", None)
 
         # ── the boss altar, at the radial far end ────────────────────────────
         lair_id = f"r{gi}_L"
         lair = place(lair_id, R0 + 470, ang + rng.uniform(-0.03, 0.03), 9)
-        lair.pop("flotsam", None)
         lair.pop("look", None)
         lair["type"] = "lair"
         lair["name"] = info["name"]
@@ -374,7 +371,6 @@ class Board:
             elif kind == "haven":
                 node["type"] = "haven"
                 node["name"] = names.pop()
-                node.pop("flotsam", None)
                 node.pop("look", None)
             elif kind == "shrine":
                 node["type"] = "shrine"
@@ -382,7 +378,6 @@ class Board:
                 node["domain"] = rng.choice(DOMAINS)
                 node["charges"] = SHRINE_CHARGES
                 node["tier"] = 2
-                node.pop("flotsam", None)
                 node.pop("look", None)
             long.append(nid)
         long.append(junc_id)
@@ -420,7 +415,6 @@ class Board:
                     "band": max(na["band"], nb["band"]),
                     "x": round(na["x"] + (nb["x"] - na["x"]) * t + px / plen * jit, 2),
                     "z": round(na["z"] + (nb["z"] - na["z"]) * t + pz / plen * jit, 2),
-                    "flotsam": rng.random() < _FLOTSAM_CHANCE,
                     "look": rng.choice(_SEA_LOOKS),
                 }
                 # a lane belongs to a realm only when BOTH ends are inside it —

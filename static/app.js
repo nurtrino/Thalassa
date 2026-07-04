@@ -80,7 +80,6 @@ let pendingMove = null;          // 'attack'|'magic'|'guard' while picking a tar
 let myStance = null;             // last stance I sent (labels the reveal beat)
 let mySideAnswer = null;
 let sideKey = null;
-let bountiesOpen = false;
 let shopClosed = false;
 let mg = { key: null };          // minigame scratch
 let beatTimers = [];
@@ -161,7 +160,6 @@ document.addEventListener('keydown', (e) => {
   else if ((e.key === 'm' || e.key === 'M') && room && room.phase !== 'lobby'
            && !/^(INPUT|TEXTAREA)$/.test(document.activeElement?.tagName || '')) toggleMap();
 });
-$('compass').onclick = () => { bountiesOpen = !bountiesOpen; renderBounties(); };
 
 /* ── net layer ──────────────────────────────────────────────────────────── */
 function connect() {
@@ -233,7 +231,6 @@ function applyStage(stageId) {
     if (stageId !== 'hub') audio.sfx.oracle();
   }
   if (stageId !== 'battle') lastStage = stageId;
-  renderCompass();
 }
 
 let bannerEl = null;
@@ -581,9 +578,7 @@ function render() {
   renderPlayers();
   renderObjective();
   renderTurnBanner();
-  renderCompass();
   renderMapBtn();
-  renderBounties();
   renderTray();
   renderShop();
   renderItembelt();
@@ -753,76 +748,6 @@ function renderTurnBanner() {
       `<span class="toname">${name}</span>` +
       (p.bot ? icon('bot', 11) : '') + '</span>';
   }).join('<span class="toarrow">›</span>') + '</div>';
-}
-
-/* ── compass (top-right) ────────────────────────────────────────────────── */
-let compassKey = '';
-
-function compassTargets() {
-  const me = room.players.find((p) => p.pid === you);
-  const nodes = room.board.nodes || [];
-  const byId = {};
-  for (const n of nodes) byId[n.id] = n;
-  const my = byId[me?.node || 'home'] || byId.home;
-  if (!my) return { my: null, targets: [] };
-  const targets = [];
-  const home = byId[room.board.home || 'home'];
-  if (home) targets.push({ key: 'home', node: home, realm: 'hub', title: 'Home Port' });
-  for (const n of nodes) {
-    if (n.type === 'gate' && n.region) {
-      targets.push({ key: 'gate:' + n.region, node: n, realm: n.region,
-                     title: `Pass to ${REALM_INFO[n.region]?.name || n.region}` });
-    }
-  }
-  if (my.region) {
-    const lair = nodes.find((n) => n.type === 'lair' && n.region === my.region);
-    if (lair) targets.push({ key: 'lair', node: lair, realm: my.region, lair: true,
-                             title: `${esc(lair.boss_name || 'The tyrant')}'s lair` });
-  }
-  return { my, targets };
-}
-
-function renderCompass() {
-  const el = $('compass');
-  if (!room || room.phase === 'lobby') { el.classList.add('hidden'); return; }
-  el.classList.remove('hidden');
-  el.title = 'The compass — click for the bounty board';
-  const { my, targets } = compassTargets();
-  if (!my) return;
-
-  const key = targets.map((t) => t.key).join('|');
-  if (key !== compassKey) {
-    compassKey = key;
-    el.innerHTML =
-      `<svg class="compassrose" viewBox="0 0 100 100" fill="none" aria-hidden="true">
-        <g font-family="Cinzel,serif" font-size="10" font-weight="700" fill="#c9a227" text-anchor="middle" opacity=".85">
-          <text x="50" y="14">N</text><text x="88" y="53.5">E</text>
-          <text x="50" y="94">S</text><text x="12" y="53.5">W</text>
-        </g>
-        <path d="M50 22 53 50 50 78 47 50Z" fill="#3c5268"/>
-        <path d="M22 50 50 47 78 50 50 53Z" fill="#3c5268"/>
-      </svg>` +
-      targets.map((t) =>
-        `<span class="needle" data-key="${t.key}" data-realm="${t.realm}" title="${t.title}"` +
-        `${t.lair ? ' style="height:26px"' : ''}><i></i><i></i><i></i></span>`).join('');
-  }
-  for (const nd of el.querySelectorAll('.needle')) {
-    const t = targets.find((x) => x.key === nd.dataset.key);
-    if (!t) continue;
-    const dx = t.node.x - my.x, dz = t.node.z - my.z;
-    const d = Math.hypot(dx, dz);
-    let deg = Math.atan2(dx, -dz) * 180 / Math.PI;
-    /* keep the needle turning the short way round */
-    const prev = parseFloat(nd.dataset.deg || 'NaN');
-    if (!Number.isNaN(prev)) {
-      while (deg - prev > 180) deg -= 360;
-      while (deg - prev < -180) deg += 360;
-    }
-    nd.dataset.deg = String(deg);
-    nd.style.setProperty('--deg', deg.toFixed(1) + 'deg');
-    const pips = d < 12 ? 0 : d < 90 ? 1 : d < 180 ? 2 : 3;
-    nd.querySelectorAll('i').forEach((i, k) => { i.style.opacity = k < pips ? '' : '0'; });
-  }
 }
 
 /* ── parchment chart ────────────────────────────────────────────────────── */
@@ -1019,25 +944,6 @@ function renderMap() {
   plot.querySelectorAll('[data-accent]').forEach((el) => {
     el.style.setProperty('--rc', el.dataset.accent);
   });
-}
-
-/* ── bounty board (compass popover) ─────────────────────────────────────── */
-function renderBounties() {
-  const el = $('bounties');
-  const list = room?.bounties || [];
-  if (!bountiesOpen || !list.length || !room || room.phase === 'lobby') {
-    el.classList.add('hidden');
-    return;
-  }
-  el.classList.remove('hidden');
-  el.innerHTML = `<div class="btitle2">${icon('flag')} Bounties</div>` + list.map((b) => {
-    const claimer = room.players.find((p) => p.pid === b.claimed_by);
-    return `<div class="brow ${claimer ? 'done' : ''}">
-      <span>${esc(b.text)}</span>
-      <span class="breward">${claimer
-        ? `<span class="dot" style="background:${claimer.color}"></span>`
-        : `+${b.reward} ${icon('scroll', 11)}`}</span></div>`;
-  }).join('');
 }
 
 /* ── action tray (bottom-center) ────────────────────────────────────────── */

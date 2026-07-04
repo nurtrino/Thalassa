@@ -57,7 +57,6 @@ MAX_HULL = 6
 STRIKE_DMG = 1                     # easy question, reliable chip damage
 MAGIC_DMG = 3                      # hard question, big swing
 MAGIC_BACKFIRE = 1                 # a missed spell burns the caster
-BOUNTIES_PER_GAME = 3              # public race-goals posted at Home Port
 STREAK_AT = 3                      # correct-answer streak that pays a bonus
 SIDE_REWARD = 1                    # scrolls for a correct side answer
 FLEE_COST = 1                      # scrolls to gamble on escaping a battle
@@ -187,7 +186,6 @@ class Game:
         self.pharos_open = False
         self.winner: str | None = None
         self.log: list[str] = []
-        self.bounties: list[dict] = self._make_bounties()
 
     # ── plumbing ─────────────────────────────────────────────────────────────
     def _bump(self, phase: str):
@@ -262,50 +260,6 @@ class Game:
 
     def _pharos_ok(self, p: Player) -> bool:
         return self.pharos_open and p.banked >= RELICS_TO_WIN
-
-    # ── bounties: public race-goals, first captain to do it gets paid ────────
-    def _make_bounties(self) -> list[dict]:
-        lair_names = [REGION_POOL[t]["boss"][0] for t in self.board.regions]
-        self.rng.shuffle(lair_names)
-        pool = [
-            {"kind": "slay", "name": lair_names[0],
-             "text": f"Slay {lair_names[0]}", "reward": 6},
-            {"kind": "slay", "name": lair_names[1],
-             "text": f"Slay {lair_names[1]}", "reward": 6},
-            {"kind": "bank1", "text": "First to bank a relic", "reward": 4},
-            {"kind": "bank2", "text": "First to bank 2 relics", "reward": 6},
-            {"kind": "puzzles2", "text": "First to crack 2 puzzle isles", "reward": 5},
-            {"kind": "far", "text": "First to reach the storm's edge", "reward": 5},
-            {"kind": "scrolls12", "text": "First to hold 12 scrolls", "reward": 5},
-        ]
-        self.rng.shuffle(pool)
-        picked, kinds = [], set()
-        for b in pool:
-            if b["kind"] in kinds:
-                continue
-            kinds.add(b["kind"])
-            b["claimed_by"] = None
-            picked.append(b)
-            if len(picked) == BOUNTIES_PER_GAME:
-                break
-        return picked
-
-    def _bounty_event(self, event: str, p: Player, **data):
-        for b in self.bounties:
-            if b["claimed_by"]:
-                continue
-            hit = (
-                (b["kind"] == "slay" and event == "slay" and data.get("name") == b["name"]) or
-                (b["kind"] == "bank1" and event == "bank" and p.banked >= 1) or
-                (b["kind"] == "bank2" and event == "bank" and p.banked >= 2) or
-                (b["kind"] == "puzzles2" and event == "puzzle" and p.puzzles_solved >= 2) or
-                (b["kind"] == "far" and event == "land" and data.get("band", 0) >= 3) or
-                (b["kind"] == "scrolls12" and p.scrolls >= 12)
-            )
-            if hit:
-                b["claimed_by"] = p.pid
-                p.scrolls += b["reward"]
-                self._say(f"🏴 BOUNTY CLAIMED: {b['text']} — {p.name} +{b['reward']} scrolls!")
 
     # ── lobby ────────────────────────────────────────────────────────────────
     def add_player(self, token: str, name: str, is_bot: bool = False) -> Player:
@@ -395,8 +349,6 @@ class Game:
     def _land(self, p: Player, nid: str):
         node = self.board.nodes[nid]
         ntype = node["type"]
-        if ntype != "sea":
-            self._bounty_event("land", p, band=node.get("band", 0))
         if node["type"] == "lair":
             if p.pid in node["defeated"]:
                 if p.pid in node["stash"]:
@@ -412,13 +364,6 @@ class Game:
             self._say(f"👑 {node['monster']['name']} rises — {p.name}'s trial begins!")
             self._bump("battle")
             return
-        # drifting flotsam is grabbed the moment you arrive — even if
-        # something is about to rise out of the water after it
-        if ntype == "sea" and node.get("flotsam"):
-            node["flotsam"] = False
-            p.scrolls += 1
-            self._say(f"{p.name} hauls drifting flotsam aboard — +1 scroll.")
-
         monster = self.board.alive_monster(nid)
         # Danger scales with the passage. Realm hunting grounds bite on most
         # landings (deeper = surer) and realm open water can spring a sea
@@ -494,7 +439,6 @@ class Game:
             p.banked += n
             p.cargo = []
             self._say(f"{p.name} banks {n} seal{'s' if n > 1 else ''}. ({p.banked}/{RELICS_TO_WIN})")
-            self._bounty_event("bank", p)
         p.hull = p.max_hull
         if p.banked >= RELICS_TO_WIN and not self.pharos_open:
             self.pharos_open = True
@@ -882,7 +826,6 @@ class Game:
                     loot = sum(e["max_hp"] for e in enemies)
                     p.scrolls += loot
                     gained = loot
-                    self._bounty_event("slay", p, name=m["name"])
                     if node.get("encounter") or node["type"] == "sea":
                         node["monster"] = None     # the waters fall quiet — for now
             else:
@@ -970,7 +913,6 @@ class Game:
             self._say(note)
         if battle_over or self.winner:
             self.battle = None
-        self._bounty_event("scrolls", p)
         self._bump("reveal")
 
     def _side_streak(self, sp: Player) -> int:
@@ -1024,7 +966,6 @@ class Game:
         self.board.nodes[nid]["solved"] = True
         self.minigame = None
         p.puzzles_solved += 1
-        self._bounty_event("puzzle", p)
         self._streak_bonus(p)
         pool = [u for u in UPGRADES if not p.has(u)]
         if pool:
@@ -1100,7 +1041,6 @@ class Game:
             p.reset()
         self.winner = None
         self.pharos_open = False
-        self.bounties = self._make_bounties()
         self.used_puzzles = set()
         self.log = []
         self.turn_idx = 0
@@ -1148,7 +1088,6 @@ class Game:
         if node.get("gate_angle") is not None:
             base["gate_angle"] = node["gate_angle"]
         if node["type"] == "sea":
-            base["flotsam"] = node.get("flotsam", False)
             base["look"] = node.get("look", "buoy")
         elif node["type"] == "shrine":
             base["domain"] = node["domain"]
@@ -1211,7 +1150,6 @@ class Game:
             "upgrade_offer": self.upgrade_offer if self.phase == "upgrade_pick" else None,
             "upgrade_info": ALL_UPGRADES,
             "pharos_open": self.pharos_open,
-            "bounties": self.bounties,
             "winner": self.winner,
             "log": self.log,
             "config": {"relics_to_win": RELICS_TO_WIN, "tier_reward": TIER_REWARD,
