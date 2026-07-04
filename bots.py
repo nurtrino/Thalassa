@@ -182,6 +182,13 @@ def decide_answer(g: G.Game, skill: Skill, rng: random.Random) -> int:
     return rng.choice(wrong) if wrong else correct
 
 
+def decide_typed_answer(g: G.Game, skill: Skill, rng: random.Random) -> str:
+    """Typed Jeopardy clue: land the real answer at skill odds, else fumble."""
+    if rng.random() < skill.accuracy(g.qctx.get("tier", 2)):
+        return g.question["answer"]
+    return rng.choice(["pass", "I don't know", "the other one"])
+
+
 def decide_upgrade(g: G.Game, pid: str) -> str:
     offer = g.upgrade_offer or []
     for want in UPGRADE_WISHLIST:

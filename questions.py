@@ -16,9 +16,14 @@ entirely and play from the built-in fallback set (dev / airgapped).
 from __future__ import annotations
 
 import asyncio
+import html
+import json
 import os
+import pathlib
 import random
+import re
 import time
+import unicodedata
 
 import httpx
 
@@ -121,6 +126,159 @@ class QuestionBank:
                         await asyncio.sleep(30)
                         break
             await asyncio.sleep(5)
+
+
+# ── BATTLE questions: OpenTDB (general, all categories) ──────────────────────
+# The TEMPLES keep the themed-category gimmick (QuestionBank above, by domain).
+# BATTLES instead draw broad from the Open Trivia Database — every category —
+# so a fight can test anything. Multiple-choice; the Jeopardy clues below carry
+# the typed-answer rounds.
+OPENTDB_API = "https://opentdb.com/api.php"
+OPENTDB_TOKEN = "https://opentdb.com/api_token.php"
+
+
+class OpenTDBBank:
+    def __init__(self):
+        self.rng = random.Random()
+        self.offline = os.environ.get("TRIVIA_OFFLINE") == "1"
+        self.pool: list[dict] = []
+        self.seen: set[str] = set()
+        self.token = ""
+        self._last_req = 0.0
+        self._api_ok = not self.offline
+
+    async def get(self) -> dict:
+        if not self.pool and self._api_ok:
+            try:
+                await self._refill()
+            except Exception:
+                pass
+        if self.pool:
+            return self.pool.pop()
+        return self._fallback()
+
+    def _fallback(self) -> dict:
+        pools = []
+        for d in FALLBACK.values():
+            pools += d["medium"] + d["hard"]
+        raw = self.rng.choice(pools)
+        return _shape(raw[0], raw[1], list(raw[2]), self.rng)
+
+    async def _fetch_token(self, client) -> str:
+        if self.token:
+            return self.token
+        r = await client.get(OPENTDB_TOKEN, params={"command": "request"})
+        self.token = r.json().get("token", "")
+        return self.token
+
+    async def _refill(self):
+        now = time.monotonic()
+        wait = 5.2 - (now - self._last_req)      # OpenTDB throttles to ~1 req / 5s
+        if wait > 0:
+            await asyncio.sleep(wait)
+        self._last_req = time.monotonic()
+        async with httpx.AsyncClient(timeout=10) as client:
+            token = await self._fetch_token(client)
+            params = {"amount": "50", "type": "multiple"}
+            if token:
+                params["token"] = token
+            r = await client.get(OPENTDB_API, params=params)
+            r.raise_for_status()
+            j = r.json()
+        if j.get("response_code") in (3, 4):     # token spent/expired → drop it
+            self.token = ""
+            return
+        for it in j.get("results", []):
+            try:
+                text = html.unescape(it["question"])
+                correct = html.unescape(it["correct_answer"])
+                wrong = [html.unescape(w) for w in it["incorrect_answers"]]
+            except (KeyError, TypeError):
+                continue
+            if text in self.seen:
+                continue
+            self.seen.add(text)
+            self.pool.append(_shape(text, correct, wrong, self.rng))
+        if len(self.seen) > 20000:
+            self.seen.clear()
+
+    async def refill_loop(self):
+        if self.offline:
+            return
+        while True:
+            if len(self.pool) < LOW_WATER:
+                try:
+                    await self._refill()
+                    self._api_ok = True
+                except Exception:
+                    self._api_ok = False
+                    await asyncio.sleep(30)
+            await asyncio.sleep(6)
+
+
+# ── BATTLE questions: Jeopardy clues (typed answers) ─────────────────────────
+# A bundled, filtered slice of the jwolle1/jeopardy_clue_dataset — music &
+# literature categories, non-media clues only. These are answered by TYPING
+# (15 seconds on the clock), not by picking. Fully offline.
+_JEOPARDY_PATH = pathlib.Path(__file__).with_name("data") / "jeopardy.json"
+try:
+    JEOPARDY: list[dict] = json.loads(_JEOPARDY_PATH.read_text(encoding="utf-8"))
+except Exception:
+    JEOPARDY = []
+
+
+def jeopardy_pick(rng: random.Random) -> dict:
+    """One typed Jeopardy clue: {text, answer, typed, kind, category, theme}."""
+    if JEOPARDY:
+        it = rng.choice(JEOPARDY)
+        return {"text": it["q"], "answer": it["a"], "typed": True,
+                "kind": "jeopardy", "category": it.get("c", ""),
+                "theme": it.get("t", "")}
+    # never stall a battle if the bundle is missing — a typed fallback
+    raw = rng.choice(FALLBACK["apollo"]["hard"] + FALLBACK["dionysos"]["hard"])
+    return {"text": raw[0], "answer": raw[1], "typed": True,
+            "kind": "jeopardy", "category": "", "theme": "lit"}
+
+
+# ── typed-answer matching ────────────────────────────────────────────────────
+_ARTICLES = ("the ", "a ", "an ")
+
+
+def _norm_answer(s: str) -> str:
+    s = unicodedata.normalize("NFKD", s or "")
+    s = "".join(c for c in s if not unicodedata.combining(c))
+    s = s.lower().replace("&", " and ")
+    s = re.sub(r"[^a-z0-9 ]+", " ", s)
+    s = re.sub(r"\s+", " ", s).strip()
+    for art in _ARTICLES:
+        if s.startswith(art):
+            s = s[len(art):]
+    return s.strip()
+
+
+def _answer_variants(answer: str) -> set[str]:
+    # "(Ernest) Hemingway" → {"ernest hemingway", "hemingway"}
+    out = set()
+    for v in (answer, re.sub(r"[()]", "", answer), re.sub(r"\([^)]*\)", "", answer)):
+        n = _norm_answer(v)
+        if n:
+            out.add(n)
+    return out
+
+
+def check_jeopardy(given: str, answer: str) -> bool:
+    """Lenient typed match: normalized equality, or one being a whole-word run of
+    the other (so 'Hemingway' matches 'Ernest Hemingway', 'Jordan' matches 'the
+    Jordan')."""
+    g = _norm_answer(given)
+    if not g:
+        return False
+    for v in _answer_variants(answer):
+        if g == v:
+            return True
+        if len(v) >= 4 and (f" {v} " in f" {g} " or f" {g} " in f" {v} "):
+            return True
+    return False
 
 
 # ── offline fallback set ─────────────────────────────────────────────────────

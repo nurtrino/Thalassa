@@ -32,11 +32,13 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
 import bots
+import questions
 from game import Game, GameError
-from questions import QuestionBank
+from questions import OpenTDBBank, QuestionBank
 
 BASE = os.path.dirname(os.path.abspath(__file__))
 QUESTION_SECS = float(os.environ.get("QUESTION_SECS", "35"))
+JEOPARDY_SECS = float(os.environ.get("JEOPARDY_SECS", "15"))   # typed clues
 REVEAL_SECS = float(os.environ.get("REVEAL_SECS", "5"))
 ABANDON_RESET_SECS = float(os.environ.get("ABANDON_RESET_SECS", "300"))
 BOT_TEMPO = float(os.environ.get("BOT_TEMPO", "1.0"))
@@ -65,7 +67,8 @@ class Table:
 
 
 table = Table()
-bank = QuestionBank()
+bank = QuestionBank()          # temples: themed by domain
+battle_bank = OpenTDBBank()    # battles: general MC from the Open Trivia DB
 app = FastAPI(title="Thalassa")
 
 
@@ -112,10 +115,17 @@ async def fetch_question(nonce: int):
     if g.qctx is None:
         return
     pending = g.needs_puzzle()
+    mode = g.qctx.get("mode")
     if pending is not None:
         limit = pending.get("limit", 60)
         q = pending
-    else:
+    elif mode == "jeopardy":                 # typed clue, 15s on the clock
+        limit = JEOPARDY_SECS
+        q = questions.jeopardy_pick(g.rng)
+    elif mode == "mc":                        # battle MC from the Open Trivia DB
+        limit = QUESTION_SECS
+        q = await battle_bank.get()
+    else:                                     # temples: themed by domain
         limit = QUESTION_SECS
         q = await bank.get(g.qctx["domain"], g.qctx["tier"])
     if g.nonce == nonce and g.phase == "question" and g.question is None:
@@ -224,6 +234,8 @@ async def dispatch(pid: str | None, kind: str, msg: dict) -> str | None:
                 g.side_answer(pid, idx)
             else:
                 g.answer(pid, idx)   # → reveal timer armed by after_phase_change
+        elif kind == "answer_text":
+            g.answer_text(pid, str(msg.get("text", "")))   # typed Jeopardy clue
         elif kind == "solve":
             g.minigame_submit(pid, msg.get("payload"))
         elif kind == "pick":
@@ -243,6 +255,8 @@ async def dispatch(pid: str | None, kind: str, msg: dict) -> str | None:
             if p and msg.get("win"):           # force the curtain call
                 g.winner = p.pid
                 g._bump("finished")
+            if msg.get("battle_mode"):         # force the next battle round's deck
+                g._force_mode = str(msg["battle_mode"])
             node = str(msg.get("node", ""))
             if p and node in g.board.nodes:
                 p.prev_node = p.node
@@ -327,8 +341,12 @@ async def bot_move(nonce: int, tag: str, pid: str):
     elif phase == "question":
         if g.question is None:
             return
-        idx = bots.decide_answer(g, skill, rng)
-        err = await dispatch(pid, "answer", {"idx": idx})
+        if g.question.get("typed"):
+            text = bots.decide_typed_answer(g, skill, rng)
+            err = await dispatch(pid, "answer_text", {"text": text})
+        else:
+            idx = bots.decide_answer(g, skill, rng)
+            err = await dispatch(pid, "answer", {"idx": idx})
     elif phase == "minigame":
         p_solve = min(0.85, skill.t3 + 0.25)
         g.resolve_minigame(rng.random() < p_solve)
@@ -352,8 +370,10 @@ async def bot_driver():
         if len(table.acted) > 512:
             table.acted = {k for k in table.acted if k[0] >= g.nonce}
 
-        # side answers from every bot that isn't acting
-        if g.phase == "question" and g.question is not None:
+        # side answers from every bot that isn't acting (typed clues are the
+        # challenger's alone — no side guesses)
+        if g.phase == "question" and g.question is not None \
+                and not g.question.get("typed"):
             for p in g.players:
                 if p.pid in table.bots and p.pid != g.current.pid \
                         and p.pid not in g.side_answers \
@@ -476,5 +496,6 @@ async def abandoned_game_reset():
 @app.on_event("startup")
 async def startup():
     schedule(bank.refill_loop())
+    schedule(battle_bank.refill_loop())
     schedule(bot_driver())
     schedule(abandoned_game_reset())

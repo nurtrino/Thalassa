@@ -49,6 +49,7 @@ from __future__ import annotations
 import random
 
 import puzzles
+import questions
 from board import Board, DOMAIN_INFO, DOMAINS, REGION_POOL, RELICS_TO_WIN
 
 # ── tunables ─────────────────────────────────────────────────────────────────
@@ -610,6 +611,8 @@ class Game:
         if item == "hint":
             if self.phase != "question" or self.question is None:
                 raise GameError("No question to narrow.")
+            if self.question.get("typed"):
+                raise GameError("A typed clue has no options to narrow.")
             if self.question.get("disabled"):
                 raise GameError("The options are already narrowed.")
             if len(self.question["options"]) <= 2:
@@ -666,15 +669,22 @@ class Game:
         self.battle["target"] = target
 
         # ── what challenge does this round pose? ─────────────────────────────
-        # Ordinary packs: an even coin — half trivia, half puzzles. Bosses
-        # ALTERNATE, a trivia round then a puzzle round, so a trial tests the
-        # whole mind. The Dark Lord draws trivia from EVERY category. Puzzles
-        # in combat never include riddles (those belong to the Sphinx).
+        # Battles draw from THREE decks: 45% multiple-choice (the general Open
+        # Trivia DB — a fight can test anything), 25% combat puzzles, and 30%
+        # typed JEOPARDY! clues (music & literature — you type the answer on a
+        # 15-second clock). The temples keep the themed-category trivia gimmick;
+        # battles do not. Bosses rotate all three so a trial tests the whole
+        # mind. Puzzles in combat never include riddles (those are the Sphinx's).
         if boss:
-            puzzle_round = self.battle["round"] % 2 == 1
+            mode = ("mc", "puzzle", "jeopardy")[self.battle["round"] % 3]
         else:
-            puzzle_round = self.rng.random() < 0.5
-        if puzzle_round:
+            r = self.rng.random()
+            mode = "puzzle" if r < 0.25 else ("mc" if r < 0.70 else "jeopardy")
+        forced = getattr(self, "_force_mode", None)     # DEV_CHEATS test hook only
+        if forced:
+            mode = forced
+            self._force_mode = None
+        if mode == "puzzle":
             deal = puzzles.deal_battle(self.rng)
             self.minigame = {"kind": deal["kind"], "island": self.battle["node"],
                              "data": deal, "limit": deal["limit"],
@@ -684,10 +694,10 @@ class Game:
             self.side_answers = {}
             self._bump("minigame")
             return
-        domain = (self.rng.choice(DOMAINS) if node["type"] == "pharos"
-                  else m["domain"])
+        # trivia rounds (MC or typed Jeopardy) share the question phase; the
+        # server fetches the right kind from `mode`.
         self.qctx = {"kind": "battle", "island": self.battle["node"],
-                     "tier": tier, "domain": domain}
+                     "tier": tier, "domain": None, "mode": mode}
         self.question = None
         self.side_answers = {}
         self._bump("question")
@@ -731,6 +741,8 @@ class Game:
             raise GameError("You don't carry that.")
         if item in self.battle["used_items"]:
             raise GameError("Already used this battle.")
+        if item == "owl" and self.question.get("typed"):
+            raise GameError("The Owl can't narrow a typed clue.")
         if item == "owl":
             self.battle["used_items"].append("owl")
             correct = self.question["correct"]
@@ -790,6 +802,8 @@ class Game:
     def side_answer(self, pid: str, idx: int):
         if self.phase != "question" or self.question is None:
             raise GameError("No question is open.")
+        if self.question.get("typed"):
+            raise GameError("A typed clue is the challenger's alone.")
         if pid == self.current.pid:
             raise GameError("Use answer for your own question.")
         p = self.player_by_pid(pid)
@@ -803,9 +817,22 @@ class Game:
         self._require_turn(pid, "question")
         if self.question is None:
             raise GameError("The question is still on its way.")
+        if self.question.get("typed"):
+            raise GameError("Type your answer for this clue.")
         if idx in self.question.get("disabled", []):
             raise GameError("The Owl has ruled that answer out.")
         self._resolve_question(idx == self.question["correct"], idx)
+
+    def answer_text(self, pid: str, text: str):
+        """Typed JEOPARDY! answer — free text, matched leniently (see
+        questions.check_jeopardy). Sentinel idx -3 marks a typed response."""
+        self._require_turn(pid, "question")
+        if self.question is None:
+            raise GameError("The clue is still on its way.")
+        if not self.question.get("typed"):
+            raise GameError("This one's multiple choice.")
+        ok = questions.check_jeopardy(str(text or ""), self.question["answer"])
+        self._resolve_question(ok, -3)
 
     def timeout_question(self):
         if self.phase == "question" and self.question is not None:
@@ -826,7 +853,7 @@ class Game:
                 sp = self.player_by_pid(spid)
                 if not sp:
                     continue
-                ok = sidx == self.question["correct"]
+                ok = sidx == self.question.get("correct")
                 if ok:
                     sp.scrolls += SIDE_REWARD + self._side_streak(sp)
                 else:
@@ -843,9 +870,10 @@ class Game:
         gained = 0
 
         if kind == "battle":
+            typed = bool(self.question.get("typed"))
             side = self._settle_side_answers()
-            self._resolve_battle(correct, idx, self.question["correct"], side,
-                                 challenge="trivia")
+            self._resolve_battle(correct, idx, self.question.get("correct"), side,
+                                 challenge="jeopardy" if typed else "trivia")
             return
 
         if kind == "shrine":
@@ -1035,6 +1063,16 @@ class Game:
             "enemy_phase": enemy_phase,
             "monster": self._battle_public(),
         }
+        # typed JEOPARDY! rounds have no options to light up — reveal the answer
+        # text and flash the verdict so the challenger sees right/wrong at a glance
+        q = self.question or {}
+        if q.get("typed"):
+            ans = q.get("answer", "")
+            self.reveal["typed"] = True
+            self.reveal["answer_text"] = ans
+            self.reveal["category"] = q.get("category", "")
+            self._flash(correct, "Correct!" if correct
+                        else (f"Wrong — the answer was {ans}" if ans else "Wrong!"))
         if note:
             self._say(note)
         if battle_over or self.winner:

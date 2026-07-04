@@ -1414,25 +1414,31 @@ function renderQuestion() {
 
   const q = room.question;
   const rv = room.phase === 'reveal' ? room.reveal : null;
+  const typed = !!(q?.typed || rv?.typed);            // a JEOPARDY! clue: you type it
   const ctxDomain = q?.domain ?? rv?.domain;
   const ctxKind = q?.kind ?? rv?.kind;
-  const dcolor = ctxDomain ? DOMAIN_COLORS[ctxDomain] : '#7d5ba6';
+  const dcolor = typed ? '#0b1e8f' : (ctxDomain ? DOMAIN_COLORS[ctxDomain] : '#7d5ba6');
   const dinfo = ctxDomain ? room.board.domains[ctxDomain] : null;
 
   $('qhead').style.background = dcolor;
-  $('qkind').textContent = ctxKind === 'shrine'
-    ? `${KIND_LABEL.shrine} · Tier ${TIER_ROMAN[q?.tier ?? 1] || ''}`
-    : ctxKind === 'battle'
-      ? `Battle · Tier ${TIER_ROMAN[q?.tier ?? rv?.tier ?? 1] || 'I'}`
-      : (KIND_LABEL[ctxKind] || 'Challenge');
-  $('qdomain').textContent = dinfo ? `${dinfo.name} · ${dinfo.field}` : 'Wits & Logic';
+  if (typed) {
+    $('qkind').textContent = `Jeopardy! · ${q?.category || rv?.category || ''}`.trim();
+    $('qdomain').textContent = 'Type your answer';
+  } else {
+    $('qkind').textContent = ctxKind === 'shrine'
+      ? `${KIND_LABEL.shrine} · Tier ${TIER_ROMAN[q?.tier ?? 1] || ''}`
+      : ctxKind === 'battle'
+        ? `Battle · Tier ${TIER_ROMAN[q?.tier ?? rv?.tier ?? 1] || 'I'}`
+        : (KIND_LABEL[ctxKind] || 'Challenge');
+    $('qdomain').textContent = dinfo ? `${dinfo.name} · ${dinfo.field}` : 'Wits & Logic';
+  }
 
   /* battle trinkets (owl / lyre) + the carried hint stone */
   const itemsRow = $('qitems');
   itemsRow.innerHTML = '';
   const me = room.players.find((p) => p.pid === you);
   if (room.phase === 'question' && ctxKind === 'battle' && room.turn === you && me && room.battle) {
-    for (const item of ['owl', 'lyre']) {
+    for (const item of (typed ? ['lyre'] : ['owl', 'lyre'])) {   // Owl can't narrow a typed clue
       if (me.upgrades.includes(item) && !room.battle.used_items.includes(item)) {
         const b = document.createElement('button');
         b.className = 'itembtn';
@@ -1461,11 +1467,18 @@ function renderQuestion() {
 
   const mine = room.turn === you;
   const amPlayer = !!me;
+  if (room.phase === 'question' && typed) {
+    $('qtext').textContent = q.text;
+    renderTypedQuestion(q, mine);
+    startTimerBar(q.deadline, '#qtimerBar');
+    return;
+  }
   if (room.phase === 'question') {
     const qkey = `${q.text}`.slice(0, 40);
     if (sideKey !== qkey) { sideKey = qkey; mySideAnswer = null; }
     $('qtext').textContent = q.text;
     const opts = $('qopts');
+    opts.dataset.tkey = '';
     opts.innerHTML = '';
     const alreadySide = (room.side_answered || []).includes(you) || mySideAnswer !== null;
     q.options.forEach((opt, i) => {
@@ -1490,6 +1503,18 @@ function renderQuestion() {
   } else {
     cancelAnimationFrame(timerRAF);
     $('qtimerBar').style.width = '0%';
+    if (typed) {
+      if (rv.text || q?.text) $('qtext').textContent = rv.text || q.text;
+      const opts = $('qopts');
+      opts.dataset.tkey = '';
+      opts.innerHTML =
+        `<div class="typedreveal ${rv.was_correct ? 'good' : 'bad'}">` +
+        `<span class="tlabel">${rv.was_correct ? 'Correct' : 'The answer'}</span>` +
+        `<span class="tans">${esc(rv.answer_text || '')}</span></div>`;
+      $('qnote').textContent = stripEmoji(rv.note || '');
+      mySideAnswer = null;
+      return;
+    }
     const opts = $('qopts');
     [...opts.children].forEach((b, i) => {
       b.disabled = true;
@@ -1504,6 +1529,49 @@ function renderQuestion() {
     $('qnote').textContent = note;
     mySideAnswer = null;
   }
+}
+
+/* a typed JEOPARDY! clue — the challenger types their answer on the 15s clock.
+   Rebuild only when the clue changes, so live re-renders never wipe typing. */
+function renderTypedQuestion(q, mine) {
+  const opts = $('qopts');
+  const key = 'typed:' + `${q.text}`.slice(0, 80);
+  if (!mine) {
+    opts.dataset.tkey = key;
+    opts.innerHTML = '';
+    $('qnote').textContent =
+      `${room.players.find((p) => p.pid === room.turn)?.name || 'The captain'} is answering…`;
+    return;
+  }
+  if (opts.dataset.tkey === key && opts.querySelector('#qtypedInput')) return;  // keep typing
+  opts.dataset.tkey = key;
+  opts.innerHTML = '';
+  const wrap = document.createElement('div');
+  wrap.className = 'typedwrap';
+  const input = document.createElement('input');
+  input.id = 'qtypedInput';
+  input.type = 'text';
+  input.className = 'typedinput';
+  input.autocomplete = 'off';
+  input.autocapitalize = 'off';
+  input.spellcheck = false;
+  input.placeholder = 'type your answer…';
+  const btn = document.createElement('button');
+  btn.className = 'opt typedgo';
+  btn.textContent = 'Answer';
+  const submit = () => {
+    const t = input.value.trim();
+    if (!t) return;
+    input.disabled = true;
+    btn.disabled = true;
+    send({ type: 'answer_text', text: t });
+  };
+  input.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); submit(); } });
+  btn.onclick = submit;
+  wrap.append(input, btn);
+  opts.appendChild(wrap);
+  $('qnote').textContent = 'Type the answer and press Enter — 15 seconds.';
+  setTimeout(() => { try { input.focus(); } catch (e) {} }, 30);
 }
 
 function startTimerBar(deadline, barSel) {

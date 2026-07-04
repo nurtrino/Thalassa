@@ -2,8 +2,22 @@
 import pytest
 
 import game as G
+import questions
 from board import Board, RELICS_TO_WIN
 from game import Game, GameError
+
+
+def _typed_battle(g, pid, mon, answer="Shakespeare"):
+    """Force the current battle into a typed Jeopardy round with a known clue."""
+    g.battle["stance"] = "attack"
+    g.battle["target"] = 0
+    g.qctx = {"kind": "battle", "island": mon, "tier": 1,
+              "domain": None, "mode": "jeopardy"}
+    g.minigame = None
+    g.question = None
+    g._bump("question")
+    g.set_question({"text": "This bard wrote Hamlet", "answer": answer,
+                    "typed": True, "kind": "jeopardy", "category": "AUTHORS"})
 
 
 def finish_trade(g):
@@ -1641,8 +1655,11 @@ def test_battle_puzzle_failure_gets_you_hit():
     assert p.hull < G.MAX_HULL                          # the pack punished the miss
 
 
-def test_dark_lord_draws_trivia_from_every_category():
-    import random as _r
+def test_boss_rotates_all_three_challenge_decks():
+    # Battles no longer theme trivia by domain — the general Open Trivia DB
+    # already spans every category. A boss instead ROTATES the three decks
+    # (multiple-choice, puzzle, typed Jeopardy) across its rounds so a trial
+    # tests the whole mind.
     g, (p0, p1) = make_game()
     p = g.player_by_pid(p0)
     p.banked = RELICS_TO_WIN
@@ -1651,14 +1668,74 @@ def test_dark_lord_draws_trivia_from_every_category():
     p.node = "pharos"
     g._land(p, "pharos")
     assert g.phase == "battle"
-    domains = set()
-    for seed in range(40):
-        g.rng = _r.Random(seed)
+    modes = set()
+    for rnd in range(6):
         g.phase = "battle"
-        g.battle["round"] = 0                           # keep to trivia rounds
+        g.battle["round"] = rnd
         g.minigame = None
         g.question = None
+        g.qctx = None
         g.stance(p0, "attack")
-        assert g.phase == "question"
-        domains.add(g.qctx["domain"])
-    assert len(domains) >= 4                            # the whole curriculum
+        if g.phase == "minigame":
+            modes.add("puzzle")
+        else:
+            assert g.phase == "question"
+            modes.add(g.qctx["mode"])
+    assert modes == {"mc", "puzzle", "jeopardy"}        # the whole curriculum
+
+
+def test_typed_jeopardy_correct_answer():
+    g, (p0, p1) = make_game()
+    mon = find_node(g, "monster")
+    set_pack(g, mon, [3])
+    battle_at(g, p0, mon)
+    _typed_battle(g, p0, mon)
+    hp0 = pack(g, mon)[0]["hp"]
+    g.answer_text(p0, "shakespeare")               # leniently matched, case-free
+    assert g.phase == "reveal"
+    assert g.reveal["was_correct"] and g.reveal["typed"]
+    assert g.reveal["answer_text"] == "Shakespeare"
+    assert g.flash and g.flash["ok"]               # verdict banner: correct
+    assert pack(g, mon)[0]["hp"] < hp0             # your blade landed
+
+
+def test_typed_jeopardy_wrong_answer_reveals():
+    g, (p0, p1) = make_game()
+    mon = find_node(g, "monster")
+    set_pack(g, mon, [3])
+    battle_at(g, p0, mon)
+    _typed_battle(g, p0, mon)
+    g.answer_text(p0, "charles dickens")
+    assert g.phase == "reveal" and not g.reveal["was_correct"]
+    assert g.flash and not g.flash["ok"]
+    assert "Shakespeare" in g.flash["text"]        # the answer is revealed
+
+
+def test_typed_and_choice_answers_dont_cross():
+    g, (p0, p1) = make_game()
+    mon = find_node(g, "monster")
+    set_pack(g, mon, [3])
+    battle_at(g, p0, mon)
+    _typed_battle(g, p0, mon)
+    with pytest.raises(GameError):                 # can't pick an option on a typed clue
+        g.answer(p0, 0)
+    # and a multiple-choice battle question rejects a typed answer
+    g.reveal = None
+    g.battle["stance"] = "attack"
+    g.qctx = {"kind": "battle", "island": mon, "tier": 1, "domain": None, "mode": "mc"}
+    g.question = None
+    g._bump("question")
+    g.set_question({"text": "Q?", "options": ["a", "b", "c", "d"], "correct": 1})
+    with pytest.raises(GameError):
+        g.answer_text(p0, "b")
+
+
+def test_jeopardy_answer_matching():
+    C = questions.check_jeopardy
+    assert C("Hemingway", "(Ernest) Hemingway")
+    assert C("ernest hemingway", "(Ernest) Hemingway")
+    assert C("the jordan", "Jordan") and C("jordan", "the Jordan")
+    assert C("Mozart", "Wolfgang Amadeus Mozart")
+    assert C("a raisin in the sun", "A Raisin in the Sun")
+    assert not C("Beethoven", "Mozart")
+    assert not C("", "Mozart")
