@@ -247,6 +247,49 @@ function showRealmBanner(info) {
   ).onfinish = () => { d.remove(); if (bannerEl === d) bannerEl = null; };
 }
 
+/* a punchy centre-screen callout — used to announce a fight the moment it
+   begins (ambush, boss trial, the final confrontation). Separate element from
+   the realm banner so the two can never clobber each other. */
+let announceEl = null;
+function showAnnounce(title, sub, color) {
+  announceEl?.remove();
+  const d = document.createElement('div');
+  announceEl = d;
+  d.style.cssText =
+    'position:fixed;left:50%;top:32%;transform:translateX(-50%);z-index:19;' +
+    'pointer-events:none;text-align:center;opacity:0';
+  d.innerHTML =
+    `<div style="font-family:var(--disp,serif);font-weight:800;font-size:clamp(26px,6vw,58px);` +
+    `letter-spacing:.16em;text-transform:uppercase;color:${color};` +
+    `text-shadow:0 3px 18px rgba(3,6,10,.95),0 0 40px ${color}66;white-space:nowrap">${esc(title)}</div>` +
+    (sub ? `<div style="margin:8px auto 0;font-family:var(--disp,serif);font-weight:700;` +
+      `font-size:clamp(13px,2.4vw,19px);letter-spacing:.14em;text-transform:uppercase;` +
+      `color:#e7eef5;text-shadow:0 2px 10px rgba(3,6,10,.9)">${esc(sub)}</div>` : '');
+  document.body.appendChild(d);
+  d.animate(
+    [{ opacity: 0, transform: 'translateX(-50%) scale(1.22)' },
+     { opacity: 1, transform: 'translateX(-50%) scale(1)', offset: 0.16 },
+     { opacity: 1, transform: 'translateX(-50%) scale(1)', offset: 0.74 },
+     { opacity: 0, transform: 'translateX(-50%) scale(1.04) translateY(-8px)' }],
+    { duration: 2600, easing: 'cubic-bezier(.2,.9,.2,1)' },
+  ).onfinish = () => { d.remove(); if (announceEl === d) announceEl = null; };
+}
+
+/* what to shout when a battle opens */
+function announceBattle(b) {
+  if (!b) return;
+  if (b.is_pharos) {
+    showAnnounce('The Dark Lord', 'The final trial', '#a36cff');
+  } else if (b.is_lair) {
+    const sub = b.escalation > 0 ? `Risen ×${b.escalation} — a rival came before you` : 'Your trial';
+    showAnnounce(b.name, sub, '#ffb454');
+  } else if (b.ambush) {
+    showAnnounce('Ambush!', b.name, '#e0553a');
+  } else {
+    showAnnounce(b.name, 'Bars the way', '#e0553a');
+  }
+}
+
 /* ── sound reactions + battle beats ─────────────────────────────────────── */
 let sfxLastTurn = null, sfxPrevPhase = null, sfxAnnouncedWin = false;
 let audioDeferred = false;
@@ -279,6 +322,7 @@ function reactAudio(prev, next) {
   }
   if (next.phase === 'battle' && sfxPrevPhase !== 'battle' && sfxPrevPhase !== 'reveal') {
     audio.sfx.roar();
+    announceBattle(next.battle);
   }
   if (next.phase === 'finished' && !sfxAnnouncedWin) {
     audio.sfx.victory();
@@ -975,6 +1019,7 @@ function renderBattle() {
     (b.region ? ' · ' + esc(REALM_INFO[b.region]?.name || '') : '') +
     '</div>' +
     (b.boss ? roundPips : '') +
+    (b.escalation > 0 ? ` <span class="escalated" title="A rival already felled this guardian — it rises harder for you. Reach the trial first to face its weakest form.">Risen ×${b.escalation}</span>` : '') +
     (b.enraged ? ' <span class="enraged">Enraged</span>' : '') +
     (b.charging
       ? `<div class="chargewarn">${icon('guard', 13)} CHARGING — a heavy blow comes. Guard it.</div>`

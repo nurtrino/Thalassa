@@ -402,29 +402,37 @@ class Game:
             self._say(f"{p.name} hauls drifting flotsam aboard — +1 scroll.")
 
         monster = self.board.alive_monster(nid)
-        # The Isles of Peace are safe: NO ambushes in the hub. All danger is
-        # beyond the passes — realm hunting grounds bite on most landings
-        # (deeper = surer) and realm open water can spring a sea attack too.
+        # Danger scales with the passage. Realm hunting grounds bite on most
+        # landings (deeper = surer) and realm open water can spring a sea
+        # attack too. The Isles of Peace are far calmer — but not empty: a
+        # stray raider still turns up now and then in the home waters.
         if node.get("encounter") and node.get("depth"):
             chance = min(0.85, 0.45 + 0.1 * node["depth"])
         elif ntype == "sea" and node.get("depth"):
             chance = min(0.5, 0.2 + 0.05 * node["depth"])
+        elif ntype == "sea" and not node.get("region"):
+            chance = 0.14          # a rare small skirmish in the hub sea-lanes
         else:
             chance = 0.0
+        ambush = False
         if chance and not monster and self.rng.random() < chance:
             node["monster"] = self.board.random_pack(node, self.rng)
             monster = node["monster"]
-            if ntype == "sea":
-                self._say(f"⚔ {monster['name']} rise from the deep — "
-                          f"{p.name} is beset mid-crossing!")
+            ambush = True
+            if node.get("region"):
+                if ntype == "sea":
+                    self._say(f"⚔ {monster['name']} rise from the deep — "
+                              f"{p.name} is beset mid-crossing!")
+                else:
+                    self._say(f"⚔ {monster['name']} ambush {p.name} in the wilds!")
             else:
-                self._say(f"⚔ {monster['name']} ambush {p.name}"
-                          + (" in the wilds!" if node.get("region") else " in open water!"))
+                self._say(f"⚔ {monster['name']} waylay {p.name} "
+                          f"in the home waters!")
         if monster:
             self.battle = {"node": nid, "stance": None, "round": 0,
-                           "charging": False,
+                           "charging": False, "ambush": ambush,
                            "used_items": [], "first_hit_taken": False}
-            if not node.get("encounter") and ntype != "sea":
+            if not node.get("encounter") and not ambush and ntype != "sea":
                 self._say(f"{monster['name']} bars {p.name}'s way!")
             self._bump("battle")
             return
@@ -1064,6 +1072,8 @@ class Game:
         return {"name": m["name"], "tier": m["tier"], "domain": m["domain"],
                 "boss": boss, "model": m.get("model"),
                 "enraged": bool(m.get("enraged")),
+                "escalation": m.get("escalation", 0),
+                "ambush": bool(self.battle.get("ambush")),
                 "round": self.battle.get("round", 0),
                 "charging": bool(self.battle.get("charging")),
                 "enemies": [{"name": e["name"], "hp": max(0, e["hp"]),

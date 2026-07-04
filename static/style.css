@@ -898,6 +898,20 @@ input:focus-visible, select:focus-visible {
 @keyframes ragepulse {
   50% { box-shadow: 0 0 14px rgba(224, 70, 40, .8); color: #ffd9cd; }
 }
+/* a guardian a rival already felled — risen harder for a late challenger */
+.escalated {
+  display: inline-block;
+  font-family: var(--disp); font-weight: 800; font-size: 11.5px;
+  letter-spacing: .18em; text-transform: uppercase;
+  color: #e9d4ff;
+  background: rgba(58, 22, 92, .82);
+  border: 1px solid rgba(163, 108, 255, .8);
+  border-radius: 5px;
+  padding: 2px 9px;
+  vertical-align: middle;
+  cursor: help;
+  box-shadow: 0 0 10px rgba(140, 82, 255, .45);
+}
 /* charging warning strip */
 .chargewarn, #bfoe .charging {
   margin: 7px auto 0;

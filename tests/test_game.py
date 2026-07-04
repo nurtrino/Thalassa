@@ -185,6 +185,27 @@ def test_lair_bosses_are_solo_personal_trials():
     assert len(b.nodes["pharos"]["monster"]["enemies"]) == 1
 
 
+def test_lair_boss_escalates_for_later_challengers():
+    # the first to reach a lair fights the weakest form; every rival who
+    # already conquered it leaves the guardian risen harder and titled.
+    b = Board(3)
+    nid = b.lairs()[0]
+    base = b.spawn_boss(nid)
+    base_hp = base["enemies"][0]["max_hp"]
+    base_pow = base["enemies"][0]["power"]
+    assert base["escalation"] == 0
+    assert "," not in base["name"]                  # no title on the first form
+
+    # simulate two rivals having already felled it
+    b.nodes[nid]["defeated"].extend(["p1", "p2"])
+    risen = b.spawn_boss(nid)
+    assert risen["escalation"] == 2
+    assert risen["enemies"][0]["max_hp"] == base_hp + 10   # +5 per prior victor
+    assert risen["enemies"][0]["power"] == base_pow + 2    # +1 per, capped at 2
+    assert risen["name"].split(",")[0] == base["name"]     # same guardian, titled
+    assert "," in risen["name"]
+
+
 # ── shrine wagers ────────────────────────────────────────────────────────────
 def test_shrine_wager_and_charges():
     g, (p0, p1) = make_game()
@@ -994,22 +1015,53 @@ def test_sea_attacks_on_the_crossing():
     assert g.board.nodes[sea]["monster"] is None   # the water falls quiet
 
 
-def test_isles_of_peace_are_safe():
-    """No ambush ever springs in the hub — not on islands, not in open water."""
+def test_hub_islands_never_ambush():
+    """Landing on a hub island is always safe — only the sea-lanes bite."""
     import random as _r
     for seed in range(6):
         g, (p0, p1) = make_game(seed=seed)
-        hub_seas = [nid for nid, n in g.board.nodes.items()
-                    if n["type"] == "sea" and not n.get("region")]
-        for sea in hub_seas[:8]:
-            g.board.nodes[sea]["flotsam"] = False
+        hub_land = [nid for nid, n in g.board.nodes.items()
+                    if n["type"] not in ("sea", "monster", "lair", "pharos")
+                    and not n.get("region")]
+        for land in hub_land[:8]:
             p = g.player_by_pid(g.current.pid)
-            g.rng = _r.Random(1)               # would trigger IF the hub bit
+            g.rng = _r.Random(1)               # would trigger IF land could bite
             g.phase = "sail"
             p.prev_node = p.node
-            p.node = sea
-            g._land(p, sea)
-            assert g.phase != "battle"         # the hub never fights you
+            p.node = land
+            # skip nodes that legitimately open their own phase (shrine/shop…)
+            g._land(p, land)
+            assert g.phase != "battle"         # no fight on a peaceful landing
+
+
+def test_hub_sea_is_calm_but_not_empty():
+    """The home waters spring only rare, SMALL skirmishes — a light pack, never
+    a realm horror. With a favourable roll a hub crossing can still be jumped."""
+    import random as _r
+    g, (p0, p1) = make_game(seed=0)
+    hub_seas = [nid for nid, n in g.board.nodes.items()
+                if n["type"] == "sea" and not n.get("region")]
+    assert hub_seas
+    fought = 0
+    for sea in hub_seas:
+        g.board.nodes[sea]["monster"] = None
+        g.board.nodes[sea]["flotsam"] = False
+        p = g.player_by_pid(g.current.pid)
+        g.rng = _r.Random(1)                   # 0.134 < 0.14 → springs the trap
+        g.phase = "sail"
+        p.prev_node = p.node
+        p.node = sea
+        g._land(p, sea)
+        if g.phase == "battle":
+            fought += 1
+            m = g.board.nodes[sea]["monster"]
+            assert not m.get("boss")           # nothing lordly out here
+            assert g.battle.get("ambush")      # flagged as a random ambush
+            assert len(m["enemies"]) <= 3
+            for e in m["enemies"]:
+                assert e["max_hp"] <= 4        # a LIGHT pack — small foes only
+            g.battle = None                    # reset for the next probe
+    assert fought >= 1                         # the hub is not perfectly safe
 
 
 # ── boss fights demand strategy ──────────────────────────────────────────────

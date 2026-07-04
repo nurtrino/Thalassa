@@ -440,13 +440,31 @@ class Board:
                 self._link(u, v)
         self._build_neighbors()
 
-    def _boss(self, spec, rng, model: str = "warden") -> dict:
+    # Titles for a boss that has already been slain once and rises again,
+    # harder, for the next challenger. Index by how many rivals beat it before.
+    ESCALATION_TITLES = ["", "the Ascendant", "the Vengeful", "the Undying",
+                         "the Eternal"]
+
+    def _boss(self, spec, rng, model: str = "warden", escalate: int = 0) -> dict:
         """A trial guardian: ONE great enemy — the boss battles of the voyage.
         Bosses always counter, telegraph a heavy blow every third exchange,
-        and enrage at half strength (the engine drives those rules)."""
+        and enrage at half strength (the engine drives those rules).
+
+        ``escalate`` is how many rivals have already felled this boss. Each
+        prior victor leaves the guardian risen angrier: more health and, past
+        the first, more bite — so the first to reach a lair fights the weakest
+        form. A later challenger meets a titled, tougher version."""
         name, hp, power, tier = spec
+        if escalate:
+            hp += 5 * escalate
+            power += min(2, escalate)
+            ti = min(escalate, len(self.ESCALATION_TITLES) - 1)
+            title = self.ESCALATION_TITLES[ti]
+            if title:
+                name = f"{name}, {title}"
         return {"name": name, "tier": tier, "domain": rng.choice(DOMAINS),
                 "boss": True, "model": model, "enraged": False,
+                "escalation": escalate,
                 "enemies": [{"name": name, "hp": hp, "max_hp": hp,
                              "power": power, "model": model}]}
 
@@ -477,11 +495,15 @@ class Board:
                 "domain": rng.choice(DOMAINS), "enemies": enemies}
 
     def spawn_boss(self, nid: str) -> dict:
-        """A fresh personal-trial boss for whoever just landed."""
+        """A fresh personal-trial boss for whoever just landed. Every rival who
+        already conquered this lair leaves the guardian risen harder for the
+        next arrival — reward for reaching the trial first."""
         node = self.nodes[nid]
         theme = node.get("region")
         model = REGION_POOL[theme]["boss_model"] if theme else "warden"
-        node["monster"] = self._boss(tuple(node["boss_spec"]), self.rng, model)
+        escalate = len(node.get("defeated", []))
+        node["monster"] = self._boss(tuple(node["boss_spec"]), self.rng, model,
+                                     escalate=escalate)
         return node["monster"]
 
     def reset_warden(self):
