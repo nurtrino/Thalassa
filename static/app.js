@@ -513,11 +513,6 @@ function reactAudio(prev, next) {
   }
   if (next.phase !== 'finished') sfxAnnouncedWin = false;
 
-  /* Each realm carries its own exploration theme; the Bleached Reach has TWO,
-     and a fresh one is picked every time you re-enter the dunes. Missing files
-     fall back to the game bed automatically (see audio.setScene). */
-  // (areaTrack + its state live at module scope, just below.)
-
   /* soundtrack scenes: lobby / battle / puzzle / endgame / per-realm open sea */
   const battleish = next.phase === 'battle' ||
     (next.phase === 'question' && next.question?.kind === 'battle') ||
@@ -737,7 +732,6 @@ function render() {
     return;
   }
   renderPlayers();
-  renderObjective();
   renderTurnBanner();
   renderMapBtn();
   renderTray();
@@ -872,23 +866,6 @@ function showInspector(pid) {
   $('upclose').onclick = () => panel.classList.add('hidden');
 }
 
-/* ── objective + turn banner (top-center) ───────────────────────────────── */
-function renderObjective() {
-  const el = $('objective');
-  const me = room.players.find((p) => p.pid === you);
-  const n = room.config.relics_to_win;
-  const pips = Array.from({ length: n }, (_, i) =>
-    `<span class="pip ${me && i < me.banked ? 'on' : ''}"></span>`).join('');
-  let hint;
-  if (room.winner) hint = '';
-  else if (!me) hint = `Bank ${n} sigil seals, then take the Pharos.`;
-  else if (room.pharos_open && me.banked >= n)
-    hint = '<strong>THE PHAROS IS OPEN</strong> — land on it and face the Dark Lord.';
-  else if (me.cargo > 0)
-    hint = 'Seal aboard — <strong>sail it home</strong> to bank it.';
-  else hint = `Seals wait past the four passes · bank ${n} to open the Pharos`;
-  el.innerHTML = `${pips} <span class="goaltext">${hint}</span>`;
-}
 
 function renderTurnBanner() {
   const el = $('turnBanner');
