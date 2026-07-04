@@ -140,13 +140,16 @@ MODELS = [
                    "cluttered, clutter, junk pile, messy, crowded stall, awning, "
                    "cloth tent, wooden booth, low-poly, faceted"),
          prompt=(
-             "An elegant clean Roman marketplace shop (a taberna): an open-"
-             "fronted white marble shopfront with a neat row of slender fluted "
-             "white MARBLE COLUMNS along the front holding up a terracotta-tiled "
-             "roof, a simple stone display counter, and just a few tidy terracotta "
-             "amphora jars — uncluttered, elegant and orderly, classical Roman "
-             "architecture. Palette: white marble columns, warm cream stone, "
-             "terracotta-red tiled roof, a couple of terracotta amphorae."),
+             "An elegant clean Roman marketplace shop (a taberna) with a big "
+             "COMPLETE pitched terracotta-tiled GABLED ROOF covering the entire "
+             "building — a full prominent tiled roof with a triangular pediment "
+             "gable at the front, clearly present and capping the whole structure. "
+             "Below it, an open-fronted white marble shopfront with a neat row of "
+             "slender fluted white MARBLE COLUMNS holding the roof up, a simple "
+             "stone display counter, and just a few tidy terracotta amphora jars "
+             "— uncluttered, elegant, classical Roman architecture. Palette: "
+             "terracotta-red tiled roof, white marble columns, warm cream stone, "
+             "a couple of terracotta amphorae."),
          variants=[]),
     dict(id="tents", rank=9, tier="prop",
          prompt=(
