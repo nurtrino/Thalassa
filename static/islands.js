@@ -73,7 +73,7 @@ function structTemplate(id) {
 export function preloadStructures() {
   return ['pharos', 'temple', 'temple_ice', 'temple_desert', 'temple_jungle',
           'temple_autumn', 'market', 'dock', 'obelisk', 'tents', 'lighthouse',
-          'gate_portal', 'sand_spire', 'ice_temple']
+          'sand_spire', 'ice_temple']
     .map((id) => structTemplate(id));
 }
 
@@ -1562,8 +1562,8 @@ export function buildIsland(node, theme, domains) {
     // wall itself so the gateway reads clearly instead of washing into haze
     portal.traverse(fogFree);
     g.add(portal);
-    // the sculpted archway itself, dropped in over the procedural frame
-    g.add(glbProp('gate_portal', { h: 12, onReady: (inst) => inst.traverse(fogFree) }));
+    // (no inner sculpted archway — the captain spawns clear of the pass and
+    // walks into the realm; a second arch in the mouth just boxed them in)
     g.position.set(node.x, 0, node.z);
     // the channel must open RADIALLY (boat sails in from the isles, out to
     // the realm); towers flank it tangentially. π/2 − angle, not −angle,

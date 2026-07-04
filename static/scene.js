@@ -690,9 +690,10 @@ export function createWorld(container, handlers = {}) {
     const rad = new THREE.Vector3(n.x, 0, n.z).normalize();   // outward (radial)
     const inRealm = !!(st && st.id !== 'hub');
     const side = inRealm ? 1 : -1;                            // realm past the arch
-    // in the realm you spawn clearly PAST the arch — through the pass, the gate
-    // at your back and the realm's roads opening ahead; at the hub you wait at the mouth
-    const along = inRealm ? 16 : 7;
+    // in the realm you spawn WELL past the pass — clear of the whole gate
+    // structure, its towers at your back and the realm's roads opening ahead so
+    // you can see where to go; at the hub you wait at the mouth
+    const along = inRealm ? 34 : 7;
     const fan = ((slotIdx % 3) - 1) * 3.0;
     return new THREE.Vector3(
       n.x + rad.x * along * side - rad.z * fan, 0,
@@ -915,6 +916,13 @@ export function createWorld(container, handlers = {}) {
       if (doTravel) startTravel(rec, rec.node, stages[activeBoardId]);
       if (rec.needPlace && rec.stageId && stages[rec.stageId]) {
         rec.root.position.copy(slotFor(rec.node, rec.idx, stages[rec.stageId]));
+        // spawned at a realm pass: face INTO the realm (outward, away from the
+        // gate) so you're looking at the road ahead, not back at the wall
+        const pn = nodeById[rec.node];
+        const st = stages[rec.stageId];
+        if (pn && pn.type === 'gate' && st && st.id !== 'hub') {
+          rec.root.rotation.y = Math.atan2(-pn.z, pn.x);   // outward radial heading
+        }
         rec.needPlace = false;
       }
       /* turn marker */
