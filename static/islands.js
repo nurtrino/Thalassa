@@ -1423,27 +1423,15 @@ export function makeShip(colorHex) {
   };
   g.add(post(-1.72, -0.5), post(1.84, Math.PI - 2.6));
 
-  const ram = new THREE.Mesh(new THREE.ConeGeometry(0.09, 0.5, 6), flat(0xc9a227, { emissive: 0x4a3a10 }));
+  // bronze ram tucked against the bow at the waterline (not slung below it)
+  const ram = new THREE.Mesh(new THREE.ConeGeometry(0.1, 0.46, 6), flat(0xc9a227, { emissive: 0x4a3a10 }));
   ram.rotation.z = -Math.PI / 2;
-  ram.position.set(2.02, 0.12, 0);
+  ram.position.set(1.9, 0.42, 0);
   g.add(ram);
 
-  // the classic bow eye — mounted proud of the hull (and the pupil proud of
-  // the white) so nothing z-fights and flickers as the ship rolls
-  for (const side of [-1, 1]) {
-    const white = new THREE.Mesh(new THREE.CircleGeometry(0.09, 12),
-      new THREE.MeshBasicMaterial({ color: 0xf4efe2 }));
-    const pupil = new THREE.Mesh(new THREE.CircleGeometry(0.042, 10),
-      new THREE.MeshBasicMaterial({ color: 0x22303c }));
-    white.position.set(1.40, 0.53, side * 0.37);
-    pupil.position.set(1.405, 0.53, side * 0.40);
-    white.rotation.y = side * (Math.PI / 2 + 0.25);
-    pupil.rotation.y = side * (Math.PI / 2 + 0.25);
-    g.add(white, pupil);
-  }
-
-  const mast = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.075, 2.5, 7), flat(COL.woodDark));
-  mast.position.set(0.05, 1.75, 0);
+  // mast planted through the deck into the hull (base y≈0.2), top unchanged at ~3.0
+  const mast = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.08, 2.8, 7), flat(COL.woodDark));
+  mast.position.set(0.05, 1.6, 0);
   mast.castShadow = true;
   const yard = new THREE.Mesh(new THREE.CylinderGeometry(0.035, 0.035, 1.7, 6), flat(COL.woodDark));
   yard.rotation.x = Math.PI / 2;
