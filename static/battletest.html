@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>battle stage tester</title>
+<script type="importmap">{ "imports": { "three": "/static/vendor/three.module.min.js" } }</script>
+<style>
+  html,body{margin:0;height:100%;background:#0a1420;overflow:hidden}
+  #world{position:fixed;inset:0}
+  #label{position:fixed;left:10px;top:8px;color:#ffe9b0;font:15px/1.3 monospace;
+         text-shadow:0 1px 3px #000;white-space:pre}
+</style>
+</head>
+<body>
+<div id="world"></div>
+<div id="label"></div>
+<script type="module">
+/* BATTLE TESTER: stages any enemy in the REAL battle scene (same stage,
+ * camera, lighting, backdrop, hero and enemy pipeline as live battles) so
+ * facing, scale and float can be sanity-checked per model.
+ *   window.__showBattle(model, {hp, region, hero}) → stages 1 enemy
+ *   window.__ids → every monster id
+ * The stage runs its normal idle animation loop, so floaters hover and
+ * grounded beasts breathe exactly as in game. */
+import * as THREE from 'three';
+import { createBattleStage } from '/static/battle.js';
+import { MONSTER_IDS } from '/static/monsters.js';
+import { themeFor } from '/static/themes.js';
+
+const el = document.getElementById('world');
+const label = document.getElementById('label');
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setPixelRatio(1);
+renderer.setSize(innerWidth, innerHeight);
+renderer.shadowMap.enabled = true;
+renderer.outputColorSpace = THREE.SRGBColorSpace;
+el.appendChild(renderer.domElement);
+
+const stage = createBattleStage(renderer);
+stage.resize(innerWidth, innerHeight);
+
+window.__showBattle = (model, { hp = 4, region = 'hub', hero = 'ship' } = {}) => {
+  stage.exit();
+  stage.enter({
+    battle: { enemies: [{ name: model, hp, max_hp: hp, power: 1, model }] },
+    room: {}, you: 'p1',
+    theme: themeFor(region),
+    heroColor: '#e4572e',
+    heroKind: hero,
+  });
+  label.textContent = `battle:${model}  (region=${region}, hero=${hero}, hp=${hp})`;
+};
+window.__ids = MONSTER_IDS;
+
+const clock = new THREE.Clock();
+let tPrev = 0;
+renderer.setAnimationLoop(() => {
+  const t = clock.getElapsedTime();
+  const dt = Math.min(0.1, t - tPrev);
+  tPrev = t;
+  stage.update(t, dt);
+  renderer.render(stage.scene, stage.camera);
+});
+window.__ready = true;
+</script>
+</body>
+</html>

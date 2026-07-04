@@ -378,6 +378,19 @@ async def healthz():
             "questions": bank.counts()}
 
 
+@app.middleware("http")
+async def never_stale(request, call_next):
+    """Browsers were caching /static JS for hours (no Cache-Control header →
+    heuristic caching), so pushed fixes never showed up in-game without a
+    hard refresh. no-cache forces a revalidation on every load — ETags turn
+    that into cheap 304s, so even the big GLBs aren't re-downloaded."""
+    resp = await call_next(request)
+    p = request.url.path
+    if p == "/" or p.startswith("/static"):
+        resp.headers["Cache-Control"] = "no-cache"
+    return resp
+
+
 @app.get("/")
 async def index():
     return FileResponse(os.path.join(BASE, "static", "index.html"))
