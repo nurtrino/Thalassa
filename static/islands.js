@@ -9,9 +9,38 @@ import { hashStr, mulberry32, flat, displace, seedFrom, softDiscTexture } from '
 import { DOMAIN_COLORS, REALM_INFO } from './themes.js';
 import { propGroup } from './props.js';
 
-/* (the Meshy ground-tile textures were tried on the terrain and ROLLED BACK —
- * the tiled look fought the flat-shaded vertex-colour style. The baked JPGs
- * stay in static/assets/textures for any future retry.) */
+/* ── stylized "painted" ground overlay ──────────────────────────────────────
+ * Terrain keeps its solid height-based vertex colours (the real biome colour);
+ * we just multiply in ONE neutral, procedurally-painted mottle so the flat
+ * facets read as hand-painted gouache instead of dead-flat. No image files,
+ * no per-biome art — the island colour is "painted on" purely via the palette,
+ * and islands generate cleanly. Tweak the greys below to taste. */
+const GROUND_TILE = 9;   // world units per texture repeat
+let _paintedTex = null;
+function paintedGroundTexture() {
+  if (_paintedTex) return _paintedTex;
+  const S = 128;
+  const cv = document.createElement('canvas');
+  cv.width = cv.height = S;
+  const ctx = cv.getContext('2d');
+  ctx.fillStyle = '#ffffff';
+  ctx.fillRect(0, 0, S, S);                       // base = no tint (solid colour)
+  const rng = mulberry32(24239);                  // deterministic, subtle blotches
+  for (let i = 0; i < 110; i++) {
+    const x = rng() * S, y = rng() * S, r = 7 + rng() * 20;
+    const v = 206 + ((rng() * 46) | 0);           // 0.81–1.0 grey → gentle shade
+    ctx.fillStyle = `rgba(${v},${v},${v},${0.05 + rng() * 0.06})`;
+    for (const ox of [-S, 0, S]) for (const oy of [-S, 0, S]) {   // wrap-safe
+      ctx.beginPath(); ctx.arc(x + ox, y + oy, r, 0, 6.2832); ctx.fill();
+    }
+  }
+  const t = new THREE.CanvasTexture(cv);
+  t.wrapS = t.wrapT = THREE.RepeatWrapping;
+  t.colorSpace = THREE.SRGBColorSpace;
+  t.anisotropy = 4;
+  _paintedTex = t;
+  return t;
+}
 
 /* ── Meshy landmark GLBs (static/assets/structures) ─────────────────────────
    The AI-generated set ships centred at arbitrary unit scale; mount() grounds
@@ -70,7 +99,7 @@ const COL = {
 };
 
 /* ── terrain (radial sculpted mesh, vertex-colored) — ported from legacy ── */
-export function makeTerrain({ seed, R, H, mode = 'hill', palette = {}, lobes = 0 }) {
+export function makeTerrain({ seed, R, H, mode = 'hill', palette = {}, lobes = 0, tex = null }) {
   const rng = mulberry32(seed);
   const SEG_A = 44, SEG_R = 13;
   const ex = 0.78 + rng() * 0.55;
@@ -97,7 +126,7 @@ export function makeTerrain({ seed, R, H, mode = 'hill', palette = {}, lobes = 0
   const edge = (a) => (1 + h1a * Math.sin(a * h1k + h1p) + h2a * Math.sin(a * h2k + h2p)
                          + h3a * Math.sin(a * h3k + h3p))
                       * (1 + lobes * Math.sin(2 * a + h1p));
-  const bump = (a, rr) => 1 + 0.14 * Math.sin(a * 3 + h1p) * rr;
+  const bump = (a, rr) => 1 + 0.16 * Math.sin(a * 3 + h1p + rr * 5) * rr;
   const smooth = (a, b, x) => {
     const k = Math.min(1, Math.max(0, (x - a) / (b - a)));
     return k * k * (3 - 2 * k);
@@ -110,7 +139,7 @@ export function makeTerrain({ seed, R, H, mode = 'hill', palette = {}, lobes = 0
     return H * (1 - smooth(0.15, 0.95, rr)) * (0.75 + 0.25 * Math.cos(rr * 3));
   };
 
-  const pos = [], col = [], idx = [];
+  const pos = [], col = [], idx = [], uvs = [];
   const RINGS = SEG_R + 3;
   const heightAt = (rr) => Math.max(0, profile(Math.min(rr, 1)));
 
@@ -130,19 +159,20 @@ export function makeTerrain({ seed, R, H, mode = 'hill', palette = {}, lobes = 0
       const wr = rr * R * edge(a);
       const px = Math.cos(a) * wr * ex, pz = Math.sin(a) * wr * ez;
       pos.push(px, y, pz);
+      uvs.push(px / GROUND_TILE, pz / GROUND_TILE);
       const c = new THREE.Color();
       const hFrac = y / Math.max(H, 0.001);
       if (ri > SEG_R) c.copy(ri === SEG_R + 1 ? P.sandWet : P.rock).multiplyScalar(0.75);
       else if (y < 0.42) c.copy(rr > 0.93 ? P.sandWet : P.sand);
       else if (mode === 'mesa' && hFrac > 0.62 && rr > 0.42) c.copy(P.rock);
       else if (mode === 'peak' && hFrac > 0.55) c.copy(P.rock).lerp(new THREE.Color(COL.rockDark), (hFrac - 0.55) * 1.6);
-      else c.copy(P.grass).lerp(P.grass2,
-        (Math.sin(px * 0.55 + h2p) * Math.sin(pz * 0.55 + h1p) + 1) / 2);
+      else c.copy(P.grass).lerp(P.grass2, (Math.sin(a * 5 + rr * 9 + h2p) + 1) / 2);
       col.push(c.r, c.g, c.b);
     }
   }
   const capY = heightAt(0);
   pos.push(0, capY, 0);
+  uvs.push(0, 0);
   const capC = mode === 'peak' ? new THREE.Color(COL.rockDark) : P.grass;
   col.push(capC.r, capC.g, capC.b);
   const capIdx = pos.length / 3 - 1;
@@ -158,10 +188,13 @@ export function makeTerrain({ seed, R, H, mode = 'hill', palette = {}, lobes = 0
   const geo = new THREE.BufferGeometry();
   geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
   geo.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
+  geo.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
   geo.setIndex(idx);
   geo.computeVertexNormals();
-  const mesh = new THREE.Mesh(geo,
-    new THREE.MeshStandardMaterial({ vertexColors: true, flatShading: true }));
+  const mesh = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({
+    vertexColors: true, flatShading: true, roughness: 1,
+    map: paintedGroundTexture(),        // neutral painted mottle × vertex colour
+  }));
   mesh.receiveShadow = true;
   mesh.castShadow = true;
   return { mesh, heightAt, rng };
@@ -1021,15 +1054,17 @@ export function makeRealmField(theme, nodes, segs, rng) {
   // plus a realm-flavoured set. prop(id, s) picks a random member each time.
   const prop = (ids, lo, hi) => () =>
     propGroup(ids[(rng() * ids.length) | 0], lo + rng() * (hi - lo));
-  scatter(7, 11, 16, 120, prop(['boulder', 'ruined_column', 'broken_statue', 'cairn'], 0.7, 1.3));
+  scatter(7, 11, 16, 120, prop(['boulder', 'ruined_column', 'broken_statue', 'cairn', 'ruined_arch'], 0.7, 1.3));
   if (theme.id === 'ice') {
     scatter(60, 16, 22, 115, () => makeBerg(rng, 0.7 + rng() * 0.9));
     scatter(52, 13, 20, 115, () => makeFloe(rng, 0.8 + rng() * 0.9));
     scatter(14, 12, 18, 115, prop(['ice_shard', 'boulder', 'crystal_cluster'], 0.7, 1.4));
+    scatter(10, 11, 16, 115, prop(['pine_snow', 'pine_tree', 'iceberg'], 0.8, 1.5));
     scatter(4, 14, 20, 115, prop(['shipwreck', 'driftwood'], 0.9, 1.4));
   } else if (theme.id === 'jungle') {
     scatter(80, 13, 20, 115, () => makeVineMat(rng, 0.65 + rng() * 0.7));
     scatter(16, 12, 18, 115, prop(['mossy_idol', 'ruined_column', 'mushroom_cluster', 'crystal_cluster'], 0.7, 1.4));
+    scatter(14, 12, 18, 115, prop(['jungle_tree', 'fern_cluster', 'palm_tree', 'lily_pads', 'stone_well', 'ruined_arch'], 0.8, 1.6));
     scatter(5, 13, 19, 115, prop(['broken_statue', 'coral'], 0.8, 1.3));
   } else if (theme.id === 'desert') {
     scatter(240, 9, 15, 130, () => makeDune(rng, theme.palette.sand, 0.7 + rng() * 1.1));
@@ -1037,15 +1072,17 @@ export function makeRealmField(theme, nodes, segs, rng) {
     scatter(20, 10, 16, 130, () => makeRock(rng, 0.5 + rng() * 0.7, theme.palette.rock));
     scatter(10, 12, 18, 130, () => (rng() < 0.5 ? makeCairn(rng) : makeRibs(rng)));
     scatter(16, 11, 17, 130, prop(['bone_pile', 'broken_statue', 'amphora_pile', 'ruined_column'], 0.7, 1.4));
+    scatter(14, 11, 17, 130, prop(['cactus', 'dead_scrub', 'sarcophagus', 'ruined_arch', 'sand_dune'], 0.8, 1.5));
   } else if (theme.id === 'autumn') {
     // the Vale is WALL-TO-WALL forest: a deep tree band hugging every track,
     // thick enough that the fog line always lands inside the woods
     scatter(560, 8.5, 11, 75, () => floraFor(theme, rng, 1.1 + rng() * 0.9));
     scatter(40, 9, 12, 75, () => makeRock(rng, 0.4 + rng() * 0.7, theme.palette.rock));
     scatter(16, 9, 13, 75, prop(['dead_tree', 'mushroom_cluster', 'boulder', 'cairn'], 0.7, 1.4));
+    scatter(12, 9, 13, 75, prop(['autumn_tree', 'campfire', 'stone_well', 'barrel'], 0.8, 1.5));
   } else {
     // hub / aegean isles
-    scatter(10, 11, 16, 120, prop(['ruined_column', 'broken_statue', 'amphora_pile', 'driftwood'], 0.7, 1.3));
+    scatter(12, 11, 16, 120, prop(['cypress_tree', 'olive_tree', 'palm_tree', 'reeds', 'fishing_net', 'tide_pool', 'banner_pole', 'brazier', 'ruined_arch', 'amphora_pile'], 0.7, 1.4));
   }
   return g;
 }
@@ -1379,6 +1416,7 @@ export function buildIsland(node, theme, domains) {
   const R = (ISLE_R[node.type] ?? 4.8) * (node.type === 'sea' ? 1 : 0.88 + rng0() * 0.35);
   const foot = node.mode === 'foot';
   const pal = theme.palette;
+  // local wrapper (kept so all terrain routes through one place)
   const mt = (opts) => makeTerrain(opts);
   let terrain;
 

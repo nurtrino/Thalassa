@@ -42,6 +42,14 @@ MODELS = [
                        "with scattered leaves, roots and small stones"),
     G("ground_autumn", "autumn forest floor ground blanketed in fallen orange, "
                        "red and gold leaves over brown soil"),
+    G("ground_marble", "polished pale marble plaza floor with subtle grey "
+                       "veining and faint tile seams, temple courtyard"),
+    G("ground_gravel", "dry desert gravel and pebble ground, small scattered "
+                       "tan and grey stones over packed dirt"),
+    G("ground_cobble", "old grey cobblestone path, rounded fitted stones with "
+                       "moss and dirt in the gaps"),
+    G("ground_mud", "dark wet jungle mud and soil ground with puddles, roots "
+                    "and scattered leaves"),
 ]
 
 

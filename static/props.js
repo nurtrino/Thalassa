@@ -10,9 +10,16 @@ import * as THREE from 'three';
 import { GLTFLoader } from './vendor/GLTFLoader.js';
 
 export const PROP_IDS = [
+  // core filler props
   'boulder', 'ruined_column', 'shipwreck', 'crystal_cluster', 'broken_statue',
   'cairn', 'dead_tree', 'driftwood', 'amphora_pile', 'coral',
   'mushroom_cluster', 'ice_shard', 'bone_pile', 'mossy_idol',
+  // environment props
+  'iceberg', 'sand_dune', 'barrel', 'fishing_net', 'brazier', 'stone_well',
+  'sarcophagus', 'ruined_arch', 'banner_pole', 'campfire', 'lily_pads', 'tide_pool',
+  // biome flora
+  'pine_tree', 'pine_snow', 'palm_tree', 'cypress_tree', 'olive_tree',
+  'autumn_tree', 'jungle_tree', 'cactus', 'dead_scrub', 'fern_cluster', 'reeds',
 ];
 
 const loader = new GLTFLoader();
