@@ -18,6 +18,7 @@ export const PROP_IDS = [
   'iceberg', 'sand_dune', 'barrel', 'fishing_net', 'brazier', 'stone_well',
   'sarcophagus', 'ruined_arch', 'banner_pole', 'campfire', 'lily_pads', 'tide_pool',
   'buoy', 'ice_floe', 'tomb', 'barrow', 'monster_totem', 'waymarker_stone',
+  'jungle_dungeon',
   // biome flora
   'pine_tree', 'pine_snow', 'palm_tree', 'cypress_tree', 'olive_tree',
   'autumn_tree', 'jungle_tree', 'cactus', 'dead_scrub', 'fern_cluster', 'reeds',
@@ -38,7 +39,7 @@ const PROP_HEIGHTS = {
   stone_well: 2.0, sarcophagus: 1.4, ruined_arch: 3.0, banner_pole: 2.6,
   campfire: 0.8, lily_pads: 0.35, tide_pool: 0.5,
   buoy: 1.2, ice_floe: 0.5, tomb: 1.6, barrow: 1.6, monster_totem: 2.2,
-  waymarker_stone: 1.6,
+  waymarker_stone: 1.6, jungle_dungeon: 2.4,
   // biome flora
   pine_tree: 3.8, pine_snow: 3.8, palm_tree: 3.6, cypress_tree: 3.6,
   olive_tree: 2.6, autumn_tree: 3.2, jungle_tree: 3.4, cactus: 2.2,

@@ -12,8 +12,8 @@ from meshy_structures import STYLE, NEGATIVE  # noqa: F401  (no-base style)
 TIER_POLY = {"prop": 5000}
 
 
-def P(pid, prompt, rank=50):
-    return dict(id=pid, rank=rank, tier="prop", prompt=prompt)
+def P(pid, prompt, rank=50, **extra):
+    return dict(id=pid, rank=rank, tier="prop", prompt=prompt, **extra)
 
 
 MODELS = [
@@ -36,9 +36,15 @@ MODELS = [
       "of silvery-green leaves. Palette: silvery sage-green leaves, grey-brown "
       "gnarled trunk."),
     P("autumn_tree",
-      "A broadleaf autumn tree with a rounded canopy of fiery orange, red and "
-      "gold leaves on a sturdy brown trunk. Palette: autumn orange, red and "
-      "gold foliage, brown trunk."),
+      "A broadleaf autumn tree with a FULL smooth rounded domed canopy of fiery "
+      "orange, red and gold leaves, the leaves forming one clean solid rounded "
+      "leafy crown that completely covers the top with NO bare branches, twigs or "
+      "stems poking out through or above the leaves — just a tidy smooth blanket "
+      "of foliage — on a sturdy brown trunk. Palette: autumn orange, red and gold "
+      "foliage, brown trunk.",
+      negative=(NEGATIVE + ", tubes, pipes, stems sticking out, bare branches "
+                "poking out, twigs sticking out above the leaves, straws, "
+                "tentacles, spikes, antennae, flat top, cut-off top, bald top")),
     P("jungle_tree",
       "A tall emergent jungle canopy tree, a straight trunk with a broad flat "
       "crown of lush deep-green leaves and a few hanging vines. Palette: deep "

@@ -26,6 +26,7 @@ TEX_ATTRS = ("baseColorTexture", "metallicRoughnessTexture",
 
 def optimize(path, n):
     scene = trimesh.load(path, force="scene")
+    changed = False
     for g in scene.geometry.values():
         mat = getattr(g.visual, "material", None)
         if not mat:
@@ -34,7 +35,9 @@ def optimize(path, n):
             t = getattr(mat, a, None)
             if t is not None and max(t.size) > n:
                 setattr(mat, a, t.resize((n, n), Image.LANCZOS))
-    scene.export(path)
+                changed = True
+    if changed:                       # only rewrite files that actually shrank
+        scene.export(path)
     return os.path.getsize(path)
 
 

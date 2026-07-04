@@ -1659,7 +1659,8 @@ export function buildIsland(node, theme, domains) {
     terrain = mt({ seed, R, H: 1.2, mode: 'flat', palette: { ...footPal } });
     // Meshy boss-den model (falls back to nothing until loaded; the relic
     // beacon + totem FX below still mark the lair)
-    const den = propGroup(theme.id === 'desert' ? 'tomb' : 'barrow', 2.6);
+    const den = propGroup(theme.id === 'desert' ? 'tomb'
+      : theme.id === 'jungle' ? 'jungle_dungeon' : 'barrow', 2.6);
     den.position.y = terrain.heightAt(0.1);
     den.rotation.y = Math.atan2(-node.x, -node.z);   // door faces back down the trail
     g.add(den);

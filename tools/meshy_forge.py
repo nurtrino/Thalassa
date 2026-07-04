@@ -161,9 +161,9 @@ def submit_preview(key, model):
         "prompt": full_prompt(model),
         "negative_prompt": (model.get("negative") or MP.NEGATIVE)[:800],
         "ai_model": "meshy-6",
-        "model_type": "lowpoly",
+        "model_type": model.get("model_type", "lowpoly"),
         "topology": "triangle",
-        "target_polycount": poly_for(model),
+        "target_polycount": model.get("polycount") or poly_for(model),
         "should_remesh": True,
         "target_formats": ["glb"],
     }

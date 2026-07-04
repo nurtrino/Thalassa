@@ -130,12 +130,23 @@ MODELS = [
              "raised on round wooden pilings/posts over water, weathered timber. "
              "Palette: warm brown planks #9a6b3f, darker posts #74502f.")),
     dict(id="market", rank=8, tier="building",
+         model_type="standard", polycount=60000,
+         style=("a detailed refined hand-painted stylized building with smooth "
+                "crisp sculpted stonework, matte colours, a solid three-"
+                "dimensional building set-piece sitting naturally on its own small "
+                "base, plain empty background, three-quarter view, game-ready — "
+                "higher-poly and detailed, NOT low-poly or faceted"),
+         negative=(NEGATIVE + ", text, letters, words, writing, signage, "
+                   "cluttered, clutter, junk pile, messy, crowded stall, awning, "
+                   "cloth tent, wooden booth, low-poly, faceted"),
          prompt=(
-             "A little harbour shipwright market stall: a cream stone hut with a "
-             "red pyramidal roof, a golden cloth awning out front, a few stacked "
-             "wooden crates, a terracotta amphora jar, and a round golden trade "
-             "sign. Busy little trading post. Palette: cream walls #f1e8d2, red "
-             "roof, gold awning and sign, brown crates."),
+             "An elegant clean Roman marketplace shop (a taberna): an open-"
+             "fronted white marble shopfront with a neat row of slender fluted "
+             "white MARBLE COLUMNS along the front holding up a terracotta-tiled "
+             "roof, a simple stone display counter, and just a few tidy terracotta "
+             "amphora jars — uncluttered, elegant and orderly, classical Roman "
+             "architecture. Palette: white marble columns, warm cream stone, "
+             "terracotta-red tiled roof, a couple of terracotta amphorae."),
          variants=[]),
     dict(id="tents", rank=9, tier="prop",
          prompt=(

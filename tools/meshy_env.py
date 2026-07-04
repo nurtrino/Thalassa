@@ -70,21 +70,23 @@ MODELS = [
       "ice floating flat on the water surface. Palette: glacier blue-white "
       "ice."),
     P("tomb",
-      "An ancient Egyptian mastaba tomb: a big CHUNKY solid three-dimensional "
-      "stepped sandstone block building with sloped battered walls, standing on "
-      "its own stone foundation. A tall deeply-RECESSED dark doorway in the "
-      "middle of the front face, carved hieroglyph bands framing it, and TWO "
-      "large seated black Anubis jackal statues flanking the entrance, one on "
-      "each side. Solid, weighty and monumental — a real 3D structure with depth, "
-      "not a thin flat wall or facade. Ominous desert boss lair. Palette: warm "
-      "sandstone tan blocks, dark doorway, black Anubis statues, faded blue-and-"
-      "gold trim.",
-      style=("stylized low-poly, flat-shaded, faceted, matte hand-painted "
-             "colours, a chunky solid tabletop board-game building set-piece with "
-             "real depth and volume, sitting naturally on its own stone base, "
-             "plain empty background, three-quarter view, game-ready"),
-      negative=(NEGATIVE + ", flat facade, thin wall, melted, soft blobby "
-                "geometry, jumbled rubble, collapsed, undercooked, 2d relief")),
+      "An ancient Egyptian tomb entrance built into a solid sandstone mastaba: a "
+      "big weighty three-dimensional stepped stone building with sloped battered "
+      "walls, standing on its own stone foundation. A tall deeply-RECESSED dark "
+      "doorway in the middle of the front face, framed by carved stone columns "
+      "and a lintel with detailed bands of hieroglyphs and reliefs, a stepped "
+      "threshold. NO statues of any kind. A solid, detailed, monumental structure "
+      "with real depth. Ominous desert boss lair. Palette: warm sandstone tan "
+      "blocks, dark doorway, faded blue-and-gold hieroglyph accents.",
+      model_type="standard", polycount=60000,
+      style=("a detailed refined hand-painted stylized Egyptian tomb with smooth "
+             "crisp sculpted stonework and carved relief detail, matte colours, a "
+             "solid three-dimensional building set-piece sitting naturally on its "
+             "own stone base, plain empty background, three-quarter view, "
+             "game-ready — higher-poly and detailed, NOT low-poly or faceted"),
+      negative=(NEGATIVE + ", statue, jackal, anubis, animal statue, dog statue, "
+                "figure, low-poly, faceted, blocky, flat facade, thin wall, "
+                "melted, jumbled rubble, collapsed")),
     P("barrow",
       "An ancient burial barrow, a grassy earthen mound with a dark stone "
       "doorway of three big lintel stones leading inside, ringed by a few leaning "
@@ -94,6 +96,22 @@ MODELS = [
       "A menacing dark stone totem megalith, a tall jagged spiked black monolith "
       "carved with a snarling face and glowing red eyes, ominous and tribal. "
       "Palette: near-black stone, glowing red eyes."),
+    P("jungle_dungeon",
+      "An overgrown ancient jungle temple dungeon: a chunky SOLID stepped stone "
+      "Mesoamerican pyramid-temple ruin building, weathered grey stone blocks "
+      "heavily blanketed in green moss and creeping jungle vines and leaves, with "
+      "a tall dark recessed doorway in the middle of the front face flanked by two "
+      "big carved stone serpent-head idol statues, ferns and plants sprouting from "
+      "the cracks and steps. A real solid three-dimensional structure with depth "
+      "and volume, standing on its own stone base — not a thin flat wall. Ominous "
+      "jungle boss lair. Palette: mossy grey-green stone, dark doorway, deep "
+      "jungle-green vines and leaves.",
+      style=("stylized low-poly, flat-shaded, faceted, matte hand-painted "
+             "colours, a chunky solid tabletop board-game building set-piece with "
+             "real depth and volume, sitting naturally on its own stone base, "
+             "plain empty background, three-quarter view, game-ready"),
+      negative=(NEGATIVE + ", flat facade, thin wall, melted, soft blobby "
+                "geometry, jumbled rubble, collapsed, undercooked, 2d relief")),
     P("waymarker_stone",
       "A weathered carved waymarker standing stone, a tall runestone slab "
       "leaning slightly, covered in moss with faint carved markings. Palette: "
