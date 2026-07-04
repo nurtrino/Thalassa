@@ -1,44 +1,28 @@
 """
-Question service — The Trivia API (the-trivia-api.com/v2) with offline fallback.
+Question service — FULLY OFFLINE. No trivia API is ever contacted.
 
-The four Thalassa domains map onto the API's fixed category list; game tiers
-map onto API difficulties (never "easy" — the floor is medium, by design).
+  · Multiple-choice questions (TEMPLES by domain, BATTLES general) come from a
+    bundled slice of the uberspot/OpenTriviaQA set — data/trivia.json, ~3200
+    questions grouped into the four Thalassa domains (clio/athena/apollo/
+    dionysos). QuestionBank serves temples by domain; OpenTDBBank (name kept for
+    the import) serves battles from every domain.
+  · Typed JEOPARDY! clues come from data/jeopardy.json (see below).
+  · FALLBACK (bottom of file) is a tiny hand-written safety net if a bundle is
+    missing.
 
-    tier 1 (wager I)            → medium
-    tier 2 (wager II)           → hard
-    tier 3 (wager III / trials) → hard
-    tier 4 (the Oracle)         → hard
-
-Set TRIVIA_API_KEY for authenticated access (higher rate limits; required for
-commercial use per the API's terms). Set TRIVIA_OFFLINE=1 to skip the network
-entirely and play from the built-in fallback set (dev / airgapped).
+Nothing here blocks or fetches, so a shrine or battle can never hang on
+"A herald fetches the question…".
 """
 from __future__ import annotations
 
-import asyncio
 import html
 import json
-import os
 import pathlib
 import random
 import re
-import time
 import unicodedata
 
-import httpx
-
-API = "https://the-trivia-api.com/v2/questions"
-DOMAIN_CATEGORIES = {
-    "clio": ["history", "geography"],
-    "athena": ["science"],
-    "apollo": ["arts_and_literature", "general_knowledge"],
-    "dionysos": ["music", "film_and_tv", "sport_and_leisure",
-                 "society_and_culture", "food_and_drink"],
-}
 TIER_DIFFICULTY = {1: "medium", 2: "hard", 3: "hard", 4: "hard"}
-LOW_WATER = 6          # refill a pool when it drops below this
-BATCH = 25
-MIN_REQ_INTERVAL = 1.5
 
 
 def _shape(text: str, correct: str, incorrect: list[str], rng: random.Random) -> dict:
@@ -47,110 +31,56 @@ def _shape(text: str, correct: str, incorrect: list[str], rng: random.Random) ->
     return {"text": text, "options": options, "correct": options.index(correct)}
 
 
+# ── bundled offline multiple-choice trivia (no network, ever) ────────────────
+# A curated slice of the uberspot/OpenTriviaQA set, grouped into the four
+# THALASSA domains. Everything is served from here — the host can't (and needn't)
+# reach any trivia API, so a shrine or battle NEVER hangs fetching a question.
+_TRIVIA_PATH = pathlib.Path(__file__).with_name("data") / "trivia.json"
+try:
+    TRIVIA: dict[str, list[dict]] = json.loads(_TRIVIA_PATH.read_text(encoding="utf-8"))
+except Exception:
+    TRIVIA = {}
+_ALL_TRIVIA = [q for lst in TRIVIA.values() for q in lst]
+
+
+def _shape_item(it: dict, rng: random.Random) -> dict:
+    return _shape(it["q"], it["a"], it["w"], rng)
+
+
 class QuestionBank:
+    """TEMPLES: themed multiple-choice trivia, by domain. Fully offline."""
+
     def __init__(self):
         self.rng = random.Random()
-        self.offline = os.environ.get("TRIVIA_OFFLINE") == "1"
-        self.api_key = os.environ.get("TRIVIA_API_KEY", "")
-        self.pools: dict[tuple[str, str], list[dict]] = {
-            (d, diff): [] for d in DOMAIN_CATEGORIES for diff in ("medium", "hard")
-        }
-        self.seen: set[str] = set()
-        self._last_req = 0.0
-        self._api_ok = not self.offline
 
     def counts(self) -> dict:
-        return {f"{d}/{diff}": len(q) for (d, diff), q in self.pools.items()}
+        return {d: len(v) for d, v in TRIVIA.items()}
 
     async def get(self, domain: str, tier: int) -> dict:
-        """Return one shaped question. NEVER blocks on the network — the
-        background refill_loop keeps the pools primed; if a pool is empty (the
-        API is slow, unreachable, or hasn't filled yet) we serve a fallback at
-        once so a shrine can't hang on 'A herald fetches the question…'."""
-        diff = TIER_DIFFICULTY.get(tier, "hard")
-        pool = self.pools[(domain, diff)]
+        pool = TRIVIA.get(domain) or _ALL_TRIVIA
         if pool:
-            return pool.pop(self.rng.randrange(len(pool)))
-        return self._fallback(domain, diff)
+            return _shape_item(self.rng.choice(pool), self.rng)
+        return self._fallback(domain, "hard")
 
     def _fallback(self, domain: str, diff: str) -> dict:
         candidates = FALLBACK[domain][diff] + FALLBACK[domain]["medium" if diff == "hard" else "hard"]
         raw = self.rng.choice(candidates)
         return _shape(raw[0], raw[1], list(raw[2]), self.rng)
 
-    async def _refill(self, domain: str, diff: str):
-        now = time.monotonic()
-        wait = MIN_REQ_INTERVAL - (now - self._last_req)
-        if wait > 0:
-            await asyncio.sleep(wait)
-        self._last_req = time.monotonic()
-        params = {
-            "limit": str(BATCH),
-            "categories": ",".join(DOMAIN_CATEGORIES[domain]),
-            "difficulties": diff,
-            "types": "text_choice",
-        }
-        headers = {"X-API-Key": self.api_key} if self.api_key else {}
-        async with httpx.AsyncClient(timeout=10) as client:
-            r = await client.get(API, params=params, headers=headers)
-            r.raise_for_status()
-            items = r.json()
-        pool = self.pools[(domain, diff)]
-        for it in items:
-            qid = it.get("id")
-            if not qid or qid in self.seen:
-                continue
-            self.seen.add(qid)
-            try:
-                pool.append(_shape(it["question"]["text"], it["correctAnswer"],
-                                   it["incorrectAnswers"], self.rng))
-            except (KeyError, TypeError):
-                continue
-        if len(self.seen) > 20000:      # unbounded-growth guard
-            self.seen.clear()
-
     async def refill_loop(self):
-        """Background top-up so questions appear instantly during play."""
-        if self.offline:
-            return
-        while True:
-            for (domain, diff), pool in self.pools.items():
-                if len(pool) < LOW_WATER:
-                    try:
-                        await self._refill(domain, diff)
-                        self._api_ok = True
-                    except Exception:
-                        self._api_ok = False
-                        await asyncio.sleep(30)
-                        break
-            await asyncio.sleep(5)
-
-
-# ── BATTLE questions: OpenTDB (general, all categories) ──────────────────────
-# The TEMPLES keep the themed-category gimmick (QuestionBank above, by domain).
-# BATTLES instead draw broad from the Open Trivia Database — every category —
-# so a fight can test anything. Multiple-choice; the Jeopardy clues below carry
-# the typed-answer rounds.
-OPENTDB_API = "https://opentdb.com/api.php"
-OPENTDB_TOKEN = "https://opentdb.com/api_token.php"
+        return          # offline bundle — nothing to fetch
 
 
 class OpenTDBBank:
+    """BATTLES: general multiple-choice trivia drawn from EVERY domain. Offline.
+    (Name kept for the import; it no longer touches the network.)"""
+
     def __init__(self):
         self.rng = random.Random()
-        self.offline = os.environ.get("TRIVIA_OFFLINE") == "1"
-        self.pool: list[dict] = []
-        self.seen: set[str] = set()
-        self.token = ""
-        self._last_req = 0.0
-        self._api_ok = not self.offline
 
     async def get(self) -> dict:
-        # NEVER block the round on opentdb.com — the background refill_loop keeps
-        # the pool primed. If it's empty (API slow/unreachable, or not filled
-        # yet) serve a fallback at once so a battle can't hang fetching a clue.
-        if self.pool:
-            return self.pool.pop()
+        if _ALL_TRIVIA:
+            return _shape_item(self.rng.choice(_ALL_TRIVIA), self.rng)
         return self._fallback()
 
     def _fallback(self) -> dict:
@@ -160,56 +90,8 @@ class OpenTDBBank:
         raw = self.rng.choice(pools)
         return _shape(raw[0], raw[1], list(raw[2]), self.rng)
 
-    async def _fetch_token(self, client) -> str:
-        if self.token:
-            return self.token
-        r = await client.get(OPENTDB_TOKEN, params={"command": "request"})
-        self.token = r.json().get("token", "")
-        return self.token
-
-    async def _refill(self):
-        now = time.monotonic()
-        wait = 5.2 - (now - self._last_req)      # OpenTDB throttles to ~1 req / 5s
-        if wait > 0:
-            await asyncio.sleep(wait)
-        self._last_req = time.monotonic()
-        async with httpx.AsyncClient(timeout=10) as client:
-            token = await self._fetch_token(client)
-            params = {"amount": "50", "type": "multiple"}
-            if token:
-                params["token"] = token
-            r = await client.get(OPENTDB_API, params=params)
-            r.raise_for_status()
-            j = r.json()
-        if j.get("response_code") in (3, 4):     # token spent/expired → drop it
-            self.token = ""
-            return
-        for it in j.get("results", []):
-            try:
-                text = html.unescape(it["question"])
-                correct = html.unescape(it["correct_answer"])
-                wrong = [html.unescape(w) for w in it["incorrect_answers"]]
-            except (KeyError, TypeError):
-                continue
-            if text in self.seen:
-                continue
-            self.seen.add(text)
-            self.pool.append(_shape(text, correct, wrong, self.rng))
-        if len(self.seen) > 20000:
-            self.seen.clear()
-
     async def refill_loop(self):
-        if self.offline:
-            return
-        while True:
-            if len(self.pool) < LOW_WATER:
-                try:
-                    await self._refill()
-                    self._api_ok = True
-                except Exception:
-                    self._api_ok = False
-                    await asyncio.sleep(30)
-            await asyncio.sleep(6)
+        return          # offline bundle — nothing to fetch
 
 
 # ── BATTLE questions: Jeopardy clues (typed answers) ─────────────────────────
