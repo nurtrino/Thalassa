@@ -1489,6 +1489,35 @@ body.shake #world { animation: shake .45s; }
 .shoprow.cant .price { color: #6a7885; border-color: rgba(120, 135, 148, .3); background: none; }
 .buy, .buybtn { font-size: 11px; letter-spacing: .1em; padding: 7px 14px; }
 
+/* ═══ THE OPENING TOUR — captions + hidden HUD ═══════════════════════════ */
+body.touring #tray, body.touring #players, body.touring #objective,
+body.touring #turnBanner, body.touring #itembelt, body.touring #log,
+body.touring #mapBtn, body.touring #dice, body.touring #shopPanel { display: none !important; }
+
+#tourCap {
+  position: fixed; left: 50%; bottom: 7vh; transform: translateX(-50%);
+  z-index: 19; pointer-events: none; text-align: center;
+  width: min(720px, 92vw);
+}
+#tourCap .tc-title {
+  font-family: var(--disp); font-weight: 800;
+  font-size: clamp(24px, 5vw, 40px); letter-spacing: .22em; text-transform: uppercase;
+  color: var(--gilt);
+  text-shadow: 0 2px 14px rgba(3, 6, 10, .9), 0 0 34px rgba(240, 208, 96, .35);
+}
+#tourCap .tc-body {
+  margin-top: 8px;
+  font-family: var(--body); font-style: italic;
+  font-size: clamp(14px, 2.4vw, 19px); line-height: 1.45;
+  color: #f2ead2;
+  text-shadow: 0 2px 10px rgba(3, 6, 10, .95);
+}
+#tourCap .tc-skip {
+  margin-top: 10px;
+  font-family: var(--disp); font-weight: 700; font-size: 10.5px;
+  letter-spacing: .3em; text-transform: uppercase; color: rgba(240, 230, 200, .55);
+}
+
 /* ═══ CHART — live aerial view of the current region ═════════════════════ */
 #mapBtn {
   position: fixed; top: var(--s3); right: 128px; z-index: 10;

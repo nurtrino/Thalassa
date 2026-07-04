@@ -1049,9 +1049,10 @@ export function createWorld(container, handlers = {}) {
       fading = false;
       pendingTarget = null;
       handlers.onStageChange?.(tgt);
-      /* the world may have moved on while the curtain was down */
-      const want = desiredTarget(lastRoom);
-      if (want !== (battleOn ? 'battle' : activeBoardId)) requestStage(want);
+      /* the world may have moved on while the curtain was down — but the
+       * opening tour owns the stage while it runs */
+      const want = tour ? tour.legs[tour.i]?.stage : desiredTarget(lastRoom);
+      if (want && want !== (battleOn ? 'battle' : activeBoardId)) requestStage(want);
     }, FADE_MS);
   }
 
@@ -1112,14 +1113,15 @@ export function createWorld(container, handlers = {}) {
     }
 
     /* now pick the stage — stays glued to whoever is mid-sail, and only hands
-     * off to the next captain once their boat has actually parked */
-    requestStage(desiredTarget(room));
+     * off to the next captain once their boat has actually parked. The
+     * opening tour owns the stage while it runs. */
+    if (!tour) requestStage(desiredTarget(room));
 
     /* establishing pan: once when the voyage begins, and each time you first
      * cross into a new realm (never in the lobby, never mid-battle) */
     if (wasLobby && !lobbyMode && activeBoardId && !battleOn) {
       seenStages.add(activeBoardId);
-      startCinematic(stages[activeBoardId]);
+      startTour(room);                   // the grand fly-over, rules narrated
     }
     wasLobby = lobbyMode;
 
@@ -1149,6 +1151,7 @@ export function createWorld(container, handlers = {}) {
   renderer.domElement.addEventListener('pointerdown', (e) => {
     downAt = [e.clientX, e.clientY];
     skipCinematic();          // any touch cuts the establishing pan short
+    endTour();                // …and the opening tour
   });
   renderer.domElement.addEventListener('pointerup', (e) => {
     if (!downAt) return;
@@ -1393,6 +1396,123 @@ export function createWorld(container, handlers = {}) {
     st.sun.target.position.copy(controls.target);
   }
 
+  /* ── the OPENING TOUR: fly the Safe Isles, then every realm, then land
+     on the Pharos — narrating the rules as it goes. Any tap skips it. ──── */
+  let tour = null;   // {legs, i, startedAt}
+
+  const TOUR_RULES = {
+    hub: ['The Safe Isles',
+      'Roll the bronze die and sail EXACTLY that far. Trade, pray, patch your hull — and mind the Kraken.'],
+    ice: ['The Frostfang Reach',
+      'One main road to each tyrant. Brave the elite shortcut — or loop past the blue haven checkpoint.'],
+    desert: ['The Bleached Reach',
+      'Crossed on foot. The Sphinx bars the way — answer her riddles or be swept back.'],
+    jungle: ['The Verdigris Deep',
+      'Muddy waters, hungry wilds. Enemies test you with trivia AND puzzles — solve, or take the hit.'],
+    autumn: ['The Amber Vale',
+      'A forest track beneath amber boughs. When your ship goes down, you wake at your last haven.'],
+    pharos: ['The Pharos',
+      'Slay tyrants and bank THREE sigil seals to open its door — then face the Dark Lord. First to take the tower wins the sea.'],
+  };
+
+  const _easeIO = (k) => (k < 0.5 ? 2 * k * k : 1 - Math.pow(-2 * k + 2, 2) / 2);
+
+  function startTour(room) {
+    const regions = Object.keys(room.board?.regions || {});
+    tour = {
+      legs: [
+        { stage: 'hub', dur: 8000, cap: 'hub' },
+        ...regions.map((r) => ({ stage: r, dur: 6500, cap: r })),
+        { stage: 'hub', dur: 8000, cap: 'pharos', pharos: true },
+      ],
+      i: 0,
+      startedAt: null,
+    };
+    handlers.onTourState?.(true);
+  }
+
+  function endTour() {
+    if (!tour) return;
+    tour = null;
+    handlers.onTourCaption?.(null);
+    handlers.onTourState?.(false);
+    if (lastRoom) {
+      requestStage(desiredTarget(lastRoom));
+      const st = stages[activeBoardId];
+      if (st) startCinematic(st);        // the final swoop down to your boat
+    }
+  }
+
+  function tickTour(now) {
+    const leg = tour.legs[tour.i];
+    if (activeBoardId !== leg.stage || !stages[activeBoardId] || fading) {
+      if (!fading && activeBoardId !== leg.stage) requestStage(leg.stage);
+      return;                            // stage still fading in — hold
+    }
+    const st = stages[activeBoardId];
+    if (tour.startedAt == null) {
+      tour.startedAt = now;
+      const [title, body] = TOUR_RULES[leg.cap] || ['', ''];
+      handlers.onTourCaption?.({ title, body, i: tour.i, n: tour.legs.length });
+    }
+    const k = Math.min(1, (now - tour.startedAt) / leg.dur);
+    const b = stageBounds(st);
+    const cx = (b.minX + b.maxX) / 2, cz = (b.minZ + b.maxZ) / 2;
+    const extent = Math.max(b.maxX - b.minX, b.maxZ - b.minZ, 160);
+    if (leg.pharos) {
+      // spiral down from high over the sea to the tower's very door
+      const ph = nodeById.pharos || { x: 0, z: 0 };
+      const e = _easeIO(k);
+      const r = 330 - 268 * e;
+      const hgt = 300 - 272 * e;
+      const a = -Math.PI / 2 + 1.5 * e;
+      camera.position.set(ph.x + Math.cos(a) * r, hgt, ph.z + Math.sin(a) * r);
+      controls.target.set(ph.x, 3 + 11 * e, ph.z);
+    } else if (leg.stage === 'hub') {
+      // a slow high sweep across the whole Safe Isles
+      const a = -Math.PI / 2 + 0.9 * k;
+      const r = extent * (0.60 - 0.10 * k);
+      const hgt = extent * (0.52 - 0.10 * k);
+      camera.position.set(cx + Math.cos(a) * r, hgt, cz + Math.sin(a) * r);
+      controls.target.set(cx, 0, cz);
+    } else {
+      // realms hold their fog close — fly LOW along the road, gate → lair
+      if (!leg.path) {
+        const gate = Object.values(nodeById).find(
+          (n) => n.type === 'gate' && n.region === leg.stage);
+        const lair = Object.values(nodeById).find(
+          (n) => n.type === 'lair' && n.region === leg.stage);
+        leg.path = (gate && lair) ? { gate, lair }
+          : { gate: { x: cx, z: cz }, lair: { x: cx, z: cz } };
+      }
+      const { gate, lair } = leg.path;
+      const e = _easeIO(k);
+      const px = gate.x + (lair.x - gate.x) * e;
+      const pz = gate.z + (lair.z - gate.z) * e;
+      const t2 = Math.min(1, e + 0.18);
+      const lx = gate.x + (lair.x - gate.x) * t2;
+      const lz = gate.z + (lair.z - gate.z) * t2;
+      let dx = lx - px, dz = lz - pz;
+      const dl = Math.hypot(dx, dz) || 1;
+      dx /= dl; dz /= dl;
+      camera.position.set(px - dx * 65, 92, pz - dz * 65);
+      controls.target.set(lx, 0, lz);
+    }
+    controls.update();
+    st.sun.position.copy(controls.target).addScaledVector(st.sunDir, 380);
+    st.sun.target.position.copy(controls.target);
+    if (k >= 1) {
+      tour.i += 1;
+      tour.startedAt = null;
+      handlers.onTourCaption?.(null);
+      if (tour.i >= tour.legs.length) {
+        endTour();
+      } else {
+        requestStage(tour.legs[tour.i].stage);
+      }
+    }
+  }
+
   /* ── aerial chart mode: a live top-down view of the CURRENT region ──── */
   let mapMode = null;   // {saved, bounds, H, Hmin, Hmax, tx, tz, keys, drag}
 
@@ -1411,7 +1531,7 @@ export function createWorld(container, handlers = {}) {
 
   function enterMapView() {
     const st = stages[activeBoardId];
-    if (!st || battleOn || mapMode) return false;
+    if (!st || battleOn || mapMode || tour) return false;
     const b = stageBounds(st);
     const extent = Math.max(b.maxX - b.minX, b.maxZ - b.minZ, 140);
     mapMode = {
@@ -1561,7 +1681,8 @@ export function createWorld(container, handlers = {}) {
     tickWake(now);
     tickHighlights(t);
     syncKraken(lastRoom);
-    if (mapMode) tickMapView(dt);
+    if (tour) tickTour(performance.now());
+    else if (mapMode) tickMapView(dt);
     else tickCamera(st, t);
     renderer.render(st.scene, camera);
   });
@@ -1587,6 +1708,8 @@ export function createWorld(container, handlers = {}) {
     exitMapView,
     mapActive: () => !!mapMode,
     mapProject,
+    tourActive: () => !!tour,
+    endTour,
   };
 
   /* debug handle for dev tooling / screenshot scripts */

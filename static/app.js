@@ -115,6 +115,18 @@ world = createWorld($('world'), {
   onStageChange(stageId) {
     applyStage(stageId);
   },
+  onTourCaption(cap) {
+    renderTourCaption(cap);
+  },
+  onTourState(active) {
+    document.body.classList.toggle('touring', !!active);
+    if (active) {
+      // the tour IS the rules briefing — no wall-of-text modal needed
+      introDismissed = true;
+      localStorage.setItem('thalassa_intro', '1');
+      $('modal').classList.add('hidden');
+    } else if (room) render();
+  },
   onArrive() {
     // the boat has reached its island — now reveal whatever waits there,
     // and fire the audio reaction we held back while it was still sailing
@@ -155,7 +167,8 @@ $('startBtn').onclick = () => send({ type: 'start' });
 $('addBotBtn').onclick = () => send({ type: 'add_bot' });
 $('mapBtn').onclick = () => toggleMap(true);
 document.addEventListener('keydown', (e) => {
-  if (e.key === 'Escape' && mapOpen) toggleMap(false);
+  if (e.key === 'Escape' && world.tourActive?.()) world.endTour();
+  else if (e.key === 'Escape' && mapOpen) toggleMap(false);
   else if ((e.key === 'm' || e.key === 'M') && room && room.phase !== 'lobby'
            && !/^(INPUT|TEXTAREA)$/.test(document.activeElement?.tagName || '')) toggleMap();
 });
@@ -320,6 +333,26 @@ function playPharosCutscene() {
     d.classList.add('done');
     setTimeout(() => d.remove(), 900);
   }, 3900);
+}
+
+/* ── the opening tour's caption card (bottom center, cinematic) ─────────── */
+let tourCapEl = null;
+function renderTourCaption(cap) {
+  tourCapEl?.remove();
+  tourCapEl = null;
+  if (!cap) return;
+  const d = document.createElement('div');
+  tourCapEl = d;
+  d.id = 'tourCap';
+  d.innerHTML =
+    `<div class="tc-title">${esc(cap.title)}</div>` +
+    `<div class="tc-body">${esc(cap.body)}</div>` +
+    `<div class="tc-skip">tap anywhere to skip</div>`;
+  document.body.appendChild(d);
+  d.animate(
+    [{ opacity: 0, transform: 'translateX(-50%) translateY(14px)' },
+     { opacity: 1, transform: 'translateX(-50%) translateY(0)' }],
+    { duration: 450, easing: 'ease-out' });
 }
 
 /* what to shout when a battle opens */
