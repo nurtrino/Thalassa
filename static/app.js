@@ -200,6 +200,7 @@ window.__room = null;
 window.__you = null;
 window.__world = world;               // scene api: arriving()/animating()/currentStage()
 window.__audio = audio;               // music scene lives on audio._scene
+window.__pharosCine = () => playPharosCutscene();   // preview the seal cutscene
 
 function handle(msg) {
   if (msg.type === 'snapshot') {
@@ -287,11 +288,41 @@ function showAnnounce(title, sub, color) {
   ).onfinish = () => { d.remove(); if (announceEl === d) announceEl = null; };
 }
 
+/* The Pharos cutscene: the three earned seals are set into the door, the
+   bronze leaves grind open, and only then does the Dark Lord stir. Runs once,
+   over the battle scene, before the fight UI takes over. */
+function playPharosCutscene() {
+  document.getElementById('pharosCine')?.remove();
+  const d = document.createElement('div');
+  d.id = 'pharosCine';
+  d.innerHTML =
+    `<div class="pcine-in">` +
+      `<div class="pcine-kicker">The seals answer</div>` +
+      `<div class="pcine-door"><i class="leaf l"></i><i class="leaf r"></i>` +
+        `<span class="pcine-glow"></span>` +
+        `<span class="pcsig" style="--i:0"></span>` +
+        `<span class="pcsig" style="--i:1"></span>` +
+        `<span class="pcsig" style="--i:2"></span>` +
+      `</div>` +
+      `<div class="pcine-title">The Pharos Opens</div>` +
+    `</div>`;
+  document.body.appendChild(d);
+  const sigs = d.querySelectorAll('.pcsig');
+  sigs.forEach((s, i) => setTimeout(() => s.classList.add('lit'), 500 + i * 500));
+  setTimeout(() => d.querySelector('.pcine-door').classList.add('open'), 2100);
+  setTimeout(() => d.querySelector('.pcine-title').classList.add('show'), 2500);
+  setTimeout(() => {
+    d.classList.add('done');
+    setTimeout(() => d.remove(), 900);
+  }, 3900);
+}
+
 /* what to shout when a battle opens */
 function announceBattle(b) {
   if (!b) return;
   if (b.is_pharos) {
-    showAnnounce('The Dark Lord', 'The final trial', '#a36cff');
+    playPharosCutscene();
+    setTimeout(() => showAnnounce('The Dark Lord', 'The final trial', '#a36cff'), 4200);
   } else if (b.is_lair) {
     const sub = b.escalation > 0 ? `Risen ×${b.escalation} — a rival came before you` : 'Your trial';
     showAnnounce(b.name, sub, '#ffb454');

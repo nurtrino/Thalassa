@@ -453,13 +453,38 @@ export function createWorld(container, handlers = {}) {
   }
 
   /* ── island / lane sync (viewKey semantics) ─────────────────────────── */
-  const FX_NAMES = ['foam', 'bob', 'beacon', 'pharosfire', 'monster'];
+  const FX_NAMES = ['foam', 'bob', 'beacon', 'pharosfire', 'monster', 'pharosgate'];
   function cacheIslandFx(isle) {
     isle.fxBits = {};
     for (const nm of FX_NAMES) {
       const o = isle.group.getObjectByName(nm);
       if (o) isle.fxBits[nm] = o;
     }
+  }
+
+  /* Light one sigil socket per seal the local captain has banked, and swing
+     the bronze leaves once all three answer. Blank + shut is the default the
+     player meets before earning the seals. */
+  function drivePharosGate(gate, t) {
+    const me = lastRoom?.players?.find((p) => p.pid === myPid);
+    const need = lastRoom?.config?.relics_to_win ?? 3;
+    const banked = Math.min(3, me ? me.banked : 0);
+    for (let i = 0; i < 3; i++) {
+      const s = gate.getObjectByName('sigil' + i);
+      if (!s) continue;
+      const lit = i < banked;
+      const target = lit ? 1.15 + Math.sin(t * 3 + i * 1.7) * 0.4 : 0;
+      s.material.emissiveIntensity += (target - s.material.emissiveIntensity) * 0.15;
+    }
+    const open = banked >= need;
+    const cur = gate.userData.open ?? 0;
+    const next = cur + ((open ? 1 : 0) - cur) * 0.045;
+    gate.userData.open = next;
+    const swing = next * Math.PI * 0.6;
+    const L = gate.getObjectByName('doorPivotL');
+    const R = gate.getObjectByName('doorPivotR');
+    if (L) L.rotation.y = swing;
+    if (R) R.rotation.y = -swing;
   }
 
   function syncStage(st, room) {
@@ -1211,6 +1236,7 @@ export function createWorld(container, handlers = {}) {
         const pulse = 1 + Math.sin(t * 2.2) * 0.16;
         fxb.pharosfire.scale.set(pulse, pulse, pulse);
       }
+      if (fxb.pharosgate) drivePharosGate(fxb.pharosgate, t);
       if (fxb.monster) fxb.monster.position.y += Math.sin(t * 2 + pz) * 0.0035;
     }
   }

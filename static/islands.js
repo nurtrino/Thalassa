@@ -608,7 +608,68 @@ function makePharos() {
   halo.material.opacity = 0.4;
   halo.position.y = 23.2;
   g.add(fire, cap, light, beam, halo);
+  g.add(makePharosGate());
   return g;
+}
+
+/* The sealed door at the Pharos' foot: a marble portal, twin bronze leaves,
+   and three sigil sockets across the lintel. The sockets sit BLANK (dark) and
+   the leaves stay shut until a captain banks all three seals — the scene lights
+   a socket per banked seal and swings the leaves once all three answer. Parts
+   are named so scene.js can drive that state per frame. */
+function makePharosGate() {
+  const gate = new THREE.Group();
+  gate.name = 'pharosgate';
+  gate.position.set(0, 0, 7.4);                 // front face, toward the berth
+  const stone = flat(COL.marbleShade);
+  const jamb = (x) => {
+    const m = new THREE.Mesh(new THREE.BoxGeometry(0.6, 5.4, 0.9), stone);
+    m.position.set(x, 2.7, 0);
+    m.castShadow = true;
+    return m;
+  };
+  const lintel = new THREE.Mesh(new THREE.BoxGeometry(4.6, 0.9, 1.0), stone);
+  lintel.position.set(0, 5.7, 0);
+  lintel.castShadow = true;
+  const sill = new THREE.Mesh(new THREE.BoxGeometry(4.6, 0.4, 1.2), stone);
+  sill.position.set(0, 0.2, 0.1);
+  gate.add(jamb(-2.0), jamb(2.0), lintel, sill);
+
+  // twin bronze leaves on hinge pivots at the jambs
+  const bronze = new THREE.MeshStandardMaterial({
+    color: 0x5b4a2a, flatShading: true, metalness: 0.5, roughness: 0.55,
+    emissive: 0x120c04, emissiveIntensity: 1 });
+  for (const side of [-1, 1]) {
+    const pivot = new THREE.Group();
+    pivot.name = side < 0 ? 'doorPivotL' : 'doorPivotR';
+    pivot.position.set(side * 1.7, 2.9, 0.35);
+    const leaf = new THREE.Mesh(new THREE.BoxGeometry(1.62, 4.9, 0.28), bronze);
+    leaf.position.set(-side * 0.85, 0, 0);      // extends inward, leaves meet at centre
+    leaf.castShadow = true;
+    // a raised stud line down each leaf
+    const stud = new THREE.Mesh(new THREE.BoxGeometry(0.16, 4.2, 0.12),
+      flat(0x8a7038, { emissive: 0x2a1e08 }));
+    stud.position.set(-side * 0.85, 0, 0.2);
+    pivot.add(leaf, stud);
+    gate.add(pivot);
+  }
+
+  // three sigil sockets across the lintel — dark carved discs that light up
+  const socketMat = flat(0x2a2620);
+  for (let i = 0; i < 3; i++) {
+    const x = (i - 1) * 1.5;
+    const socket = new THREE.Mesh(new THREE.CylinderGeometry(0.52, 0.52, 0.22, 12), socketMat);
+    socket.rotation.x = Math.PI / 2;            // face the disc toward the berth
+    socket.position.set(x, 5.7, 0.55);
+    const sigil = new THREE.Mesh(new THREE.CylinderGeometry(0.4, 0.4, 0.14, 12),
+      new THREE.MeshStandardMaterial({ color: 0x3a352c, flatShading: true,
+        emissive: 0xffd66a, emissiveIntensity: 0 }));   // blank until banked
+    sigil.rotation.x = Math.PI / 2;
+    sigil.position.set(x, 5.7, 0.64);
+    sigil.name = 'sigil' + i;
+    gate.add(socket, sigil);
+  }
+  return gate;
 }
 
 function makeRelicBeacon() {
