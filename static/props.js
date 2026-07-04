@@ -37,6 +37,8 @@ const PROP_HEIGHTS = {
   iceberg: 4.5, sand_dune: 1.4, barrel: 0.9, fishing_net: 0.6, brazier: 1.2,
   stone_well: 2.0, sarcophagus: 1.4, ruined_arch: 3.0, banner_pole: 2.6,
   campfire: 0.8, lily_pads: 0.35, tide_pool: 0.5,
+  buoy: 1.2, ice_floe: 0.5, tomb: 1.6, barrow: 1.6, monster_totem: 2.2,
+  waymarker_stone: 1.6,
   // biome flora
   pine_tree: 3.8, pine_snow: 3.8, palm_tree: 3.6, cypress_tree: 3.6,
   olive_tree: 2.6, autumn_tree: 3.2, jungle_tree: 3.4, cactus: 2.2,
