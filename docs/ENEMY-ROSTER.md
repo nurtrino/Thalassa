@@ -89,14 +89,6 @@ spikes down the spine, glowing pale-cyan eyes, a gold `crown` behind the
 horns. Reads as the classic sea-dragon boss. Palette: deep glacier-blue
 scales, frost-white belly/spikes, cyan glow.
 
-### `colossus` — **The Dune Colossus** (Bleached Reach / desert, boss)
-A giant of stacked sandstone masonry — an ancient desert titan. Blocky,
-architectural body (big cube torso + slab limbs), a **burning core** (`core`,
-emissive amber) glowing in its chest, deep-set glowing eyes, heavy fists.
-Crowned. Moves like a stone giant. Parts: `body, head, armL/R, legL/R, core,
-eye, crown`. Palette: sun-bleached sandstone tan, darker weathered stone,
-molten-amber core glow.
-
 ### `matriarch` — **The Strangler Matriarch** (Verdigris Deep / jungle, boss)
 A monstrous carnivorous plant-queen. Bulbous bark-and-moss body with a
 gaping **maw** of thorn-teeth (`jaw`), glowing green eyes, and a crown of
@@ -104,6 +96,25 @@ gaping **maw** of thorn-teeth (`jaw`), glowing green eyes, and a crown of
 a lurid **bloom** (petals + emissive `core`). A gold `crown` at the apex.
 Palette: dark wet bark, deep jungle green moss, a magenta/pink flower, sickly
 green eye-glow, blood-red maw.
+
+### `sphinx` — **The Sphinx** (Bleached Reach / desert, boss)
+The desert's riddling tyrant: a lion couchant in sandstone gold with a human
+face beneath a lapis-and-gold **nemes** headdress, folded lapis-tipped wings
+(`wingL/R`), a tufted tail (`tail0`), a gold collar, glowing gold eyes, and
+the boss `crown`. Rig: `body`, `head`, `jaw`, `legFL/FR/BL/BR`, `wingL/R`,
+`tail0`, `eye`. She also haunts the desert road itself, stopping crossings
+with typed riddles (wrong → swept 1-2 spaces back).
+
+### `kraken` — **The Kraken** (Safe Isles, special encounter)
+A mountain of teal mantle rising from the hub sea on eight thick tentacles
+(vine-rigged `vine0..vine7` so they sway), heavy-lidded amber lamp-eyes, a
+bone beak (`jaw`). Not a battle: it blocks a crossing (1-in-10) and poses
+three ravens mind-riddles at 15s each — one miss costs your next turn. It
+surfaces in the world beside the blocked ship while its gauntlet runs.
+
+### `colossus` — **The Dune Colossus** (asset, unused)
+The desert's former boss — kept as an asset; the Sphinx rules the Bleached
+Reach now.
 
 ### `tyrant` — **The Dark Lord** (final boss, the Pharos)
 The horror that holds the Pharos. A colossal near-black armored biped — the
@@ -267,7 +278,9 @@ segments trailing back; ≥4 segments makes it slither. Optional `fins`.
 |---|---|---|---|---|
 | stag_king | The Stag King | autumn | BOSS | 12·2 |
 | wyrm | The Boreal Wyrm | ice | BOSS | 12·2 |
-| colossus | The Dune Colossus | desert | BOSS | 12·2 |
+| sphinx | The Sphinx | desert | BOSS | 12·2 |
+| kraken | The Kraken | hub sea | special (riddle gauntlet) | — |
+| colossus | (former desert boss — asset, unused) | — | — | — |
 | matriarch | The Strangler Matriarch (+ Strangler Saplings) | jungle | BOSS (+elite) | 12·2 |
 | tyrant | The Dark Lord | the Pharos | FINAL BOSS | 14·3 |
 | warden | (former final boss — asset, unused) | — | — | — |

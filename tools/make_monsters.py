@@ -816,6 +816,142 @@ def build_matriarch(spec):
     return root
 
 
+def build_kraken(spec):
+    """THE KRAKEN — a mountain of mantle rising from the water on a nest of
+    eight thick tentacles. Solid overlapping masses only: tentacles root
+    INSIDE the base, the mantle is a continuous column, the great eyes sit
+    embedded in its face. Tentacles are vine-rigged so the client sways them."""
+    skin = mat("skin", spec.get("skin", C("1d4a52")), rough=0.85)
+    skindk = mat("skindk", spec.get("dark", C("123138")), rough=0.9)
+    belly = mat("belly", spec.get("belly", C("7fa8a0")), rough=0.8)
+    bone = mat("bone", BONE, rough=0.6)
+    eyec = spec.get("eye", C("ffb84a"))
+    root = empty("root")
+
+    # ── the body: a fat sea-base flowing up into the great mantle ──
+    base = prim("sphere", "base", skindk, scale=(2.6, 2.6, 1.3),
+                loc=(0, 0, 0.75), parent=root, jitter=0.14)      # 0.1–1.4
+    body = prim("sphere", "body", skin, scale=(2.0, 2.0, 2.1),
+                loc=(0, 0, 1.9), parent=root, jitter=0.10)       # 0.85–2.95
+    prim("sphere", "mantle", skin, scale=(1.5, 1.5, 1.9),
+         loc=(-0.25, 0, 3.1), rot=(0, -0.35, 0), parent=root,
+         jitter=0.10)                                            # 2.15–4.05, swept back
+    prim("cone", "mantletip", skindk, scale=(0.9, 0.9, 1.4),
+         loc=(-0.75, 0, 4.15), rot=(0, -0.55, 0), parent=root, segs=8)
+
+    # ── the face: hooded lamp-eyes sunk into the flesh, a beak beneath ──
+    hd = empty("head", loc=(1.3, 0, 2.3), parent=root)
+    prim("sphere", "brow", skin, scale=(1.0, 1.7, 1.0), loc=(-0.3, 0, 0.25),
+         parent=hd, jitter=0.08)
+    eyem = mat("keye", C("100c04"), emit=eyec, emit_str=5)
+    for sy in (-1, 1):
+        prim("sphere", "eye", eyem, scale=(0.34, 0.34, 0.34),
+             loc=(0.3, 0.6 * sy, 0.26), parent=hd, segs=8, rings=6)
+        # a heavy lid hooding each eye — menace, not surprise
+        prim("sphere", "lid", skindk, scale=(0.4, 0.44, 0.22),
+             loc=(0.26, 0.6 * sy, 0.46), rot=(0, 0.35, 0), parent=hd,
+             jitter=0.03)
+    # the beak, tucked under the eyes, half-sunk in the flesh
+    prim("cone", "beaktop", bone, scale=(0.34, 0.42, 0.55),
+         loc=(0.5, 0, -0.28), rot=(0, 1.35, 0), parent=hd, segs=6)
+    jaw = empty("jaw", loc=(0.32, 0, -0.55), parent=hd)
+    prim("cone", "beakbot", bone, scale=(0.28, 0.36, 0.45),
+         loc=(0.18, 0, 0.05), rot=(0, 1.85, 0), parent=jaw, segs=6)
+
+    # ── eight thick tentacles: tightly-overlapping segments, tips rooted in
+    # the last ball — nothing floats ──
+    for i in range(8):
+        a = (i / 8) * math.tau + 0.2
+        ca, sa = math.cos(a), math.sin(a)
+        v = empty(f"vine{i}", loc=(ca * 0.9, sa * 0.9, 0.55), parent=root)
+        for k in range(7):
+            t = k / 6
+            r = 0.78 - 0.08 * k
+            prim("sphere", "tseg", (skin if k % 2 else skindk),
+                 scale=(r, r, r * 0.9),
+                 loc=(ca * t * 2.3, sa * t * 2.3,
+                      -0.2 * t + 1.1 * t * t * t),    # dip out, then curl UP
+                 parent=v, jitter=0.05, seed=i * 11 + k)
+        prim("cone", "ttip", skindk, scale=(0.28, 0.28, 0.8),
+             pivot=(0, 0, -0.36),
+             loc=(ca * 2.3, sa * 2.3, 0.9), rot=(-sa * 0.55, ca * 0.55, 0),
+             parent=v, segs=6)
+    return root
+
+
+def build_sphinx(spec):
+    """THE SPHINX — the desert's riddling tyrant: a lion couchant in sandstone
+    gold, a human face beneath a lapis-striped nemes headdress, folded wings,
+    a gold collar. Solid masses; wings and headdress root inside the body."""
+    sand = mat("sand", spec.get("sand", C("d9b36a")), rough=0.9)
+    sanddk = mat("sanddk", spec.get("dark", C("9a7038")), rough=0.9)
+    lapis = mat("lapis", spec.get("lapis", C("2e5da8")), rough=0.6)
+    gold = mat("gold", C("e8c25f"), rough=0.35, metal=0.6)
+    skin = mat("face", C("c99a6a"), rough=0.8)
+    eyem = mat("seye", C("140e04"), emit=spec.get("eye", C("ffd86a")), emit_str=4)
+    root = empty("root")
+
+    # ── the lion body: chest high and proud, haunches heavy behind ──
+    body = prim("sphere", "body", sand, scale=(2.3, 1.25, 1.2),
+                loc=(0, 0, 1.35), parent=root, jitter=0.05)
+    prim("sphere", "chest", sand, scale=(1.15, 1.15, 1.25),
+         loc=(0.85, 0, 0.25), parent=body, jitter=0.04)
+    prim("sphere", "haunchL", sanddk, scale=(0.95, 0.55, 0.9),
+         loc=(-0.75, 0.55, -0.1), parent=body, jitter=0.04)
+    prim("sphere", "haunchR", sanddk, scale=(0.95, 0.55, 0.9),
+         loc=(-0.75, -0.55, -0.1), parent=body, jitter=0.04)
+    for nm, lx, ly in (("legFL", 0.85, 0.42), ("legFR", 0.85, -0.42),
+                       ("legBL", -0.75, 0.45), ("legBR", -0.75, -0.45)):
+        leg = prim("cyl", nm, sand, scale=(0.3, 0.3, 1.45),
+                   pivot=(0, 0, 0.58), loc=(lx, ly, -0.55),
+                   parent=body, segs=7)
+        prim("sphere", "paw", sanddk, scale=(0.46, 0.4, 0.3),
+             loc=(0.1, 0, -1.18), parent=leg, segs=7, rings=5)
+    # tail hugging the flank, ending in a dark tuft
+    tl = prim("cyl", "tail0", sanddk, scale=(0.12, 0.12, 1.0),
+              pivot=(0, 0, -0.5),
+              loc=(-1.15, 0.3, 0.15), rot=(0.35, -0.9, 0), parent=body, segs=6)
+    prim("sphere", "tuft", sanddk, scale=(0.26, 0.26, 0.3), loc=(0, 0, 0.95),
+         parent=tl, segs=6, rings=5)
+
+    # ── folded wings: base and tip interpenetrate — one solid sweep ──
+    for sy, nm in ((1, "wingL"), (-1, "wingR")):
+        w = empty(nm, loc=(0.15, 0.7 * sy, 0.5), parent=body)
+        prim("sphere", "wbase", sanddk, scale=(1.3, 0.26, 0.6),
+             loc=(-0.35, 0.1 * sy, 0.3), rot=(0.15 * sy, 0.45, 0),
+             parent=w, jitter=0.04)
+        prim("sphere", "wtip", lapis, scale=(1.15, 0.18, 0.45),
+             loc=(-0.85, 0.16 * sy, 0.58), rot=(0.18 * sy, 0.6, 0),
+             parent=w, jitter=0.04)
+
+    # ── the human head beneath the nemes ──
+    hd = empty("head", loc=(1.35, 0, 1.15), parent=body)
+    prim("sphere", "neck", sand, scale=(0.7, 0.7, 0.9), loc=(-0.15, 0, -0.45),
+         parent=hd, jitter=0.03)
+    prim("sphere", "skull", skin, scale=(0.72, 0.62, 0.78), parent=hd,
+         jitter=0.02)
+    prim("cube", "nose", skin, scale=(0.11, 0.09, 0.15), loc=(0.34, 0, -0.02),
+         parent=hd)
+    jaw = prim("cube", "jaw", skin, scale=(0.24, 0.28, 0.1),
+               loc=(0.22, 0, -0.3), pivot=(-0.12, 0, 0), parent=hd)
+    for sy in (-1, 1):
+        prim("sphere", "eye", eyem, scale=(0.11, 0.11, 0.11),
+             loc=(0.3, 0.17 * sy, 0.12), parent=hd, segs=6, rings=4)
+    # the nemes: a cap over the crown, a slim gold browband, two plain flaps
+    prim("sphere", "nemescap", lapis, scale=(0.84, 0.8, 0.62),
+         loc=(-0.1, 0, 0.26), parent=hd, jitter=0.02)
+    prim("cube", "nemesband", gold, scale=(0.14, 0.62, 0.1),
+         loc=(0.3, 0, 0.28), rot=(0, 0.25, 0), parent=hd)
+    for sy in (-1, 1):
+        prim("cube", "flap", lapis, scale=(0.3, 0.14, 0.7),
+             loc=(-0.02, 0.42 * sy, -0.22), rot=(0.1 * sy, 0, 0), parent=hd)
+    # gold collar sunk into the chest
+    prim("sphere", "collar", gold, scale=(0.7, 0.95, 0.5),
+         loc=(1.15, 0, 0.62), rot=(0, -0.5, 0), parent=body, jitter=0.02)
+    add_crown(hd, (0, 0, 0.5))
+    return root
+
+
 # ── species table ────────────────────────────────────────────────────────────
 # id → (builder, spec, target height in world units)
 SPECIES = {
@@ -903,6 +1039,10 @@ SPECIES = {
                                     "vines": 7, "eye": C("d8ff9a")}, 4.2),
     "warden":   (build_warden, {"robe": C("17122a"), "bone": C("c3bacd"),
                                 "core": C("8b5cff"), "eye": C("b58cff")}, 4.6),
+    "kraken":   (build_kraken, {"skin": C("1d4a52"), "dark": C("123138"),
+                                "belly": C("9fc4ba"), "eye": C("ffb84a")}, 4.4),
+    "sphinx":   (build_sphinx, {"sand": C("d9b36a"), "dark": C("9a7038"),
+                                "lapis": C("2e5da8"), "eye": C("ffd86a")}, 3.6),
 }
 
 
