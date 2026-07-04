@@ -198,8 +198,9 @@ const MODEL_SCALE = {};
 function sizeFor(e) {
   const model = e.model || e.name || '';
   if (BOSS_IDS.has(model) || (e.max_hp || 0) >= 12) return 2.2 * (MODEL_SCALE[model] || 1);
-  if ((e.max_hp || 0) >= 6) return 1.3;
-  return 1 + clamp01(((e.max_hp || 3) - 3) / 10) * 0.15;
+  if ((e.max_hp || 0) >= 6) return 1.8;
+  // grunts read on stage: a battle miniature, not a speck by the hull
+  return 1.45 + clamp01(((e.max_hp || 3) - 1) / 8) * 0.35;
 }
 
 /* deterministic ranks; bosses centered & at the back, minions screen it */

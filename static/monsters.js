@@ -57,8 +57,14 @@ const HEIGHTS = {
 
 export const BOSS_IDS = new Set(['stag_king', 'wyrm', 'colossus', 'matriarch',
   'warden', 'tyrant', 'sphinx', 'kraken']);
-const FLOATERS = new Set(['wraith', 'shade', 'siren', 'warden']);
+const FLOATERS = new Set(['wraith', 'shade', 'siren', 'warden',
+  // fliers hover too — wings out, feet never on the ground
+  'bird', 'bird_poison', 'vulture', 'harpy']);
 const BOATS = new Set(['skiff']);
+
+/* a few Meshy sculpts came out of the auto-rig facing ±Z instead of the
+ * game's +X convention — square them up at template time */
+const MODEL_YAW = { sphinx: Math.PI / 2, monkey: Math.PI / 2 };
 
 const loader = new GLTFLoader();
 const templates = new Map();     // id → Promise<Group>  (never rejects)
@@ -89,6 +95,7 @@ const _PROXY_PARTS = new Set(['eye', 'core', 'crown']);
 function prepareTemplate(scene, id) {
   const seen = new Set();
   const procedural = !!scene.userData.procedural;
+  if (MODEL_YAW[id]) scene.rotation.y = MODEL_YAW[id];
   scene.traverse((o) => {
     if (!o.isMesh) return;
     // the Meshy auto-rig drops heuristic glow proxies (eye/core/crown balls)
