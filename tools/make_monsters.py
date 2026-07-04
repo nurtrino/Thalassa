@@ -713,9 +713,10 @@ def build_warden(spec):
     jaw = empty("jaw", loc=(0.22, 0, -0.36), parent=hd)
     prim("cube", "jawm", bone, scale=(0.66, 0.6, 0.34), loc=(0.08, 0, -0.02),
          parent=jaw, jitter=0.04)
+    # horns rooted in the back-top of the skull, sweeping up-outward-and-BACK
     for sy in (-1, 1):
         prim("cone", "horn", bone, scale=(0.24, 0.24, 1.7),
-             loc=(-0.05, 0.3 * sy, 0.48), rot=(0.75 * sy, -0.5, 0),
+             loc=(-0.2, 0.26 * sy, 0.42), rot=(-0.45 * sy, -0.35, 0),
              parent=hd, segs=5, jitter=0.03)
     eyem = mat("eye", C("040208"), emit=eyec, emit_str=6)
     for sy in (-1, 1):
@@ -733,13 +734,6 @@ def build_warden(spec):
             prim("cone", "claw", bone, scale=(0.13, 0.13, 0.7),
                  loc=(0.05, (k - 1) * 0.17 * sy, -0.2),
                  rot=(0, 2.5, (k - 1) * 0.22), parent=hand, segs=5)
-    # cold wisps orbiting the crown (these are meant to float)
-    wm = mat("wispm", C("0a0616"), emit=eyec, emit_str=5)
-    for i in range(4):
-        a = i / 4 * math.tau
-        prim("ico", "wisp", wm, scale=(0.24, 0.24, 0.24),
-             loc=(math.cos(a) * 2.0, math.sin(a) * 2.0, 1.5 + 0.4 * math.sin(i)),
-             parent=body)
     add_crown(hd, (0, 0, 0.9))
     return root
 
@@ -788,8 +782,8 @@ def build_matriarch(spec):
          scale=(0.5, 0.5, 0.5), loc=(0.3, 0, 0), parent=hd)
     eyem = mat("beye", C("101010"), emit=eyec, emit_str=4)
     for sy in (-1, 1):
-        prim("sphere", "eye", eyem, scale=(0.18, 0.18, 0.18),
-             loc=(0.62, 0.62 * sy, 2.7), parent=root, segs=6, rings=4)
+        prim("sphere", "eye", eyem, scale=(0.2, 0.2, 0.2),
+             loc=(0.55, 0.45 * sy, 0.22), parent=body, segs=6, rings=4)
     # ── thick thorn-vines, rooted INSIDE the trunk, tightly overlapping ──
     nv = spec.get("vines", 6)
     for i in range(nv):

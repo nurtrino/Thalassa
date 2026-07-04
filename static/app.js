@@ -633,7 +633,7 @@ function renderObjective() {
   if (room.winner) hint = '';
   else if (!me) hint = `Bank ${n} sigil seals, then take the Pharos.`;
   else if (room.pharos_open && me.banked >= n)
-    hint = '<strong>THE PHAROS IS OPEN</strong> — land on it and face the Warden.';
+    hint = '<strong>THE PHAROS IS OPEN</strong> — land on it and face the Dark Lord.';
   else if (me.cargo > 0)
     hint = 'Seal aboard — <strong>sail it home</strong> to bank it.';
   else hint = `Seals wait past the four passes · bank ${n} to open the Pharos`;
@@ -1708,7 +1708,7 @@ function renderModal() {
           sigil seal. Shipwreck drops it back at the lair; sail home and bank
           it to make it safe.</li>
         <li><strong>Win</strong> — bank ${room.config.relics_to_win} seals to
-          open the Pharos, then land on it and put down the Warden.</li>
+          open the Pharos, then land on it and put down the Dark Lord.</li>
       </ol>
       <p class="tag">Hull 0 = shipwreck: back to your checkpoint, scrolls halved.
         Answer on rivals' turns to skim scrolls.</p>
@@ -1745,7 +1745,7 @@ function renderModal() {
     const w = room.players.find((p) => p.pid === room.winner);
     show(`<h2>${icon('crown', 22)} The Pharos</h2>
       <p><strong style="color:${w?.color}">${esc(w?.name || '?')}</strong> has put down the
-      Warden and lit the Pharos. The four realms sing their name.</p>
+      Dark Lord and lit the Pharos. The four realms sing their name.</p>
       ${you === room.host
         ? '<button id="rematchGo" class="big">NEW VOYAGE — A NEW SEA</button>'
         : '<p class="tag">the host may launch a new voyage</p>'}`);

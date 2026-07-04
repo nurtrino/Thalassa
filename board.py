@@ -47,7 +47,7 @@ ISLAND_NAMES = [
     "Gavdos", "Elafonisos", "Meganisi", "Kalamos",
 ]
 
-WARDEN = ("The Warden of the Pharos", 14, 3, 3)
+WARDEN = ("The Dark Lord", 14, 3, 3)
 
 # ── the four realms, one beyond each mountain pass ───────────────────────────
 # Each realm: display name, travel mode ("sail" | "foot"), a boss (solo,

@@ -826,7 +826,7 @@ class Game:
                 node = self.board.nodes[self.battle["node"]]
                 if node["type"] == "pharos":
                     self.winner = p.pid
-                    note = f"🏆 The Warden falls — {p.name} takes the PHAROS!"
+                    note = f"🏆 The Dark Lord falls — {p.name} takes the PHAROS!"
                 else:
                     note += f" {m['name']} — defeated!"
                     if node["type"] == "lair":
