@@ -688,8 +688,11 @@ export function createWorld(container, handlers = {}) {
     // pass head-on and pass THROUGH it, never around it. A small lateral fan
     // lets two ships share the mouth without overlapping.
     const rad = new THREE.Vector3(n.x, 0, n.z).normalize();   // outward (radial)
-    const side = (st && st.id !== 'hub') ? 1 : -1;            // realm past the arch
-    const along = 7;                                          // just at the mouth
+    const inRealm = !!(st && st.id !== 'hub');
+    const side = inRealm ? 1 : -1;                            // realm past the arch
+    // in the realm you spawn clearly PAST the arch — through the pass, the gate
+    // at your back and the realm's roads opening ahead; at the hub you wait at the mouth
+    const along = inRealm ? 16 : 7;
     const fan = ((slotIdx % 3) - 1) * 3.0;
     return new THREE.Vector3(
       n.x + rad.x * along * side - rad.z * fan, 0,
