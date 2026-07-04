@@ -685,6 +685,32 @@ function makeRelicBeacon() {
   return g;
 }
 
+/* the CHECKPOINT light: every haven wears a permanent azure beam — you can
+   read where you'll respawn from anywhere on the water */
+function makeCheckpointBeacon() {
+  const g = new THREE.Group();
+  const AZURE = 0x3fa8ff;
+  const post = new THREE.Mesh(new THREE.CylinderGeometry(0.14, 0.2, 2.6, 7),
+    flat(COL.marbleShade));
+  post.position.y = 1.3;
+  post.castShadow = true;
+  const lamp = new THREE.Mesh(new THREE.SphereGeometry(0.42, 10, 8),
+    new THREE.MeshBasicMaterial({ color: 0xbfe4ff }));
+  lamp.position.y = 2.9;
+  const beam = new THREE.Mesh(new THREE.CylinderGeometry(0.45, 0.85, 26, 10, 1, true),
+    new THREE.MeshBasicMaterial({ color: AZURE, transparent: true, opacity: 0.3,
+      side: THREE.DoubleSide, depthWrite: false, blending: THREE.AdditiveBlending }));
+  beam.position.y = 15.5;
+  const halo = glowSprite(AZURE, 7);
+  halo.material.opacity = 0.5;
+  halo.position.y = 2.9;
+  const light = new THREE.PointLight(AZURE, 3.2, 34, 2);
+  light.position.y = 3.2;
+  g.add(post, lamp, beam, halo, light);
+  g.name = 'checkpoint';
+  return g;
+}
+
 function makeBuoy(rng) {
   const g = new THREE.Group();
   const float_ = new THREE.Mesh(new THREE.CylinderGeometry(0.5, 0.38, 0.42, 8), flat(0xd9534f));
@@ -1230,6 +1256,11 @@ export function buildIsland(node, theme, domains) {
       fl.position.set(-R * 0.5, terrain.heightAt(0.5), -R * 0.2);
       g.add(fl);
     }
+    // the checkpoint light: a permanent azure beam so a haven is
+    // unmistakable from anywhere on the water
+    const cp = makeCheckpointBeacon();
+    cp.position.set(-R * 0.25, terrain.heightAt(0.25), R * 0.25);
+    g.add(cp);
   } else if (node.type === 'monster' || node.type === 'lair') {
     const dark = node.type === 'lair';
     terrain = makeTerrain({ seed, R, H: dark ? 3.6 : 2.6, mode: 'peak',

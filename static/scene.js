@@ -453,7 +453,7 @@ export function createWorld(container, handlers = {}) {
   }
 
   /* ── island / lane sync (viewKey semantics) ─────────────────────────── */
-  const FX_NAMES = ['foam', 'bob', 'beacon', 'pharosfire', 'monster', 'pharosgate'];
+  const FX_NAMES = ['foam', 'bob', 'beacon', 'pharosfire', 'monster', 'pharosgate', 'checkpoint'];
   function cacheIslandFx(isle) {
     isle.fxBits = {};
     for (const nm of FX_NAMES) {
@@ -1237,6 +1237,12 @@ export function createWorld(container, handlers = {}) {
         fxb.pharosfire.scale.set(pulse, pulse, pulse);
       }
       if (fxb.pharosgate) drivePharosGate(fxb.pharosgate, t);
+      if (fxb.checkpoint) {
+        // the azure checkpoint light breathes slowly — alive, never off
+        const k = 1 + Math.sin(t * 1.4 + px * 0.3) * 0.12;
+        const halo = fxb.checkpoint.children[3];
+        if (halo) halo.scale.set(7 * k, 7 * k, 1);
+      }
       if (fxb.monster) fxb.monster.position.y += Math.sin(t * 2 + pz) * 0.0035;
     }
   }

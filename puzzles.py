@@ -44,7 +44,7 @@ import tetromino6
 # 20s across the board — nonogram (picross) gets 30 for its fiddlier grid;
 # simon stays untimed (a wrong note, not the clock, is its failure).
 TIME_LIMITS = {"riddle": 20, "tetromino": 90, "nonogram": 30,
-               "simon": None, "anagram": 20, "ravens": 20,
+               "simon": None, "anagram": 20, "ravens": 15,
                "sequence": 20, "lights_out": 20, "sliding": 20}
 
 INTERACTIVE = ("tetromino", "nonogram", "simon", "anagram", "ravens", "riddle",
@@ -461,3 +461,35 @@ def deal(rng: random.Random, used_riddles: set[int]) -> dict:
 def check(kind: str, data: dict, payload) -> bool:
     fn = _CHECKERS.get(kind)
     return bool(fn and fn(data, payload))
+
+
+# ── special deals ─────────────────────────────────────────────────────────────
+# Battles draw from every puzzle kind EXCEPT riddles (the Sphinx keeps those).
+BATTLE_KINDS = tuple(k for k in _GENERATORS)
+
+
+def deal_kind(rng: random.Random, kind: str) -> dict:
+    """A fresh instance of one specific interactive puzzle kind."""
+    data = _GENERATORS[kind](rng)
+    data.update({"kind": kind, "limit": TIME_LIMITS[kind]})
+    return data
+
+
+def deal_battle(rng: random.Random) -> dict:
+    """A combat puzzle — any kind but a riddle."""
+    return deal_kind(rng, rng.choice(BATTLE_KINDS))
+
+
+def deal_riddle(rng: random.Random, used_riddles: set[int]) -> dict:
+    """A typed riddle (the Sphinx's toll). Reuses the game's used-riddle set;
+    when the book runs dry it simply starts over."""
+    fresh = [i for i in range(len(RIDDLES)) if i not in used_riddles]
+    if not fresh:
+        used_riddles.clear()
+        fresh = list(range(len(RIDDLES)))
+    idx = rng.choice(fresh)
+    used_riddles.add(idx)
+    r = RIDDLES[idx]
+    return {"kind": "riddle", "limit": TIME_LIMITS["riddle"],
+            "text": r["prompt"], "category": r["category"],
+            "secret": {"answer": r["answer"], "accept": r["accept"]}}

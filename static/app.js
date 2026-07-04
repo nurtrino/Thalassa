@@ -81,6 +81,7 @@ let myStance = null;             // last stance I sent (labels the reveal beat)
 let mySideAnswer = null;
 let sideKey = null;
 let shopClosed = false;
+let shopRemote = false;   // the ship's trader, called up before a roll
 let mg = { key: null };          // minigame scratch
 let beatTimers = [];
 let revealCardDropped = false;   // battle reveal card auto-hides mid-beats
@@ -207,6 +208,15 @@ function handle(msg) {
     room = msg.room;
     window.__room = room;
     window.__you = you;
+    // entering a battle reveal: freeze BOTH sides' shown HP at the pre-blow
+    // values (the server snapshot is already post-hit) — the beats release
+    // each side exactly when its blow lands on screen
+    if (room.phase === 'reveal' && prev?.phase !== 'reveal' && room.reveal?.kind === 'battle') {
+      bPreReveal = prev?.battle ? JSON.parse(JSON.stringify(prev.battle)) : null;
+      bEnemyFrozen = !!bPreReveal;
+      const pf = prev?.players?.find((q) => q.pid === prev.turn);
+      bHullShown = pf ? pf.hull : null;
+    }
     render();
     reactAudio(prev, room);
   } else if (msg.type === 'dice') {
@@ -332,6 +342,7 @@ function announceBattle(b) {
 
 /* ── sound reactions + battle beats ─────────────────────────────────────── */
 let sfxLastTurn = null, sfxPrevPhase = null, sfxAnnouncedWin = false;
+let lastMgTag = null;      // dedupes kraken/sphinx announcements
 let audioDeferred = false;
 
 function reactAudio(prev, next) {
@@ -354,9 +365,16 @@ function reactAudio(prev, next) {
     const rv = next.reveal;
     revealCardDropped = false;
     if (rv.kind === 'battle') {
-      // flash the answer, then clear the card so the attack plays in the open
-      beat(1200, () => { revealCardDropped = true; renderQuestion(); renderBattle(); });
-      playBattleBeats(rv);
+      // 1) the VERDICT: right or wrong, shown plainly on its own…
+      if (rv.was_correct) audio.sfx.correct(); else audio.sfx.wrong();
+      if (rv.challenge === 'puzzle') {
+        revealCardDropped = true;             // puzzle rounds have no card
+        setBTurn(rv.was_correct
+          ? `${icon('laurel', 16)} <strong>PUZZLE SOLVED!</strong>`
+          : `${icon('skull', 16)} the puzzle stands — <strong>you falter…</strong>`);
+      }
+      // 2) …then half a beat later the card clears and the blows land
+      beat(500, () => { revealCardDropped = true; renderQuestion(); renderBattle(); playBattleBeats(rv); });
     } else if (rv.was_correct) audio.sfx.correct();
     else audio.sfx.wrong();
   }
@@ -364,6 +382,19 @@ function reactAudio(prev, next) {
     audio.sfx.roar();
     announceBattle(next.battle);
   }
+  const mgTag = next.phase !== 'minigame' ? null
+    : next.minigame?.kraken ? 'kraken' + (next.minigame.kraken_no || 1)
+    : next.minigame?.sphinx ? 'sphinx' : null;
+  if (mgTag && mgTag !== lastMgTag) {
+    if (mgTag === 'kraken1') {
+      audio.sfx.roar();
+      showAnnounce('THE KRAKEN', 'three riddles of the mind — or lose a turn', '#3fb6c8');
+    } else if (mgTag === 'sphinx') {
+      audio.sfx.oracle();
+      showAnnounce('THE SPHINX', 'answer her riddle or be swept back', '#e8c27a');
+    }
+  }
+  lastMgTag = mgTag;
   if (next.phase === 'finished' && !sfxAnnouncedWin) {
     audio.sfx.victory();
     sfxAnnouncedWin = true;
@@ -373,6 +404,7 @@ function reactAudio(prev, next) {
   /* soundtrack scenes: lobby / battle / puzzle / endgame / open sea */
   const battleish = next.phase === 'battle' ||
     (next.phase === 'question' && next.question?.kind === 'battle') ||
+    (next.phase === 'minigame' && next.minigame?.battle) ||
     (next.phase === 'reveal' && next.reveal?.kind === 'battle');
   const puzzleish = next.phase === 'minigame' ||
     (next.phase === 'question' && ['puzzle', 'riddle'].includes(next.question?.kind)) ||
@@ -392,12 +424,20 @@ function reactAudio(prev, next) {
 }
 
 function beat(ms, fn) { beatTimers.push(setTimeout(fn, ms)); }
-function clearBeats() { beatTimers.forEach(clearTimeout); beatTimers = []; bHullShown = null; }
+function clearBeats() {
+  beatTimers.forEach(clearTimeout);
+  beatTimers = [];
+  bHullShown = null;
+  bEnemyFrozen = false;
+  bPreReveal = null;
+}
 
 /* During a reveal the server's hull is already the POST-hit value, but the
  * blow lands ~1.4s later in the choreography. Hold the hearts at the pre-hit
  * count until the strike actually connects, so they never drop early. */
 let bHullShown = null;
+let bPreReveal = null;      // enemy ranks as they stood before the blow
+let bEnemyFrozen = false;   // true until YOUR strike visibly lands
 function refreshBHearts() {
   const fighter = room && room.players.find((p) => p.pid === room.turn);
   const el = $('bship');
@@ -435,7 +475,7 @@ function playBattleBeats(rv) {
   const fighter = room && room.players.find((p) => p.pid === room.turn);
   const heroDmg = ep.dmg > 0 ? ep.dmg : 0;
   bHullShown = (heroDmg && fighter) ? fighter.hull + heroDmg : null;
-  const landHit = () => { bHullShown = null; refreshBHearts(); };
+  const landHit = () => { bHullShown = null; refreshBHearts(); renderPlayers(); };
   refreshBHearts();
   const idx = ep.target_idx ?? 0;
   const stance = (room?.turn === you && myStance)
@@ -447,7 +487,6 @@ function playBattleBeats(rv) {
   if (rv.was_correct) {
     if (ep.blocked) {
       /* GUARD riposte: read the blow, turn it aside, drive it back */
-      audio.sfx.correct();
       setBTurn(`${icon('guard', 16)} YOUR MOVE — you read ${foe}'s ${ep.heavy ? '<strong>HEAVY</strong> ' : ''}blow…`);
       beat(900, () => {
         world.battlePlay('guard_block', { heavy: ep.heavy });
@@ -455,9 +494,11 @@ function playBattleBeats(rv) {
         setBTurn(`${icon('guard', 16)} …and <strong>turn it aside!</strong>`);
       });
       beat(1600, () => {
+        bEnemyFrozen = false;                 // the riposte lands NOW
         world.battlePlay('player_hit', { idx, dmg: ep.dealt, stance: 'attack' });
         audio.sfx.hit();
         flashScreen('gold');
+        renderBattle();
         setBTurn(`${icon('guard', 16)} You drive the blow back on ${foe} for <strong>${ep.dealt}</strong>!`);
         if (ep.killed) beat(500, () => world.battlePlay('enemy_die', { idx }));
       });
@@ -470,9 +511,11 @@ function playBattleBeats(rv) {
       chargeAt = 2900;
     } else {
       /* STRIKE / MAGIC lands */
+      bEnemyFrozen = false;                   // your blow lands NOW
       audio.sfx.hit();
       flashScreen('gold');
       world.battlePlay('player_hit', { idx, dmg: ep.dealt, stance });
+      renderBattle();
       setBTurn(`${icon(stance === 'magic' ? 'magic' : 'strike', 16)} YOUR MOVE — you hit for <strong>${ep.dealt}</strong>!`);
       if (ep.killed) beat(500, () => world.battlePlay('enemy_die', { idx }));
 
@@ -506,7 +549,7 @@ function playBattleBeats(rv) {
       }
     }
   } else if (ep.backfire) {
-    audio.sfx.wrong();
+    bEnemyFrozen = false;
     setBTurn(`${icon('magic', 16)} YOUR MOVE — the spell fizzles…`);
     beat(900, () => {
       setBTurn(`It <strong>backfires</strong> for <strong>${ep.dmg}</strong> damage!`);
@@ -518,7 +561,7 @@ function playBattleBeats(rv) {
     });
     chargeAt = 2200;
   } else if (ep.dmg > 0) {
-    audio.sfx.wrong();
+    bEnemyFrozen = false;
     setBTurn('YOUR MOVE — the answer escapes you…');
     beat(1300, () => {
       setBTurn(`ENEMY MOVE — ${foe} ${ep.heavy ? 'lands a <strong>HEAVY BLOW</strong>' : 'strikes'} for <strong>${ep.dmg}</strong>!`);
@@ -540,8 +583,8 @@ function playBattleBeats(rv) {
     }
     chargeAt = 2400;
   } else {
-    /* a whiffed guard-read or blocked-by-aegis round: just the miss sting */
-    audio.sfx.wrong();
+    /* a whiffed guard-read or blocked-by-aegis round: nothing lands */
+    bEnemyFrozen = false;
     setBTurn('YOUR MOVE — the moment slips past…');
   }
 
@@ -625,8 +668,11 @@ function nodeOf(p) {
 }
 
 function hullPips(p) {
+  // the fighter's pips hold at the pre-blow count until the hit lands on
+  // screen — the same freeze the battle hearts use
+  const hull = (bHullShown != null && p.pid === room.turn) ? bHullShown : p.hull;
   let s = '<span class="hullpips">';
-  for (let i = 0; i < p.max_hull; i++) s += `<i class="${i < p.hull ? '' : 'dim'}"></i>`;
+  for (let i = 0; i < p.max_hull; i++) s += `<i class="${i < hull ? '' : 'dim'}"></i>`;
   return s + '</span>';
 }
 
@@ -990,6 +1036,8 @@ function renderTray() {
       trayHint(tray, `${icon('anchor', 14)} The wake still runs — hold until the tide settles…`);
     } else {
       trayBtn(tray, `${icon('dice', 17)} ROLL`, 'gold big', () => send({ type: 'roll' }));
+      trayBtn(tray, `${icon('market', 14)} trader`, 'ghost small',
+              () => { shopRemote = !shopRemote; shopClosed = false; renderShop(); });
     }
   } else if (room.phase === 'sail') {
     const bonus = me?.upgrades?.includes('sandals') ? ' <small>(+1 sandals)</small>' : '';
@@ -1023,29 +1071,39 @@ function renderTray() {
 }
 
 /* ── shop bottom sheet ──────────────────────────────────────────────────── */
+/* Two stalls: the LAND market (phase 'shop' — full stock incl. fittings and
+   legendary relics) and the SHIP'S TRADER (opened from the roll tray —
+   consumables only, the shipwright stays ashore). */
 function renderShop() {
   const panel = $('shopPanel');
-  const mine = room.turn === you && room.phase === 'shop' && !world.arriving();
+  const remote = room.phase === 'roll' && shopRemote;
+  const mine = room.turn === you && !world.arriving() &&
+    (room.phase === 'shop' || remote);
+  if (room.phase !== 'roll') shopRemote = false;
   if (!mine || shopClosed) {
     panel.classList.add('hidden');
     if (room.phase !== 'shop') shopClosed = false;
     return;
   }
   const me = room.players.find((p) => p.pid === you);
-  const stock = room.config?.shop_items || {};
-  const relics = room.config?.relics || {};
+  const cap = room.config?.item_cap ?? 2;
+  const stock = Object.entries(room.config?.shop_items || {})
+    .filter(([id]) => !remote || id !== 'fitting');
+  const relics = remote ? {} : (room.config?.relics || {});
   const owns = new Set(me.upgrades || []);
   panel.classList.remove('hidden');
-  const shopRows = Object.entries(stock).map(([id, it]) => {
+  const shopRows = stock.map(([id, it]) => {
+    const n = me.items?.[id] ?? 0;
+    const capped = id !== 'fitting' && n >= cap;
     const owned = id === 'fitting'
       ? `${(me.upgrades || []).length} fitted`
-      : `carried ×${me.items?.[id] ?? 0}`;
-    const cant = me.scrolls < it.cost;
+      : `carried ×${n}/${cap}`;
+    const cant = capped || me.scrolls < it.cost;
     return `<div class="shoprow ${cant ? 'cant' : ''}">
       <span class="sicon">${icon(SHOP_ICON[id] || 'relic')}</span>
       <div><div class="sname">${esc(it.name)}</div>
         <div class="sdesc">${esc(it.desc)} · ${owned}</div></div>
-      <span class="price">${it.cost} ${icon('scroll', 11)}</span>
+      <span class="price">${capped ? 'FULL' : `${it.cost} ${icon('scroll', 11)}`}</span>
       <button class="buy" data-item="${id}" ${cant ? 'disabled' : ''}>Buy</button>
     </div>`;
   }).join('');
@@ -1063,12 +1121,16 @@ function renderShop() {
     </div>`;
   }).join('');
   panel.innerHTML =
-    `<div class="stallhead">${icon('market')} Trader's Stall` +
+    `<div class="stallhead">${icon('market')} ${remote ? "Ship's Trader" : "Trader's Stall"}` +
     `<em>your scrolls: ${me.scrolls}</em>` +
     `<button class="kick" id="shopClose" title="Close">${icon('kick', 12)}</button></div>` +
+    (remote ? `<div class="stallnote">Charms only at sea — the shipwright's fittings and relics are sold ashore.</div>` : '') +
     shopRows +
     (relicRows ? `<div class="relicsplit">${icon('relic', 12)} Legendary Relics</div>${relicRows}` : '');
-  $('shopClose').onclick = () => { shopClosed = true; renderShop(); renderTray(); };
+  $('shopClose').onclick = () => {
+    if (remote) shopRemote = false; else shopClosed = true;
+    renderShop(); renderTray();
+  };
   panel.querySelectorAll('.buy').forEach((b) => {
     b.onclick = () => { audio.sfx.build(); send({ type: 'shop_buy', item: b.dataset.item }); };
   });
@@ -1126,6 +1188,10 @@ function heartRow(cur, max) {
 }
 
 function battleView() {
+  if (room.phase === 'reveal' && room.reveal?.kind === 'battle'
+      && bEnemyFrozen && bPreReveal) {
+    return bPreReveal;      // hold the enemy HP until the strike lands
+  }
   if (room.battle) { lastBattleSnap = room.battle; return room.battle; }
   /* the killing-blow reveal: room.battle is gone, keep showing the corpse */
   if (room.phase === 'reveal' && room.reveal?.kind === 'battle') {
@@ -1154,7 +1220,8 @@ function renderBattle() {
   const hud = $('battleHud');
   const b = battleView();
   // hold the whole battle screen until the boat has sailed up to the island
-  const show = b && ['battle', 'question', 'reveal'].includes(room.phase) &&
+  const show = b && (['battle', 'question', 'reveal'].includes(room.phase) ||
+      (room.phase === 'minigame' && room.minigame?.battle)) &&
     (room.phase !== 'reveal' || room.reveal?.kind === 'battle') &&
     !world.arriving();
   hud.classList.toggle('hidden', !show);
@@ -1283,7 +1350,8 @@ function renderQuestion() {
   const modal = $('qmodal');
   // a battle reveal drops its card fast so the diorama attack plays clean
   const isQ = (room.phase === 'question' && !world.arriving()) ||
-    (room.phase === 'reveal' && room.reveal && !revealCardDropped);
+    (room.phase === 'reveal' && room.reveal && !revealCardDropped &&
+     room.reveal.chosen !== -2);      // puzzle rounds have no card to show
   modal.classList.toggle('hidden', !isQ);
   const battleQ = (room.question?.kind ?? room.reveal?.kind) === 'battle';
   modal.classList.toggle('clear', !!(isQ && battleQ));   // don't dim the diorama
@@ -1418,8 +1486,19 @@ function renderMinigame() {
   const fresh = mg.key !== key;
   if (fresh) mg = { key, sel: null, rot: 0, cells: null, taps: [], watched: false, grid: null };
 
-  $('mgkind').textContent = MG_LABEL[m.kind] || 'Trial';
-  $('mgisle').textContent = (room.board.nodes.find((n) => n.id === m.island) || {}).name || '';
+  if (m.battle) {
+    $('mgkind').textContent = `Combat · ${MG_LABEL[m.kind] || 'Trial'}`;
+    $('mgisle').textContent = 'solve it — or take the hit';
+  } else if (m.kraken) {
+    $('mgkind').textContent = `The Kraken · riddle ${m.kraken_no || 1} of ${m.kraken_need || 3}`;
+    $('mgisle').textContent = 'miss one and you lose a turn';
+  } else if (m.sphinx) {
+    $('mgkind').textContent = 'The Sphinx';
+    $('mgisle').textContent = 'answer, or be swept back down the road';
+  } else {
+    $('mgkind').textContent = MG_LABEL[m.kind] || 'Trial';
+    $('mgisle').textContent = (room.board.nodes.find((n) => n.id === m.island) || {}).name || '';
+  }
   $('mgprompt').textContent = mine ? MG_PROMPT[m.kind]
     : `${room.players.find((p) => p.pid === room.turn)?.name || 'A rival'} attempts the trial…`;
   startTimerBar(m.deadline, '#mgtimerBar');

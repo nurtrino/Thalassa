@@ -150,6 +150,7 @@ def test_hunting_grounds_spawn_random_packs():
     assert all(e["max_hp"] <= 3 for e in m["enemies"])  # shallow packs, not bosses
     # win it → the grounds fall quiet again
     set_pack(g, mon, [1])
+    g.rng = _r.Random(0)                              # coin ≥ .5 → a trivia round
     g.stance(p0, "attack")
     put_question(g)
     g.answer(p0, 0)
@@ -713,6 +714,37 @@ def test_shop_sells_consumables_and_fittings():
     assert pick in p.upgrades and g.current.pid == p1
 
 
+def test_item_cap_blocks_buff_stockpiling():
+    g, (p0, p1) = make_game()
+    p = g.player_by_pid(p0)
+    shop = find_node(g, "shop")
+    force_land(g, p0, shop)
+    p.scrolls = 40
+    for _ in range(G.ITEM_CAP):
+        g.shop_buy(p0, "gale")
+    assert p.items["gale"] == G.ITEM_CAP
+    with pytest.raises(GameError):
+        g.shop_buy(p0, "gale")                        # the hold is full
+    assert p.items["gale"] == G.ITEM_CAP
+
+
+def test_remote_trader_sells_charms_before_a_roll():
+    g, (p0, p1) = make_game()
+    p = g.player_by_pid(p0)
+    p.scrolls = 40
+    assert g.phase == "roll"                          # game opens on p0's roll
+    g.shop_buy(p0, "planks")                          # charms: fine at sea
+    assert p.items["planks"] == 1
+    with pytest.raises(GameError):
+        g.shop_buy(p0, "fitting")                     # shipwright stays ashore
+    with pytest.raises(GameError):
+        g.shop_buy(p0, "golden_fleece")               # relics are land-only
+    with pytest.raises(GameError):
+        g.shop_buy(p1, "planks")                      # not your turn
+    g.roll(p0, 1)                                     # trading doesn't eat the roll
+    assert g.phase == "sail"
+
+
 def test_legendary_relics_bought_outright_and_apply():
     g, (p0, p1) = make_game()
     p = g.player_by_pid(p0)
@@ -940,8 +972,11 @@ def test_desert_realm_is_crossed_on_foot():
         assert desert
         walkers = [n for n in desert if n["type"] != "gate"]
         assert all(n.get("mode") == "foot" for n in walkers)
+        vale = [n for n in b.nodes.values()
+                if n.get("region") == "autumn" and n["type"] != "gate"]
+        assert vale and all(n.get("mode") == "foot" for n in vale)
         sailing = [n for n in b.nodes.values()
-                   if n.get("region") in ("ice", "jungle", "autumn")
+                   if n.get("region") in ("ice", "jungle")
                    and n["type"] != "gate"]
         assert all(n.get("mode") == "sail" for n in sailing)
 
@@ -1052,6 +1087,7 @@ def test_sea_attacks_on_the_crossing():
     m = g.board.alive_monster(sea)
     assert m
     set_pack(g, sea, [1])
+    g.rng = _r.Random(0)                       # coin ≥ .5 → a trivia round
     g.stance(p0, "attack")
     put_question(g)
     g.answer(p0, 0)
@@ -1079,32 +1115,46 @@ def test_hub_islands_never_ambush():
 
 
 def test_hub_sea_is_calm_but_not_empty():
-    """The home waters spring only rare, SMALL skirmishes — a light pack, never
-    a realm horror. With a favourable roll a hub crossing can still be jumped."""
+    """Home-water crossings can meet the KRAKEN (a mind-gauntlet) or a small
+    skirmish — never a realm horror. Most crossings stay quiet."""
     import random as _r
     g, (p0, p1) = make_game(seed=0)
     hub_seas = [nid for nid, n in g.board.nodes.items()
                 if n["type"] == "sea" and not n.get("region")]
     assert hub_seas
-    fought = 0
-    for sea in hub_seas:
+    krakens = skirmishes = quiet = 0
+    for seed in range(60):
+        sea = hub_seas[seed % len(hub_seas)]
         g.board.nodes[sea]["monster"] = None
+        g.kraken = None
+        g.minigame = None
+        g.battle = None
         p = g.player_by_pid(g.current.pid)
-        g.rng = _r.Random(1)                   # 0.134 < 0.14 → springs the trap
+        g.rng = _r.Random(seed)
         g.phase = "sail"
         p.prev_node = p.node
         p.node = sea
         g._land(p, sea)
-        if g.phase == "battle":
-            fought += 1
+        if g.phase == "minigame" and g.minigame.get("kraken"):
+            krakens += 1
+            assert g.minigame["kind"] == "ravens"          # a test of pure IQ
+            assert g.minigame["limit"] == 15               # 15s per riddle
+            g.kraken = None
+            g.minigame = None
+            g._next_turn()
+        elif g.phase == "battle":
+            skirmishes += 1
             m = g.board.nodes[sea]["monster"]
-            assert not m.get("boss")           # nothing lordly out here
-            assert g.battle.get("ambush")      # flagged as a random ambush
+            assert not m.get("boss")                       # nothing lordly out here
             assert len(m["enemies"]) <= 3
             for e in m["enemies"]:
-                assert e["max_hp"] <= 4        # a LIGHT pack — small foes only
-            g.battle = None                    # reset for the next probe
-    assert fought >= 1                         # the hub is not perfectly safe
+                assert e["max_hp"] <= 4                    # a LIGHT pack only
+            g.battle = None
+        else:
+            quiet += 1
+    assert krakens >= 1                                    # the kraken does rise
+    assert skirmishes >= 1                                 # raiders still prowl
+    assert quiet > krakens + skirmishes                    # but calm is the norm
 
 
 # ── boss fights demand strategy ──────────────────────────────────────────────
@@ -1144,16 +1194,22 @@ def test_boss_heavy_telegraph_cycle_and_guard():
     p = g.player_by_pid(p0)
     p.max_hull = 30
     p.hull = 30
-    # exchanges 1 and 2: normal counters; after 2, the heavy is telegraphed
-    for expect_charging in (False, True):
-        g.stance(p0, "guard")
-        assert g.qctx["tier"] == 1                # guard reads, not strikes
-        put_question(g, correct=0)
-        g.answer(p0, 1)                           # failed guard → take the hit
-        g.advance_after_reveal()
-        assert g.battle["charging"] == expect_charging
+    # exchange 1 — a TRIVIA round (bosses alternate, starting with trivia)
+    g.stance(p0, "guard")
+    assert g.qctx["tier"] == 1                    # guard reads, not strikes
+    put_question(g, correct=0)
+    g.answer(p0, 1)                               # failed guard → take the hit
+    g.advance_after_reveal()
+    assert g.battle["charging"] is False
+    # exchange 2 — a PUZZLE round (never a riddle); fail it → take the hit
+    g.stance(p0, "guard")
+    assert g.phase == "minigame" and g.minigame["battle"]
+    assert g.minigame["kind"] != "riddle"
+    g.resolve_minigame(False)
+    g.advance_after_reveal()
+    assert g.battle["charging"] is True           # after 2, the heavy telegraphs
     hull_before = p.hull
-    # exchange 3 is the heavy: guard it successfully → no damage at all
+    # exchange 3 (trivia again) is the heavy: guard it clean → no damage
     g.stance(p0, "guard")
     put_question(g, correct=2)
     g.answer(p0, 2)
@@ -1191,11 +1247,13 @@ def test_guard_riposte_doubles_on_a_heavy():
     p.hull = 30
     power = g.board.alive_monster(lair)["enemies"][0]["power"]
     # burn two exchanges to reach the telegraphed heavy on exchange 3
-    for _ in range(2):
-        g.stance(p0, "guard")
-        put_question(g, correct=0)
-        g.answer(p0, 1)                           # miss → take the counter
-        g.advance_after_reveal()
+    g.stance(p0, "guard")
+    put_question(g, correct=0)
+    g.answer(p0, 1)                               # trivia miss → take the counter
+    g.advance_after_reveal()
+    g.stance(p0, "guard")
+    g.resolve_minigame(False)                     # puzzle round missed too
+    g.advance_after_reveal()
     hull_before = p.hull                          # already dinged by two misses
     g.stance(p0, "guard")                         # heavy round, read it clean
     put_question(g, correct=2)
@@ -1212,11 +1270,13 @@ def test_boss_heavy_hits_double_when_not_guarded():
     p.max_hull = 30
     p.hull = 30
     power = g.board.alive_monster(lair)["enemies"][0]["power"]
-    for _ in range(2):                            # eat two normal counters
-        g.stance(p0, "guard")
-        put_question(g, correct=0)
-        g.answer(p0, 1)
-        g.advance_after_reveal()
+    g.stance(p0, "guard")                         # trivia counter
+    put_question(g, correct=0)
+    g.answer(p0, 1)
+    g.advance_after_reveal()
+    g.stance(p0, "guard")                         # puzzle counter
+    g.resolve_minigame(False)
+    g.advance_after_reveal()
     hull_before = p.hull
     g.stance(p0, "guard")                         # heavy round, failed guard
     put_question(g, correct=0)
@@ -1317,3 +1377,223 @@ def test_kick_adjusts_turn_order():
     assert g.current.pid == pids[1]
     g.remove_player(pids[0], pids[1])
     assert g.phase == "finished" and g.winner == pids[0]
+
+
+# ── the kraken's gauntlet ─────────────────────────────────────────────────────
+def _summon_kraken(g, pid):
+    """Land on hub water with a seed that rolls under KRAKEN_CHANCE."""
+    import random as _r
+    sea = next(nid for nid, n in g.board.nodes.items()
+               if n["type"] == "sea" and not n.get("region"))
+    g.board.nodes[sea]["monster"] = None
+    p = g.player_by_pid(pid)
+    seed = next(s for s in range(400) if _r.Random(s).random() < G.KRAKEN_CHANCE)
+    g.rng = _r.Random(seed)
+    g.phase = "sail"
+    p.prev_node = p.node
+    p.node = sea
+    g._land(p, sea)
+    assert g.phase == "minigame" and g.minigame.get("kraken")
+    return sea
+
+
+def test_kraken_three_riddles_then_freedom():
+    g, (p0, p1) = make_game()
+    _summon_kraken(g, p0)
+    for i in range(G.KRAKEN_RIDDLES):
+        assert g.minigame["kind"] == "ravens"
+        assert g.minigame["kraken_no"] == i + 1
+        g.resolve_minigame(True)
+    assert g.kraken is None and g.minigame is None
+    assert g.current.pid == p1                        # turn passed normally
+    assert g.player_by_pid(p0).skip_turns == 0
+
+
+def test_kraken_failure_costs_a_turn():
+    g, (p0, p1) = make_game()
+    _summon_kraken(g, p0)
+    g.resolve_minigame(True)                          # one right...
+    g.resolve_minigame(False)                         # ...one wrong: it has you
+    p = g.player_by_pid(p0)
+    assert p.skip_turns == 1
+    assert g.current.pid == p1
+    # p1 passes their turn → p0's turn is CONSUMED by the kraken's toll
+    g.roll(p1, 1)
+    dest = next(iter(g.reachable))
+    g.sail(p1, dest)
+    # whatever p1's landing opened, resolve to the next turn if simple sea
+    if g.phase == "roll":                             # p0 was skipped → p1 again
+        assert g.current.pid == p1
+        assert p.skip_turns == 0
+
+
+def test_kraken_never_rises_for_poseidons_favor():
+    import random as _r
+    g, (p0, p1) = make_game()
+    p = g.player_by_pid(p0)
+    p.upgrades.append("poseidon_favor")
+    sea = next(nid for nid, n in g.board.nodes.items()
+               if n["type"] == "sea" and not n.get("region"))
+    for seed in range(50):
+        g.board.nodes[sea]["monster"] = None
+        g.rng = _r.Random(seed)
+        g.phase = "sail"
+        p.prev_node = p.node
+        p.node = sea
+        g._land(p, sea)
+        assert not (g.phase == "minigame" and (g.minigame or {}).get("kraken"))
+        g.battle = None
+        g.minigame = None
+
+
+# ── the sphinx's toll ─────────────────────────────────────────────────────────
+def _desert_road(g):
+    return next(nid for nid, n in g.board.nodes.items()
+                if n["type"] == "sea" and n.get("region") == "desert"
+                and (n.get("depth") or 0) <= 1)
+
+
+def test_sphinx_stops_desert_crossings():
+    import random as _r
+    g, (p0, p1) = make_game()
+    road = _desert_road(g)
+    p = g.player_by_pid(p0)
+    stopped = False
+    for seed in range(60):
+        g.minigame = None
+        g.battle = None
+        g.board.nodes[road]["monster"] = None
+        g.rng = _r.Random(seed)
+        g.phase = "sail"
+        p.prev_node = p.node
+        p.node = road
+        g._land(p, road)
+        if g.phase == "minigame" and g.minigame.get("sphinx"):
+            stopped = True
+            assert g.minigame["kind"] == "riddle"       # she speaks in riddles
+            break
+        g.battle = None
+    assert stopped
+
+
+def test_sphinx_failure_sweeps_you_back():
+    import random as _r
+    g, (p0, p1) = make_game()
+    road = _desert_road(g)
+    p = g.player_by_pid(p0)
+    start = p.node
+    for seed in range(60):
+        g.minigame = None
+        g.battle = None
+        g.board.nodes[road]["monster"] = None
+        g.rng = _r.Random(seed)
+        g.phase = "sail"
+        p.prev_node = start
+        p.node = road
+        g._land(p, road)
+        if g.phase == "minigame" and g.minigame.get("sphinx"):
+            g.resolve_minigame(False)
+            assert p.node != road                       # swept back down the road
+            assert g.current.pid == p1
+            return
+        g.battle = None
+    assert False, "sphinx never appeared"
+
+
+def test_sphinx_pass_lets_you_stay():
+    import random as _r
+    g, (p0, p1) = make_game()
+    road = _desert_road(g)
+    p = g.player_by_pid(p0)
+    for seed in range(60):
+        g.minigame = None
+        g.battle = None
+        g.board.nodes[road]["monster"] = None
+        g.rng = _r.Random(seed)
+        g.phase = "sail"
+        p.prev_node = p.node
+        p.node = road
+        g._land(p, road)
+        if g.phase == "minigame" and g.minigame.get("sphinx"):
+            g.resolve_minigame(True)
+            assert p.node == road                       # you hold your ground
+            assert g.current.pid == p1
+            return
+        g.battle = None
+    assert False, "sphinx never appeared"
+
+
+# ── puzzles in combat ─────────────────────────────────────────────────────────
+def test_pack_rounds_split_between_trivia_and_puzzles():
+    import random as _r
+    g, (p0, p1) = make_game()
+    mon = find_node(g, "monster")
+    set_pack(g, mon, [4])
+    battle_at(g, p0, mon)
+    kinds = set()
+    for seed in range(30):
+        g.rng = _r.Random(seed)
+        g.phase = "battle"
+        g.minigame = None
+        g.question = None
+        g.stance(p0, "attack")
+        kinds.add("puzzle" if g.phase == "minigame" else "trivia")
+        if g.phase == "minigame":
+            assert g.minigame["battle"]
+            assert g.minigame["kind"] != "riddle"
+    assert kinds == {"trivia", "puzzle"}                # both faces of the coin
+
+
+def test_battle_puzzle_success_lands_your_blow():
+    import random as _r
+    g, (p0, p1) = make_game()
+    mon = find_node(g, "monster")
+    set_pack(g, mon, [1])
+    battle_at(g, p0, mon)
+    g.rng = _r.Random(1)                                # coin < .5 → puzzle round
+    g.stance(p0, "attack")
+    assert g.phase == "minigame" and g.minigame["battle"]
+    g.resolve_minigame(True)
+    assert g.phase == "reveal"
+    assert g.reveal["kind"] == "battle"
+    assert g.reveal["challenge"] == "puzzle"
+    assert g.reveal["was_correct"] and g.reveal["battle_over"]
+
+
+def test_battle_puzzle_failure_gets_you_hit():
+    import random as _r
+    g, (p0, p1) = make_game()
+    p = g.player_by_pid(p0)
+    mon = find_node(g, "monster")
+    set_pack(g, mon, [4])
+    battle_at(g, p0, mon)
+    g.rng = _r.Random(1)
+    g.stance(p0, "attack")
+    assert g.phase == "minigame"
+    g.resolve_minigame(False)
+    assert g.reveal["challenge"] == "puzzle"
+    assert not g.reveal["was_correct"]
+    assert p.hull < G.MAX_HULL                          # the pack punished the miss
+
+
+def test_dark_lord_draws_trivia_from_every_category():
+    import random as _r
+    g, (p0, p1) = make_game()
+    p = g.player_by_pid(p0)
+    p.banked = RELICS_TO_WIN
+    g.pharos_open = True
+    p.prev_node = p.node
+    p.node = "pharos"
+    g._land(p, "pharos")
+    assert g.phase == "battle"
+    domains = set()
+    for seed in range(40):
+        g.rng = _r.Random(seed)
+        g.phase = "battle"
+        g.battle["round"] = 0                           # keep to trivia rounds
+        g.minigame = None
+        g.question = None
+        g.stance(p0, "attack")
+        assert g.phase == "question"
+        domains.add(g.qctx["domain"])
+    assert len(domains) >= 4                            # the whole curriculum

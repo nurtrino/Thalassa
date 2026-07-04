@@ -1667,6 +1667,12 @@ body.shake #world { animation: shake .45s; }
   .maplegend span { font-size: 11px; }
 }
 
+.stallnote {
+  font-size: 12px; font-style: italic; color: var(--mist);
+  padding: 2px 0 var(--s2); text-align: center;
+  border-bottom: 1px dashed rgba(201, 162, 39, .2);
+}
+
 /* legendary relics — the shipwright's back room, set apart from the stall */
 .relicsplit {
   margin: var(--s3) 0 var(--s1);

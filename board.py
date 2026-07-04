@@ -58,7 +58,7 @@ WARDEN_MODEL = "tyrant"            # the colossal dark biped who holds the Pharo
 # Encounter rows: (pack name, unit name, unit hp, unit power, model id)
 REGION_POOL = {
     "autumn": {
-        "name": "The Amber Vale", "mode": "sail",
+        "name": "The Amber Vale", "mode": "foot",
         "boss": ("The Stag King", 12, 2, 3), "boss_model": "stag_king",
         "tiers": [
             [("Leafshade Wolves", "Leafshade Wolf", 2, 1, "wolf"),
@@ -89,7 +89,7 @@ REGION_POOL = {
     },
     "desert": {
         "name": "The Bleached Reach", "mode": "foot",
-        "boss": ("The Dune Colossus", 12, 2, 3), "boss_model": "colossus",
+        "boss": ("The Sphinx", 12, 2, 3), "boss_model": "sphinx",
         "tiers": [
             [("Sand Raiders", "Sand Raider", 2, 1, "raider"),
              ("Bone Vultures", "Bone Vulture", 1, 1, "vulture"),

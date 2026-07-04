@@ -65,6 +65,10 @@ HORN_BONUS = 2                     # extra STRIKE damage from a War Horn
 PLANKS_HEAL = 3                    # Health restored by Pitch & Planks
 HEAVY_EVERY = 3                    # bosses telegraph a heavy every Nth exchange
 HEAVY_MULT = 2                     # ...that lands for double damage
+ITEM_CAP = 2                       # max carried of each consumable charm
+KRAKEN_CHANCE = 0.10               # hub crossings: odds the kraken blocks you
+KRAKEN_RIDDLES = 3                 # ...and how many mind-riddles it poses
+SPHINX_CHANCE = 0.45               # desert crossings: odds the Sphinx stops you
 
 COLORS = ["#e4572e", "#2e86ab", "#f6ae2d", "#8e5572", "#33ca7f", "#6457a6"]
 
@@ -146,6 +150,7 @@ class Player:
         self.next_roll_bonus = 0           # armed Gale Charms
         self.streak = 0
         self.puzzles_solved = 0
+        self.skip_turns = 0                # turns owed to the kraken
 
     def has(self, upgrade: str) -> bool:
         return upgrade in self.upgrades
@@ -158,7 +163,7 @@ class Player:
             "cargo": len(self.cargo), "banked": self.banked,
             "checkpoint": self.checkpoint,
             "upgrades": self.upgrades, "items": self.items,
-            "streak": self.streak,
+            "streak": self.streak, "skip_turns": self.skip_turns,
             "connected": self.connected, "bot": self.is_bot,
         }
 
@@ -181,6 +186,7 @@ class Game:
         self.reveal: dict | None = None
         self.battle: dict | None = None    # {node, stance, used_items, first_hit_taken}
         self.minigame: dict | None = None  # {kind, island, data, limit, deadline}
+        self.kraken: dict | None = None    # {node, asked} — the gauntlet's progress
         self.upgrade_offer: list[str] | None = None
         self.used_puzzles: set[int] = set()
         self.pharos_open = False
@@ -365,6 +371,19 @@ class Game:
             self._bump("battle")
             return
         monster = self.board.alive_monster(nid)
+
+        # ── the KRAKEN: hub crossings only. One in ten sailings, it rises and
+        # bars the way with a gauntlet of three mind-riddles — miss one and it
+        # drags your ship in circles for a turn. Poseidon's Favor parts it.
+        if (ntype == "sea" and not node.get("region") and not monster
+                and not p.has("poseidon_favor")
+                and self.rng.random() < KRAKEN_CHANCE):
+            self.kraken = {"node": nid, "asked": 0}
+            self._say(f"🐙 The KRAKEN rises before {p.name} — answer its "
+                      f"{KRAKEN_RIDDLES} riddles of the mind, or lose a turn!")
+            self._kraken_deal()
+            return
+
         # Danger scales with the passage. Realm hunting grounds bite on most
         # landings (deeper = surer) and realm open water can spring a sea
         # attack too. The Isles of Peace are far calmer — but not empty: a
@@ -401,6 +420,21 @@ class Game:
                 self._say(f"{monster['name']} bars {p.name}'s way!")
             self._bump("battle")
             return
+
+        # ── the SPHINX: the desert's toll-keeper. She stops quiet crossings
+        # with a riddle; stumble and she sweeps you a space or two back.
+        if (ntype == "sea" and node.get("region") == "desert"
+                and self.rng.random() < SPHINX_CHANCE):
+            deal = puzzles.deal_riddle(self.rng, self.used_puzzles)
+            self.minigame = {"kind": "riddle", "island": nid, "data": deal,
+                             "limit": deal["limit"], "deadline": None,
+                             "sphinx": True,
+                             "text": deal["text"], "category": deal["category"]}
+            self._say(f"🦁 The Sphinx alights on the dunes before {p.name} — "
+                      f"answer her riddle or be swept back!")
+            self._bump("minigame")
+            return
+
         if ntype == "sea":
             self._next_turn()
         elif ntype == "home":
@@ -475,12 +509,22 @@ class Game:
         self._say(f"{p.name} patches {spend} Health at the haven.")
         self._next_turn()
 
-    # ── market isles ─────────────────────────────────────────────────────────
+    # ── markets ──────────────────────────────────────────────────────────────
+    # The BASIC market (consumables) travels with you: buy any time before a
+    # dice roll, or ashore at a market isle. The shipwright's permanent wares
+    # — fittings and legendary relics — are sold at LAND markets only.
     def shop_buy(self, pid: str, item: str):
-        """Buy from the trader's stall. Consumables stack; a fitting ends
-        the visit with an upgrade choice."""
-        self._require_turn(pid, "shop")
+        """Buy from the trader. Consumables cap at ITEM_CAP so nobody stacks
+        buffs; a fitting ends the shop visit with an upgrade choice."""
+        if self.phase not in ("shop", "roll") or not self.players \
+                or self.current.pid != pid:
+            raise GameError("The trader isn't listening right now.")
+        remote = self.phase == "roll"
         p = self.current
+        if item in RELICS or item == "fitting":
+            if remote:
+                raise GameError("The shipwright's wares are sold ashore, "
+                                "at a market isle.")
         if item in RELICS:
             relic = RELICS[item]
             if p.has(item):
@@ -506,6 +550,8 @@ class Game:
             self._say(f"{p.name} pays the shipwright {stock['cost']} scrolls.")
             self._bump("upgrade_pick")
             return
+        if p.items.get(item, 0) >= ITEM_CAP:
+            raise GameError(f"You can carry at most {ITEM_CAP} of each charm.")
         p.scrolls -= stock["cost"]
         p.items[item] = p.items.get(item, 0) + 1
         self.nonce += 1
@@ -582,6 +628,7 @@ class Game:
         enemies = m["enemies"]
         if not (0 <= target < len(enemies)) or enemies[target]["hp"] <= 0:
             target = next(i for i, e in enumerate(enemies) if e["hp"] > 0)
+        node = self.board.nodes[self.battle["node"]]
         boss = bool(m.get("boss")) or any(e["max_hp"] >= 5 for e in enemies)
         if stance == "guard":
             tier = 1                       # reading the blow to turn it back
@@ -589,8 +636,30 @@ class Game:
             tier = (2 if boss else 1) if stance == "attack" else 3
         self.battle["stance"] = stance
         self.battle["target"] = target
+
+        # ── what challenge does this round pose? ─────────────────────────────
+        # Ordinary packs: an even coin — half trivia, half puzzles. Bosses
+        # ALTERNATE, a trivia round then a puzzle round, so a trial tests the
+        # whole mind. The Dark Lord draws trivia from EVERY category. Puzzles
+        # in combat never include riddles (those belong to the Sphinx).
+        if boss:
+            puzzle_round = self.battle["round"] % 2 == 1
+        else:
+            puzzle_round = self.rng.random() < 0.5
+        if puzzle_round:
+            deal = puzzles.deal_battle(self.rng)
+            self.minigame = {"kind": deal["kind"], "island": self.battle["node"],
+                             "data": deal, "limit": deal["limit"],
+                             "deadline": None, "battle": True}
+            self.qctx = None
+            self.question = None
+            self.side_answers = {}
+            self._bump("minigame")
+            return
+        domain = (self.rng.choice(DOMAINS) if node["type"] == "pharos"
+                  else m["domain"])
         self.qctx = {"kind": "battle", "island": self.battle["node"],
-                     "tier": tier, "domain": m["domain"]}
+                     "tier": tier, "domain": domain}
         self.question = None
         self.side_answers = {}
         self._bump("question")
@@ -721,13 +790,35 @@ class Game:
             return 1
         return 0
 
+    def _settle_side_answers(self) -> dict:
+        """Rivals who guessed the open question right skim a scroll."""
+        side = {}
+        if self.question is not None:
+            for spid, sidx in self.side_answers.items():
+                sp = self.player_by_pid(spid)
+                if not sp:
+                    continue
+                ok = sidx == self.question["correct"]
+                if ok:
+                    sp.scrolls += SIDE_REWARD + self._side_streak(sp)
+                else:
+                    sp.streak = 0
+                side[spid] = {"ok": ok, "chosen": sidx}
+        self.side_answers = {}
+        return side
+
     def _resolve_question(self, correct: bool, idx: int):
         p = self.current
         ctx = self.qctx
         kind = ctx["kind"]
         note = ""
         gained = 0
-        battle_over = False
+
+        if kind == "battle":
+            side = self._settle_side_answers()
+            self._resolve_battle(correct, idx, self.question["correct"], side,
+                                 challenge="trivia")
+            return
 
         if kind == "shrine":
             node = self.board.nodes[ctx["island"]]
@@ -756,7 +847,27 @@ class Game:
             else:
                 p.streak = 0
                 note = "The puzzle keeps its secret. It can be tried again."
-        elif kind == "battle":
+
+        side = self._settle_side_answers()
+        self.reveal = {
+            "correct": self.question["correct"], "chosen": idx,
+            "was_correct": correct, "note": note, "gained": gained,
+            "kind": kind, "domain": ctx.get("domain"), "side": side,
+            "battle_over": False, "enemy_phase": None, "monster": None,
+        }
+        if note:
+            self._say(note)
+        self._bump("reveal")
+
+    def _resolve_battle(self, correct: bool, idx: int, correct_idx,
+                        side: dict | None = None, challenge: str = "trivia"):
+        """One full battle exchange — your move, then the enemies'. Fed by a
+        trivia answer OR a combat puzzle result; the rules don't care which."""
+        p = self.current
+        note = ""
+        gained = 0
+        battle_over = False
+        if True:
             m = self.board.nodes[self.battle["node"]]["monster"]
             enemies = m["enemies"]
             stance = self.battle["stance"]
@@ -887,27 +998,14 @@ class Game:
                         note += f" ⚠ {m['name']} rears back, gathering a heavy blow…"
             self._last_enemy_phase = enemy_phase
 
-        # side answers: rivals who guessed right skim a scroll
-        side = {}
-        for spid, sidx in self.side_answers.items():
-            sp = self.player_by_pid(spid)
-            if not sp:
-                continue
-            ok = sidx == self.question["correct"]
-            if ok:
-                sp.scrolls += SIDE_REWARD + self._side_streak(sp)
-            else:
-                sp.streak = 0
-            side[spid] = {"ok": ok, "chosen": sidx}
-        self.side_answers = {}
-
         self.reveal = {
-            "correct": self.question["correct"], "chosen": idx,
+            "correct": correct_idx, "chosen": idx,
             "was_correct": correct, "note": note, "gained": gained,
-            "kind": kind, "domain": ctx.get("domain"), "side": side,
+            "kind": "battle", "challenge": challenge,
+            "domain": (self.qctx or {}).get("domain"), "side": side or {},
             "battle_over": battle_over,
-            "enemy_phase": getattr(self, "_last_enemy_phase", None) if kind == "battle" else None,
-            "monster": self._battle_public() if kind == "battle" else None,
+            "enemy_phase": enemy_phase,
+            "monster": self._battle_public(),
         }
         if note:
             self._say(note)
@@ -938,10 +1036,37 @@ class Game:
             self._next_turn()
 
     # ── interactive puzzle minigames ─────────────────────────────────────────
+    # Four flavours share the minigame phase: puzzle ISLES (retry until the
+    # clock), BATTLE rounds (a solved puzzle lands your move), the KRAKEN's
+    # three-riddle gauntlet (one wrong pick and you lose a turn), and the
+    # SPHINX's riddle toll (fail and you're sent back down the road).
     def minigame_submit(self, pid: str, payload):
         self._require_turn(pid, "minigame")
         mg = self.minigame
-        if puzzles.check(mg["kind"], mg["data"], payload):
+        ok = puzzles.check(mg["kind"], mg["data"], payload)
+        if mg.get("battle"):
+            if ok:
+                self.minigame = None
+                self._resolve_battle(True, -2, None, challenge="puzzle")
+            elif mg["kind"] == "simon":
+                self.minigame = None
+                self._resolve_battle(False, -2, None, challenge="puzzle")
+            else:
+                raise GameError("Not solved — the enemy circles…")
+            return
+        if mg.get("kraken"):
+            if ok:
+                self._kraken_next()
+            else:
+                self._kraken_fail()               # one wrong pick: it has you
+            return
+        if mg.get("sphinx"):
+            if ok:
+                self._sphinx_pass()
+            else:
+                raise GameError("The Sphinx narrows her eyes — try again.")
+            return
+        if ok:
             self._puzzle_success(mg["island"])
         elif mg["kind"] == "simon":
             self._puzzle_fail(mg["island"])       # one wrong note ends the echo
@@ -949,17 +1074,94 @@ class Game:
             raise GameError("Not solved yet — the isle waits.")
 
     def minigame_timeout(self):
-        if self.phase == "minigame":
-            self._puzzle_fail(self.minigame["island"])
+        if self.phase != "minigame":
+            return
+        mg = self.minigame
+        if mg.get("battle"):
+            self.minigame = None
+            self._resolve_battle(False, -2, None, challenge="puzzle")
+        elif mg.get("kraken"):
+            self._kraken_fail()
+        elif mg.get("sphinx"):
+            self._sphinx_fail()
+        else:
+            self._puzzle_fail(mg["island"])
 
     def resolve_minigame(self, success: bool):
         """Bot path: the driver decides success/failure directly."""
         if self.phase != "minigame":
             return
-        if success:
-            self._puzzle_success(self.minigame["island"])
+        mg = self.minigame
+        if mg.get("battle"):
+            self.minigame = None
+            self._resolve_battle(success, -2, None, challenge="puzzle")
+        elif mg.get("kraken"):
+            self._kraken_next() if success else self._kraken_fail()
+        elif mg.get("sphinx"):
+            self._sphinx_pass() if success else self._sphinx_fail()
+        elif success:
+            self._puzzle_success(mg["island"])
         else:
-            self._puzzle_fail(self.minigame["island"])
+            self._puzzle_fail(mg["island"])
+
+    # ── the kraken's gauntlet ────────────────────────────────────────────────
+    def _kraken_deal(self):
+        deal = puzzles.deal_kind(self.rng, "ravens")
+        self.kraken["asked"] += 1
+        self.minigame = {"kind": "ravens", "island": self.kraken["node"],
+                         "data": deal, "limit": deal["limit"],
+                         "deadline": None, "kraken": True,
+                         "kraken_no": self.kraken["asked"],
+                         "kraken_need": KRAKEN_RIDDLES}
+        self._bump("minigame")
+
+    def _kraken_next(self):
+        k = self.kraken
+        if k["asked"] >= KRAKEN_RIDDLES:
+            self.minigame = None
+            self.kraken = None
+            self._say(f"🐙 The kraken, satisfied, sinks back into the deep — "
+                      f"{self.current.name} sails on.")
+            self._next_turn()
+        else:
+            self._say(f"🐙 {self.current.name} answers — the kraken poses another…")
+            self._kraken_deal()
+
+    def _kraken_fail(self):
+        p = self.current
+        self.minigame = None
+        self.kraken = None
+        p.skip_turns += 1
+        p.streak = 0
+        self._say(f"🐙 The kraken drags {p.name}'s ship in circles — "
+                  f"they lose their next turn!")
+        self._next_turn()
+
+    # ── the sphinx's toll ────────────────────────────────────────────────────
+    def _sphinx_pass(self):
+        self.minigame = None
+        self._say(f"🦁 The Sphinx bows her head — {self.current.name} may pass.")
+        self._next_turn()
+
+    def _sphinx_fail(self):
+        p = self.current
+        self.minigame = None
+        back = p.prev_node if p.prev_node in self.board.nodes else p.node
+        steps = 1
+        # sometimes she flings you TWO spaces down the road
+        nbrs = [nb for nb in self.board.neighbors.get(back, [])
+                if nb != p.node and self.board.nodes[nb]["type"] not in ("lair", "pharos")]
+        if nbrs and self.rng.random() < 0.5:
+            p.node = self.rng.choice(nbrs)
+            p.prev_node = back
+            steps = 2
+        else:
+            p.node = back
+            p.prev_node = back
+        p.streak = 0
+        self._say(f"🦁 Wrong! The Sphinx's riddle stumps {p.name} — "
+                  f"swept {steps} space{'s' if steps > 1 else ''} back down the road.")
+        self._next_turn()
 
     def _puzzle_success(self, nid: str):
         p = self.current
@@ -1021,6 +1223,7 @@ class Game:
             raise GameError("Nothing to skip.")
         self.battle = None
         self.minigame = None
+        self.kraken = None
         self.upgrade_offer = None
         self._next_turn()
 
@@ -1029,6 +1232,14 @@ class Game:
             self._bump("finished")
             return
         self.turn_idx = (self.turn_idx + 1) % len(self.players)
+        # captains who owe the kraken a turn sit it out
+        for _ in range(len(self.players)):
+            nxt = self.players[self.turn_idx]
+            if nxt.skip_turns <= 0:
+                break
+            nxt.skip_turns -= 1
+            self._say(f"⏳ {nxt.name} loses this turn — the kraken's toll.")
+            self.turn_idx = (self.turn_idx + 1) % len(self.players)
         self._start_turn()
 
     def rematch(self, pid: str):
@@ -1041,6 +1252,7 @@ class Game:
             p.reset()
         self.winner = None
         self.pharos_open = False
+        self.kraken = None
         self.used_puzzles = set()
         self.log = []
         self.turn_idx = 0
@@ -1155,7 +1367,7 @@ class Game:
             "config": {"relics_to_win": RELICS_TO_WIN, "tier_reward": TIER_REWARD,
                        "streak_at": STREAK_AT, "max_hull": MAX_HULL,
                        "flee_cost": FLEE_COST, "shop_items": SHOP_ITEMS,
-                       "relics": RELICS,
+                       "relics": RELICS, "item_cap": ITEM_CAP,
                        "die_sides": 3, "heavy_every": HEAVY_EVERY,
                        "heavy_mult": HEAVY_MULT, "planks_heal": PLANKS_HEAL},
         }
