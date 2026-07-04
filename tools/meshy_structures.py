@@ -158,6 +158,25 @@ MODELS = [
              "stone fire pit with glowing embers. Palette: muted red, plum, and "
              "blue tents, grey stone pit, warm ember glow.")),
 
+    dict(id="ice_temple", rank=6, tier="building",
+         model_type="standard", polycount=60000,
+         style=("a detailed refined hand-painted stylized frozen temple with "
+                "smooth crisp sculpted ice and stonework, matte colours, a solid "
+                "three-dimensional building set-piece sitting naturally on its own "
+                "stepped base, plain empty background, three-quarter view, "
+                "game-ready — higher-poly and detailed, NOT low-poly or faceted"),
+         negative=(NEGATIVE + ", text, letters, signage, cluttered, low-poly, "
+                   "faceted, fire, lava, warm colours, desert, sand, green"),
+         prompt=(
+             "A majestic frozen ICE TEMPLE for a frostbound realm: an elegant "
+             "classical temple built of pale glacier-blue crystalline ICE and "
+             "frost-white marble, standing on a stepped snowy base. A ring of "
+             "glossy translucent ice columns holds up a peaked frozen roof crusted "
+             "with snow and fringed with hanging ICICLES, a triangular pediment at "
+             "the front, and a softly glowing cold cyan crystal shrine at the "
+             "centre. Sacred, cold and beautiful, sparkling with frost. Palette: "
+             "pale ice-blue, frost white, translucent ice, cold cyan glow.")),
+
     # ── realm gateway ────────────────────────────────────────────────────────
     dict(id="gate_portal", rank=10, tier="prop",
          prompt=(
