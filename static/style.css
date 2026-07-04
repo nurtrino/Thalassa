@@ -1416,6 +1416,154 @@ body.shake #world { animation: shake .45s; }
 .shoprow.cant .price { color: #6a7885; border-color: rgba(120, 135, 148, .3); background: none; }
 .buy, .buybtn { font-size: 11px; letter-spacing: .1em; padding: 7px 14px; }
 
+/* ═══ CHART — the parchment map ══════════════════════════════════════════ */
+#mapBtn {
+  position: fixed; top: var(--s3); right: 128px; z-index: 10;
+  width: 44px; height: 44px; padding: 9px;
+  color: var(--bronze);
+  background: rgba(14, 24, 34, .72);
+  border: 1px solid rgba(201, 162, 39, .4);
+  border-radius: 10px;
+  backdrop-filter: blur(4px);
+  transition: transform var(--fast), border-color var(--fast), color var(--fast);
+}
+#mapBtn:hover { transform: translateY(-1px); color: var(--gilt); border-color: rgba(240, 208, 96, .7); }
+#mapBtn svg { width: 100%; height: 100%; }
+
+#mapOverlay { z-index: 30; }
+#mapSheet {
+  position: relative;
+  display: flex; flex-direction: column;
+  width: min(940px, 96vw); height: min(88vh, 760px);
+  padding: var(--s4) var(--s4) var(--s3);
+  color: #3a2c14;
+  background:
+    radial-gradient(120% 90% at 50% 0%, rgba(255, 250, 233, .6), transparent 60%),
+    linear-gradient(180deg, #efe0bd, #e4d0a4 55%, #d8c091);
+  border: 1px solid #b79a56;
+  border-radius: 10px;
+  box-shadow: 0 24px 70px rgba(4, 8, 12, .7), inset 0 0 90px rgba(120, 90, 40, .28);
+  overflow: hidden;
+}
+/* aged edges */
+#mapSheet::after {
+  content: ''; position: absolute; inset: 0; pointer-events: none; border-radius: 10px;
+  box-shadow: inset 0 0 40px rgba(90, 62, 24, .5), inset 0 0 4px rgba(60, 40, 14, .6);
+  background:
+    radial-gradient(60% 50% at 12% 14%, rgba(120, 88, 40, .18), transparent 60%),
+    radial-gradient(50% 45% at 88% 86%, rgba(120, 88, 40, .2), transparent 60%);
+}
+#mapClose {
+  position: absolute; top: 10px; right: 12px; z-index: 3;
+  color: #7a4a2a; width: 30px; height: 30px; padding: 6px;
+}
+#mapClose:hover { background: rgba(150, 80, 40, .16); }
+#mapClose svg { width: 100%; height: 100%; }
+
+#mapBody { flex: 1; min-height: 0; display: flex; }
+.mapframe { display: flex; flex-direction: column; flex: 1; min-height: 0; width: 100%; }
+.maptitle {
+  display: flex; align-items: center; justify-content: center; gap: 8px;
+  font-family: var(--disp); font-weight: 800; font-size: clamp(15px, 3.4vw, 21px);
+  letter-spacing: .18em; text-transform: uppercase; color: #6b4a1c;
+  margin-bottom: var(--s2);
+}
+.maptitle svg { width: 18px; height: 18px; }
+.mapplot {
+  position: relative; flex: 1; min-height: 0; margin: 0 auto; width: 100%;
+  border: 1px solid rgba(120, 88, 40, .32); border-radius: 8px;
+  background:
+    repeating-linear-gradient(0deg, transparent 0 26px, rgba(120, 90, 40, .05) 26px 27px),
+    repeating-linear-gradient(90deg, transparent 0 26px, rgba(120, 90, 40, .05) 26px 27px);
+}
+.maproutes { position: absolute; inset: 0; width: 100%; height: 100%; }
+.maproutes line { stroke: rgba(90, 62, 24, .34); stroke-width: .35; stroke-dasharray: 1.2 1.1; }
+
+.mapdot {
+  position: absolute; width: 5px; height: 5px; border-radius: 50%;
+  background: rgba(90, 62, 24, .42);
+  transform: translate(-50%, -50%);
+}
+.mapdot.wild { background: var(--rc, rgba(90, 62, 24, .5)); opacity: .55; }
+.mapdot.foe { width: 6px; height: 6px; background: #a3402a; opacity: .7; }
+
+.mapnode {
+  position: absolute; transform: translate(-50%, -50%);
+  display: flex; flex-direction: column; align-items: center; gap: 1px;
+  z-index: 2; cursor: default;
+}
+.mapnode .mpin {
+  width: 22px; height: 22px; padding: 4px; color: #5a3d18;
+  background: rgba(255, 249, 232, .8);
+  border: 1.5px solid var(--rc, #9a7333);
+  border-radius: 50%;
+  box-shadow: 0 2px 5px rgba(60, 40, 14, .35);
+}
+.mapnode.land { z-index: 3; }
+.mapnode.land .mpin { width: 27px; height: 27px; padding: 5px; }
+.mapnode .mpin svg { width: 100%; height: 100%; }
+.mapnode .mlabel {
+  font-family: var(--disp); font-weight: 700; font-size: 9.5px; letter-spacing: .04em;
+  color: #5a3d18; white-space: nowrap; text-shadow: 0 1px 0 rgba(255, 250, 233, .7);
+  max-width: 92px; overflow: hidden; text-overflow: ellipsis;
+}
+.mapnode.home .mpin  { color: #7a5a12; border-color: #b8901e; background: #fbedbf; }
+.mapnode.gate .mpin  { color: #4a6070; }
+.mapnode.shrine .mpin { color: #3f6a52; }
+.mapnode.shop .mpin  { color: #7a4a2a; }
+.mapnode.haven .mpin { color: #35617a; }
+.mapnode.puzzle .mpin { color: #6b4a8a; }
+.mapnode.lair .mpin  { color: #9a2f22; border-color: var(--rc, #b34a3a); border-width: 2px; }
+.mapnode.pharos { flex-direction: column-reverse; }   /* label above, clear of Home Port */
+.mapnode.pharos .mpin { color: #6a3fb0; border-color: #8c52ff; border-width: 2px; background: #efe6ff; }
+.mapnode.pharos .mlabel { color: #6a3fb0; }
+.mapnode.done .mpin  { opacity: .48; }
+.mapnode.done .mlabel { opacity: .55; text-decoration: line-through; }
+
+.maptoken {
+  position: absolute; transform: translate(-50%, -50%);
+  z-index: 5; width: 20px; height: 20px; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  font-family: var(--disp); font-weight: 800; font-size: 11px; color: #fff;
+  background: var(--pc, #888);
+  border: 2px solid rgba(255, 250, 233, .92);
+  box-shadow: 0 2px 6px rgba(20, 12, 4, .55);
+}
+.maptoken.you {
+  width: 24px; height: 24px; font-size: 12px;
+  border-color: #fff; box-shadow: 0 0 0 3px rgba(240, 208, 96, .85), 0 2px 8px rgba(20, 12, 4, .6);
+  animation: youpulse 1.8s ease-in-out infinite;
+}
+@keyframes youpulse { 50% { box-shadow: 0 0 0 5px rgba(240, 208, 96, .45), 0 2px 8px rgba(20, 12, 4, .6); } }
+
+.maplegend {
+  display: flex; flex-wrap: wrap; justify-content: center; gap: 6px 14px;
+  margin-top: var(--s2); padding-top: var(--s2);
+  border-top: 1px solid rgba(120, 88, 40, .3);
+}
+.maplegend span {
+  display: inline-flex; align-items: center; gap: 5px;
+  font-family: var(--body); font-size: 12px; color: #5a3d18;
+}
+.maplegend .lg { width: 11px; height: 11px; border-radius: 50%; border: 1.5px solid #5a3d18; }
+.maplegend .lg.home { background: #fbedbf; border-color: #b8901e; }
+.maplegend .lg.gate { background: #cdd8e0; border-color: #4a6070; }
+.maplegend .lg.shrine { background: #cfe6d8; border-color: #3f6a52; }
+.maplegend .lg.shop { background: #ecd3bf; border-color: #7a4a2a; }
+.maplegend .lg.haven { background: #cfe1ea; border-color: #35617a; }
+.maplegend .lg.puzzle { background: #e0d3ee; border-color: #6b4a8a; }
+.maplegend .lg.lair { background: #f0cabf; border-color: #9a2f22; }
+.maplegend .lg.pharos { background: #efe6ff; border-color: #8c52ff; }
+.maplegend .lg.youdot { background: var(--gilt); border-color: #fff; box-shadow: 0 0 0 1.5px var(--gilt); }
+
+@media (max-width: 700px) {
+  #mapBtn { right: 118px; width: 38px; height: 38px; padding: 8px; top: var(--s2); }
+  #mapSheet { width: 96vw; height: 92vh; padding: var(--s3) var(--s2) var(--s2); }
+  .mapnode .mlabel { display: none; }
+  .maplegend { gap: 4px 10px; }
+  .maplegend span { font-size: 11px; }
+}
+
 /* legendary relics — the shipwright's back room, set apart from the stall */
 .relicsplit {
   margin: var(--s3) 0 var(--s1);

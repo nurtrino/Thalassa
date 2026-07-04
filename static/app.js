@@ -153,6 +153,14 @@ $('resetBtn').onclick = () => {
 $('nameInput').addEventListener('keydown', (e) => { if (e.key === 'Enter') $('joinBtn').click(); });
 $('startBtn').onclick = () => send({ type: 'start' });
 $('addBotBtn').onclick = () => send({ type: 'add_bot' });
+$('mapBtn').onclick = () => toggleMap(true);
+$('mapClose').onclick = () => toggleMap(false);
+$('mapOverlay').onclick = (e) => { if (e.target.id === 'mapOverlay') toggleMap(false); };
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && mapOpen) toggleMap(false);
+  else if ((e.key === 'm' || e.key === 'M') && room && room.phase !== 'lobby'
+           && !/^(INPUT|TEXTAREA)$/.test(document.activeElement?.tagName || '')) toggleMap();
+});
 $('compass').onclick = () => { bountiesOpen = !bountiesOpen; renderBounties(); };
 
 /* ── net layer ──────────────────────────────────────────────────────────── */
@@ -533,6 +541,8 @@ function render() {
     $('battleHud').classList.add('hidden');
     $('uppanel').classList.add('hidden');
     $('shopPanel').classList.add('hidden');
+    $('mapBtn').classList.add('hidden');
+    $('mapOverlay').classList.add('hidden');
     document.body.classList.remove('battling');
     renderLobby();
     return;
@@ -541,6 +551,7 @@ function render() {
   renderObjective();
   renderTurnBanner();
   renderCompass();
+  renderMapBtn();
   renderBounties();
   renderTray();
   renderShop();
@@ -781,6 +792,128 @@ function renderCompass() {
     const pips = d < 12 ? 0 : d < 90 ? 1 : d < 180 ? 2 : 3;
     nd.querySelectorAll('i').forEach((i, k) => { i.style.opacity = k < pips ? '' : '0'; });
   }
+}
+
+/* ── parchment chart ────────────────────────────────────────────────────── */
+let mapOpen = false;
+
+const MAP_POI = {
+  home:   { icon: 'home',    label: 'Home Port',    cls: 'home' },
+  gate:   { icon: 'flag',    label: 'Pass',         cls: 'gate' },
+  shrine: { icon: 'laurel',  label: 'Oracle',       cls: 'shrine' },
+  shop:   { icon: 'market',  label: 'Trader',       cls: 'shop' },
+  puzzle: { icon: 'fitting', label: 'Spire',        cls: 'puzzle' },
+  haven:  { icon: 'anchor',  label: 'Haven',        cls: 'haven' },
+  lair:   { icon: 'skull',   label: 'Lair',         cls: 'lair' },
+  pharos: { icon: 'crown',   label: 'The Pharos',   cls: 'pharos' },
+};
+
+function renderMapBtn() {
+  $('mapBtn').classList.toggle('hidden', !room || room.phase === 'lobby');
+  if (mapOpen) renderMap();
+}
+
+function toggleMap(open) {
+  mapOpen = open ?? !mapOpen;
+  $('mapOverlay').classList.toggle('hidden', !mapOpen);
+  if (mapOpen) { audio.sfx?.click?.(); renderMap(); }
+}
+
+function renderMap() {
+  const body = $('mapBody');
+  if (!room || !room.board) { body.innerHTML = ''; return; }
+  const nodes = room.board.nodes || [];
+  const edges = room.board.edges || [];
+  if (!nodes.length) { body.innerHTML = ''; return; }
+
+  const byId = {};
+  for (const n of nodes) byId[n.id] = n;
+  const xs = nodes.map((n) => n.x), zs = nodes.map((n) => n.z);
+  const minX = Math.min(...xs), maxX = Math.max(...xs);
+  const minZ = Math.min(...zs), maxZ = Math.max(...zs);
+  const spanX = Math.max(1, maxX - minX), spanZ = Math.max(1, maxZ - minZ);
+  const PAD = 7;                                   // % breathing room at the edges
+  const px = (x) => PAD + ((x - minX) / spanX) * (100 - 2 * PAD);
+  const py = (z) => PAD + ((z - minZ) / spanZ) * (100 - 2 * PAD);
+
+  /* faint route lines under everything */
+  const lines = edges.map(([a, b]) => {
+    const na = byId[a], nb = byId[b];
+    if (!na || !nb) return '';
+    return `<line x1="${px(na.x).toFixed(2)}" y1="${py(na.z).toFixed(2)}"` +
+      ` x2="${px(nb.x).toFixed(2)}" y2="${py(nb.z).toFixed(2)}"/>`;
+  }).join('');
+
+  /* markers — POIs as icons, the sea-lanes and wild encounters as faint dots */
+  const marks = nodes.map((n) => {
+    const l = px(n.x).toFixed(2), t = py(n.z).toFixed(2);
+    const realm = n.region ? (REALM_INFO[n.region]?.accent || '') : '';
+    if (n.type === 'sea') {
+      return `<span class="mapdot ${n.region ? 'wild' : ''}" style="left:${l}%;top:${t}%"` +
+        `${realm ? ` data-accent="${realm}"` : ''}></span>`;
+    }
+    if (n.type === 'monster') {
+      return `<span class="mapdot foe" style="left:${l}%;top:${t}%" title="Wilds — a foe may lurk"></span>`;
+    }
+    const poi = MAP_POI[n.type];
+    if (!poi) return '';
+    // Only the landmarks carry a written label — the many hub facilities would
+    // pile their names on top of each other, so those show as an icon you hover.
+    const landmark = ['home', 'gate', 'lair', 'pharos'].includes(n.type);
+    let label = poi.label;
+    let done = false;
+    if (n.type === 'gate' && n.region) label = REALM_INFO[n.region]?.name || 'Pass';
+    if (n.type === 'lair') {
+      label = n.boss_name || 'The tyrant';
+      if ((n.defeated || []).length) done = true;
+    }
+    const tint = realm || '';
+    return `<span class="mapnode ${poi.cls}${done ? ' done' : ''}${landmark ? ' land' : ''}"` +
+      ` style="left:${l}%;top:${t}%"${tint ? ` data-accent="${tint}"` : ''}` +
+      ` title="${esc(n.name || label)}">` +
+      `<span class="mpin">${icon(poi.icon, landmark ? 15 : 13)}</span>` +
+      (landmark ? `<span class="mlabel">${esc(label)}</span>` : '') + `</span>`;
+  }).join('');
+
+  /* player tokens — small offset when several share a node */
+  const atNode = {};
+  const tokens = (room.players || []).map((p) => {
+    const n = byId[p.node] || byId.home;
+    if (!n) return '';
+    const k = p.node;
+    const seat = (atNode[k] = (atNode[k] || 0) + 1) - 1;
+    const ox = (seat % 2 ? 1 : -1) * Math.ceil(seat / 2) * 2.2;
+    const oy = seat >= 2 ? 2.2 : 0;
+    const mine = p.pid === you;
+    const initial = esc((p.name || '?').slice(0, 1).toUpperCase());
+    return `<span class="maptoken${mine ? ' you' : ''}" title="${esc(p.name)}${mine ? ' (you)' : ''}"` +
+      ` style="left:calc(${px(n.x).toFixed(2)}% + ${ox}px);top:calc(${py(n.z).toFixed(2)}% + ${oy}px);` +
+      `--pc:${p.color}">${initial}</span>`;
+  }).join('');
+
+  body.innerHTML =
+    `<div class="mapframe">` +
+      `<div class="maptitle">${icon('compass', 16)} Chart of the Aegean</div>` +
+      `<div class="mapplot">` +
+        `<svg class="maproutes" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">${lines}</svg>` +
+        marks + tokens +
+      `</div>` +
+      `<div class="maplegend">` +
+        `<span><i class="lg home"></i>Home</span>` +
+        `<span><i class="lg gate"></i>Pass</span>` +
+        `<span><i class="lg shrine"></i>Oracle</span>` +
+        `<span><i class="lg shop"></i>Trader</span>` +
+        `<span><i class="lg haven"></i>Haven</span>` +
+        `<span><i class="lg puzzle"></i>Spire</span>` +
+        `<span><i class="lg lair"></i>Lair</span>` +
+        `<span><i class="lg pharos"></i>Pharos</span>` +
+        `<span><i class="lg youdot"></i>You</span>` +
+      `</div>` +
+    `</div>`;
+  /* colour any realm-tinted markers/dots */
+  body.querySelectorAll('[data-accent]').forEach((el) => {
+    el.style.setProperty('--rc', el.dataset.accent);
+  });
 }
 
 /* ── bounty board (compass popover) ─────────────────────────────────────── */
