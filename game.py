@@ -80,6 +80,24 @@ UPGRADES = {
     "aegis":      {"name": "Aegis Shard",       "desc": "First hit each battle is halved"},
 }
 
+# Legendary relics — the shipwright's back room. These are NOT in the random
+# fitting pool or the puzzle-reward pool: you buy exactly the one you want,
+# outright, for a hoard of scrolls. They are the deep sink a lucky run saves
+# toward. Each grants a permanent upgrade (stored in the same upgrade list).
+RELICS = {
+    "golden_fleece": {"name": "Golden Fleece", "cost": 12,
+                      "desc": "+5 max Health and a full heal, here and now"},
+    "poseidon_favor": {"name": "Poseidon's Favor", "cost": 10,
+                       "desc": "The sea parts for you — crossings never ambush you"},
+    "titan_ram":     {"name": "Adamant Ram", "cost": 14,
+                      "desc": "+2 STRIKE damage (stacks with the Bronze Ram)"},
+    "oracle_eye":    {"name": "Eye of the Oracle", "cost": 10,
+                      "desc": "Every battle question opens with two lies already burned"},
+}
+
+# one lookup covering ordinary fittings and legendary relics alike
+ALL_UPGRADES = {**UPGRADES, **RELICS}
+
 # market-isle stock — consumables plus the shipwright's permanent fittings.
 # Prices are tuned against the d3 economy: a good shrine visit pays 1-3
 # scrolls, a cleared pack pays its total hp. Survival gear (planks, aegis)
@@ -414,6 +432,8 @@ class Game:
             chance = 0.14          # a rare small skirmish in the hub sea-lanes
         else:
             chance = 0.0
+        if ntype == "sea" and p.has("poseidon_favor"):
+            chance = 0.0           # Poseidon's Favor: the deep never rises at you
         ambush = False
         if chance and not monster and self.rng.random() < chance:
             node["monster"] = self.board.random_pack(node, self.rng)
@@ -517,6 +537,16 @@ class Game:
         the visit with an upgrade choice."""
         self._require_turn(pid, "shop")
         p = self.current
+        if item in RELICS:
+            relic = RELICS[item]
+            if p.has(item):
+                raise GameError(f"Your ship already bears the {relic['name']}.")
+            if p.scrolls < relic["cost"]:
+                raise GameError(f"The {relic['name']} costs {relic['cost']} scrolls.")
+            p.scrolls -= relic["cost"]
+            self._apply_upgrade(p, item)
+            self._say(f"⚜ {p.name} bears away the {relic['name']} — {relic['cost']} scrolls.")
+            return
         stock = SHOP_ITEMS.get(item)
         if not stock:
             raise GameError("The trader doesn't stock that.")
@@ -703,6 +733,12 @@ class Game:
             self._pending_puzzle = None
         self.question = q
         self.question_deadline = deadline
+        # Eye of the Oracle: a battle question opens with two lies already gone.
+        if (self.qctx["kind"] == "battle" and self.current.has("oracle_eye")
+                and not q.get("disabled") and len(q.get("options", [])) > 2):
+            wrong = [i for i in range(len(q["options"])) if i != q["correct"]]
+            self.rng.shuffle(wrong)
+            q["disabled"] = sorted(wrong[:2])
 
     def needs_puzzle(self) -> dict | None:
         """Server asks: is a locally-supplied puzzle pending?"""
@@ -796,7 +832,8 @@ class Game:
             dmg = 0
             victim = tgt                       # which enemy my blow lands on
             if correct and stance == "attack":
-                dmg = STRIKE_DMG + (1 if p.has("ram") else 0)
+                dmg = (STRIKE_DMG + (1 if p.has("ram") else 0)
+                       + (2 if p.has("titan_ram") else 0))
                 horn = self.battle.get("horn")
                 if horn:
                     dmg += HORN_BONUS
@@ -1013,16 +1050,25 @@ class Game:
         self._next_turn()
 
     # ── upgrades ─────────────────────────────────────────────────────────────
+    def _apply_upgrade(self, p: Player, upgrade: str):
+        """Fit an upgrade to a ship and apply any instant effect. Shared by the
+        free fitting/puzzle picks and the shipwright's paid relics."""
+        p.upgrades.append(upgrade)
+        if upgrade == "hull_plates":
+            p.max_hull += 2
+            p.hull = min(p.max_hull, p.hull + 2)
+        elif upgrade == "golden_fleece":
+            p.max_hull += 5
+            p.hull = p.max_hull                    # the fleece mends every plank
+        self.nonce += 1
+
     def pick_upgrade(self, pid: str, upgrade: str):
         self._require_turn(pid, "upgrade_pick")
         if not self.upgrade_offer or upgrade not in self.upgrade_offer:
             raise GameError("That prize is not on offer.")
         p = self.current
-        p.upgrades.append(upgrade)
-        if upgrade == "hull_plates":
-            p.max_hull += 2
-            p.hull = min(p.max_hull, p.hull + 2)
-        self._say(f"{p.name} fits the {UPGRADES[upgrade]['name']}.")
+        self._apply_upgrade(p, upgrade)
+        self._say(f"{p.name} fits the {ALL_UPGRADES[upgrade]['name']}.")
         self.upgrade_offer = None
         self._next_turn()
 
@@ -1163,7 +1209,7 @@ class Game:
                           if k not in ("data", "secret")}
                          if self.phase == "minigame" and self.minigame else None),
             "upgrade_offer": self.upgrade_offer if self.phase == "upgrade_pick" else None,
-            "upgrade_info": UPGRADES,
+            "upgrade_info": ALL_UPGRADES,
             "pharos_open": self.pharos_open,
             "bounties": self.bounties,
             "winner": self.winner,
@@ -1171,6 +1217,7 @@ class Game:
             "config": {"relics_to_win": RELICS_TO_WIN, "tier_reward": TIER_REWARD,
                        "streak_at": STREAK_AT, "max_hull": MAX_HULL,
                        "flee_cost": FLEE_COST, "shop_items": SHOP_ITEMS,
+                       "relics": RELICS,
                        "die_sides": 3, "heavy_every": HEAVY_EVERY,
                        "heavy_mult": HEAVY_MULT, "planks_heal": PLANKS_HEAL},
         }

@@ -48,11 +48,15 @@ const TIER_ROMAN = { 1: 'I', 2: 'II', 3: 'III' };
 const UP_ICON = {
   ram: 'strike', hull_plates: 'hull', star_chart: 'compass', sandals: 'flee',
   owl: 'owl', lyre: 'lyre', trident: 'magic', aegis: 'aegis',
+  golden_fleece: 'laurel', poseidon_favor: 'anchor',
+  titan_ram: 'strike', oracle_eye: 'owl',
 };
 const ITEM_ORDER = ['planks', 'gale', 'horn', 'hint', 'aegis_charm'];
 const SHOP_ICON = {
   fitting: 'fitting', hint: 'hint', gale: 'gale', planks: 'planks',
   aegis_charm: 'aegis', horn: 'horn',
+  golden_fleece: 'laurel', poseidon_favor: 'anchor',
+  titan_ram: 'strike', oracle_eye: 'owl',
 };
 
 /* ── state ──────────────────────────────────────────────────────────────── */
@@ -885,24 +889,41 @@ function renderShop() {
   }
   const me = room.players.find((p) => p.pid === you);
   const stock = room.config?.shop_items || {};
+  const relics = room.config?.relics || {};
+  const owns = new Set(me.upgrades || []);
   panel.classList.remove('hidden');
+  const shopRows = Object.entries(stock).map(([id, it]) => {
+    const owned = id === 'fitting'
+      ? `${(me.upgrades || []).length} fitted`
+      : `carried ×${me.items?.[id] ?? 0}`;
+    const cant = me.scrolls < it.cost;
+    return `<div class="shoprow ${cant ? 'cant' : ''}">
+      <span class="sicon">${icon(SHOP_ICON[id] || 'relic')}</span>
+      <div><div class="sname">${esc(it.name)}</div>
+        <div class="sdesc">${esc(it.desc)} · ${owned}</div></div>
+      <span class="price">${it.cost} ${icon('scroll', 11)}</span>
+      <button class="buy" data-item="${id}" ${cant ? 'disabled' : ''}>Buy</button>
+    </div>`;
+  }).join('');
+  const relicRows = Object.entries(relics).map(([id, it]) => {
+    const have = owns.has(id);
+    const cant = !have && me.scrolls < it.cost;
+    return `<div class="shoprow relicrow ${have ? 'have' : ''} ${cant ? 'cant' : ''}">
+      <span class="sicon">${icon(SHOP_ICON[id] || 'relic')}</span>
+      <div><div class="sname">${esc(it.name)}</div>
+        <div class="sdesc">${esc(it.desc)}</div></div>
+      ${have
+        ? '<span class="price owned">Aboard</span>'
+        : `<span class="price">${it.cost} ${icon('scroll', 11)}</span>
+           <button class="buy" data-item="${id}" ${cant ? 'disabled' : ''}>Buy</button>`}
+    </div>`;
+  }).join('');
   panel.innerHTML =
     `<div class="stallhead">${icon('market')} Trader's Stall` +
     `<em>your scrolls: ${me.scrolls}</em>` +
     `<button class="kick" id="shopClose" title="Close">${icon('kick', 12)}</button></div>` +
-    Object.entries(stock).map(([id, it]) => {
-      const owned = id === 'fitting'
-        ? `${(me.upgrades || []).length} fitted`
-        : `carried ×${me.items?.[id] ?? 0}`;
-      const cant = me.scrolls < it.cost;
-      return `<div class="shoprow ${cant ? 'cant' : ''}">
-        <span class="sicon">${icon(SHOP_ICON[id] || 'relic')}</span>
-        <div><div class="sname">${esc(it.name)}</div>
-          <div class="sdesc">${esc(it.desc)} · ${owned}</div></div>
-        <span class="price">${it.cost} ${icon('scroll', 11)}</span>
-        <button class="buy" data-item="${id}" ${cant ? 'disabled' : ''}>Buy</button>
-      </div>`;
-    }).join('');
+    shopRows +
+    (relicRows ? `<div class="relicsplit">${icon('relic', 12)} Legendary Relics</div>${relicRows}` : '');
   $('shopClose').onclick = () => { shopClosed = true; renderShop(); renderTray(); };
   panel.querySelectorAll('.buy').forEach((b) => {
     b.onclick = () => { audio.sfx.build(); send({ type: 'shop_buy', item: b.dataset.item }); };

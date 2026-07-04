@@ -732,6 +732,67 @@ def test_shop_sells_consumables_and_fittings():
     assert pick in p.upgrades and g.current.pid == p1
 
 
+def test_legendary_relics_bought_outright_and_apply():
+    g, (p0, p1) = make_game()
+    p = g.player_by_pid(p0)
+    shop = find_node(g, "shop")
+    force_land(g, p0, shop)
+    p.scrolls = 30
+    base_max = p.max_hull
+
+    # Golden Fleece: +5 max Health, full heal, bought outright (no offer screen)
+    p.hull = 1
+    g.shop_buy(p0, "golden_fleece")
+    assert p.has("golden_fleece")
+    assert p.max_hull == base_max + 5 and p.hull == p.max_hull
+    assert g.phase == "shop"                          # a relic keeps you browsing
+    assert p.scrolls == 30 - 12
+
+    # can't buy the same relic twice
+    with pytest.raises(GameError):
+        g.shop_buy(p0, "golden_fleece")
+
+    g.shop_buy(p0, "poseidon_favor")
+    assert p.has("poseidon_favor") and p.scrolls == 30 - 12 - 10
+
+    # a relic never leaks into the random fitting pool
+    g.shop_buy(p0, "fitting")
+    assert g.phase == "upgrade_pick"
+    assert all(u not in G.RELICS for u in g.upgrade_offer)
+
+
+def test_relic_cost_is_enforced():
+    g, (p0, p1) = make_game()
+    p = g.player_by_pid(p0)
+    shop = find_node(g, "shop")
+    force_land(g, p0, shop)
+    p.scrolls = 5                                     # a Golden Fleece is 12
+    with pytest.raises(GameError):
+        g.shop_buy(p0, "golden_fleece")
+    assert not p.has("golden_fleece") and p.scrolls == 5
+
+
+def test_adamant_ram_stacks_strike_damage():
+    g, (p0, p1), lair = boss_battle()
+    p = g.player_by_pid(p0)
+    plain = G.STRIKE_DMG
+    p.upgrades = ["ram", "titan_ram"]                 # +1 and +2 on top of base
+    g.stance(p0, "attack")
+    put_question(g)
+    g.answer(p0, 0)
+    assert g.reveal["enemy_phase"]["dealt"] == plain + 3
+
+
+def test_oracle_eye_pre_burns_battle_lies():
+    g, (p0, p1), lair = boss_battle()
+    p = g.player_by_pid(p0)
+    p.upgrades = ["oracle_eye"]
+    g.stance(p0, "attack")
+    put_question(g, correct=2)
+    assert len(g.question["disabled"]) == 2
+    assert 2 not in g.question["disabled"]            # never burns the truth
+
+
 def test_shop_wants_payment():
     g, (p0, p1) = make_game()
     p = g.player_by_pid(p0)

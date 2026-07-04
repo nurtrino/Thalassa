@@ -147,6 +147,10 @@ def decide_shop(g: G.Game, pid: str) -> str | None:
         return "planks"
     if items.get("aegis_charm", 0) < 1 and p.scrolls >= 7:
         return "aegis_charm"
+    # a captain sitting on a hoard splashes out on a legendary relic
+    for rid, r in G.RELICS.items():
+        if not p.has(rid) and p.scrolls >= r["cost"] + 4:
+            return rid
     if p.scrolls >= G.SHOP_ITEMS["fitting"]["cost"] + 3 and len(p.upgrades) < 6:
         return "fitting"
     if items.get("hint", 0) < 1 and p.scrolls >= 6:

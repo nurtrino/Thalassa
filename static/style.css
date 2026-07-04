@@ -1416,6 +1416,28 @@ body.shake #world { animation: shake .45s; }
 .shoprow.cant .price { color: #6a7885; border-color: rgba(120, 135, 148, .3); background: none; }
 .buy, .buybtn { font-size: 11px; letter-spacing: .1em; padding: 7px 14px; }
 
+/* legendary relics — the shipwright's back room, set apart from the stall */
+.relicsplit {
+  margin: var(--s3) 0 var(--s1);
+  font-family: var(--disp); font-weight: 800; font-size: 11px;
+  letter-spacing: .22em; text-transform: uppercase;
+  color: #cf9bff;
+  display: flex; align-items: center; gap: 7px;
+  border-top: 1px solid rgba(163, 108, 255, .35); padding-top: var(--s2);
+}
+.relicsplit svg { width: 13px; height: 13px; }
+.shoprow.relicrow .sicon {
+  color: #cf9bff;
+  background: rgba(140, 82, 255, .12);
+  border-color: rgba(163, 108, 255, .4);
+}
+.shoprow.relicrow .sname { color: #e9d4ff; }
+.shoprow.relicrow.have { opacity: .62; }
+.price.owned {
+  color: #cf9bff; background: rgba(140, 82, 255, .14);
+  border-color: rgba(163, 108, 255, .5);
+}
+
 /* ═══ MOBILE — single 700px breakpoint, bottom-anchored stack ════════════ */
 @media (max-width: 700px) {
   .title-panel { padding: var(--s5) var(--s4) var(--s4); }
