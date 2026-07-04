@@ -567,12 +567,7 @@ function makeRock(rng, r, color = COL.rock) {
 function floraFor(theme, rng, s = 1) {
   const kind = theme.flora;
   if (kind === 'pine') return propGroup(rng() < 0.3 ? 'pine_tree' : 'pine_snow', s);
-  if (kind === 'cactus') {
-    const r = rng();
-    if (r < 0.5) return propGroup('cactus', s);
-    if (r < 0.78) return propGroup('dead_scrub', s);
-    return makeSandSpire(rng, s * 0.8);            // hoodoo spires stay sculpted
-  }
+  if (kind === 'cactus') return propGroup(rng() < 0.5 ? 'cactus' : 'dead_scrub', s);
   if (kind === 'jungle') return propGroup(rng() < 0.72 ? 'jungle_tree' : 'palm_tree', s);
   if (kind === 'autumn') return propGroup('autumn_tree', s);
   // aegean
@@ -659,7 +654,7 @@ function makeDock(len = 5.2) {
 
 function makeMarket(rng) {
   const g = new THREE.Group();
-  g.add(glbProp('market', { h: 6.0, ry: (rng() - 0.5) * 0.4 }));   // a proper trading post
+  g.add(glbProp('market', { h: 8.5, ry: (rng() - 0.5) * 0.4 }));   // a big, unmissable trading post
   return g;
 }
 
@@ -943,14 +938,6 @@ export function makeTomb(rng) {
     tip.position.set(x, 3.7, 5.4);
     g.add(shaft, tip);
   }
-  // drifted sand piled against the walls, and the last visitor's remains
-  for (let i = 0; i < 3; i++) {
-    const drift = makeDune(rng, 0xe8d8ac, 0.45 + rng() * 0.3);
-    const a = rng() * 6.28;
-    drift.position.set(Math.cos(a) * 6.5, 0, Math.sin(a) * 5.5);
-    drift.rotation.y = rng() * 6.28;
-    g.add(drift);
-  }
   const bones = makeRibs(rng);
   bones.scale.setScalar(0.8);
   bones.position.set(-4.6, 0.05, 3.4);
@@ -1047,7 +1034,7 @@ export function makeRealmField(theme, nodes, segs, rng, heightAt = null) {
     }
     return d;
   };
-  const scatter = (count, laneClear, isleClear, reach, make) => {
+  const scatter = (count, laneClear, isleClear, reach, make, yOff = 0) => {
     let placed = 0, tries = 0;
     while (placed < count && tries++ < count * 16) {
       const x = minX + rng() * (maxX - minX);
@@ -1055,7 +1042,7 @@ export function makeRealmField(theme, nodes, segs, rng, heightAt = null) {
       const sd = segDist(x, z);
       if (sd < laneClear || sd > reach || nodeDist(x, z) < isleClear) continue;
       const o = make();
-      o.position.set(x, groundY(x, z), z);
+      o.position.set(x, groundY(x, z) + yOff, z);
       o.rotation.y = rng() * 6.28;
       g.add(o);
       placed++;
@@ -1075,21 +1062,22 @@ export function makeRealmField(theme, nodes, segs, rng, heightAt = null) {
     scatter(6, 12, 17, 120, prop(['boulder'], 0.7, 1.2));   // sea stacks
   }
   if (theme.id === 'ice') {
-    scatter(60, 26, 22, 120, () => makeBerg(rng, 0.5 + rng() * 0.6));   // bergs stay clear of the lane
-    scatter(52, 21, 20, 120, () => makeFloe(rng, 0.8 + rng() * 0.9));
-    scatter(14, 19, 18, 120, prop(['ice_shard', 'iceberg', 'ice_floe'], 0.7, 1.3));
-    scatter(4, 14, 20, 115, prop(['shipwreck', 'driftwood'], 0.9, 1.4));
+    // bergs live OUT in the open water, well off the sailing lane; the crystals
+    // ride low on the surface and are flung far and wide
+    scatter(38, 36, 28, 280, () => makeBerg(rng, 0.5 + rng() * 0.6));
+    scatter(30, 32, 26, 280, () => makeFloe(rng, 0.8 + rng() * 0.9));
+    scatter(16, 30, 24, 280, prop(['ice_shard', 'crystal_cluster', 'ice_floe'], 0.7, 1.2), -0.35);
+    scatter(4, 22, 24, 200, prop(['shipwreck', 'driftwood'], 0.9, 1.4));
   } else if (theme.id === 'jungle') {
     scatter(80, 13, 20, 115, () => makeVineMat(rng, 0.65 + rng() * 0.7));
     scatter(18, 12, 18, 115, prop(['lily_pads', 'lily_pads', 'coral', 'driftwood'], 0.8, 1.4));
   } else if (theme.id === 'desert') {
-    // the dunes are now sculpted into the GROUND itself (see water.makeGround);
-    // the Reach is dressed with hoodoos, scrub, ruins and bones on the sand
-    scatter(70, 10, 16, 130, () => floraFor(theme, rng, 0.8 + rng() * 0.6));
-    scatter(20, 10, 16, 130, () => makeRock(rng, 0.5 + rng() * 0.7, theme.palette.rock));
-    scatter(10, 12, 18, 130, () => propGroup(rng() < 0.5 ? 'cairn' : 'bone_pile', 0.9 + rng() * 0.6));
-    scatter(16, 11, 17, 130, prop(['bone_pile', 'broken_statue', 'amphora_pile', 'ruined_column'], 0.7, 1.4));
-    scatter(14, 11, 17, 130, prop(['cactus', 'dead_scrub', 'sarcophagus', 'ruined_arch'], 0.8, 1.5));
+    // an OPEN Reach: the ground itself carries the broad dune swells, and the
+    // sand is nearly bare — only cactus, dry scrub and the odd cairn, all
+    // spread far apart (big reach) so the desert feels vast and empty
+    scatter(22, 12, 16, 240, () => propGroup('cactus', 0.8 + rng() * 0.6));
+    scatter(20, 12, 16, 240, () => propGroup('dead_scrub', 0.8 + rng() * 0.6));
+    scatter(9, 22, 24, 240, () => propGroup('cairn', 1.0 + rng() * 0.6));
   } else if (theme.id === 'autumn') {
     // the Vale is WALL-TO-WALL forest: a deep tree band hugging every track,
     // thick enough that the fog line always lands inside the woods
@@ -1475,19 +1463,13 @@ export function buildIsland(node, theme, domains) {
         g.position.set(node.x, 0, node.z);
         return { group: g, R: 3.4, plateauY: 0 };
       }
-      // dune waypoints on the trek: a cairn or caravan bones, half-lost in
-      // a cluster of wind-heaped dunes
-      const marker = propGroup(rng0() < 0.6 ? 'cairn' : 'bone_pile',
+      // an open waypoint on the trek: just a cairn, maybe a lone cactus or
+      // dry bush — the sand stays flat and empty (no heaped dune mounds)
+      const marker = propGroup(rng0() < 0.7 ? 'cairn' : 'bone_pile',
         1.0 + rng0() * 0.4);
       g.add(marker);
-      for (let i = 0; i < 2 + Math.floor(rng0() * 2); i++) {
-        const dune = makeDune(rng0, pal.sand);
-        const a = rng0() * 6.28, r = 4.5 + rng0() * 4;
-        dune.position.set(Math.cos(a) * r, 0, Math.sin(a) * r);
-        g.add(dune);
-      }
-      if (rng0() < 0.6) {
-        const fl = floraFor(theme, rng0, 0.8 + rng0() * 0.5);
+      if (rng0() < 0.7) {
+        const fl = propGroup(rng0() < 0.5 ? 'cactus' : 'dead_scrub', 0.8 + rng0() * 0.5);
         const a = rng0() * 6.28;
         fl.position.set(Math.cos(a) * 3.4, 0, Math.sin(a) * 3.4);
         g.add(fl);
@@ -1497,16 +1479,13 @@ export function buildIsland(node, theme, domains) {
       return { group: g, R: 3, plateauY: 0 };
     }
     if (theme.id === 'ice' && node.region) {
-      // Frostfang water: every stop is a mooring BESIDE a drifting berg —
-      // the Meshy berg is a pointed mountain, so the ship can't sit on it
-      const berg = makeBerg(rng0, 0.75 + rng0() * 0.35);
-      const ba = rng0() * 6.28;
-      berg.position.set(Math.cos(ba) * 5.4, 0, Math.sin(ba) * 5.4);
-      g.add(berg);
+      // Frostfang water: the mooring is OPEN water — bergs live far out in the
+      // field (see makeRealmField), not crowding the stop. Only a couple of low
+      // drift-floes ring the berth so the ship never parks against a wall.
       for (let i = 0; i < 2; i++) {
-        const f = makeFloe(rng0, 0.9 + rng0() * 0.6);
-        const a = rng0() * 6.28, r = 5 + rng0() * 3.5;
-        f.position.set(Math.cos(a) * r, 0, Math.sin(a) * r);
+        const f = makeFloe(rng0, 0.6 + rng0() * 0.4);
+        const a = rng0() * 6.28, r = 10 + rng0() * 4;
+        f.position.set(Math.cos(a) * r, -0.3, Math.sin(a) * r);
         g.add(f);
       }
       g.add(shallowDisc(16, theme.water.shallow));
@@ -1607,7 +1586,7 @@ export function buildIsland(node, theme, domains) {
     lh.position.set(lhp.x, lhp.y, lhp.z);
     g.add(lh);
     for (const a of [2.6, 4.2]) {
-      const palm = makePalm(rng0, 1.1);
+      const palm = propGroup('palm_tree', 1.0 + rng0() * 0.2);   // the Meshy palm
       const pp = terrain.place(a, 0.55);
       palm.position.set(pp.x, pp.y, pp.z);
       g.add(palm);
@@ -1744,9 +1723,10 @@ export function buildIsland(node, theme, domains) {
   } else if (node.type === 'shop') {
     terrain = mt({ seed, R, H: 1.6, mode: 'flat', palette: { ...footPal } });
     const stall = makeMarket(rng0);
-    stall.position.y = terrain.heightAt(0.12);
+    const sp = terrain.place(Math.PI / 2, 0.1);    // planted in the middle of the isle
+    stall.position.set(sp.x, sp.y, sp.z);
     g.add(stall);
-    if (!foot) g.add(placeDock(terrain, Math.PI + (rng0() - 0.5), 4.6));
+    if (!foot) g.add(placeDock(terrain, -Math.PI / 2 + (rng0() - 0.5) * 0.5, 4.6));
     const fa = 2.2 + rng0();
     const fp = terrain.place(fa, 0.5);
     const fl = floraFor(theme, rng0, 1.0);

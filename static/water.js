@@ -102,7 +102,7 @@ export function makeGround(theme, size = 3000, opts = {}) {
   const cx = opts.center?.x ?? 0, cz = opts.center?.z ?? 0;
   const segs = opts.segs || [];                    // world-space [x0,z0,x1,z1]
   const isDesert = theme.id === 'desert';
-  const DUNE = isDesert ? 1.5 : 0;                 // dune height off the lanes
+  const DUNE = isDesert ? 0.9 : 0;                 // subtle, broad desert swells
   const segDist = (wx, wz) => {
     if (!segs.length) return 1e9;
     let d = 1e9;
@@ -117,15 +117,14 @@ export function makeGround(theme, size = 3000, opts = {}) {
   // a real dune SEA: continuous transverse ridges marching across the wind,
   // their crest-lines wandering, crossed by a slower ground swell so it never
   // reads as a washboard. NOT isolated humps — the sand rolls everywhere.
-  const wa = 0.7, ca = Math.cos(wa), sa = Math.sin(wa);   // prevailing wind axis
+  // an OPEN desert: broad, long-wavelength swells so the sand reads as a vast
+  // flat expanse that merely breathes — not a field of humps crowding the road
+  const wa = 0.7, ca = Math.cos(wa), sa = Math.sin(wa);
   const dunes = (wx, wz) => {
-    const u = wx * ca + wz * sa;                    // down-wind
-    const v = -wx * sa + wz * ca;                   // across-wind (ridge line)
-    const ridge = Math.sin(u * 0.05 + Math.sin(v * 0.02 + p1) * 2.0
-                                     + Math.sin(v * 0.06 + p2) * 0.7);
-    const swell = Math.sin(u * 0.019 - v * 0.013 + p3) * 0.5;
-    const ripple = Math.sin(u * 0.19 + Math.sin(v * 0.05) * 3) * 0.1;  // wind ripples
-    return ridge + swell + ripple;                  // ≈ −1.6 … 1.6
+    const u = wx * ca + wz * sa;
+    const v = -wx * sa + wz * ca;
+    return Math.sin(u * 0.011 + Math.sin(v * 0.007 + p1) * 1.1) * 0.8
+         + Math.sin(v * 0.008 - u * 0.005 + p2) * 0.5;    // ≈ −1.3 … 1.3, huge wavelength
   };
   // background relief that fills the far skyline the same way it always did
   const bg = (lx, lz) =>
@@ -140,7 +139,7 @@ export function makeGround(theme, size = 3000, opts = {}) {
     const lx = wx - cx, lz = wz - cz;
     const r = Math.hypot(lx, lz);
     const bgAmp = 0.35 + smooth(110, 420, r) * 4.2;
-    const lane = smooth(5, 15, segDist(wx, wz));    // flat only right on the road
+    const lane = smooth(10, 45, segDist(wx, wz));   // a wide flat corridor along the road
     return bg(lx, lz) * bgAmp + dunes(wx, wz) * lane * DUNE;
   };
 
