@@ -1131,13 +1131,13 @@ export function makeRealmField(theme, nodes, segs, rng, heightAt = null) {
     scatter(20, 12, 16, 240, () => propGroup('dead_scrub', 0.8 + rng() * 0.6));
     scatter(9, 22, 24, 240, () => propGroup('cairn', 1.0 + rng() * 0.6));
   } else if (theme.id === 'autumn') {
-    // the Vale is a wooded MAZE: trees stand well back off the track (laneClear
-    // 15) so the dirt path always reads with clear ground to either side, but
-    // still close enough that the fog line lands inside the woods
-    scatter(300, 15, 12, 82, () => floraFor(theme, rng, 1.1 + rng() * 0.9));
-    scatter(30, 15, 12, 82, () => makeRock(rng, 0.4 + rng() * 0.7, theme.palette.rock));
-    scatter(12, 15, 13, 82, prop(['dead_tree', 'mushroom_cluster', 'boulder', 'cairn'], 0.7, 1.4));
-    scatter(9, 15, 13, 82, prop(['autumn_tree', 'campfire', 'stone_well', 'barrel', 'waymarker_stone'], 0.8, 1.5));
+    // the Vale is a DENSE wooded maze: a deep, thick forest packed right up to
+    // the track — but a firm laneClear keeps every trunk off the path so the
+    // stone-set trail always reads with clear ground to either side.
+    scatter(900, 11, 9, 95, () => floraFor(theme, rng, 1.1 + rng() * 0.9));
+    scatter(60, 11, 10, 95, () => makeRock(rng, 0.4 + rng() * 0.7, theme.palette.rock));
+    scatter(26, 11, 11, 95, prop(['dead_tree', 'mushroom_cluster', 'boulder', 'cairn'], 0.7, 1.4));
+    scatter(16, 11, 11, 95, prop(['autumn_tree', 'campfire', 'stone_well', 'barrel', 'waymarker_stone'], 0.8, 1.5));
   } else {
     // hub / aegean open water: flotsam only — the good stuff is ashore
     scatter(8, 12, 17, 120, prop(['driftwood', 'fishing_net', 'buoy'], 0.7, 1.1));
@@ -1483,8 +1483,11 @@ export function buildIsland(node, theme, domains) {
   const R = (ISLE_R[node.type] ?? 4.8) * (node.type === 'sea' ? 1 : 0.88 + rng0() * 0.35);
   const foot = node.mode === 'foot';
   const pal = theme.palette;
-  // local wrapper (kept so all terrain routes through one place)
-  const mt = (opts) => makeTerrain(opts);
+  // In the Amber Vale the POIs sit DIRECTLY ON THE GROUND — no raised island.
+  // Flatten every terrain to a flush pad so shrines, camps and the barrow stand
+  // on the forest floor with the trees, not perched on their own little mounds.
+  const flatFoot = foot && theme.id === 'autumn';
+  const mt = (opts) => makeTerrain(flatFoot ? { ...opts, H: 0.05, mode: 'flat' } : opts);
   let terrain;
 
   /* waterline dressing appropriate to sea or sand footing */
@@ -1500,24 +1503,16 @@ export function buildIsland(node, theme, domains) {
   if (node.type === 'sea') {
     if (foot) {
       if (theme.id === 'autumn') {
-        // a maze waypoint on the forest track: JUST a little worn circle on the
-        // ground — a trodden dirt ring where the path forks. No grove crowding
-        // the stop; the trees are held back in the field, off the trail.
-        const disc = new THREE.Mesh(
-          new THREE.CircleGeometry(2.1, 20),
-          flat(0x8a6a3e, { roughness: 1 }));       // worn dirt, matches the path
-        disc.rotation.x = -Math.PI / 2;
-        disc.position.y = 0.06;
-        disc.receiveShadow = true;
-        g.add(disc);
-        const ring = new THREE.Mesh(
-          new THREE.RingGeometry(2.1, 2.7, 20),
-          flat(0xa5824c, { roughness: 1 }));        // scuffed lighter rim
-        ring.rotation.x = -Math.PI / 2;
-        ring.position.y = 0.05;
-        g.add(ring);
+        // a maze waypoint on the forest track: a single large flat stepping
+        // stone set into the path where it forks — no dirt splotch, no grove.
+        const stone = makeRock(rng0, 1.7, 0x9b938a);
+        stone.scale.y = 0.34;                       // a flattened slab, walk-on
+        stone.position.y = 0.12;
+        stone.castShadow = true;
+        stone.receiveShadow = true;
+        g.add(stone);
         g.position.set(node.x, 0, node.z);
-        return { group: g, R: 2.2, plateauY: 0 };
+        return { group: g, R: 1.9, plateauY: 0 };
       }
       // an open waypoint on the trek: just a cairn, maybe a lone cactus or
       // dry bush — the sand stays flat and empty (no heaped dune mounds)
@@ -1830,7 +1825,7 @@ export function buildIsland(node, theme, domains) {
   if (node.type !== 'pharos' && node.type !== 'home') dressIsland(g, rng0, theme, R, terrain);
 
   g.add(terrain.mesh);
-  addSkirt(R);
+  if (!flatFoot) addSkirt(R);          // no beach/leaf skirt around a flush pad
   g.position.set(node.x, 0, node.z);
   return { group: g, R, plateauY: terrain.heightAt(0) };
 }
