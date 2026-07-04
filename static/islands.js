@@ -654,7 +654,7 @@ function makeDock(len = 5.2) {
 
 function makeMarket(rng) {
   const g = new THREE.Group();
-  g.add(glbProp('market', { h: 8.5, ry: (rng() - 0.5) * 0.4 }));   // a big, unmissable trading post
+  g.add(glbProp('market', { h: 5.0, ry: (rng() - 0.5) * 0.4 }));   // the marble taberna, sized to its isle
   return g;
 }
 
@@ -1585,11 +1585,17 @@ export function buildIsland(node, theme, domains) {
     const lhp = terrain.place(3.9, 0.22);          // near the crown, on the surface
     lh.position.set(lhp.x, lhp.y, lhp.z);
     g.add(lh);
-    for (const a of [2.6, 4.2]) {
-      const palm = propGroup('palm_tree', 1.0 + rng0() * 0.2);   // the Meshy palm
-      const pp = terrain.place(a, 0.55);
-      palm.position.set(pp.x, pp.y, pp.z);
-      g.add(palm);
+    // a little grove ringing Home Port — Meshy palms with a couple of olives
+    // and a cypress for variety, all seated on the actual surface
+    const homeTrees = [
+      ['palm_tree', 2.2, 0.6], ['palm_tree', 3.7, 0.62], ['palm_tree', 5.1, 0.55],
+      ['olive_tree', 1.2, 0.5], ['cypress_tree', 0.4, 0.58], ['palm_tree', 4.6, 0.44],
+    ];
+    for (const [id, a, rr] of homeTrees) {
+      const tree = propGroup(id, 0.9 + rng0() * 0.3);
+      const pp = terrain.place(a + (rng0() - 0.5) * 0.3, rr);
+      tree.position.set(pp.x, pp.y, pp.z);
+      g.add(tree);
     }
   } else if (node.type === 'shrine') {
     const hex = DOMAIN_COLORS[node.domain] || '#d9a441';
@@ -1659,10 +1665,10 @@ export function buildIsland(node, theme, domains) {
     terrain = mt({ seed, R, H: 1.2, mode: 'flat', palette: { ...footPal } });
     // Meshy boss-den model (falls back to nothing until loaded; the relic
     // beacon + totem FX below still mark the lair)
-    const den = propGroup(theme.id === 'desert' ? 'tomb'
-      : theme.id === 'jungle' ? 'jungle_dungeon' : 'barrow', 2.6);
+    const isTomb = theme.id === 'desert';
+    const den = propGroup(isTomb ? 'tomb' : 'barrow', isTomb ? 3.9 : 2.6);  // tomb 150% up
     den.position.y = terrain.heightAt(0.1);
-    den.rotation.y = Math.atan2(-node.x, -node.z);   // door faces back down the trail
+    den.rotation.y = Math.atan2(-node.x, -node.z) + (isTomb ? Math.PI : 0);  // tomb turned 180°
     g.add(den);
     const beacon = makeRelicBeacon();
     beacon.position.set(-R * 0.52, terrain.surfaceY(-R * 0.52, R * 0.34), R * 0.34);
@@ -1674,13 +1680,24 @@ export function buildIsland(node, theme, domains) {
     }
   } else if (node.type === 'monster' || node.type === 'lair') {
     const dark = node.type === 'lair';
-    terrain = mt({ seed, R, H: dark ? 3.6 : 2.6, mode: 'peak',
-      palette: { ...footPal, ...(dark ? { rock: COL.basalt } : {}) } });
+    // the jungle tyrant gets a sunken stone DUNGEON on a flatter isle (not the
+    // basalt spike the other sail lairs use) so the temple sits and reads
+    const jungleLair = dark && theme.id === 'jungle';
+    terrain = mt({ seed, R, H: jungleLair ? 1.6 : (dark ? 3.6 : 2.6),
+      mode: jungleLair ? 'mesa' : 'peak',
+      palette: { ...footPal, ...(dark && !jungleLair ? { rock: COL.basalt } : {}) } });
     if (node.type === 'lair') {
       const accent = REALM_INFO[node.region]?.accent ?? '#ff5030';
-      const altar = makeLairAltar(accent, rng0);
-      altar.position.set(R * 0.1, terrain.heightAt(0.25) + 0.2, 0);
-      g.add(altar);
+      if (jungleLair) {
+        const den = propGroup('jungle_dungeon', 2.6);
+        den.position.y = terrain.heightAt(0.08);
+        den.rotation.y = Math.atan2(-node.x, -node.z);
+        g.add(den);
+      } else {
+        const altar = makeLairAltar(accent, rng0);
+        altar.position.set(R * 0.1, terrain.heightAt(0.25) + 0.2, 0);
+        g.add(altar);
+      }
       const beacon = makeRelicBeacon();
       beacon.position.set(-R * 0.3, terrain.heightAt(0.35), -R * 0.25);
       g.add(beacon);
