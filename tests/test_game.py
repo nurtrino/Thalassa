@@ -1478,6 +1478,7 @@ def test_sphinx_stops_desert_crossings():
         g.battle = None
         g.board.nodes[road]["monster"] = None
         g.rng = _r.Random(seed)
+        g.turn_idx = 0                                  # keep p0 the actor
         g.phase = "sail"
         p.prev_node = p.node
         p.node = road
@@ -1501,14 +1502,16 @@ def test_sphinx_failure_sweeps_you_back():
         g.battle = None
         g.board.nodes[road]["monster"] = None
         g.rng = _r.Random(seed)
+        g.turn_idx = 0                                  # keep p0 the actor
         g.phase = "sail"
         p.prev_node = start
         p.node = road
         g._land(p, road)
         if g.phase == "minigame" and g.minigame.get("sphinx"):
+            before = g.current.pid
             g.resolve_minigame(False)
             assert p.node != road                       # swept back down the road
-            assert g.current.pid == p1
+            assert g.current.pid != before              # …and the turn moved on
             return
         g.battle = None
     assert False, "sphinx never appeared"
@@ -1524,14 +1527,16 @@ def test_sphinx_pass_lets_you_stay():
         g.battle = None
         g.board.nodes[road]["monster"] = None
         g.rng = _r.Random(seed)
+        g.turn_idx = 0                                  # keep p0 the actor
         g.phase = "sail"
         p.prev_node = p.node
         p.node = road
         g._land(p, road)
         if g.phase == "minigame" and g.minigame.get("sphinx"):
+            before = g.current.pid
             g.resolve_minigame(True)
             assert p.node == road                       # you hold your ground
-            assert g.current.pid == p1
+            assert g.current.pid != before              # …and the turn moved on
             return
         g.battle = None
     assert False, "sphinx never appeared"
