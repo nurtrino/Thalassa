@@ -1592,15 +1592,10 @@ export function buildIsland(node, theme, domains) {
     // wall itself so the gateway reads clearly instead of washing into haze
     portal.traverse(fogFree);
     g.add(portal);
-    // (no inner sculpted archway — the captain spawns clear of the pass and
-    // walks into the realm; a second arch in the mouth just boxed them in)
-    // Pull the WHOLE pass back toward the isles (−radial): the structure is
-    // centred on the node and reaches ~13 units into the realm, which put the
-    // captain's berth right in its mouth. Set it well behind the spawn so you
-    // stand IN FRONT of the gate and walk out into the region.
-    const grad = new THREE.Vector3(node.x, 0, node.z).normalize();
-    const GATE_BACK = 22;    // pull the pass ~22 hub-ward so its mouth sits behind you
-    g.position.set(node.x - grad.x * GATE_BACK, 0, node.z - grad.z * GATE_BACK);
+    // The pass stands ON its node (radius ~500). You BERTH on the isles-facing
+    // side of it (see gateBerth), so the arch is always AHEAD of you and you
+    // sail OUT through it into the realm — never spawning inside the mouth.
+    g.position.set(node.x, 0, node.z);
     // the channel must open RADIALLY (boat sails in from the isles, out to
     // the realm); towers flank it tangentially. π/2 − angle, not −angle,
     // or a tower sits square in the fairway.

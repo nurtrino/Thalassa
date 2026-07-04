@@ -350,7 +350,15 @@ export function createWorld(container, handlers = {}) {
       const prev = rec?.prevNode ? nodeById[rec.prevNode] : null;
       if (prev && prev.type !== 'gate') {
         const from = prev.region || 'hub';
-        return from === 'hub' ? (n.region || 'hub') : 'hub';
+        const dest = from === 'hub' ? (n.region || 'hub') : 'hub';
+        // don't load the realm until the boat has actually SAILED UP to the pass:
+        // while it's still crossing (animating in the stage it left from), hold
+        // the old stage so the new environment doesn't pop in early.
+        if (rec && rec.anim && activeBoardId && activeBoardId !== dest
+            && stageHasNode(activeBoardId, rec.prevNode)) {
+          return activeBoardId;
+        }
+        return dest;
       }
       if (activeBoardId && stageHasNode(activeBoardId, me.node)) return activeBoardId;
       return n.region || 'hub';
@@ -709,15 +717,15 @@ export function createWorld(container, handlers = {}) {
     // lets two ships share the mouth without overlapping.
     const rad = new THREE.Vector3(n.x, 0, n.z).normalize();   // outward (radial)
     const inRealm = !!(st && st.id !== 'hub');
-    const side = inRealm ? 1 : -1;                            // realm past the arch
-    // the gate structure is pulled ~22 hub-ward (see makeGatePortal caller), so a
-    // modest step past the node lands you just IN FRONT of the mouth, the pass at
-    // your back and the realm's roads opening ahead; at the hub you wait outside it
-    const along = inRealm ? 12 : 7;
+    // ALWAYS berth on the ISLES-facing (inward, −radial) side of the pass — the
+    // gate structure spans the node, the realm's roads open OUTWARD beyond it, so
+    // sitting inward puts the arch AHEAD of you and you sail OUT through it. Never
+    // land inside the mouth. A touch further back once across so the pass reads.
+    const along = inRealm ? 32 : 14;
     const fan = ((slotIdx % 3) - 1) * 3.0;
     return new THREE.Vector3(
-      n.x + rad.x * along * side - rad.z * fan, 0,
-      n.z + rad.z * along * side + rad.x * fan);
+      n.x - rad.x * along - rad.z * fan, 0,
+      n.z - rad.z * along + rad.x * fan);
   }
 
   function slotFor(nodeId, slotIdx, st) {
@@ -872,11 +880,10 @@ export function createWorld(container, handlers = {}) {
     }
     const dest = nodeById[toNode];
     if (dest && dest.type === 'gate') {
-      // line the final leg up with the channel so we run straight at the arch
+      // approach the isles-facing berth straight down the channel (the berth
+      // itself is inward of the arch — see gateBerth), so run in from further in
       const rad = _vD.set(dest.x, 0, dest.z).normalize();
-      const side = st.id !== 'hub' ? 1 : -1;
-      const gAlong = st.id !== 'hub' ? 12 : 34;   // match the realm berth; run in from far on the hub side
-      raw.push(new THREE.Vector3(dest.x + rad.x * gAlong * side, 0, dest.z + rad.z * gAlong * side));
+      raw.push(new THREE.Vector3(dest.x - rad.x * 46, 0, dest.z - rad.z * 46));
     }
     raw.push(slotFor(toNode, rec.idx, st));
     const pts = avoidIslands(raw, st);
@@ -1524,20 +1531,6 @@ export function createWorld(container, handlers = {}) {
         7 - 5.4 * ease,
         cine.gate.z + (o.z - cine.gate.z) * ease);
       controls.update();
-      // sail the BOAT itself from just before the arch, THROUGH the pass, to its
-      // berth — so you watch it come through the gate instead of popping past it
-      const gfp = focusPid(lastRoom);
-      const grec = gfp ? ships[gfp] : null;
-      if (grec && grec.stageId === st.id && grec.mode !== 'foot') {
-        const berth = slotFor(grec.node, grec.idx, st);
-        let bx = berth.x - cine.gate.x, bz = berth.z - cine.gate.z;
-        const bl = Math.hypot(bx, bz) || 1; bx /= bl; bz /= bl;   // gate → realm
-        _vA.set(cine.gate.x - bx * 26, 0, cine.gate.z - bz * 26);  // hub side of arch
-        grec.anim = null;                          // the cinematic steers it now
-        grec.root.position.lerpVectors(_vA, berth, ease);
-        grec.root.position.y = 0;
-        grec.root.rotation.y = Math.atan2(-bz, bx);
-      }
       st.sun.position.copy(controls.target).addScaledVector(st.sunDir, 380);
       st.sun.target.position.copy(controls.target);
       return true;
