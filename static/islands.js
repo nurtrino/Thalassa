@@ -1848,15 +1848,8 @@ export function makeShip(colorHex) {
     g.add(rail);
   }
 
-  const post = (x, lean, y = 0.9) => {
-    const p = new THREE.Mesh(
-      new THREE.TorusGeometry(0.3, 0.055, 6, 10, 2.1), flat(COL.woodDark));
-    p.position.set(x, y, 0);
-    p.rotation.z = lean;
-    return p;
-  };
-  // seated on the stem/stern-post ends of the hull (not floating past the tips)
-  g.add(post(-1.6, -0.5, 0.88), post(1.66, Math.PI - 2.6, 0.9));
+  // (no curved bow/stern prow ornaments — they read as floating hooks above
+  // the rail no matter how they're seated; the swept hull tips stand on their own)
 
   // (no bronze ram — anything forward of the stem reads as floating in water)
 

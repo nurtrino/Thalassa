@@ -64,7 +64,7 @@ const BOATS = new Set(['skiff']);
 
 /* a few Meshy sculpts came out of the auto-rig facing ±Z instead of the
  * game's +X convention — square them up at template time */
-const MODEL_YAW = { sphinx: Math.PI / 2, monkey: Math.PI / 2 };
+const MODEL_YAW = { sphinx: Math.PI / 2, monkey: Math.PI / 2, harpy: Math.PI / 2 };
 
 const loader = new GLTFLoader();
 const templates = new Map();     // id → Promise<Group>  (never rejects)
