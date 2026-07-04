@@ -7,9 +7,10 @@ static/fixture.json
 
 # Meshy pipeline — raw HD intermediates (huge, reproducible) and run artifacts
 static/assets/monsters/_meshy/
-static/assets/ground/          # raw ground-tile GLBs; only the baked textures/*.jpg ship
+# raw ground-tile GLBs (superseded by the procedural terrain)
+static/assets/ground/
 tools/.forge_*.log
-tools/.meshy_state.json
-tools/.meshy_structures_state.json
+tools/.meshy*state.json
+tools/.meshy_*_state.json
 tools/samples/
 tools/*.tmp*
