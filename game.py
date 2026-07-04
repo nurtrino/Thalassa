@@ -190,6 +190,8 @@ class Game:
         self.battle: dict | None = None    # {node, stance, used_items, first_hit_taken}
         self.minigame: dict | None = None  # {kind, island, data, limit, deadline}
         self.kraken: dict | None = None    # {node, asked} — the gauntlet's progress
+        self.flash: dict | None = None     # transient right/wrong banner {ok, text, seq}
+        self._flash_seq = 0
         self.upgrade_offer: list[str] | None = None
         self.used_puzzles: set[int] = set()
         self.pharos_open = False
@@ -204,6 +206,11 @@ class Game:
     def _say(self, msg: str):
         self.log.append(msg)
         self.log = self.log[-8:]
+
+    def _flash(self, ok: bool, text: str):
+        """A one-shot right/wrong banner for the client (kraken riddles, etc.)."""
+        self._flash_seq += 1
+        self.flash = {"ok": bool(ok), "text": text, "seq": self._flash_seq}
 
     def player_by_pid(self, pid):
         return next((p for p in self.players if p.pid == pid), None)
@@ -1076,6 +1083,7 @@ class Game:
                 raise GameError("Not solved — the enemy circles…")
             return
         if mg.get("kraken"):
+            self._flash(ok, "Correct!" if ok else "Wrong!")
             if ok:
                 self._kraken_next()
             else:
@@ -1393,6 +1401,7 @@ class Game:
             "upgrade_offer": self.upgrade_offer if self.phase == "upgrade_pick" else None,
             "upgrade_info": ALL_UPGRADES,
             "pharos_open": self.pharos_open,
+            "flash": self.flash,
             "winner": self.winner,
             "log": self.log,
             "config": {"relics_to_win": RELICS_TO_WIN, "tier_reward": TIER_REWARD,

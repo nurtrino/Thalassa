@@ -1537,6 +1537,15 @@ export function createWorld(container, handlers = {}) {
           camera.position.add(_vB);
         }
       }
+      // the Kraken bars the way: the eye pushes IN on the standoff
+      if (krakenRec && krakenRec.obj) {
+        _vB.subVectors(camera.position, controls.target);
+        const d = _vB.length();
+        if (d > 27) {
+          _vB.multiplyScalar((27 / d - 1) * Math.min(1, dt * 1.4));
+          camera.position.add(_vB);
+        }
+      }
     }
     controls.update();
     /* keep the tight shadow frustum (and the sun) glued to the action */
@@ -1867,16 +1876,24 @@ export function createWorld(container, handlers = {}) {
     }
     if (want && !krakenRec && st && stageHasNode(activeBoardId, want)) {
       krakenRec = { node: want, obj: null };
-      getMonster('kraken', { scale: 1.6 }).then((mon) => {
+      getMonster('kraken', { scale: 1.9 }).then((mon) => {
         if (!krakenRec || krakenRec.node !== want) { disposeMonster(mon); return; }
         const n = nodeById[want];
-        mon.position.set(n.x + 7, -0.6, n.z - 4);   // rises just off the bow
+        // it surfaces DEAD AHEAD, blocking the way onward (away from Home Port)
+        const home = nodeById.home;
+        let fx = n.x - (home?.x ?? 0), fz = n.z - (home?.z ?? 0);
+        const fl = Math.hypot(fx, fz) || 1; fx /= fl; fz /= fl;
+        mon.position.set(n.x + fx * 9, -0.8, n.z + fz * 9);
         mon.lookAt(n.x, 0, n.z);
+        mon.rotation.y += Math.PI / 2;              // face 90° counter-clockwise
         st.scene.add(mon);
         krakenRec.obj = mon;
       });
     }
-    if (krakenRec?.obj) animateMonster(krakenRec.obj, clock.getElapsedTime(), 'idle');
+    if (krakenRec?.obj) {
+      animateMonster(krakenRec.obj, clock.getElapsedTime(), 'idle');
+      krakenRec.obj.position.y = -0.8 + Math.sin(clock.getElapsedTime() * 1.1) * 0.25;  // heave
+    }
   }
 
   const clock = new THREE.Clock();

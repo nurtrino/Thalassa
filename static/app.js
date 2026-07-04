@@ -63,6 +63,7 @@ const SHOP_ICON = {
 let ws = null;
 let you = null;
 let room = null;
+let lastFlashSeq = 0;
 let world = null;
 let joined = false;             // the player pressed JOIN at least once
 let reconnectN = 0;
@@ -247,6 +248,10 @@ function handle(msg) {
     }
     render();
     reactAudio(prev, room);
+    if (room.flash && room.flash.seq !== lastFlashSeq) {
+      lastFlashSeq = room.flash.seq;
+      showVerdictBanner(room.flash.ok, room.flash.text);
+    }
   } else if (msg.type === 'dice') {
     audio.sfx.dice();
     animateDie(msg.value);
@@ -392,6 +397,22 @@ function renderLoading(done, total) {
   const pct = total ? Math.round((done / total) * 100) : 100;
   ov.querySelector('.lfill').style.width = pct + '%';
   ov.querySelector('.lcount').textContent = `${done} / ${total} treasures aboard`;
+}
+
+/* a big centred CORRECT / WRONG banner (the Kraken's riddles announce their
+ * verdict this way) — flashes green or red, plays the matching sting, fades */
+function showVerdictBanner(ok, text) {
+  (ok ? audio.sfx.correct : audio.sfx.wrong)?.();
+  const d = document.createElement('div');
+  d.className = 'verdictBanner ' + (ok ? 'good' : 'bad');
+  d.textContent = text;
+  document.body.appendChild(d);
+  d.animate(
+    [{ opacity: 0, transform: 'translate(-50%,-50%) scale(.7)' },
+     { opacity: 1, transform: 'translate(-50%,-50%) scale(1)', offset: 0.2 },
+     { opacity: 1, transform: 'translate(-50%,-50%) scale(1)', offset: 0.75 },
+     { opacity: 0, transform: 'translate(-50%,-50%) scale(1.05)' }],
+    { duration: 1400, easing: 'ease-out' }).onfinish = () => d.remove();
 }
 
 /* what to shout when a battle opens */
