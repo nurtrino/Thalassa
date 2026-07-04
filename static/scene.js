@@ -1100,7 +1100,9 @@ export function createWorld(container, handlers = {}) {
     const node = nodeById[b.node];
     const theme = themeFor(b.is_pharos ? 'pharos' : (b.region || node?.region || 'hub'));
     const fighter = room.players?.find((p) => p.pid === room.turn);
-    const heroKind = node?.mode === 'foot' ? 'captain' : 'ship';
+    // the final trial is fought on foot atop the Pharos — the captain climbs
+    // the lighthouse to face the Dark Presence, boat left far below.
+    const heroKind = (b.is_pharos || node?.mode === 'foot') ? 'captain' : 'ship';
     battleKey = b.node + '|' + (fighter?.pid || '') + '|' + (b.round != null ? 'r' : '');
     battleStage.enter({
       battle: b, room, you: myPid, theme,

@@ -82,6 +82,11 @@ const templates = new Map();     // id → Promise<Group>  (never rejects)
 function ensureTemplate(id) {
   let p = templates.get(id);
   if (p) return p;
+  if (id === 'captain') {                    // rigged procedural hoplite, not a GLB
+    p = Promise.resolve(prepareTemplate(buildCaptain(), 'captain'));
+    templates.set(id, p);
+    return p;
+  }
   p = loader.loadAsync(`/static/assets/monsters/${id}.glb`)
     .then((gltf) => prepareTemplate(gltf.scene, id))
     .catch((err) => {
@@ -176,6 +181,100 @@ function buildFallback(id) {
     e.position.set(0.2, 0.05, 0.18 * sz);
     head.add(e);
   }
+  return root;
+}
+
+/* The captain — the player's on-foot avatar. A rigged low-poly hoplite whose
+ * limbs are named for the animator (legL/legR/armL/armR + body/head), so the
+ * shared biped gait in poseLocomotion strides him along on foot and swings his
+ * spear on the walk. His tunic + cloak use a 'cloth' material so retint() paints
+ * him the player's colour. Built facing +X (the engine's forward). */
+function buildCaptain() {
+  const cloth = flat(0x8a8a8a, { name: 'cloth', roughness: 0.95 });   // tinted
+  const bronze = flat(0xb5883a, { metalness: 0.35, roughness: 0.5 });
+  const bronzeD = flat(0x8a6626, { roughness: 0.55 });
+  const skin = flat(0xd7a877, { roughness: 0.85 });
+  const crestC = flat(0xb0302a, { roughness: 0.7 });
+  const wood = flat(0x6b4a2a, { roughness: 0.8 });
+  const leather = flat(0x5a4630, { roughness: 0.9 });
+
+  const root = new THREE.Group();
+  root.name = 'captain';
+  root.userData.procedural = true;
+
+  // legs — pivot groups at the hips; poseLocomotion swings rotation.z into a stride
+  const leg = (side) => {                              // side +1 = left(+Z)
+    const g = new THREE.Group();
+    g.name = side > 0 ? 'legL' : 'legR';
+    g.position.set(0, 0.82, 0.15 * side);
+    const limb = new THREE.Mesh(new THREE.CylinderGeometry(0.09, 0.075, 0.8, 7), skin);
+    limb.position.y = -0.4; g.add(limb);
+    const greave = new THREE.Mesh(new THREE.CylinderGeometry(0.095, 0.08, 0.34, 7), bronze);
+    greave.position.y = -0.62; g.add(greave);
+    const foot = new THREE.Mesh(new THREE.BoxGeometry(0.26, 0.09, 0.16), leather);
+    foot.position.set(0.06, -0.8, 0); g.add(foot);
+    return g;
+  };
+  root.add(leg(1), leg(-1));
+
+  // body — torso, cuirass, belt, cloak; head + arms ride on it so they bob together
+  const body = new THREE.Group();
+  body.name = 'body';
+  body.position.set(0, 0.82, 0);
+  const skirt = new THREE.Mesh(new THREE.CylinderGeometry(0.22, 0.28, 0.34, 10), cloth);
+  skirt.position.y = 0.12; body.add(skirt);
+  const torso = new THREE.Mesh(new THREE.CylinderGeometry(0.24, 0.23, 0.5, 10), bronze);
+  torso.position.y = 0.5; body.add(torso);
+  const belt = new THREE.Mesh(new THREE.CylinderGeometry(0.245, 0.245, 0.08, 10), bronzeD);
+  belt.position.y = 0.28; body.add(belt);
+  const cloak = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.82, 0.5), cloth);
+  cloak.position.set(-0.2, 0.42, 0); cloak.rotation.z = 0.1; body.add(cloak);
+  root.add(body);
+
+  // head — skull, crested helm, nose guard (faces +X)
+  const head = new THREE.Group();
+  head.name = 'head';
+  head.position.set(0, 0.78, 0);
+  head.add(new THREE.Mesh(new THREE.SphereGeometry(0.14, 10, 8), skin));
+  const helm = new THREE.Mesh(
+    new THREE.SphereGeometry(0.16, 10, 8, 0, Math.PI * 2, 0, Math.PI * 0.62), bronze);
+  helm.position.y = 0.03; head.add(helm);
+  const nose = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.15, 0.05), bronze);
+  nose.position.set(0.11, 0.0, 0); head.add(nose);
+  const crest = new THREE.Mesh(new THREE.BoxGeometry(0.36, 0.15, 0.05), crestC);
+  crest.position.set(0, 0.2, 0); head.add(crest);
+  body.add(head);
+
+  // right arm — hefts a spear; left arm — bears the round hoplon
+  const armR = new THREE.Group();
+  armR.name = 'armR';
+  armR.position.set(0, 0.62, -0.24);
+  const upR = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.055, 0.5, 7), skin);
+  upR.position.y = -0.22; armR.add(upR);
+  const pauR = new THREE.Mesh(new THREE.SphereGeometry(0.1, 8, 6), bronze);
+  pauR.position.y = 0.02; armR.add(pauR);
+  const shaft = new THREE.Mesh(new THREE.CylinderGeometry(0.025, 0.025, 1.3, 6), wood);
+  shaft.position.set(0.12, -0.2, 0); armR.add(shaft);
+  const tip = new THREE.Mesh(new THREE.ConeGeometry(0.05, 0.2, 6), bronze);
+  tip.position.set(0.12, 0.55, 0); armR.add(tip);
+  body.add(armR);
+
+  const armL = new THREE.Group();
+  armL.name = 'armL';
+  armL.position.set(0, 0.62, 0.24);
+  const upL = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.055, 0.5, 7), skin);
+  upL.position.y = -0.22; armL.add(upL);
+  const pauL = new THREE.Mesh(new THREE.SphereGeometry(0.1, 8, 6), bronze);
+  pauL.position.y = 0.02; armL.add(pauL);
+  const shield = new THREE.Group();
+  shield.position.set(0.16, -0.28, 0.06);
+  const face = new THREE.Mesh(new THREE.CylinderGeometry(0.34, 0.34, 0.06, 20), bronze);
+  face.rotation.z = Math.PI / 2; shield.add(face);                    // disc faces ±X
+  const boss = new THREE.Mesh(new THREE.SphereGeometry(0.08, 8, 6), bronzeD);
+  boss.position.set(0.045, 0, 0); shield.add(boss);
+  armL.add(shield);
+  body.add(armL);
+
   return root;
 }
 
