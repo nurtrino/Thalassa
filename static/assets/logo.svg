@@ -1,0 +1,86 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512" font-family="Cinzel, 'Times New Roman', serif">
+  <defs>
+    <radialGradient id="sky" cx="50%" cy="38%" r="72%">
+      <stop offset="0%" stop-color="#1c3346"/>
+      <stop offset="55%" stop-color="#101f2b"/>
+      <stop offset="100%" stop-color="#080f16"/>
+    </radialGradient>
+    <linearGradient id="gold" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#f4d778"/>
+      <stop offset="50%" stop-color="#d9a441"/>
+      <stop offset="100%" stop-color="#9a6f1c"/>
+    </linearGradient>
+    <linearGradient id="marble" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#f7f2e4"/>
+      <stop offset="100%" stop-color="#d8cdb2"/>
+    </linearGradient>
+    <radialGradient id="glow" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#fff4cf" stop-opacity="1"/>
+      <stop offset="45%" stop-color="#ffdf8f" stop-opacity=".8"/>
+      <stop offset="100%" stop-color="#ffdf8f" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="beam" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#ffe9ad" stop-opacity=".55"/>
+      <stop offset="100%" stop-color="#ffe9ad" stop-opacity="0"/>
+    </linearGradient>
+  </defs>
+
+  <!-- tile -->
+  <rect x="6" y="6" width="500" height="500" rx="54" fill="url(#sky)" stroke="#c9a227" stroke-width="4"/>
+  <rect x="20" y="20" width="472" height="472" rx="44" fill="none" stroke="#c9a227" stroke-width="1.4" opacity=".45"/>
+
+  <!-- faint compass sky ticks -->
+  <g stroke="#c9a227" stroke-width="2" opacity=".22" stroke-linecap="round">
+    <path d="M256 44v20M256 448v20M44 256h20M448 256h20"/>
+  </g>
+  <g fill="#f0d060" opacity=".5">
+    <circle cx="120" cy="120" r="2.2"/><circle cx="392" cy="132" r="1.8"/>
+    <circle cx="150" cy="180" r="1.4"/><circle cx="372" cy="196" r="2.4"/>
+    <circle cx="96" cy="210" r="1.6"/>
+  </g>
+
+  <!-- light beams -->
+  <path d="M256 176 L120 96 L150 150 Z" fill="url(#beam)"/>
+  <path d="M256 176 L392 96 L362 150 Z" fill="url(#beam)"/>
+  <circle cx="256" cy="176" r="46" fill="url(#glow)"/>
+
+  <!-- Pharos -->
+  <g stroke="#7a5a2a" stroke-width="1.2" stroke-linejoin="round">
+    <!-- roof + finial -->
+    <circle cx="256" cy="150" r="6" fill="url(#gold)" stroke="none"/>
+    <path d="M232 176 L256 138 L280 176 Z" fill="url(#gold)"/>
+    <!-- beacon housing -->
+    <rect x="240" y="176" width="32" height="30" fill="url(#marble)"/>
+    <rect x="248" y="182" width="16" height="20" fill="#3a2c14" stroke="none"/>
+    <!-- gallery -->
+    <rect x="228" y="206" width="56" height="10" rx="2" fill="url(#gold)"/>
+    <!-- tiers -->
+    <path d="M234 216 h44 l-6 44 h-32 Z" fill="url(#marble)"/>
+    <path d="M228 260 h56 l-8 50 h-40 Z" fill="url(#marble)"/>
+    <path d="M220 310 h72 l-9 52 h-54 Z" fill="url(#marble)"/>
+    <!-- banding -->
+    <g stroke="#c9a227" stroke-width="3" opacity=".8">
+      <path d="M236 238 h40M230 285 h52M222 336 h68"/>
+    </g>
+    <!-- plinth -->
+    <rect x="200" y="362" width="112" height="16" rx="3" fill="url(#gold)"/>
+  </g>
+
+  <!-- Aegean waves -->
+  <g fill="none" stroke-linecap="round">
+    <path d="M96 392q20-16 40 0t40 0 40 0 40 0 40 0 40 0 40 0" stroke="#c9a227" stroke-width="5" opacity=".95"/>
+    <path d="M84 410q22-15 44 0t44 0 44 0 44 0 44 0 44 0" stroke="#3fb6c8" stroke-width="5" opacity=".7"/>
+    <path d="M104 426q20-13 40 0t40 0 40 0 40 0 40 0 40 0" stroke="#2e86ab" stroke-width="4.5" opacity=".55"/>
+  </g>
+
+  <!-- laurel sprigs -->
+  <g fill="#c9a227" opacity=".9">
+    <path d="M150 452c-14-4-24-14-28-28 12 2 22 10 28 24z"/>
+    <path d="M362 452c14-4 24-14 28-28-12 2-22 10-28 24z"/>
+  </g>
+
+  <!-- wordmark -->
+  <text x="256" y="472" text-anchor="middle" fill="url(#gold)"
+        font-size="46" font-weight="800" letter-spacing="8"
+        style="paint-order:stroke" stroke="#3a2c10" stroke-width="1">THALASSA</text>
+</svg>
