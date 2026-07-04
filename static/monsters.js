@@ -69,6 +69,9 @@ const BOATS = new Set(['skiff']);
 const MODEL_YAW = {
   sphinx: Math.PI / 2, monkey: Math.PI / 2, harpy: Math.PI / 2,
   bird: Math.PI / 2, bird_poison: Math.PI / 2, vulture: Math.PI / 2,
+  // the wyrm sculpt rears up facing +X the wrong way round — spin it 180°
+  // so its chest/head front the hero instead of turning its back to him.
+  wyrm: Math.PI,
 };
 
 const loader = new GLTFLoader();
