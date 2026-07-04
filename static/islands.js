@@ -73,7 +73,7 @@ function structTemplate(id) {
 export function preloadStructures() {
   return ['pharos', 'temple', 'temple_ice', 'temple_desert', 'temple_jungle',
           'temple_autumn', 'market', 'dock', 'obelisk', 'tents', 'lighthouse',
-          'gate_portal', 'sand_spire']
+          'gate_portal', 'sand_spire', 'ice_temple']
     .map((id) => structTemplate(id));
 }
 
@@ -1683,15 +1683,24 @@ export function buildIsland(node, theme, domains) {
     // the jungle tyrant gets a sunken stone DUNGEON on a flatter isle (not the
     // basalt spike the other sail lairs use) so the temple sits and reads
     const jungleLair = dark && theme.id === 'jungle';
-    terrain = mt({ seed, R, H: jungleLair ? 1.6 : (dark ? 3.6 : 2.6),
-      mode: jungleLair ? 'mesa' : 'peak',
-      palette: { ...footPal, ...(dark && !jungleLair ? { rock: COL.basalt } : {}) } });
+    // the ice tyrant gets a frozen TEMPLE set-piece on a flat snowy mesa (like
+    // the jungle dungeon) so the stepped base seats and the temple reads
+    const iceLair = dark && theme.id === 'ice';
+    const flatLair = jungleLair || iceLair;
+    terrain = mt({ seed, R, H: flatLair ? 1.6 : (dark ? 3.6 : 2.6),
+      mode: flatLair ? 'mesa' : 'peak',
+      palette: { ...footPal, ...(dark && !flatLair ? { rock: COL.basalt } : {}) } });
     if (node.type === 'lair') {
       const accent = REALM_INFO[node.region]?.accent ?? '#ff5030';
       if (jungleLair) {
         const den = propGroup('jungle_dungeon', 2.6);
         den.position.y = terrain.heightAt(0.08);
         den.rotation.y = Math.atan2(-node.x, -node.z);
+        g.add(den);
+      } else if (iceLair) {
+        const den = glbProp('ice_temple', { h: 9.0,
+          ry: Math.atan2(-node.x, -node.z) });   // frozen temple faces the approach
+        den.position.y = terrain.heightAt(0.08);
         g.add(den);
       } else {
         const altar = makeLairAltar(accent, rng0);
