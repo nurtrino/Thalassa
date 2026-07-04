@@ -263,9 +263,14 @@ function handle(msg) {
 
 /* ── stage accent + realm banner ────────────────────────────────────────── */
 let lastStage = null;
+// realms with their own overworld soundtrack (static/music/<realm>.mp3); the
+// open-sea scene plays the current realm's theme, falling back to game.mp3.
+const REALM_MUSIC = new Set(['hub', 'ice', 'desert', 'jungle', 'autumn']);
+let curRealm = 'hub';
 
 function applyStage(stageId) {
   const realm = stageId === 'battle' ? (room?.battle?.region || 'hub') : stageId;
+  curRealm = realm;
   const info = REALM_INFO[realm] || REALM_INFO.hub;
   document.documentElement.style.setProperty('--accent', info.accent);
   document.documentElement.dataset.realm = realm;
@@ -510,6 +515,7 @@ function reactAudio(prev, next) {
   else if (battleish) scene = 'battle';
   else if (puzzleish) scene = 'puzzle';
   else if (next.phase === 'finished' || next.pharos_open) scene = 'endgame';
+  else if (REALM_MUSIC.has(curRealm)) scene = curRealm;   // open sea → the realm's own theme
   audio.setScene(scene);
 
   /* duck under trivia cards — and under Simon, whose tones need the spotlight */
