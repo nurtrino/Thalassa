@@ -1,5 +1,5 @@
 /*
- * wall.js — the mountain wall that pens in the Safe Isles, and the realm
+ * wall.js — the mountain wall that pens in the Isles of Peace, and the realm
  * backdrops beyond it (owner: Agent A). Replaces the legacy storm shader
  * entirely: jagged noise-displaced rock, snow caps, four carved passes with
  * braziers burning in each realm's accent color.

@@ -572,43 +572,118 @@ function makePharos() {
   const g = new THREE.Group();
   const white = (e) => new THREE.MeshStandardMaterial({
     color: 0xf7f4ea, flatShading: true, emissive: 0xfff3d0, emissiveIntensity: e });
-  const tiers = [
-    [7.4, 8.8, 3.4, 1.7, 10],
-    [5.2, 6.6, 5.4, 6.0, 10],
-    [3.1, 4.3, 7.0, 12.0, 9],
-    [1.7, 2.6, 6.6, 18.6, 8],
+  const gold = flat(COL.gold, { emissive: 0x7a5a10, emissiveIntensity: 0.5 });
+
+  // stepped plinth — the lower disc runs deep so the skirt never floats where
+  // the mesa's plateau falls away under a small-roll island
+  const plinthLo = new THREE.Mesh(new THREE.CylinderGeometry(8.8, 9.4, 2.2, 14), white(0.1));
+  plinthLo.position.y = -0.55;
+  plinthLo.receiveShadow = true;
+  const plinthHi = new THREE.Mesh(new THREE.CylinderGeometry(8.1, 8.6, 0.55, 14), white(0.1));
+  plinthHi.position.y = 0.825;
+  plinthHi.receiveShadow = true;
+  g.add(plinthLo, plinthHi);
+
+  // entrance stair up the plinth to the gate (bottom step sunk for the same
+  // reason as the plinth)
+  const stairs = [
+    [5.2, 2.0, 1.0, -0.6, 9.7],
+    [4.9, 0.4, 0.95, 0.6, 9.05],
+    [4.6, 0.4, 0.95, 0.95, 8.45],
   ];
-  for (const [rt, rb, h, y, segs] of tiers) {
-    const tier = new THREE.Mesh(new THREE.CylinderGeometry(rt, rb, h, segs), white(0.12 + y * 0.006));
-    tier.position.y = y;
-    tier.castShadow = true;
-    g.add(tier);
+  for (const [w, h, d, y, z] of stairs) {
+    const s = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), white(0.1));
+    s.position.set(0, y, z);
+    s.castShadow = true;
+    g.add(s);
   }
-  for (let i = 0; i < 10; i++) {
-    const a = (i / 10) * Math.PI * 2;
-    const col = makeColumn(3.0, 0.3);
-    col.position.set(Math.cos(a) * 7.7, 3.4, Math.sin(a) * 7.7);
+
+  // base drum — near-vertical so the gate reads as a door in a wall, not a
+  // slab leaning on a cone
+  const base = new THREE.Mesh(new THREE.CylinderGeometry(6.8, 7.8, 6.4, 14), white(0.12));
+  base.position.y = 4.3;
+  base.castShadow = true;
+  // shoulder easing the drum into the shaft
+  const shoulder = new THREE.Mesh(new THREE.CylinderGeometry(4.8, 6.8, 1.4, 14), white(0.13));
+  shoulder.position.y = 8.2;
+  shoulder.castShadow = true;
+  // the tapering tower itself
+  const shaft = new THREE.Mesh(new THREE.CylinderGeometry(2.6, 4.7, 11.0, 12), white(0.16));
+  shaft.position.y = 14.4;
+  shaft.castShadow = true;
+  g.add(base, shoulder, shaft);
+
+  // gold string-courses and window slits up the shaft
+  const shaftR = (y) => 4.7 - ((y - 8.9) / 11.0) * 2.1;
+  for (const y of [11.2, 14.4, 17.6]) {
+    const band = new THREE.Mesh(
+      new THREE.CylinderGeometry(shaftR(y) + 0.16, shaftR(y) + 0.2, 0.5, 12), gold);
+    band.position.y = y;
+    g.add(band);
+  }
+  const slitMat = flat(0x2b2620, { emissive: 0x5a3c12, emissiveIntensity: 0.35 });
+  for (const y of [10.2, 12.9, 15.8]) {
+    for (let k = 0; k < 4; k++) {
+      const a = Math.PI / 2 + k * (Math.PI / 2);   // one slit faces the berth
+      const win = new THREE.Mesh(new THREE.BoxGeometry(0.55, 1.15, 0.5), slitMat);
+      win.position.set(Math.cos(a) * shaftR(y), y, Math.sin(a) * shaftR(y));
+      win.rotation.y = Math.PI / 2 - a;
+      g.add(win);
+    }
+  }
+
+  // gallery: corbelled flare, deck, and a ring balustrade under a gold rail
+  const corbel = new THREE.Mesh(new THREE.CylinderGeometry(4.3, 2.8, 1.2, 12), white(0.18));
+  corbel.position.y = 20.5;
+  corbel.castShadow = true;
+  const deck = new THREE.Mesh(new THREE.CylinderGeometry(4.6, 4.6, 0.4, 14), white(0.18));
+  deck.position.y = 21.3;
+  deck.castShadow = true;
+  g.add(corbel, deck);
+  for (let i = 0; i < 12; i++) {
+    const a = (i / 12) * Math.PI * 2;
+    const b = makeColumn(0.85, 0.08);
+    b.position.set(Math.cos(a) * 4.15, 21.5, Math.sin(a) * 4.15);
+    g.add(b);
+  }
+  const rail = new THREE.Mesh(new THREE.TorusGeometry(4.15, 0.08, 6, 28), gold);
+  rail.rotation.x = Math.PI / 2;
+  rail.position.y = 22.45;
+  g.add(rail);
+
+  // lantern room: open colonnade around the fire, conical roof, gold finial
+  for (let i = 0; i < 8; i++) {
+    const a = (i / 8) * Math.PI * 2;
+    const col = makeColumn(2.0, 0.16);
+    col.position.set(Math.cos(a) * 2.35, 21.5, Math.sin(a) * 2.35);
     g.add(col);
   }
-  const fire = new THREE.Mesh(new THREE.SphereGeometry(1.05, 10, 8),
+  const fire = new THREE.Mesh(new THREE.SphereGeometry(1.1, 10, 8),
     new THREE.MeshBasicMaterial({ color: 0xffdf90 }));
-  fire.position.y = 23.2;
+  fire.position.y = 22.8;
   fire.name = 'pharosfire';
-  const cap = new THREE.Mesh(new THREE.ConeGeometry(2.4, 2.6, 8), white(0.25));
-  cap.position.y = 26.0;
+  const roof = new THREE.Mesh(new THREE.ConeGeometry(3.1, 2.1, 12), white(0.25));
+  roof.position.y = 24.85;
+  roof.castShadow = true;
+  const knob = new THREE.Mesh(new THREE.SphereGeometry(0.3, 8, 6), gold);
+  knob.position.y = 26.05;
+  const finial = new THREE.Mesh(new THREE.ConeGeometry(0.22, 0.9, 8), gold);
+  finial.position.y = 26.65;
   // a lit beacon, not a sun — the old 42-intensity/range-300 lamp bleached
   // the whole hub white
   const light = new THREE.PointLight(0xffe2a0, 6, 90, 2);
-  light.position.y = 23.2;
+  light.position.y = 22.8;
   const beam = new THREE.Mesh(new THREE.CylinderGeometry(0.9, 2.8, 70, 10, 1, true),
     new THREE.MeshBasicMaterial({ color: 0xffe9b0, transparent: true, opacity: 0.09,
       side: THREE.DoubleSide, depthWrite: false, blending: THREE.AdditiveBlending }));
   beam.position.y = 56;
   const halo = glowSprite(0xffeecb, 15);
   halo.material.opacity = 0.4;
-  halo.position.y = 23.2;
-  g.add(fire, cap, light, beam, halo);
-  g.add(makePharosGate());
+  halo.position.y = 22.8;
+  g.add(fire, roof, knob, finial, light, beam, halo);
+  const gate = makePharosGate();
+  gate.position.set(0, 1.1, 7.3);                 // door opens onto the plinth terrace
+  g.add(gate);
   return g;
 }
 

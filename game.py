@@ -4,7 +4,7 @@ Thalassa rules engine — the Race to the Pharos. Pure state machine.
 The server owns dice RNG, question fetching, and timers; this module owns
 the rules. Every mutation either succeeds or raises GameError.
 
-The voyage: the Safe Isles ringed by a storm wall, the Pharos blazing at
+The voyage: the Isles of Peace ringed by a storm wall, the Pharos blazing at
 the center, four storm gates leading to wild themed regions. Earn scrolls
 and charms in the hub, then brave a region's spine to face its BOSS — a
 personal trial; beat it once and it stays beaten for you. Its sigil

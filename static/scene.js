@@ -1396,12 +1396,12 @@ export function createWorld(container, handlers = {}) {
     st.sun.target.position.copy(controls.target);
   }
 
-  /* ── the OPENING TOUR: fly the Safe Isles, then every realm, then land
+  /* ── the OPENING TOUR: fly the Isles of Peace, then every realm, then land
      on the Pharos — narrating the rules as it goes. Any tap skips it. ──── */
   let tour = null;   // {legs, i, startedAt}
 
   const TOUR_RULES = {
-    hub: ['The Safe Isles',
+    hub: ['The Isles of Peace',
       'Roll the bronze die and sail EXACTLY that far. Trade, pray, patch your hull — and mind the Kraken.'],
     ice: ['The Frostfang Reach',
       'One main road to each tyrant. Brave the elite shortcut — or loop past the blue haven checkpoint.'],
@@ -1416,6 +1416,25 @@ export function createWorld(container, handlers = {}) {
   };
 
   const _easeIO = (k) => (k < 0.5 ? 2 * k * k : 1 - Math.pow(-2 * k + 2, 2) / 2);
+
+  /* the hub's fog is tuned for deck height — from the tour's altitude it
+     erases the very isles the fly-over is meant to show. Stash-and-extend
+     while a hub-stage leg plays, restore the moment we leave it. */
+  let tourFog = null;   // {st, near, far}
+  function tourFogOpen(st, extent) {
+    if (tourFog?.st === st) return;
+    tourFogClose();
+    if (!st.scene.fog) return;
+    tourFog = { st, near: st.scene.fog.near, far: st.scene.fog.far };
+    st.scene.fog.near = extent * 1.6;
+    st.scene.fog.far = extent * 5.0;
+  }
+  function tourFogClose() {
+    if (!tourFog) return;
+    const f = tourFog.st.scene.fog;
+    if (f) { f.near = tourFog.near; f.far = tourFog.far; }
+    tourFog = null;
+  }
 
   function startTour(room) {
     const regions = Object.keys(room.board?.regions || {});
@@ -1434,6 +1453,7 @@ export function createWorld(container, handlers = {}) {
   function endTour() {
     if (!tour) return;
     tour = null;
+    tourFogClose();
     handlers.onTourCaption?.(null);
     handlers.onTourState?.(false);
     if (lastRoom) {
@@ -1459,6 +1479,8 @@ export function createWorld(container, handlers = {}) {
     const b = stageBounds(st);
     const cx = (b.minX + b.maxX) / 2, cz = (b.minZ + b.maxZ) / 2;
     const extent = Math.max(b.maxX - b.minX, b.maxZ - b.minZ, 160);
+    if (leg.stage === 'hub') tourFogOpen(st, extent);
+    else tourFogClose();
     if (leg.pharos) {
       // spiral down from high over the sea to the tower's very door
       const ph = nodeById.pharos || { x: 0, z: 0 };
@@ -1469,7 +1491,7 @@ export function createWorld(container, handlers = {}) {
       camera.position.set(ph.x + Math.cos(a) * r, hgt, ph.z + Math.sin(a) * r);
       controls.target.set(ph.x, 3 + 11 * e, ph.z);
     } else if (leg.stage === 'hub') {
-      // a slow high sweep across the whole Safe Isles
+      // a slow high sweep across the whole Isles of Peace
       const a = -Math.PI / 2 + 0.9 * k;
       const r = extent * (0.60 - 0.10 * k);
       const hgt = extent * (0.52 - 0.10 * k);

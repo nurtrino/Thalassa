@@ -148,7 +148,7 @@ SHRINE_CHARGES = 2
 # neighbouring island is 2 exact steps away and the loops do the steering.
 _RING_R = [150.0, 265.0, 380.0]
 _HOME_R = 70.0                # Home Port, just south of the Pharos
-WALL_R = 490.0                # the mountain wall that seals the Safe Isles
+WALL_R = 490.0                # the mountain wall that seals the Isles of Peace
 _WAYPOINT_EVERY = 60.0        # aim for a sea node roughly every N world units
 _MAX_WAYPOINTS = 1            # per HUB lane — tuned for exact-roll d3 sailing
 _WAYPOINT_EVERY_REALM = 42.0  # realms are finer-grained: a real crawl
@@ -471,7 +471,7 @@ class Board:
                     "look": rng.choice(_SEA_LOOKS),
                 }
                 # a lane belongs to a realm only when BOTH ends are inside it —
-                # the approach from the Safe Isles to a pass is still Aegean.
+                # the approach from the Isles of Peace to a pass is still Aegean.
                 if na.get("region") and nb.get("region"):
                     self.nodes[nid]["region"] = na["region"]
                     mode = na.get("mode") or nb.get("mode")

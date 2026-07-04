@@ -247,7 +247,8 @@ function applyStage(stageId) {
   const info = REALM_INFO[realm] || REALM_INFO.hub;
   document.documentElement.style.setProperty('--accent', info.accent);
   document.documentElement.dataset.realm = realm;
-  if (stageId !== 'battle' && room && room.phase !== 'lobby' && lastStage !== stageId) {
+  if (stageId !== 'battle' && room && room.phase !== 'lobby' && lastStage !== stageId
+      && !world.tourActive?.()) {          // the tour carries its own captions
     showRealmBanner(info);
     if (stageId !== 'hub') audio.sfx.oracle();
   }
@@ -1917,8 +1918,8 @@ function renderModal() {
         <li><strong>Sail</strong> — roll the bronze die (one to three) and sail
           <em>exactly</em> that far. Havens set your checkpoint; temples and
           trials pay scrolls.</li>
-        <li><strong>Venture</strong> — four mountain passes leave the Safe
-          Isles. Beyond each lies a realm, and the deeper you press, the
+        <li><strong>Venture</strong> — four mountain passes leave the
+          Isles of Peace. Beyond each lies a realm, and the deeper you press, the
           harder its packs bite.</li>
         <li><strong>Fight</strong> — answer to STRIKE (tier I–II) or cast
           MAGIC (III). Tyrants telegraph <strong>heavy blows</strong> — GUARD

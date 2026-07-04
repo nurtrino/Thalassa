@@ -86,7 +86,7 @@ export const REALM_INFO = {   // display metadata (UI + scene share it)
   desert: { name:'The Bleached Reach',  accent:'#e8c27a', icon:'desert' },
   jungle: { name:'The Verdigris Deep',  accent:'#6fd490', icon:'jungle' },
   autumn: { name:'The Amber Vale',      accent:'#f0a24f', icon:'autumn' },
-  hub:    { name:'The Safe Isles',      accent:'#d9a441', icon:'hub' },
+  hub:    { name:'The Isles of Peace',      accent:'#d9a441', icon:'hub' },
 };
 export function themeFor(stageId) → THEME   // stageId 'hub'|realm id
 ```

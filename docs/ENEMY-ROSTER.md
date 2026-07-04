@@ -105,7 +105,7 @@ the boss `crown`. Rig: `body`, `head`, `jaw`, `legFL/FR/BL/BR`, `wingL/R`,
 `tail0`, `eye`. She also haunts the desert road itself, stopping crossings
 with typed riddles (wrong → swept 1-2 spaces back).
 
-### `kraken` — **The Kraken** (Safe Isles, special encounter)
+### `kraken` — **The Kraken** (Isles of Peace, special encounter)
 A mountain of teal mantle rising from the hub sea on eight thick tentacles
 (vine-rigged `vine0..vine7` so they sway), heavy-lidded amber lamp-eyes, a
 bone beak (`jaw`). Not a battle: it blocks a crossing (1-in-10) and poses
