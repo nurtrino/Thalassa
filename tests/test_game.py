@@ -6,6 +6,12 @@ from board import Board, RELICS_TO_WIN
 from game import Game, GameError
 
 
+def finish_trade(g):
+    """Every normal turn now ends on the TRADE beat — wave the trader off."""
+    if g.phase == "trade":
+        g.pass_turn(g.current.pid)
+
+
 def make_game(n=2, seed=7):
     g = Game("TEST", seed=seed)
     pids = [g.add_player(f"tok{i}", f"P{i}").pid for i in range(n)]
@@ -220,6 +226,7 @@ def test_shrine_wager_and_charges():
     assert p.scrolls == 3 + 3                    # starting 3 + tier III
     assert g.board.nodes[shrine]["charges"] == 1
     g.advance_after_reveal()
+    finish_trade(g)
     assert g.current.pid == p1
 
 
@@ -238,6 +245,7 @@ def test_spent_shrine_is_quiet():
     shrine = find_node(g, "shrine")
     g.board.nodes[shrine]["charges"] = 0
     force_land(g, p0, shrine)
+    finish_trade(g)
     assert g.phase == "roll" and g.current.pid == p1     # nothing happened
 
 
@@ -277,6 +285,7 @@ def test_boss_trial_is_personal_and_yields_fragment():
     assert p0 in node["defeated"]
     assert g.board.alive_monster(lair) is None   # calm again
     g.advance_after_reveal()
+    finish_trade(g)
     assert g.current.pid == p1 and g.battle is None
     # the second captain faces their OWN fresh boss
     battle_at(g, p1, lair)
@@ -291,6 +300,7 @@ def test_boss_trial_is_personal_and_yields_fragment():
     while g.current.pid != p0:
         g._next_turn()
     force_land(g, p0, lair)
+    finish_trade(g)
     assert g.phase == "roll" and g.battle is None
 
 
@@ -438,6 +448,7 @@ def test_bank_and_pharos_open_and_win():
     force_land(g, p0, "home")
     assert p.banked == 3 and p.cargo == []
     assert g.pharos_open
+    finish_trade(g)
     # p1 takes a turn
     g.roll(p1, 1)
     if g.phase == "sail":
@@ -531,6 +542,7 @@ def test_puzzle_mc_wrong_leaves_node_open(monkeypatch):
     wrong = (g.question["correct"] + 1) % 4
     g.answer(p0, wrong)
     g.advance_after_reveal()
+    finish_trade(g)
     assert not g.board.nodes[pz]["solved"] and g.current.pid == p1
 
 
@@ -744,27 +756,34 @@ def test_item_cap_blocks_buff_stockpiling():
     assert p.items["gale"] == G.ITEM_CAP
 
 
-def test_remote_trader_sells_charms_before_a_roll():
+def test_trader_answers_in_the_end_of_turn_beat_only():
     g, (p0, p1) = make_game()
     p = g.player_by_pid(p0)
     p.scrolls = 40
     assert g.phase == "roll"                          # game opens on p0's roll
-    g.shop_buy(p0, "planks")                          # charms: fine at sea
+    with pytest.raises(GameError):
+        g.shop_buy(p0, "planks")                      # NO buying before you roll
+    g.roll(p0, 1)
+    if g.phase == "sail":
+        with pytest.raises(GameError):
+            g.shop_buy(p0, "planks")                  # mid-sail: hands are full
+        quiet = next((n for n in g.reachable
+                      if g.board.nodes[n]["type"] == "sea"), None)
+        assert quiet, "expected open water within a 1-roll"
+        import random as _r
+        g.rng = _r.Random(0)      # first draws ≥ .12: no kraken, no skirmish
+        g.sail(p0, quiet)
+    assert g.phase == "trade"                         # the end-of-turn beat
+    with pytest.raises(GameError):
+        g.shop_buy(p1, "planks")                      # rivals get no stall
+    g.shop_buy(p0, "planks")                          # the acting captain does
     assert p.items["planks"] == 1
     with pytest.raises(GameError):
         g.shop_buy(p0, "fitting")                     # shipwright stays ashore
     with pytest.raises(GameError):
         g.shop_buy(p0, "golden_fleece")               # relics are land-only
-    q = g.player_by_pid(p1)
-    q.scrolls = 10
-    g.shop_buy(p1, "planks")                          # idle rivals may shop too
-    assert q.items["planks"] == 1
-    g.roll(p0, 1)                                     # trading doesn't eat the roll
-    assert g.phase == "sail"
-    with pytest.raises(GameError):
-        g.shop_buy(p0, "planks")                      # mid-sail: hands are full
-    g.shop_buy(p1, "gale")                            # …but the idle rival may
-    assert q.items["gale"] == 1
+    g.pass_turn(p0)                                   # wave the trader off
+    assert g.current.pid == p1 and g.phase == "roll"
 
 
 def test_legendary_relics_bought_outright_and_apply():
@@ -913,6 +932,7 @@ def test_haven_repairs_for_scrolls():
     assert g.phase == "haven"
     assert p.checkpoint == haven                          # camp made
     g.repair(p0)
+    finish_trade(g)
     assert p.hull == 5 and p.scrolls == 0
     assert g.current.pid == p1
 
@@ -1108,6 +1128,7 @@ def test_mountain_pass_halts_the_voyage():
     assert gate in g.reachable                 # the pass absorbs the roll...
     assert realm_side not in g.reachable       # ...nothing beyond it in one sail
     g.sail(p0, gate)
+    finish_trade(g)
     assert g.phase == "roll" and g.current.pid == p1   # a quiet landfall
 
 
@@ -1408,6 +1429,7 @@ def test_kick_adjusts_turn_order():
         g.advance_after_reveal()
         if g.phase == "battle":
             g.flee(pids[0])
+    finish_trade(g)
     assert g.current.pid == pids[1]
     g.remove_player(pids[0], pids[2])
     assert g.current.pid == pids[1]
@@ -1441,6 +1463,7 @@ def test_kraken_three_riddles_then_freedom():
         assert g.minigame["kraken_no"] == i + 1
         g.resolve_minigame(True)
     assert g.kraken is None and g.minigame is None
+    finish_trade(g)
     assert g.current.pid == p1                        # turn passed normally
     assert g.player_by_pid(p0).skip_turns == 0
 
@@ -1558,6 +1581,7 @@ def test_sphinx_pass_lets_you_stay():
             before = g.current.pid
             g.resolve_minigame(True)
             assert p.node == road                       # you hold your ground
+            finish_trade(g)
             assert g.current.pid != before              # …and the turn moved on
             return
         g.battle = None

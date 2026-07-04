@@ -15,7 +15,10 @@ Pharos opens: defeat the Warden inside and the game is yours.
 Phases:
     lobby → roll → sail → (shrine | haven | shop | battle | question …) → reveal
                                      battle: stance → question → reveal → stance…
-    puzzle success → upgrade_pick.   finished when someone takes the Pharos.
+    …every normal turn then ends on TRADE — a last word with the ship's
+    trader before the dice pass (the ONLY time the basic market answers
+    at sea; never before you roll). puzzle success → upgrade_pick.
+    finished when someone takes the Pharos.
 
 Movement is EXACT: the die is how far you sail, no fewer — the chart's
 loops are how you tune where you land. Live trial guardians and the Pharos
@@ -344,7 +347,7 @@ class Game:
         self.reachable = self._reachable_for(p, steps)
         if not self.reachable:
             self._say(f"{p.name} is boxed in and waits out the tide.")
-            self._next_turn()
+            self._end_turn()
             return
         self._bump("sail")
 
@@ -368,7 +371,7 @@ class Game:
                     node["stash"].remove(p.pid)
                     p.cargo.append(node["region"])
                     self._say(f"⚱ {p.name} reclaims the fragment of {node['name']}.")
-                self._next_turn()
+                self._end_turn()
                 return
             self.board.spawn_boss(nid)
             self.battle = {"node": nid, "stance": None, "round": 0,
@@ -445,10 +448,10 @@ class Game:
             return
 
         if ntype == "sea":
-            self._next_turn()
+            self._end_turn()
         elif ntype == "home":
             self._bank(p)
-            self._next_turn()
+            self._end_turn()
         elif ntype == "shrine" and node.get("charges", 0) > 0:
             self._bump("shrine")
         elif ntype == "puzzle" and not node.get("solved"):
@@ -474,7 +477,7 @@ class Game:
         elif ntype == "shop":
             self._bump("shop")         # browse the trader's stall
         else:
-            self._next_turn()                 # cleared / spent / empty waters
+            self._end_turn()                  # cleared / spent / empty waters
 
     def _bank(self, p: Player):
         if p.cargo:
@@ -502,8 +505,13 @@ class Game:
         self._bump("question")
 
     def pass_turn(self, pid: str):
-        self._require_turn(pid, "shrine", "haven", "shop")
-        self._next_turn()
+        self._require_turn(pid, "shrine", "haven", "shop", "trade")
+        # leaving the land market or the trade beat ends the turn outright;
+        # walking away from a shrine or haven still earns the trade beat
+        if self.phase in ("shop", "trade"):
+            self._next_turn()
+        else:
+            self._end_turn()
 
     # ── haven ────────────────────────────────────────────────────────────────
     def repair(self, pid: str):
@@ -516,24 +524,23 @@ class Game:
         p.scrolls -= spend
         p.hull += spend
         self._say(f"{p.name} patches {spend} Health at the haven.")
-        self._next_turn()
+        self._end_turn()
 
     # ── markets ──────────────────────────────────────────────────────────────
-    # The BASIC market (consumables) travels with you: buy at ANY quiet
-    # moment — before your own roll, or while the other captains take their
-    # turns. Only your own busy moments (sailing, battling, answering) close
-    # the stall. The shipwright's permanent wares — fittings and legendary
-    # relics — are sold at LAND markets only.
+    # The BASIC market (consumables) travels with you, but the trader keeps
+    # STRICT hours: he answers in the TRADE beat at the end of your turn —
+    # after your sail has resolved, before the dice pass on — or ashore at a
+    # market isle. Never before you roll. The shipwright's permanent wares —
+    # fittings and legendary relics — are sold at LAND markets only.
     def shop_buy(self, pid: str, item: str):
         """Buy from the trader. Consumables cap at ITEM_CAP so nobody stacks
         buffs; a fitting ends the shop visit with an upgrade choice."""
-        p = self.player_by_pid(pid)
-        if self.phase in ("lobby", "finished") or not self.players or not p:
+        if not self.players or self.current.pid != pid \
+                or self.phase not in ("shop", "trade"):
             raise GameError("The trader isn't listening right now.")
-        at_market = self.phase == "shop" and self.current.pid == pid
+        p = self.current
+        at_market = self.phase == "shop"
         remote = not at_market
-        if remote and self.current.pid == pid and self.phase != "roll":
-            raise GameError("No time to trade — your hands are full.")
         if item in RELICS or item == "fitting":
             if remote:
                 raise GameError("The shipwright's wares are sold ashore, "
@@ -582,7 +589,8 @@ class Game:
         if p.items.get(item, 0) <= 0:
             raise GameError("You don't carry one.")
         if item == "planks":
-            if self.phase not in ("roll", "sail", "battle", "shrine", "haven", "shop"):
+            if self.phase not in ("roll", "sail", "battle", "shrine", "haven",
+                                  "shop", "trade"):
                 raise GameError("Steady your hands first — not now.")
             if p.hull >= p.max_hull:
                 raise GameError("The hull is already sound.")
@@ -606,7 +614,7 @@ class Game:
             self.question["disabled"] = sorted(wrong[:2])
             self._say(f"📜 {p.name}'s hint stone burns away two false answers.")
         elif item == "gale":
-            if self.phase != "roll":
+            if self.phase not in ("roll", "trade"):
                 raise GameError("Use it before you roll.")
             p.items["gale"] -= 1
             p.next_roll_bonus += GALE_BONUS
@@ -1046,7 +1054,7 @@ class Game:
         elif self.battle and not rv.get("battle_over"):
             self._bump("battle")           # next round: choose a stance again
         else:
-            self._next_turn()
+            self._end_turn()
 
     # ── interactive puzzle minigames ─────────────────────────────────────────
     # Four flavours share the minigame phase: puzzle ISLES (retry until the
@@ -1135,7 +1143,7 @@ class Game:
             self.kraken = None
             self._say(f"🐙 The kraken, satisfied, sinks back into the deep — "
                       f"{self.current.name} sails on.")
-            self._next_turn()
+            self._end_turn()
         else:
             self._say(f"🐙 {self.current.name} answers — the kraken poses another…")
             self._kraken_deal()
@@ -1154,7 +1162,7 @@ class Game:
     def _sphinx_pass(self):
         self.minigame = None
         self._say(f"🦁 The Sphinx bows her head — {self.current.name} may pass.")
-        self._next_turn()
+        self._end_turn()
 
     def _sphinx_fail(self):
         p = self.current
@@ -1239,6 +1247,16 @@ class Game:
         self.kraken = None
         self.upgrade_offer = None
         self._next_turn()
+
+    def _end_turn(self):
+        """A LAST WORD WITH THE TRADER: a normal turn doesn't pass the dice
+        until the acting captain says so — one quiet beat to spend scrolls
+        before the tide turns. Punishment endings (shipwreck, the kraken's
+        lost turn, the Sphinx's sweep) skip the beat and advance hard."""
+        if self.winner:
+            self._bump("finished")
+            return
+        self._bump("trade")
 
     def _next_turn(self):
         if self.winner:

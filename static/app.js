@@ -963,9 +963,6 @@ function renderTray() {
     return;
   }
   if (!mine) {
-    // while the other captains play, YOUR trader stays open for business
-    trayBtn(tray, `${icon('market', 14)} trader`, 'ghost small',
-            () => { shopRemote = !shopRemote; shopClosed = false; renderShop(); });
     if (you === room.host) {
       trayBtn(tray, 'skip turn', 'ghost small', () => send({ type: 'skip' }));
     }
@@ -979,9 +976,13 @@ function renderTray() {
       trayHint(tray, `${icon('anchor', 14)} The wake still runs — hold until the tide settles…`);
     } else {
       trayBtn(tray, `${icon('dice', 17)} ROLL`, 'gold big', () => send({ type: 'roll' }));
-      trayBtn(tray, `${icon('market', 14)} trader`, 'ghost small',
-              () => { shopRemote = !shopRemote; shopClosed = false; renderShop(); });
     }
+  } else if (room.phase === 'trade' && !world.arriving()) {
+    // the end-of-turn beat: a last word with the trader before the dice pass
+    trayHint(tray, `${icon('market', 14)} The trader hails you before the tide turns…`);
+    trayBtn(tray, `${icon('market', 14)} TRADER`, 'build',
+            () => { shopRemote = !shopRemote; shopClosed = false; renderShop(); });
+    trayBtn(tray, 'END TURN', 'gold big', () => send({ type: 'pass' }));
   } else if (room.phase === 'sail') {
     const bonus = me?.upgrades?.includes('sandals') ? ' <small>(+1 sandals)</small>' : '';
     trayHint(tray, `Rolled <strong>${room.die ?? '?'}</strong>${bonus} — sail exactly that far. Tap a glowing stop.`);
@@ -1019,14 +1020,13 @@ function renderTray() {
    consumables only, the shipwright stays ashore). */
 function renderShop() {
   const panel = $('shopPanel');
-  // the ship's trader answers at any QUIET moment: before your own roll, or
-  // whenever another captain holds the dice. Your own busy phases close him.
-  const remote = shopRemote && (room.turn !== you || room.phase === 'roll');
+  // the ship's trader answers in the TRADE beat at the end of your turn —
+  // never before you roll, never during someone else's
+  const remote = shopRemote && room.phase === 'trade' && room.turn === you
+    && !world.arriving();
   const mine = remote ||
     (room.phase === 'shop' && room.turn === you && !world.arriving());
-  if (room.turn === you && room.phase !== 'roll' && room.phase !== 'shop') {
-    shopRemote = false;
-  }
+  if (room.phase !== 'trade') shopRemote = false;
   if (!mine || shopClosed) {
     panel.classList.add('hidden');
     if (room.phase !== 'shop') shopClosed = false;
@@ -1090,8 +1090,8 @@ function itemLegal(id, me) {
   switch (id) {
     case 'planks':
       return me.hull < me.max_hull &&
-        ['roll', 'sail', 'battle', 'shrine', 'haven', 'shop'].includes(room.phase);
-    case 'gale': return room.phase === 'roll';
+        ['roll', 'sail', 'battle', 'shrine', 'haven', 'shop', 'trade'].includes(room.phase);
+    case 'gale': return room.phase === 'roll' || room.phase === 'trade';
     case 'horn': return room.phase === 'battle' && !!room.battle && !room.battle.horn;
     case 'hint':
       return room.phase === 'question' && !!room.question &&

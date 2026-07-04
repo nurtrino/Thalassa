@@ -258,7 +258,7 @@ async def dispatch(pid: str | None, kind: str, msg: dict) -> str | None:
 def _bot_delay(tag: str) -> float:
     base = {"roll": 1.0, "sail": 1.6, "shrine": 1.2, "haven": 1.0,
             "battle": 1.6, "question": 3.5, "minigame": 9.0,
-            "upgrade_pick": 1.4, "side": 2.2}.get(tag, 1.0)
+            "upgrade_pick": 1.4, "side": 2.2, "trade": 0.8}.get(tag, 1.0)
     return (base + table.bot_rng.random() * base * 0.7) * BOT_TEMPO
 
 
@@ -280,11 +280,14 @@ async def bot_move(nonce: int, tag: str, pid: str):
         return
     phase = g.phase
     if phase == "roll":
-        # a prepared captain provisions from the ship's trader before rolling
+        err = await dispatch(pid, "roll", {})
+    elif phase == "trade":
+        # the end-of-turn beat: a prepared captain provisions before the
+        # dice pass on
         buy = bots.decide_remote_buy(g, pid)
         if buy:
             await dispatch(pid, "shop_buy", {"item": buy})
-        err = await dispatch(pid, "roll", {})
+        err = await dispatch(pid, "pass", {})
     elif phase == "sail":
         node = bots.decide_sail(g, pid, rng)
         err = await dispatch(pid, "sail", {"node": node}) if node else "no move"
@@ -355,7 +358,7 @@ async def bot_driver():
         if not g.players or g.current.pid not in table.bots:
             continue
         if g.phase in ("roll", "sail", "shrine", "haven", "shop", "battle",
-                       "question", "minigame", "upgrade_pick"):
+                       "question", "minigame", "upgrade_pick", "trade"):
             if g.phase == "question" and g.question is None:
                 continue
             key = (g.nonce, g.phase)
