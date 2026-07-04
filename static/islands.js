@@ -652,9 +652,9 @@ function makeDock(len = 5.2) {
   return g;
 }
 
-function makeMarket(rng) {
+function makeMarket(rng, ry = 0) {
   const g = new THREE.Group();
-  g.add(glbProp('market', { h: 5.0, ry: (rng() - 0.5) * 0.4 }));   // the marble taberna, sized to its isle
+  g.add(glbProp('market', { h: 5.0, ry }));   // marble taberna, porch faces `ry`
   return g;
 }
 
@@ -671,7 +671,7 @@ function makePharos() {
   const g = new THREE.Group();
   // the tower itself is the Meshy landmark; the FIRE, the beam, the halo and
   // the sealed sigil gate are the game's own — scene.js drives them by name
-  g.add(glbProp('pharos', { h: 26 }));
+  g.add(glbProp('pharos', { h: 31.2 }));   // 20% taller
   const fire = new THREE.Mesh(new THREE.SphereGeometry(1.1, 10, 8),
     new THREE.MeshBasicMaterial({ color: 0xffdf90 }));
   fire.position.y = 22.4;
@@ -1666,7 +1666,7 @@ export function buildIsland(node, theme, domains) {
     // Meshy boss-den model (falls back to nothing until loaded; the relic
     // beacon + totem FX below still mark the lair)
     const isTomb = theme.id === 'desert';
-    const den = propGroup(isTomb ? 'tomb' : 'barrow', isTomb ? 3.9 : 2.6);  // tomb 150% up
+    const den = propGroup(isTomb ? 'tomb' : 'barrow', isTomb ? 3.9 : 3.38);  // tomb 150% / barrow 130%
     den.position.y = terrain.heightAt(0.1);
     den.rotation.y = Math.atan2(-node.x, -node.z) + (isTomb ? Math.PI : 0);  // tomb turned 180°
     g.add(den);
@@ -1740,7 +1740,7 @@ export function buildIsland(node, theme, domains) {
     }
   } else if (node.type === 'shop') {
     terrain = mt({ seed, R, H: 1.6, mode: 'flat', palette: { ...footPal } });
-    const stall = makeMarket(rng0);
+    const stall = makeMarket(rng0, Math.PI);       // porch faces the dock/arrival
     const sp = terrain.place(Math.PI / 2, 0.1);    // planted in the middle of the isle
     stall.position.set(sp.x, sp.y, sp.z);
     g.add(stall);
