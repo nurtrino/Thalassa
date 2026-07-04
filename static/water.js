@@ -151,8 +151,8 @@ export function makeGround(theme, size = 3000, opts = {}) {
   // a trodden dirt path baked right into the floor along the trail, so the
   // route reads clearly even before the waypoint markers stream in. Autumn is
   // a bare-earth track worn through the leaf litter; the desert a packed lane.
-  const pathCol = new THREE.Color(theme.id === 'autumn' ? 0x6b4a28 : 0xc7a468);
-  const pathEdge = new THREE.Color(theme.id === 'autumn' ? 0x7d5c34 : 0xd8b878);
+  const pathCol = new THREE.Color(theme.id === 'autumn' ? 0x83643a : 0xc7a468);
+  const pathEdge = new THREE.Color(theme.id === 'autumn' ? 0x94764a : 0xd8b878);
   const PATH_W = 5.0;                                // half-width of the worn lane
 
   const pos = geo.attributes.position;

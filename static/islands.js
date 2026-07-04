@@ -1086,7 +1086,7 @@ export function makeRealmField(theme, nodes, segs, rng, heightAt = null) {
   // reads at a glance and the tree band stands well clear of it either side.
   if (foot && segs.length) {
     const HW = 2.6;                                 // path half-width
-    const pathCol = theme.id === 'autumn' ? 0x6a4a28 : 0xc7a468;
+    const pathCol = theme.id === 'autumn' ? 0x8a6a3e : 0xc7a468;
     const verts = [];
     for (const s of segs) {
       const ax = s[0], az = s[1], bx = s[2], bz = s[3];
@@ -1504,17 +1504,17 @@ export function buildIsland(node, theme, domains) {
         // ground — a trodden dirt ring where the path forks. No grove crowding
         // the stop; the trees are held back in the field, off the trail.
         const disc = new THREE.Mesh(
-          new THREE.CircleGeometry(2.0, 20),
-          flat(0x5f4326, { roughness: 1 }));
+          new THREE.CircleGeometry(2.1, 20),
+          flat(0x8a6a3e, { roughness: 1 }));       // worn dirt, matches the path
         disc.rotation.x = -Math.PI / 2;
-        disc.position.y = 0.05;
+        disc.position.y = 0.06;
         disc.receiveShadow = true;
         g.add(disc);
         const ring = new THREE.Mesh(
-          new THREE.RingGeometry(2.0, 2.5, 20),
-          flat(0x795536, { roughness: 1 }));
+          new THREE.RingGeometry(2.1, 2.7, 20),
+          flat(0xa5824c, { roughness: 1 }));        // scuffed lighter rim
         ring.rotation.x = -Math.PI / 2;
-        ring.position.y = 0.04;
+        ring.position.y = 0.05;
         g.add(ring);
         g.position.set(node.x, 0, node.z);
         return { group: g, R: 2.2, plateauY: 0 };
