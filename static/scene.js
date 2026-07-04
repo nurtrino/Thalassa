@@ -283,6 +283,11 @@ export function createWorld(container, handlers = {}) {
   const ARROW_MAT = new THREE.MeshStandardMaterial({
     color: 0xffd061, emissive: 0xb9791c, emissiveIntensity: 1.1,
     flatShading: true });
+  // a wide, invisible-but-clickable ribbon laid along each Vale trail so you can
+  // tap the GROUND you want to walk, not just the little chevrons
+  const VALE_STRIP_GEO = new THREE.BoxGeometry(1, 1, 1);   // shared; scaled per strip
+  const VALE_STRIP_MAT = new THREE.MeshBasicMaterial({
+    transparent: true, opacity: 0, depthWrite: false });
   const fx = new THREE.Group();           // wake sprites live here
 
   /* wake pool: fixed sprites, zero allocation during play */
@@ -639,6 +644,21 @@ export function createWorld(container, handlers = {}) {
       // sample chevrons at fixed distances down the trail (the fog line is
       // close — only the first stretch is ever visible anyway)
       const pts = path.map((id) => nodeById[id]).filter(Boolean);
+      // a wide invisible click-ribbon along the visible trail toward this fork —
+      // tap anywhere on the GROUND path to take it
+      let acc = 0;
+      for (let i = 0; i + 1 < pts.length && acc < 34; i++) {
+        const ax = pts[i].x, az = pts[i].z, bx = pts[i + 1].x, bz = pts[i + 1].z;
+        const seg = Math.hypot(bx - ax, bz - az) || 1e-6;
+        const L = Math.min(seg, 34 - acc);
+        const strip = new THREE.Mesh(VALE_STRIP_GEO, VALE_STRIP_MAT);
+        strip.scale.set(9, 0.9, L + 2.5);
+        strip.position.set(ax + (bx - ax) * (L / 2 / seg), 0.45, az + (bz - az) * (L / 2 / seg));
+        strip.rotation.y = Math.atan2(bx - ax, bz - az);
+        strip.userData.node = dest;                 // no ph → not bobbed
+        valeArrows.add(strip);
+        acc += seg;
+      }
       let target = 6;
       let walked = 0;
       for (let i = 0; i + 1 < pts.length && target <= 30; i++) {
@@ -690,10 +710,10 @@ export function createWorld(container, handlers = {}) {
     const rad = new THREE.Vector3(n.x, 0, n.z).normalize();   // outward (radial)
     const inRealm = !!(st && st.id !== 'hub');
     const side = inRealm ? 1 : -1;                            // realm past the arch
-    // in the realm you spawn WELL past the pass — clear of the whole gate
-    // structure, its towers at your back and the realm's roads opening ahead so
-    // you can see where to go; at the hub you wait at the mouth
-    const along = inRealm ? 34 : 7;
+    // the gate structure is pulled ~22 hub-ward (see makeGatePortal caller), so a
+    // modest step past the node lands you just IN FRONT of the mouth, the pass at
+    // your back and the realm's roads opening ahead; at the hub you wait outside it
+    const along = inRealm ? 12 : 7;
     const fan = ((slotIdx % 3) - 1) * 3.0;
     return new THREE.Vector3(
       n.x + rad.x * along * side - rad.z * fan, 0,
@@ -855,7 +875,8 @@ export function createWorld(container, handlers = {}) {
       // line the final leg up with the channel so we run straight at the arch
       const rad = _vD.set(dest.x, 0, dest.z).normalize();
       const side = st.id !== 'hub' ? 1 : -1;
-      raw.push(new THREE.Vector3(dest.x + rad.x * 34 * side, 0, dest.z + rad.z * 34 * side));
+      const gAlong = st.id !== 'hub' ? 12 : 34;   // match the realm berth; run in from far on the hub side
+      raw.push(new THREE.Vector3(dest.x + rad.x * gAlong * side, 0, dest.z + rad.z * gAlong * side));
     }
     raw.push(slotFor(toNode, rec.idx, st));
     const pts = avoidIslands(raw, st);
@@ -1943,6 +1964,7 @@ export function createWorld(container, handlers = {}) {
     syncValeArrows(lastRoom);
     for (let i = 0; i < valeArrows.children.length; i++) {
       const a = valeArrows.children[i];
+      if (a.userData.ph == null) continue;          // click-strips don't bob
       a.position.y = 0.5 + Math.sin(t * 3 + a.userData.ph) * 0.14;
     }
     syncKraken(lastRoom);
