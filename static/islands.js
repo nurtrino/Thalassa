@@ -618,7 +618,7 @@ function makeShrine(domainHex, themeId = 'hub', spent = false) {
 
 function makeObelisk() {
   const g = new THREE.Group();
-  g.add(glbProp('obelisk', { h: 3.6 }));
+  g.add(glbProp('obelisk', { h: 5.4 }));   // 150% up
   const glow = new THREE.PointLight(0x9fb4ff, 5, 9);
   glow.position.y = 2.4;
   g.add(glow);
