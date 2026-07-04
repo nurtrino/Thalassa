@@ -755,14 +755,11 @@ function makePharosGate() {
 }
 
 function makeRelicBeacon() {
+  // no pillar of light — just a small gold urn marking the relic spot
   const g = new THREE.Group();
-  const beam = new THREE.Mesh(new THREE.CylinderGeometry(0.3, 0.55, 9, 10, 1, true),
-    new THREE.MeshBasicMaterial({ color: COL.gold, transparent: true, opacity: 0.28,
-      side: THREE.DoubleSide, depthWrite: false, blending: THREE.AdditiveBlending }));
-  beam.position.y = 5.5;
   const urn = new THREE.Mesh(new THREE.SphereGeometry(0.35, 8, 6), flat(COL.gold, { emissive: 0x9a6a10 }));
   urn.position.y = 1.4;
-  g.add(beam, urn);
+  g.add(urn);
   g.name = 'beacon';
   return g;
 }
@@ -1131,13 +1128,13 @@ export function makeRealmField(theme, nodes, segs, rng, heightAt = null) {
     scatter(20, 12, 16, 240, () => propGroup('dead_scrub', 0.8 + rng() * 0.6));
     scatter(9, 22, 24, 240, () => propGroup('cairn', 1.0 + rng() * 0.6));
   } else if (theme.id === 'autumn') {
-    // the Vale is a DENSE wooded maze: a deep, thick forest packed right up to
-    // the track — but a firm laneClear keeps every trunk off the path so the
-    // stone-set trail always reads with clear ground to either side.
-    scatter(900, 11, 9, 95, () => floraFor(theme, rng, 1.1 + rng() * 0.9));
-    scatter(60, 11, 10, 95, () => makeRock(rng, 0.4 + rng() * 0.7, theme.palette.rock));
-    scatter(26, 11, 11, 95, prop(['dead_tree', 'mushroom_cluster', 'boulder', 'cairn'], 0.7, 1.4));
-    scatter(16, 11, 11, 95, prop(['autumn_tree', 'campfire', 'stone_well', 'barrel', 'waymarker_stone'], 0.8, 1.5));
+    // the Vale is a THICK wood: trees crowd right up to the very edge of the
+    // path (laneClear 4.5 — just clear of the stones) and pack deep into the
+    // wilds, so the winding trail is a corridor cut through dense forest.
+    scatter(1600, 4.5, 5, 110, () => floraFor(theme, rng, 1.1 + rng() * 0.9));
+    scatter(80, 5, 6, 110, () => makeRock(rng, 0.4 + rng() * 0.7, theme.palette.rock));
+    scatter(30, 5, 7, 110, prop(['dead_tree', 'mushroom_cluster', 'boulder', 'cairn'], 0.7, 1.4));
+    scatter(20, 5, 7, 110, prop(['autumn_tree', 'campfire', 'stone_well', 'barrel', 'waymarker_stone'], 0.8, 1.5));
   } else {
     // hub / aegean open water: flotsam only — the good stuff is ashore
     scatter(8, 12, 17, 120, prop(['driftwood', 'fishing_net', 'buoy'], 0.7, 1.1));

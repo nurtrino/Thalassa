@@ -371,7 +371,9 @@ class Board:
             for i, kind in enumerate(plan):
                 t = (i + 1) / (n + 1)
                 radius = R0 + 80 + t * (330 - 88)
-                a = ang + side * 0.32 * math.sin(math.pi * t * 1.7)   # weave
+                # a WIDE serpentine weave — the track swings far to each side so
+                # the trail winds a long way through the trees between forks
+                a = ang + side * 0.52 * math.sin(math.pi * t * 2.1)
                 depth = 1 + (i * 3) // n
                 node = place(f"r{gi}_m{i}", radius, a, depth)
                 if kind == "weak":
@@ -397,7 +399,7 @@ class Board:
                 prev = main[k]
                 length = 1 + (si % 2)                 # 1–2 stops deep, then stops
                 for j in range(length):
-                    node = place(f"r{gi}_d{si}_{j}", hr + (j + 1) * 22,
+                    node = place(f"r{gi}_d{si}_{j}", hr + (j + 1) * 34,
                                  ha + off * (j + 1), 2)
                     # two of the spurs are GUARDED — an elite lurks at the dead end
                     if j == length - 1 and si in (0, 2):
@@ -492,13 +494,17 @@ class Board:
         island_edges = self.edges[:]
         self.edges = []
         wp = 0
-        for a, b in island_edges:
+        for ei, (a, b) in enumerate(island_edges):
             length = self._dist(a, b)
             na, nb = self.nodes[a], self.nodes[b]
+            autumn_lane = (na.get("region") == "autumn"
+                           and nb.get("region") == "autumn")
             # Realm lanes get MORE waypoints so a d3 only nudges you a spot or
             # two through the wilds — the trial is a careful crawl, not a
-            # sprint. Hub lanes stay coarse so the Isles of Peace sail quickly.
-            if na.get("region") and nb.get("region"):
+            # sprint. The Amber Vale is finer still: long, winding forest lanes.
+            if autumn_lane:
+                n_way = min(4, max(3, round(length / 30) - 1))
+            elif na.get("region") and nb.get("region"):
                 n_way = min(_MAX_WAYPOINTS_REALM,
                             max(2, round(length / _WAYPOINT_EVERY_REALM) - 1))
             else:
@@ -517,9 +523,15 @@ class Board:
                 # perpendicular jitter so routes curve like real currents
                 px, pz = -(nb["z"] - na["z"]), (nb["x"] - na["x"])
                 plen = max(1e-6, (px * px + pz * pz) ** 0.5)
-                # tighter lanes wander less — realm roads are packed close now
-                amp = 6.0 if (na.get("region") and nb.get("region")) else 10.0
-                jit = rng.uniform(-amp, amp)
+                if autumn_lane:
+                    # a smooth serpentine: each lane bows to one side (alternating
+                    # lane to lane), so the trail snakes far through the trees
+                    side_l = 1 if ei % 2 == 0 else -1
+                    jit = math.sin(k / (n_way + 1) * math.pi) * 40 * side_l
+                else:
+                    # tighter lanes wander less — realm roads are packed close now
+                    amp = 6.0 if (na.get("region") and nb.get("region")) else 10.0
+                    jit = rng.uniform(-amp, amp)
                 nid = f"sea{wp}"
                 wp += 1
                 self.nodes[nid] = {
