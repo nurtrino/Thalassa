@@ -57,7 +57,7 @@ const HEIGHTS = {
 
 export const BOSS_IDS = new Set(['stag_king', 'wyrm', 'colossus', 'matriarch',
   'warden', 'tyrant', 'sphinx', 'kraken']);
-const FLOATERS = new Set(['wraith', 'shade', 'siren', 'warden',
+const FLOATERS = new Set(['wraith', 'shade', 'siren',
   // fliers hover too — wings out, feet never on the ground
   'bird', 'bird_poison', 'vulture', 'harpy']);
 const BOATS = new Set(['skiff']);

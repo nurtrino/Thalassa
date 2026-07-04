@@ -47,7 +47,7 @@ ISLAND_NAMES = [
     "Gavdos", "Elafonisos", "Meganisi", "Kalamos",
 ]
 
-WARDEN = ("The Dark Lord", 14, 3, 3)
+WARDEN = ("The Dark Presence", 14, 3, 3)
 WARDEN_MODEL = "tyrant"            # the colossal dark biped who holds the Pharos
 
 # ── the four realms, one beyond each mountain pass ───────────────────────────
