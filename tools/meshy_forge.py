@@ -146,7 +146,8 @@ def _entry(st, mid):
 # ── prompt assembly ──────────────────────────────────────────────────────────
 def full_prompt(model):
     p = model["prompt"].strip().rstrip(".")
-    return f"{p}. {MP.STYLE}"[:600]
+    style = model.get("style") or MP.STYLE
+    return f"{p}. {style}"[:600]
 
 
 def poly_for(model):

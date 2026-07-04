@@ -70,13 +70,21 @@ MODELS = [
       "ice floating flat on the water surface. Palette: glacier blue-white "
       "ice."),
     P("tomb",
-      "An ancient Egyptian tomb entrance: a clean solid sandstone doorway with a "
-      "flat lintel and a dark rectangular opening, flanked by two seated jackal "
-      "statues. Tidy and intact — no jumbled broken rubble or messy debris piled "
-      "on top. Ominous boss lair. Palette: sandstone tan, dark opening, faded "
-      "blue-and-gold trim.",
-      negative=(NEGATIVE + ", rubble on top, jumbled blocks, messy debris, "
-                "broken collapsed roof, floating stones")),
+      "An ancient Egyptian mastaba tomb: a big CHUNKY solid three-dimensional "
+      "stepped sandstone block building with sloped battered walls, standing on "
+      "its own stone foundation. A tall deeply-RECESSED dark doorway in the "
+      "middle of the front face, carved hieroglyph bands framing it, and TWO "
+      "large seated black Anubis jackal statues flanking the entrance, one on "
+      "each side. Solid, weighty and monumental — a real 3D structure with depth, "
+      "not a thin flat wall or facade. Ominous desert boss lair. Palette: warm "
+      "sandstone tan blocks, dark doorway, black Anubis statues, faded blue-and-"
+      "gold trim.",
+      style=("stylized low-poly, flat-shaded, faceted, matte hand-painted "
+             "colours, a chunky solid tabletop board-game building set-piece with "
+             "real depth and volume, sitting naturally on its own stone base, "
+             "plain empty background, three-quarter view, game-ready"),
+      negative=(NEGATIVE + ", flat facade, thin wall, melted, soft blobby "
+                "geometry, jumbled rubble, collapsed, undercooked, 2d relief")),
     P("barrow",
       "An ancient burial barrow, a grassy earthen mound with a dark stone "
       "doorway of three big lintel stones leading inside, ringed by a few leaning "
