@@ -85,7 +85,7 @@ function ensureTemplate(id) {
 }
 
 export function preloadMonsters(ids) {
-  for (const id of ids) ensureTemplate(id);
+  return ids.map((id) => ensureTemplate(id));
 }
 
 /* Saturate/deepen the baked colors ~15% (they export a touch pale), flag

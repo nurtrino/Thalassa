@@ -69,6 +69,13 @@ function structTemplate(id) {
   return p;
 }
 
+/* Every landmark the map mounts — preloaded by the loading screen */
+export function preloadStructures() {
+  return ['pharos', 'temple', 'temple_ice', 'temple_desert', 'temple_jungle',
+          'temple_autumn', 'market', 'dock', 'obelisk', 'tents', 'lighthouse']
+    .map((id) => structTemplate(id));
+}
+
 /* Returns a group NOW; the landmark pops in when its GLB lands. opts:
    h = target height, len = target length along x (one of the two), ry yaw. */
 function glbProp(id, { h = null, len = null, ry = 0, onReady = null } = {}) {
@@ -544,26 +551,24 @@ function makeRock(rng, r, color = COL.rock) {
   return rock;
 }
 
-/* dispatch a tree/plant for the theme's flora set */
+/* dispatch a tree/plant for the theme's flora set — Meshy flora now, at
+   the same call-site scales (natural heights come from props.js) */
 function floraFor(theme, rng, s = 1) {
   const kind = theme.flora;
-  if (kind === 'pine') return makePine(rng, s);
+  if (kind === 'pine') return propGroup(rng() < 0.3 ? 'pine_tree' : 'pine_snow', s);
   if (kind === 'cactus') {
     const r = rng();
-    if (r < 0.5) return makeCactus(rng, s);
-    if (r < 0.78) return makeDeadScrub(rng, s);
-    return makeSandSpire(rng, s * 0.8);
+    if (r < 0.5) return propGroup('cactus', s);
+    if (r < 0.78) return propGroup('dead_scrub', s);
+    return makeSandSpire(rng, s * 0.8);            // hoodoo spires stay sculpted
   }
-  if (kind === 'jungle') {
-    return rng() < 0.72 ? makeJungleTree(rng, s)
-                        : makePalm(rng, s * 1.2, 0x1d6e30, 0x2a8a3e);
-  }
-  if (kind === 'autumn') return makeAutumnTree(rng, s);
+  if (kind === 'jungle') return propGroup(rng() < 0.72 ? 'jungle_tree' : 'palm_tree', s);
+  if (kind === 'autumn') return propGroup('autumn_tree', s);
   // aegean
   const r = rng();
-  if (r < 0.5) return makePalm(rng, s);
-  if (r < 0.8) return makeCypress(rng, s);
-  return makeOlive(rng, s);
+  if (r < 0.5) return propGroup('palm_tree', s);
+  if (r < 0.8) return propGroup('cypress_tree', s);
+  return propGroup('olive_tree', s);
 }
 
 /* ── buildings & props ──────────────────────────────────────────────────── */
@@ -848,102 +853,39 @@ function makeRibs(rng) {
 
 /* ── realm wilds: the stuff that fills the water/sand BETWEEN stops ─────── */
 
-/* a drifting iceberg — jagged spire over a pack-ice foot */
+/* a drifting iceberg — the Meshy berg, scaled by the old berg sizes */
 export function makeBerg(rng, s = 1) {
-  const g = new THREE.Group();
-  const ice = flat(0xe8f4fb, { emissive: 0x9cc8de, emissiveIntensity: 0.18 });
-  const iceDk = flat(0xc9e2f0, { emissive: 0x7fb2cc, emissiveIntensity: 0.12 });
-  const spire = new THREE.Mesh(new THREE.ConeGeometry(1.6 * s, 3.4 * s, 5), ice);
-  spire.position.y = 1.05 * s;
-  spire.rotation.set(rng() * 0.2 - 0.1, rng() * 6.28, rng() * 0.24 - 0.12);
-  spire.castShadow = true;
-  g.add(spire);
-  const n = 1 + Math.floor(rng() * 2);
-  for (let i = 0; i < n; i++) {
-    const c = new THREE.Mesh(
-      new THREE.ConeGeometry((0.9 + rng() * 0.7) * s, (1.0 + rng() * 1.3) * s, 4), iceDk);
-    const a = rng() * 6.28, r = (1.5 + rng() * 1.2) * s;
-    c.position.set(Math.cos(a) * r, 0.3 * s, Math.sin(a) * r);
-    c.rotation.set(rng() * 0.3 - 0.15, rng() * 6.28, rng() * 0.3 - 0.15);
-    c.castShadow = true;
-    g.add(c);
-  }
-  const floe = new THREE.Mesh(
-    new THREE.CylinderGeometry((2.5 + rng()) * s, (2.8 + rng()) * s, 0.26, 7), iceDk);
-  floe.position.y = 0.09;
-  floe.rotation.y = rng() * 6.28;
-  g.add(floe);
-  return g;
+  return propGroup('iceberg', s);
 }
 
-/* a lone slab of drift ice, for scattering between the bergs */
+/* drift chunks between the bergs — small crystalline shards awash */
 export function makeFloe(rng, s = 1) {
-  const g = new THREE.Group();
-  const iceDk = flat(0xd4e8f4, { emissive: 0x88b8d0, emissiveIntensity: 0.1 });
-  const slab = new THREE.Mesh(
-    new THREE.CylinderGeometry((1.1 + rng() * 1.3) * s, (1.3 + rng() * 1.4) * s, 0.24, 6), iceDk);
-  slab.position.y = 0.08;
-  slab.rotation.y = rng() * 6.28;
-  g.add(slab);
-  if (rng() < 0.45) {
-    const lump = new THREE.Mesh(new THREE.ConeGeometry(0.5 * s, 0.7 * s, 4), iceDk);
-    lump.position.set((rng() - 0.5) * s, 0.4, (rng() - 0.5) * s);
-    g.add(lump);
-  }
-  return g;
+  return propGroup('ice_shard', 0.4 + s * 0.45);
 }
 
-/* a floating tangle of jungle vines and lily pads on the brown water */
+/* a floating tangle on the brown water: the Meshy lily pads, ringed by
+   snaking procedural vines so the channels still read vine-choked */
 export function makeVineMat(rng, s = 1) {
   const g = new THREE.Group();
-  const moss = flat(0x2f5a24, { emissive: 0x14260c, emissiveIntensity: 0.5 });
+  g.add(propGroup('lily_pads', 1.1 + s * 0.9));
   const vine = flat(0x3f6d2a);
-  const mat = new THREE.Mesh(new THREE.CylinderGeometry(1.6 * s, 1.9 * s, 0.2, 9), moss);
-  mat.position.y = 0.07;
-  g.add(mat);
-  for (let i = 0; i < 4; i++) {
+  for (let i = 0; i < 3; i++) {
     const arc = new THREE.Mesh(
-      new THREE.TorusGeometry((1.2 + rng() * 1.6) * s, 0.07, 5, 10, Math.PI * (0.6 + rng() * 0.5)),
+      new THREE.TorusGeometry((1.3 + rng() * 1.6) * s, 0.07, 5, 10, Math.PI * (0.6 + rng() * 0.5)),
       vine);
     const a = rng() * 6.28;
-    arc.position.set(Math.cos(a) * 1.5 * s, 0.1, Math.sin(a) * 1.5 * s);
-    arc.rotation.set(Math.PI / 2, 0, rng() * 6.28);   // snaking flat on the water
+    arc.position.set(Math.cos(a) * 1.6 * s, 0.1, Math.sin(a) * 1.6 * s);
+    arc.rotation.set(Math.PI / 2, 0, rng() * 6.28);
     g.add(arc);
-  }
-  for (let i = 0; i < 3; i++) {
-    const pad = new THREE.Mesh(new THREE.CylinderGeometry(0.5 * s, 0.55 * s, 0.08, 8),
-      flat(0x4f8a34));
-    const a = rng() * 6.28, r = (2.1 + rng() * 1.6) * s;
-    pad.position.set(Math.cos(a) * r, 0.05, Math.sin(a) * r);
-    g.add(pad);
   }
   g.name = 'bob';
   return g;
 }
 
-/* a wind-heaped dune for the Bleached Reach's sand sea: a low-poly RIDGE —
-   a long four-sided crest, faceted like everything else in this world, with
-   a shorter echo ridge behind it. Reads as swept sand, not a beached blob. */
+/* a wind-heaped dune — the Meshy dune, at the old ridge footprints
+   (sandHex kept in the signature for call-site compatibility) */
 export function makeDune(rng, sandHex, s = 1) {
-  const g = new THREE.Group();
-  const tone = new THREE.Color(sandHex).offsetHSL(0, 0.02, 0.02 + rng() * 0.05);
-  const ridge = new THREE.Mesh(new THREE.ConeGeometry(3.2 * s, 2.0 * s, 4), flat(tone));
-  ridge.scale.set(2.3 + rng() * 1.1, 0.55 + rng() * 0.2, 0.8 + rng() * 0.25);
-  ridge.rotation.y = (rng() - 0.5) * 0.5;
-  ridge.position.y = 0.5 * s;                    // apex up, skirt sunk in the sand
-  ridge.castShadow = true;
-  ridge.receiveShadow = true;
-  g.add(ridge);
-  if (rng() < 0.7) {
-    const echo = new THREE.Mesh(new THREE.ConeGeometry(2.0 * s, 1.2 * s, 4), flat(tone));
-    echo.scale.set(1.9 + rng() * 0.9, 0.5 + rng() * 0.18, 0.75);
-    echo.rotation.y = (rng() - 0.5) * 0.7;
-    echo.position.set((rng() - 0.5) * 3 * s, 0.28 * s, (3.2 + rng() * 1.8) * s);
-    echo.castShadow = true;
-    echo.receiveShadow = true;
-    g.add(echo);
-  }
-  return g;
+  return propGroup('sand_dune', 0.9 + s * 0.9);
 }
 
 /* the desert tyrant's LAIR: a stepped sandstone tomb half-swallowed by the
@@ -1121,7 +1063,7 @@ export function makeRealmField(theme, nodes, segs, rng) {
     scatter(6, 12, 17, 120, prop(['boulder'], 0.7, 1.2));   // sea stacks
   }
   if (theme.id === 'ice') {
-    scatter(60, 16, 22, 115, () => makeBerg(rng, 0.7 + rng() * 0.9));
+    scatter(60, 16, 22, 115, () => makeBerg(rng, 0.5 + rng() * 0.6));
     scatter(52, 13, 20, 115, () => makeFloe(rng, 0.8 + rng() * 0.9));
     scatter(14, 12, 18, 115, prop(['ice_shard', 'iceberg', 'ice_floe'], 0.7, 1.3));
     scatter(4, 14, 20, 115, prop(['shipwreck', 'driftwood'], 0.9, 1.4));
@@ -1132,7 +1074,7 @@ export function makeRealmField(theme, nodes, segs, rng) {
     scatter(240, 9, 15, 130, () => makeDune(rng, theme.palette.sand, 0.7 + rng() * 1.1));
     scatter(60, 10, 16, 130, () => floraFor(theme, rng, 0.8 + rng() * 0.6));
     scatter(20, 10, 16, 130, () => makeRock(rng, 0.5 + rng() * 0.7, theme.palette.rock));
-    scatter(10, 12, 18, 130, () => (rng() < 0.5 ? makeCairn(rng) : makeRibs(rng)));
+    scatter(10, 12, 18, 130, () => propGroup(rng() < 0.5 ? 'cairn' : 'bone_pile', 0.9 + rng() * 0.6));
     scatter(16, 11, 17, 130, prop(['bone_pile', 'broken_statue', 'amphora_pile', 'ruined_column'], 0.7, 1.4));
     scatter(14, 11, 17, 130, prop(['cactus', 'dead_scrub', 'sarcophagus', 'ruined_arch', 'sand_dune'], 0.8, 1.5));
   } else if (theme.id === 'autumn') {
@@ -1537,8 +1479,8 @@ export function buildIsland(node, theme, domains) {
       }
       // dune waypoints on the trek: a cairn or caravan bones, half-lost in
       // a cluster of wind-heaped dunes
-      const marker = rng0() < 0.6 ? makeCairn(rng0) : makeRibs(rng0);
-      marker.scale.setScalar(1.4);
+      const marker = propGroup(rng0() < 0.6 ? 'cairn' : 'bone_pile',
+        1.0 + rng0() * 0.4);
       g.add(marker);
       for (let i = 0; i < 2 + Math.floor(rng0() * 2); i++) {
         const dune = makeDune(rng0, pal.sand);
@@ -1557,8 +1499,12 @@ export function buildIsland(node, theme, domains) {
       return { group: g, R: 3, plateauY: 0 };
     }
     if (theme.id === 'ice' && node.region) {
-      // Frostfang water: every stop between islands is a drifting berg
-      g.add(makeBerg(rng0, 1.1 + rng0() * 0.6));
+      // Frostfang water: every stop is a mooring BESIDE a drifting berg —
+      // the Meshy berg is a pointed mountain, so the ship can't sit on it
+      const berg = makeBerg(rng0, 0.75 + rng0() * 0.35);
+      const ba = rng0() * 6.28;
+      berg.position.set(Math.cos(ba) * 5.4, 0, Math.sin(ba) * 5.4);
+      g.add(berg);
       for (let i = 0; i < 2; i++) {
         const f = makeFloe(rng0, 0.9 + rng0() * 0.6);
         const a = rng0() * 6.28, r = 5 + rng0() * 3.5;
@@ -2275,6 +2221,38 @@ export function makeBattleBackdrop(theme) {
       g.add(leaf);
     }
     g.add(hazePlane(0xf8ce74, 70, 14, 0.14, 26, 6, -16));
+  }
+
+  // Meshy prop dressing: a handful of the good GLB props scattered on the
+  // far banks so battles share the realms' set dressing. Water themes float
+  // the floatable props and stand the rest on rock shelves; desert sits
+  // everything straight on the sand.
+  const BATTLE_PROPS = {
+    hub: ['ruined_column', 'amphora_pile', 'broken_statue', 'olive_tree', 'cypress_tree'],
+    ice: ['iceberg', 'ice_shard', 'pine_snow', 'crystal_cluster'],
+    desert: ['ruined_arch', 'bone_pile', 'cactus', 'sarcophagus', 'sand_dune'],
+    jungle: ['jungle_tree', 'mossy_idol', 'fern_cluster', 'mushroom_cluster', 'ruined_arch'],
+    autumn: ['autumn_tree', 'dead_tree', 'mushroom_cluster', 'campfire', 'boulder'],
+  };
+  const FLOATS = new Set(['iceberg', 'ice_shard', 'lily_pads', 'driftwood', 'sand_dune']);
+  const picks = BATTLE_PROPS[id] || BATTLE_PROPS.hub;
+  const n = picks.length + 2;                        // every pick shows at least once
+  for (let i = 0; i < n; i++) {
+    // spread along the arc AWAY from the camera opening (camera sits past ±1.93)
+    const a = -1.7 + (i / (n - 1)) * 3.4 + (rng() - 0.5) * 0.3;
+    const r = 15 + rng() * 12;
+    const pid = picks[i % picks.length];
+    const p = propGroup(pid, 0.9 + rng() * 0.5);
+    const x = Math.cos(a) * r, z = Math.sin(a) * r;
+    if (id === 'desert' || FLOATS.has(pid)) {
+      p.position.set(x, 0, z);
+    } else {
+      const base = makeRock(rng, 1.3 + rng() * 0.7, theme.palette.rock);
+      base.position.set(x, -0.7, z);
+      g.add(base);
+      p.position.set(x, 0.55, z);
+    }
+    g.add(p);
   }
 
   return g;

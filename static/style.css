@@ -1720,6 +1720,41 @@ body.touring #mapBtn, body.touring #dice, body.touring #shopPanel { display: non
   .enraged { animation: none; box-shadow: 0 0 10px rgba(224, 70, 40, .6); }
 }
 
+/* ── the loading beat before the grand fly-over ────────────────────────── */
+#loadOv {
+  position: fixed; inset: 0; z-index: 70; display: flex;
+  align-items: center; justify-content: center;
+  background: radial-gradient(ellipse at 50% 42%,
+    rgba(14, 18, 30, 0.72) 0%, rgba(7, 9, 16, 0.96) 78%);
+  transition: opacity .55s;
+}
+#loadOv.lgone { opacity: 0; pointer-events: none; }
+#loadOv .lwrap {
+  text-align: center; padding: 30px 44px; width: min(88vw, 460px);
+  background: linear-gradient(180deg, rgba(20, 26, 40, .92), rgba(12, 15, 26, .96));
+  border: 1px solid rgba(217, 164, 65, .55); border-radius: 14px;
+  box-shadow: 0 0 70px rgba(217, 164, 65, .14), 0 24px 60px rgba(0, 0, 0, .6);
+}
+#loadOv .ltitle {
+  font-family: 'Cinzel', serif; font-size: 20px; letter-spacing: .12em;
+  color: #f4d582; text-shadow: 0 0 18px rgba(217, 164, 65, .45);
+  margin-bottom: 18px;
+}
+#loadOv .lbar {
+  height: 12px; border-radius: 7px; overflow: hidden;
+  background: rgba(9, 12, 20, .9);
+  border: 1px solid rgba(217, 164, 65, .4);
+}
+#loadOv .lfill {
+  height: 100%; width: 0%;
+  background: linear-gradient(90deg, #a87424, #d9a441 55%, #f4d582);
+  box-shadow: 0 0 14px rgba(217, 164, 65, .7);
+  transition: width .25s ease-out;
+}
+#loadOv .lcount {
+  margin-top: 10px; font-size: 12.5px; font-style: italic; color: #8d97ab;
+}
+
 /* ── the victory curtain call ──────────────────────────────────────────── */
 #victoryOv {
   position: fixed; inset: 0; z-index: 60; display: flex;

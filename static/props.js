@@ -70,7 +70,7 @@ function ensure(id) {
 }
 
 export function preloadProps(ids = PROP_IDS) {
-  for (const id of ids) ensure(id);
+  return ids.map((id) => ensure(id));
 }
 
 /* An Object3D placed on the map NOW; the model appears inside it once loaded. */

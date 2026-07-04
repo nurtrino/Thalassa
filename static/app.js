@@ -118,6 +118,23 @@ world = createWorld($('world'), {
   onTourCaption(cap) {
     renderTourCaption(cap);
   },
+  onLoadStart(total) {
+    // the loading beat is the first frame of the cinematic — clear the desk
+    introDismissed = true;
+    localStorage.setItem('thalassa_intro', '1');
+    $('modal').classList.add('hidden');
+    renderLoading(0, total);
+  },
+  onLoadProgress(done, total) {
+    renderLoading(done, total);
+  },
+  onLoadDone() {
+    const ov = document.getElementById('loadOv');
+    if (ov) {
+      ov.classList.add('lgone');
+      setTimeout(() => ov.remove(), 600);
+    }
+  },
   onTourState(active) {
     document.body.classList.toggle('touring', !!active);
     if (active) {
@@ -355,6 +372,26 @@ function renderTourCaption(cap) {
     [{ opacity: 0, transform: 'translateX(-50%) translateY(14px)' },
      { opacity: 1, transform: 'translateX(-50%) translateY(0)' }],
     { duration: 450, easing: 'ease-out' });
+}
+
+/* pre-tour loading beat: a bar that fills while every GLB is fetched, so the
+ * grand fly-over never shows islands with props still popping in */
+function renderLoading(done, total) {
+  let ov = document.getElementById('loadOv');
+  if (!ov) {
+    ov = document.createElement('div');
+    ov.id = 'loadOv';
+    ov.innerHTML =
+      '<div class="lwrap">' +
+        '<div class="ltitle">Charting the Isles of Peace…</div>' +
+        '<div class="lbar"><div class="lfill"></div></div>' +
+        '<div class="lcount"></div>' +
+      '</div>';
+    document.body.appendChild(ov);
+  }
+  const pct = total ? Math.round((done / total) * 100) : 100;
+  ov.querySelector('.lfill').style.width = pct + '%';
+  ov.querySelector('.lcount').textContent = `${done} / ${total} treasures aboard`;
 }
 
 /* what to shout when a battle opens */

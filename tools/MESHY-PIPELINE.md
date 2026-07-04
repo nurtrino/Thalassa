@@ -138,6 +138,25 @@ python tools/meshy_forge.py --manifest meshy_ground --state .meshy_ground_state.
 python tools/meshy_ground_bake.py        # → static/assets/textures/ground_*.jpg
 ```
 
+**REQUIRED final pass — mesh + texture crunch.** Raw Meshy GLBs are ~25k verts
+and 4-6 MB each; the realms scatter hundreds of clones (the Vale alone plants
+560 trees), so unoptimized drops are unplayable and balloon the pre-game load.
+After any props/structures drop, run gltf-transform over the new files
+(NEVER over `monsters/` — flatten/join destroys the rigged node names):
+
+```bash
+# heavy-scatter flora (trees, dunes, bergs, shards, lily pads, scrub):
+npx @gltf-transform/cli optimize static/assets/props/<id>.glb static/assets/props/<id>.glb \
+    --compress quantize --texture-compress webp --texture-size 512 \
+    --simplify-ratio 0.08 --simplify-error 0.02
+# other props: same but --simplify-ratio 0.25 --simplify-error 0.01
+# structures:  same but --texture-size 1024 --simplify-ratio 0.35 --simplify-error 0.005
+```
+
+Quantize + WebP load natively in three's GLTFLoader (KHR_mesh_quantization /
+EXT_texture_webp) — no extra decoders. Verify with `static/scaletest.html`
+after crunching; heights must still match props.js / islands.js targets.
+
 Wiring (already in the frontend):
 - `static/props.js` loads the prop GLBs; `islands.js` scatters them across the
   realm field per biome (the "filler in the maps").

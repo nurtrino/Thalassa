@@ -21,7 +21,7 @@ import { OrbitControls } from './vendor/OrbitControls.js';
 import { hashStr, mulberry32, flat } from './util.js';
 import { themeFor } from './themes.js';
 import { makeWater, makeGround } from './water.js';
-import { buildIsland, makeShip, makeParticles, nameSprite, makeRealmField } from './islands.js';
+import { buildIsland, makeShip, makeParticles, nameSprite, makeRealmField, preloadStructures } from './islands.js';
 import { preloadProps } from './props.js';
 import { buildMountainWall, buildRealmBackdrop } from './wall.js';
 import { getMonster, animateMonster, preloadMonsters, disposeMonster } from './monsters.js';
@@ -1156,6 +1156,7 @@ export function createWorld(container, handlers = {}) {
     cameraAnchored = false;
     cine = null;
     wasLobby = true;
+    loadGate = false;      // rematch: gate again (cached promises resolve fast)
     seenStages.clear();
   }
 
@@ -1209,7 +1210,7 @@ export function createWorld(container, handlers = {}) {
      * cross into a new realm (never in the lobby, never mid-battle) */
     if (wasLobby && !lobbyMode && activeBoardId && !battleOn) {
       seenStages.add(activeBoardId);
-      startTour(room);                   // the grand fly-over, rules narrated
+      gateTourThenStart();               // preload → loading bar → fly-over
     }
     wasLobby = lobbyMode;
 
@@ -1568,6 +1569,30 @@ export function createWorld(container, handlers = {}) {
     const f = tourFog.st.scene.fog;
     if (f) { f.near = tourFog.near; f.far = tourFog.far; }
     tourFog = null;
+  }
+
+  /* the voyage begins: hold the grand fly-over until every GLB is truly in
+   * memory, so nothing pops in mid-cinematic. Progress is reported to the
+   * UI (loading bar); a 60s race means a stalled download never soft-locks
+   * the game — the tour simply starts with whatever arrived. */
+  let loadGate = false;
+  function gateTourThenStart() {
+    if (loadGate) return;
+    loadGate = true;
+    const jobs = [
+      ...preloadStructures(),
+      ...preloadProps(),
+      ...preloadMonsters(['captain', 'kraken', 'sphinx']),
+    ];
+    let done = 0;
+    handlers.onLoadStart?.(jobs.length);
+    const bump = () => handlers.onLoadProgress?.(++done, jobs.length);
+    for (const j of jobs) Promise.resolve(j).then(bump, bump);
+    const timeout = new Promise((r) => setTimeout(r, 60000));
+    Promise.race([Promise.allSettled(jobs), timeout]).then(() => {
+      handlers.onLoadDone?.();
+      if (!battleOn && lastRoom && lastRoom.phase !== 'lobby') startTour(lastRoom);
+    });
   }
 
   function startTour(room) {
