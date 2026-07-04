@@ -282,7 +282,9 @@ class ThalassaAudio {
       if (n !== name && t.started) this._ramp(t.gain.gain, 0, FADE);
     }
     const t = this._track(name);
-    if (t.failed) {                       // missing file → keep the game bed
+    if (t.failed) {                       // missing file → sensible fallback
+      const base = name.replace(/\d+$/, '');   // desert2 → desert before game
+      if (base !== name) { this.setSceneForce(base); return; }
       if (name !== 'game') this.setSceneForce('game');
       else this._musicFallback();
       return;

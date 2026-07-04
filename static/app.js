@@ -268,6 +268,18 @@ let lastStage = null;
 const REALM_MUSIC = new Set(['hub', 'ice', 'desert', 'jungle', 'autumn']);
 let curRealm = 'hub';
 
+/* The Bleached Reach carries TWO overworld themes (desert.mp3 / desert2.mp3);
+   a fresh one is chosen on every entry to the dunes so it never repeats. The
+   other realms play their single named track. A missing desert2.mp3 degrades
+   to desert.mp3 (see audio.setScene's base-name fallback). */
+let inDesert = false;
+let desertAlt = 0;         // flips 0↔1 each time you re-enter the desert
+function realmMusic(realm) {
+  if (realm !== 'desert') { inDesert = false; return realm; }
+  if (!inDesert) { inDesert = true; desertAlt ^= 1; }   // new visit → switch themes
+  return desertAlt ? 'desert2' : 'desert';
+}
+
 function applyStage(stageId) {
   const realm = stageId === 'battle' ? (room?.battle?.region || 'hub') : stageId;
   curRealm = realm;
@@ -501,7 +513,12 @@ function reactAudio(prev, next) {
   }
   if (next.phase !== 'finished') sfxAnnouncedWin = false;
 
-  /* soundtrack scenes: lobby / battle / puzzle / endgame / open sea */
+  /* Each realm carries its own exploration theme; the Bleached Reach has TWO,
+     and a fresh one is picked every time you re-enter the dunes. Missing files
+     fall back to the game bed automatically (see audio.setScene). */
+  // (areaTrack + its state live at module scope, just below.)
+
+  /* soundtrack scenes: lobby / battle / puzzle / endgame / per-realm open sea */
   const battleish = next.phase === 'battle' ||
     (next.phase === 'question' && next.question?.kind === 'battle') ||
     (next.phase === 'minigame' && next.minigame?.battle) ||
@@ -510,12 +527,12 @@ function reactAudio(prev, next) {
     (next.phase === 'question' && ['puzzle', 'riddle'].includes(next.question?.kind)) ||
     (next.phase === 'reveal' && next.reveal?.kind === 'puzzle') ||
     next.phase === 'upgrade_pick';
-  let scene = 'game';
+  let scene;
   if (next.phase === 'lobby') scene = 'lobby';
   else if (battleish) scene = 'battle';
   else if (puzzleish) scene = 'puzzle';
   else if (next.phase === 'finished' || next.pharos_open) scene = 'endgame';
-  else if (REALM_MUSIC.has(curRealm)) scene = curRealm;   // open sea → the realm's own theme
+  else if (REALM_MUSIC.has(curRealm)) scene = realmMusic(curRealm);   // open sea → the realm's own theme (desert alternates)
   audio.setScene(scene);
 
   /* duck under trivia cards — and under Simon, whose tones need the spotlight */
