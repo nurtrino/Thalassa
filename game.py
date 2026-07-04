@@ -373,6 +373,12 @@ class Game:
     def _land(self, p: Player, nid: str):
         node = self.board.nodes[nid]
         ntype = node["type"]
+        # drifting flotsam is hauled aboard the moment you arrive — even if
+        # something is about to rise out of the water after it
+        if ntype == "sea" and node.get("flotsam"):
+            node["flotsam"] = False
+            p.scrolls += 1
+            self._say(f"⚓ {p.name} hauls drifting flotsam aboard — +1 scroll.")
         if node["type"] == "lair":
             if p.pid in node["defeated"]:
                 if p.pid in node["stash"]:
@@ -1389,6 +1395,8 @@ class Game:
             base["gate_angle"] = node["gate_angle"]
         if node["type"] == "sea":
             base["look"] = node.get("look", "buoy")
+            if node.get("flotsam"):
+                base["flotsam"] = True
         elif node["type"] == "shrine":
             base["domain"] = node["domain"]
             base["charges"] = node["charges"]

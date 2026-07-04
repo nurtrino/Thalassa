@@ -83,6 +83,8 @@ def _target_score(g: G.Game, p, nid: str) -> float:
         return 55 if len(p.upgrades) < 4 else 15
     if ntype == "haven":
         return 75 if (p.hull <= p.max_hull - 2 and p.scrolls > 0) else -1
+    if ntype == "sea" and node.get("flotsam") and not monster:
+        return 12          # a free scroll drifting on the way — worth a small detour
     return -1
 
 

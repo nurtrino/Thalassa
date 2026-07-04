@@ -1755,6 +1755,27 @@ def test_correct_answer_but_boss_counter_kills_is_marked_death():
     assert pack(g, mon)[0]["hp"] > 0                # boss survived
 
 
+def test_flotsam_hauled_aboard_for_a_scroll():
+    g, (p0, p1) = make_game()
+    sea = find_node(g, "sea")
+    g.board.nodes[sea]["flotsam"] = True
+    g.board.nodes[sea]["monster"] = None
+    p = g.player_by_pid(p0)
+    before = p.scrolls
+    p.prev_node = p.node
+    p.node = sea
+    g._land(p, sea)
+    assert p.scrolls == before + 1                 # +1 scroll on pickup
+    assert not g.board.nodes[sea]["flotsam"]        # and it's spent
+
+
+def test_board_seeds_some_flotsam():
+    for seed in range(6):
+        b = Board(seed)
+        seas = [n for n in b.nodes.values() if n["type"] == "sea"]
+        assert any(n.get("flotsam") for n in seas)
+
+
 def test_jeopardy_answer_matching():
     C = questions.check_jeopardy
     assert C("Hemingway", "(Ernest) Hemingway")

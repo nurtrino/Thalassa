@@ -811,6 +811,30 @@ function makeBuoy(rng) {
 }
 
 
+/* drifting flotsam: a raft of crates & a barrel with a gold glint — sail onto
+   it to haul it aboard for a scroll. Named 'bob' so it rides the swell. */
+function makeFlotsam(rng) {
+  const g = new THREE.Group();
+  for (let i = 0; i < 3; i++) {
+    const crate = new THREE.Mesh(new THREE.BoxGeometry(0.55, 0.4, 0.55), flat(COL.woodDark));
+    const a = rng() * 6.28;
+    crate.position.set(Math.cos(a) * (0.4 + rng() * 0.5), 0.16, Math.sin(a) * (0.4 + rng() * 0.5));
+    crate.rotation.y = rng() * 1.5;
+    g.add(crate);
+  }
+  const barrel = new THREE.Mesh(new THREE.CylinderGeometry(0.24, 0.24, 0.5, 8), flat(COL.wood));
+  barrel.rotation.z = Math.PI / 2;
+  barrel.position.y = 0.2;
+  g.add(barrel);
+  const glint = new THREE.Mesh(new THREE.SphereGeometry(0.12, 6, 5),
+    flat(COL.gold, { emissive: 0x9a6a10 }));
+  glint.position.y = 0.5;
+  g.add(glint);
+  g.name = 'bob';
+  return g;
+}
+
+
 /* desert-trek waypoint: a traveller's cairn with a prayer flag */
 function makeCairn(rng) {
   const g = new THREE.Group();
@@ -1544,6 +1568,12 @@ export function buildIsland(node, theme, domains) {
       const buoy = makeBuoy(rng0);
       buoy.scale.setScalar(1.7);
       g.add(buoy);
+    }
+    if (node.flotsam) {              // salvage drifting on the lane — grab it for a scroll
+      const fl = makeFlotsam(rng0);
+      fl.scale.setScalar(1.55);
+      fl.position.set((rng0() - 0.5) * 3, 0, (rng0() - 0.5) * 3);
+      g.add(fl);
     }
     g.position.set(node.x, 0, node.z);
     return { group: g, R: node.look === 'islet' ? 5.2 : node.look === 'rocks' ? 3.6 : R, plateauY: 0 };

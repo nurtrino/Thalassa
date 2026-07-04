@@ -158,6 +158,7 @@ _MAX_WAYPOINTS = 1            # per HUB lane — tuned for exact-roll d3 sailing
 _WAYPOINT_EVERY_REALM = 42.0  # realms are finer-grained: a real crawl
 _MAX_WAYPOINTS_REALM = 2      # per REALM lane
 _SEA_LOOKS = ["buoy", "buoy", "buoy", "rocks", "rocks", "islet", "islet", "none"]
+_FLOTSAM_CHANCE = 0.25        # open-water nodes that drift a scroll's worth of salvage
 # approximate rendered island radii, so lane waypoints stay off the coasts
 _NODE_CLEAR = {"home": 17.0, "lair": 18.0, "pharos": 22.0, "monster": 15.0,
                "haven": 15.0, "shrine": 13.0, "shop": 13.0, "puzzle": 13.0,
@@ -307,6 +308,7 @@ class Board:
                     "region": theme, "depth": depth, "mode": mode,
                     "x": round(math.cos(a) * radius, 2),
                     "z": round(math.sin(a) * radius, 2),
+                    "flotsam": rng.random() < _FLOTSAM_CHANCE,
                     "look": rng.choice(_SEA_LOOKS)}
             self.nodes[nid] = node
             return node
@@ -478,6 +480,7 @@ class Board:
                     "band": max(na["band"], nb["band"]),
                     "x": round(na["x"] + (nb["x"] - na["x"]) * t + px / plen * jit, 2),
                     "z": round(na["z"] + (nb["z"] - na["z"]) * t + pz / plen * jit, 2),
+                    "flotsam": rng.random() < _FLOTSAM_CHANCE,
                     "look": rng.choice(_SEA_LOOKS),
                 }
                 # a lane belongs to a realm only when BOTH ends are inside it —
