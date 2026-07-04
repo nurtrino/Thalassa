@@ -73,14 +73,14 @@
     <path d="M104 426q20-13 40 0t40 0 40 0 40 0 40 0 40 0" stroke="#2e86ab" stroke-width="4.5" opacity=".55"/>
   </g>
 
-  <!-- laurel sprigs -->
-  <g fill="#c9a227" opacity=".9">
-    <path d="M150 452c-14-4-24-14-28-28 12 2 22 10 28 24z"/>
-    <path d="M362 452c14-4 24-14 28-28-12 2-22 10-28 24z"/>
-  </g>
-
   <!-- wordmark -->
-  <text x="256" y="472" text-anchor="middle" fill="url(#gold)"
+  <text x="256" y="466" text-anchor="middle" fill="url(#gold)"
         font-size="46" font-weight="800" letter-spacing="8"
         style="paint-order:stroke" stroke="#3a2c10" stroke-width="1">THALASSA</text>
+
+  <!-- centered flourish under the wordmark -->
+  <g stroke="#c9a227" stroke-width="2.4" stroke-linecap="round" opacity=".85">
+    <path d="M188 484 h44M280 484 h44"/>
+  </g>
+  <path d="M256 478 l7 6 -7 6 -7-6 Z" fill="#c9a227" opacity=".9"/>
 </svg>
