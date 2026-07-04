@@ -190,10 +190,10 @@ function updateFlash(pool, t) {
 
 /* ── enemy sizing / arrangement ──────────────────────────────────────────── */
 
-// per-model tweaks to the raw-bounds scale. The Dark Lord's tyrant.glb is a
-// giant (~7.4u vs the ~4.5u of other bosses); trim its boss scale so it towers
-// over the arena without punching out of frame.
-const MODEL_SCALE = { tyrant: 0.78 };
+// per-model tweaks to the raw-bounds scale. monsters.js now normalizes every
+// template to its species height at load, so this sits empty — kept as the
+// knob for one-off framing fixes.
+const MODEL_SCALE = {};
 
 function sizeFor(e) {
   const model = e.model || e.name || '';

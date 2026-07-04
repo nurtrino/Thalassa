@@ -35,7 +35,25 @@ export const MONSTER_IDS = [
   'drowned', 'golem', 'siren', 'wraith', 'shade', 'serpent', 'drake',
   'briar', 'crab', 'scorpion', 'skiff', 'captain', 'stag_king', 'wyrm',
   'colossus', 'matriarch', 'warden', 'tyrant', 'kraken', 'sphinx',
+  // Meshy realm re-tints — same beast, re-skinned for its home realm
+  'wolf_frost', 'golem_tomb', 'golem_jade', 'bird_poison',
+  'serpent_dust', 'serpent_bloom',
 ];
+
+/* The Meshy-generated GLBs come out at arbitrary unit-ish sizes; the whole
+ * game (battle sizing, map placement, camera framing) is tuned in WORLD
+ * heights. Normalize every template to its species height at load. */
+const HEIGHTS = {
+  wolf: 1.5, fox: 1.2, jackal: 1.3, boar: 1.5, stag: 2.0, jaguar: 1.4,
+  stalker: 1.7, shambler: 1.9, harpy: 1.7, bird: 1.2, vulture: 1.5,
+  raider: 1.8, faun: 1.7, monkey: 1.3, cyclops: 2.6, drowned: 1.8,
+  golem: 2.4, siren: 1.8, wraith: 1.8, shade: 1.8, serpent: 2.2, drake: 1.7,
+  briar: 1.7, crab: 1.3, scorpion: 1.6, skiff: 2.2, captain: 1.8,
+  stag_king: 3.4, wyrm: 3.6, colossus: 4.2, matriarch: 4.2, warden: 4.6,
+  tyrant: 4.2, kraken: 4.4, sphinx: 3.6,
+  wolf_frost: 1.5, golem_tomb: 2.4, golem_jade: 2.4, bird_poison: 1.2,
+  serpent_dust: 2.2, serpent_bloom: 2.2,
+};
 
 export const BOSS_IDS = new Set(['stag_king', 'wyrm', 'colossus', 'matriarch',
   'warden', 'tyrant', 'sphinx', 'kraken']);
@@ -67,10 +85,19 @@ export function preloadMonsters(ids) {
 /* Saturate/deepen the baked colors ~15% (they export a touch pale), flag
  * shadows, and measure height once on the shared template. */
 const _hsl = { h: 0, s: 0, l: 0 };
+const _PROXY_PARTS = new Set(['eye', 'core', 'crown']);
 function prepareTemplate(scene, id) {
   const seen = new Set();
+  const procedural = !!scene.userData.procedural;
   scene.traverse((o) => {
     if (!o.isMesh) return;
+    // the Meshy auto-rig drops heuristic glow proxies (eye/core/crown balls)
+    // that frequently float off the sculpt — the baked textures carry the
+    // look, so hide them. The procedural fallback keeps its placed eyes.
+    if (!procedural && _PROXY_PARTS.has((o.name || '').replace(/\.\d+$/, ''))) {
+      o.visible = false;
+      return;
+    }
     o.castShadow = true;
     o.receiveShadow = true;
     const mats = Array.isArray(o.material) ? o.material : [o.material];
@@ -85,7 +112,12 @@ function prepareTemplate(scene, id) {
     }
   });
   const box = new THREE.Box3().setFromObject(scene);
-  scene.userData.height = Math.max(0.6, box.max.y - box.min.y);
+  const rawH = Math.max(0.05, box.max.y - box.min.y);
+  const target = HEIGHTS[id];
+  if (target && Math.abs(rawH - target) > 0.05) {
+    scene.scale.multiplyScalar(target / rawH);   // feet stay on y=0
+  }
+  scene.userData.height = target || Math.max(0.6, rawH);
   scene.userData.monsterId = id;
   return scene;
 }
@@ -96,6 +128,7 @@ function buildFallback(id) {
   const rng = mulberry32(hashStr(id || 'fallback'));
   const root = new THREE.Group();
   root.name = 'root';
+  root.userData.procedural = true;   // its eyes are PLACED, keep them visible
   const body = new THREE.Group();
   body.name = 'body';
   body.position.y = 0.85;

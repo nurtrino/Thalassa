@@ -4,8 +4,56 @@
  * via the THEME objects from themes.js.
  */
 import * as THREE from 'three';
+import { GLTFLoader } from './vendor/GLTFLoader.js';
 import { hashStr, mulberry32, flat, displace, seedFrom, softDiscTexture } from './util.js';
 import { DOMAIN_COLORS, REALM_INFO } from './themes.js';
+
+/* ── Meshy landmark GLBs (static/assets/structures) ─────────────────────────
+   The AI-generated set ships centred at arbitrary unit scale; mount() grounds
+   the feet on y=0 and normalizes to a WORLD height (or length). Templates are
+   cached; instances are cheap clones that share geometry and textures. */
+const _structLoader = new GLTFLoader();
+const _structTpls = new Map();     // id → Promise<Scene|null>
+
+function structTemplate(id) {
+  let p = _structTpls.get(id);
+  if (p) return p;
+  p = _structLoader.loadAsync(`/static/assets/structures/${id}.glb`)
+    .then((gltf) => {
+      const s = gltf.scene;
+      s.traverse((o) => {
+        if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; }
+      });
+      s.userData.box = new THREE.Box3().setFromObject(s);
+      return s;
+    })
+    .catch((err) => {
+      console.warn(`structures: failed to load '${id}'`, err);
+      return null;
+    });
+  _structTpls.set(id, p);
+  return p;
+}
+
+/* Returns a group NOW; the landmark pops in when its GLB lands. opts:
+   h = target height, len = target length along x (one of the two), ry yaw. */
+function glbProp(id, { h = null, len = null, ry = 0, onReady = null } = {}) {
+  const g = new THREE.Group();
+  structTemplate(id).then((tpl) => {
+    if (!tpl) return;
+    const box = tpl.userData.box;
+    const k = h ? h / Math.max(0.05, box.max.y - box.min.y)
+                : len / Math.max(0.05, box.max.x - box.min.x);
+    const inst = tpl.clone(true);
+    inst.scale.setScalar(k);
+    inst.position.set(-(box.max.x + box.min.x) / 2 * k, -box.min.y * k,
+                      -(box.max.z + box.min.z) / 2 * k);
+    g.rotation.y = ry;
+    g.add(inst);
+    if (onReady) onReady(inst);
+  });
+  return g;
+}
 
 const COL = {
   sand: 0xf3e3b4, sandWet: 0xd9c489, grass: 0x5cb56e, grass2: 0x3f9e58,
@@ -435,127 +483,70 @@ function makeColumn(h = 1.6, r = 0.13) {
   return g;
 }
 
-function makeShrine(domainHex) {
+function makeShrine(domainHex, themeId = 'hub', spent = false) {
   const g = new THREE.Group();
-  const base = new THREE.Mesh(new THREE.CylinderGeometry(1.3, 1.5, 0.4, 10), flat(COL.marbleShade));
-  base.position.y = 0.2;
-  base.castShadow = true;
-  g.add(base);
-  for (let i = 0; i < 4; i++) {
-    const c = makeColumn(1.1, 0.1);
-    const a = (i / 4) * Math.PI * 2 + 0.4;
-    c.position.set(Math.cos(a) * 0.85, 0.4, Math.sin(a) * 0.85);
-    g.add(c);
-  }
-  const roof = new THREE.Mesh(new THREE.ConeGeometry(1.35, 0.65, 10), flat(new THREE.Color(domainHex)));
-  roof.position.y = 2.15;
-  roof.castShadow = true;
-  const brazier = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.14, 0.4, 6),
-    flat(COL.gold, { emissive: 0x6a4a10 }));
-  brazier.position.y = 0.6;
-  g.add(roof, brazier);
+  const temple = { ice: 'temple_ice', desert: 'temple_desert',
+                   jungle: 'temple_jungle', autumn: 'temple_autumn' }[themeId]
+                 || 'temple';
+  g.add(glbProp(temple, {
+    h: 4.6,
+    onReady: spent ? (inst) => inst.traverse((o) => {
+      if (o.isMesh && o.material?.color) {
+        o.material = o.material.clone();
+        o.material.color.multiplyScalar(0.55);
+      }
+    }) : null,
+  }));
+  // the oracle's domain still reads at a glance: a tinted flame over the roof
+  const glow = glowSprite(domainHex, 3.4);
+  glow.material.opacity = spent ? 0.12 : 0.75;
+  glow.position.y = 5.3;
+  g.add(glow);
+  const light = new THREE.PointLight(new THREE.Color(domainHex), spent ? 0.8 : 4, 11, 2);
+  light.position.y = 4.4;
+  g.add(light);
   return g;
 }
 
 function makeObelisk() {
   const g = new THREE.Group();
-  const base = new THREE.Mesh(new THREE.BoxGeometry(1.3, 0.4, 1.3), flat(COL.marbleShade));
-  base.position.y = 0.2;
-  const shaft = new THREE.Mesh(new THREE.CylinderGeometry(0.32, 0.5, 2.6, 4), flat(0x8d94b8));
-  shaft.position.y = 1.7;
-  shaft.rotation.y = Math.PI / 4;
-  shaft.castShadow = true;
-  const tip = new THREE.Mesh(new THREE.ConeGeometry(0.36, 0.5, 4),
-    flat(COL.gold, { emissive: 0x9a6a10, emissiveIntensity: 0.6 }));
-  tip.position.y = 3.25;
-  tip.rotation.y = Math.PI / 4;
+  g.add(glbProp('obelisk', { h: 3.6 }));
   const glow = new THREE.PointLight(0x9fb4ff, 5, 9);
   glow.position.y = 2.4;
-  g.add(base, shaft, tip, glow);
+  g.add(glow);
   return g;
 }
 
 function makeTents(rng) {
   const g = new THREE.Group();
-  const hues = [0xc96f4a, 0x8e5572, 0x3a7ca5];
-  hues.forEach((hex, i) => {
-    const tent = new THREE.Mesh(new THREE.ConeGeometry(0.75, 1.0, 6), flat(hex));
-    const a = i * 2.1 + rng() * 0.5;
-    tent.position.set(Math.cos(a) * 1.5, 0.5, Math.sin(a) * 1.5);
-    tent.castShadow = true;
-    g.add(tent);
-  });
+  g.add(glbProp('tents', { h: 2.3, ry: rng() * 6.28 }));
   const fire = new THREE.PointLight(0xff9a3d, 5, 8);
   fire.position.y = 1.2;
-  const pit = new THREE.Mesh(new THREE.CylinderGeometry(0.3, 0.35, 0.2, 8), flat(COL.rockDark));
-  pit.position.y = 0.1;
-  g.add(fire, pit);
+  g.add(fire);
   return g;
 }
 
 function makeLighthouse() {
   const g = new THREE.Group();
-  const tower = new THREE.Mesh(new THREE.CylinderGeometry(0.42, 0.62, 3.4, 9), flat(COL.marble));
-  tower.position.y = 1.7;
-  tower.castShadow = true;
-  const band = new THREE.Mesh(new THREE.CylinderGeometry(0.5, 0.55, 0.5, 9), flat(COL.aegeanBlue));
-  band.position.y = 1.4;
-  const cage = new THREE.Mesh(new THREE.CylinderGeometry(0.3, 0.3, 0.5, 6),
-    flat(0xffe6a8, { emissive: 0xd9a441, emissiveIntensity: 0.7 }));
-  cage.position.y = 3.65;
-  const cap = new THREE.Mesh(new THREE.ConeGeometry(0.42, 0.5, 8), flat(COL.terracotta));
-  cap.position.y = 4.15;
-  cap.castShadow = true;
+  g.add(glbProp('lighthouse', { h: 4.6 }));
   // a warm glimmer, not a floodlight — was washing out Home Port
   const light = new THREE.PointLight(0xffd9a0, 1.6, 9, 2);
   light.position.y = 3.7;
-  g.add(tower, band, cage, cap, light);
+  g.add(light);
   return g;
 }
 
 function makeDock(len = 5.2) {
   const g = new THREE.Group();
-  const deck = new THREE.Mesh(new THREE.BoxGeometry(2.2, 0.22, len), flat(COL.wood));
-  deck.position.set(0, 0.55, -len / 2);
-  deck.castShadow = true;
-  g.add(deck);
-  for (let i = 0; i <= 2; i++) {
-    for (const px of [-0.95, 0.95]) {
-      const post = new THREE.Mesh(new THREE.CylinderGeometry(0.09, 0.09, 1.5, 5), flat(COL.woodDark));
-      post.position.set(px, 0.1, -0.4 - i * (len - 0.9) / 2);
-      g.add(post);
-    }
-  }
+  const glb = glbProp('dock', { len, ry: Math.PI / 2 });
+  glb.position.z = -len / 2;         // extend from the shore anchor seaward
+  g.add(glb);
   return g;
 }
 
 function makeMarket(rng) {
   const g = new THREE.Group();
-  const hut = new THREE.Mesh(new THREE.BoxGeometry(2.6, 1.8, 2.2), flat(0xf1e8d2));
-  hut.position.y = 0.9;
-  hut.castShadow = true;
-  const roof = new THREE.Mesh(new THREE.ConeGeometry(2.2, 1.3, 4), flat(0xc0392b));
-  roof.position.y = 2.45;
-  roof.rotation.y = Math.PI / 4;
-  const awn = new THREE.Mesh(new THREE.PlaneGeometry(2.8, 1.4, 4, 1),
-    flat(0xd9a441, { side: THREE.DoubleSide }));
-  awn.position.set(0, 1.75, 1.95);
-  awn.rotation.x = -0.55;
-  g.add(hut, roof, awn);
-  for (let i = 0; i < 3; i++) {
-    const crate = new THREE.Mesh(new THREE.BoxGeometry(0.7, 0.7, 0.7), flat(0x9a7448));
-    crate.rotation.y = rng() * 0.8;
-    crate.position.set(-1.7 + i * 0.9, 0.35, 1.9 + (i % 2) * 0.6);
-    g.add(crate);
-  }
-  const amph = new THREE.Mesh(new THREE.SphereGeometry(0.45, 8, 6), flat(0xb1543a));
-  amph.scale.y = 1.5;
-  amph.position.set(1.8, 0.65, 1.6);
-  const sign = new THREE.Mesh(new THREE.CylinderGeometry(0.5, 0.5, 0.12, 12),
-    flat(0xd9a441, { emissive: 0x7a5a10 }));
-  sign.rotation.x = Math.PI / 2;
-  sign.position.set(0, 2.1, 1.35);
-  g.add(amph, sign);
+  g.add(glbProp('market', { h: 3.2, ry: (rng() - 0.5) * 0.4 }));
   return g;
 }
 
@@ -570,119 +561,27 @@ function glowSprite(cssOrHex, scale = 6, name = '') {
 
 function makePharos() {
   const g = new THREE.Group();
-  const white = (e) => new THREE.MeshStandardMaterial({
-    color: 0xf7f4ea, flatShading: true, emissive: 0xfff3d0, emissiveIntensity: e });
-  const gold = flat(COL.gold, { emissive: 0x7a5a10, emissiveIntensity: 0.5 });
-
-  // stepped plinth — the lower disc runs deep so the skirt never floats where
-  // the mesa's plateau falls away under a small-roll island
-  const plinthLo = new THREE.Mesh(new THREE.CylinderGeometry(8.8, 9.4, 2.2, 14), white(0.1));
-  plinthLo.position.y = -0.55;
-  plinthLo.receiveShadow = true;
-  const plinthHi = new THREE.Mesh(new THREE.CylinderGeometry(8.1, 8.6, 0.55, 14), white(0.1));
-  plinthHi.position.y = 0.825;
-  plinthHi.receiveShadow = true;
-  g.add(plinthLo, plinthHi);
-
-  // entrance stair up the plinth to the gate (bottom step sunk for the same
-  // reason as the plinth)
-  const stairs = [
-    [5.2, 2.0, 1.0, -0.6, 9.7],
-    [4.9, 0.4, 0.95, 0.6, 9.05],
-    [4.6, 0.4, 0.95, 0.95, 8.45],
-  ];
-  for (const [w, h, d, y, z] of stairs) {
-    const s = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), white(0.1));
-    s.position.set(0, y, z);
-    s.castShadow = true;
-    g.add(s);
-  }
-
-  // base drum — near-vertical so the gate reads as a door in a wall, not a
-  // slab leaning on a cone
-  const base = new THREE.Mesh(new THREE.CylinderGeometry(6.8, 7.8, 6.4, 14), white(0.12));
-  base.position.y = 4.3;
-  base.castShadow = true;
-  // shoulder easing the drum into the shaft
-  const shoulder = new THREE.Mesh(new THREE.CylinderGeometry(4.8, 6.8, 1.4, 14), white(0.13));
-  shoulder.position.y = 8.2;
-  shoulder.castShadow = true;
-  // the tapering tower itself
-  const shaft = new THREE.Mesh(new THREE.CylinderGeometry(2.6, 4.7, 11.0, 12), white(0.16));
-  shaft.position.y = 14.4;
-  shaft.castShadow = true;
-  g.add(base, shoulder, shaft);
-
-  // gold string-courses and window slits up the shaft
-  const shaftR = (y) => 4.7 - ((y - 8.9) / 11.0) * 2.1;
-  for (const y of [11.2, 14.4, 17.6]) {
-    const band = new THREE.Mesh(
-      new THREE.CylinderGeometry(shaftR(y) + 0.16, shaftR(y) + 0.2, 0.5, 12), gold);
-    band.position.y = y;
-    g.add(band);
-  }
-  const slitMat = flat(0x2b2620, { emissive: 0x5a3c12, emissiveIntensity: 0.35 });
-  for (const y of [10.2, 12.9, 15.8]) {
-    for (let k = 0; k < 4; k++) {
-      const a = Math.PI / 2 + k * (Math.PI / 2);   // one slit faces the berth
-      const win = new THREE.Mesh(new THREE.BoxGeometry(0.55, 1.15, 0.5), slitMat);
-      win.position.set(Math.cos(a) * shaftR(y), y, Math.sin(a) * shaftR(y));
-      win.rotation.y = Math.PI / 2 - a;
-      g.add(win);
-    }
-  }
-
-  // gallery: corbelled flare, deck, and a ring balustrade under a gold rail
-  const corbel = new THREE.Mesh(new THREE.CylinderGeometry(4.3, 2.8, 1.2, 12), white(0.18));
-  corbel.position.y = 20.5;
-  corbel.castShadow = true;
-  const deck = new THREE.Mesh(new THREE.CylinderGeometry(4.6, 4.6, 0.4, 14), white(0.18));
-  deck.position.y = 21.3;
-  deck.castShadow = true;
-  g.add(corbel, deck);
-  for (let i = 0; i < 12; i++) {
-    const a = (i / 12) * Math.PI * 2;
-    const b = makeColumn(0.85, 0.08);
-    b.position.set(Math.cos(a) * 4.15, 21.5, Math.sin(a) * 4.15);
-    g.add(b);
-  }
-  const rail = new THREE.Mesh(new THREE.TorusGeometry(4.15, 0.08, 6, 28), gold);
-  rail.rotation.x = Math.PI / 2;
-  rail.position.y = 22.45;
-  g.add(rail);
-
-  // lantern room: open colonnade around the fire, conical roof, gold finial
-  for (let i = 0; i < 8; i++) {
-    const a = (i / 8) * Math.PI * 2;
-    const col = makeColumn(2.0, 0.16);
-    col.position.set(Math.cos(a) * 2.35, 21.5, Math.sin(a) * 2.35);
-    g.add(col);
-  }
+  // the tower itself is the Meshy landmark; the FIRE, the beam, the halo and
+  // the sealed sigil gate are the game's own — scene.js drives them by name
+  g.add(glbProp('pharos', { h: 26 }));
   const fire = new THREE.Mesh(new THREE.SphereGeometry(1.1, 10, 8),
     new THREE.MeshBasicMaterial({ color: 0xffdf90 }));
-  fire.position.y = 22.8;
+  fire.position.y = 22.4;
   fire.name = 'pharosfire';
-  const roof = new THREE.Mesh(new THREE.ConeGeometry(3.1, 2.1, 12), white(0.25));
-  roof.position.y = 24.85;
-  roof.castShadow = true;
-  const knob = new THREE.Mesh(new THREE.SphereGeometry(0.3, 8, 6), gold);
-  knob.position.y = 26.05;
-  const finial = new THREE.Mesh(new THREE.ConeGeometry(0.22, 0.9, 8), gold);
-  finial.position.y = 26.65;
   // a lit beacon, not a sun — the old 42-intensity/range-300 lamp bleached
   // the whole hub white
   const light = new THREE.PointLight(0xffe2a0, 6, 90, 2);
-  light.position.y = 22.8;
+  light.position.y = 22.4;
   const beam = new THREE.Mesh(new THREE.CylinderGeometry(0.9, 2.8, 70, 10, 1, true),
     new THREE.MeshBasicMaterial({ color: 0xffe9b0, transparent: true, opacity: 0.09,
       side: THREE.DoubleSide, depthWrite: false, blending: THREE.AdditiveBlending }));
   beam.position.y = 56;
   const halo = glowSprite(0xffeecb, 15);
   halo.material.opacity = 0.4;
-  halo.position.y = 22.8;
-  g.add(fire, roof, knob, finial, light, beam, halo);
+  halo.position.y = 22.4;
+  g.add(fire, light, beam, halo);
   const gate = makePharosGate();
-  gate.position.set(0, 1.1, 7.3);                 // door opens onto the plinth terrace
+  gate.position.set(0, 0, 6.6);      // a propylaea at the tower's foot
   g.add(gate);
   return g;
 }
@@ -1622,13 +1521,8 @@ export function buildIsland(node, theme, domains) {
     const hex = DOMAIN_COLORS[node.domain] || '#d9a441';
     terrain = makeTerrain({ seed, R, H: 2.2, mode: 'mesa', palette: { ...footPal } });
     const spent = (node.charges ?? 0) <= 0;
-    const shrine = makeShrine(hex);
+    const shrine = makeShrine(hex, theme.id, spent);
     shrine.position.y = terrain.heightAt(0);
-    if (spent) {
-      shrine.traverse((o) => {
-        if (o.material?.color) { o.material = o.material.clone(); o.material.color.multiplyScalar(0.6); }
-      });
-    }
     g.add(shrine);
     if (foot) {
       const oasisPalm = makePalm(rng0, 0.9);
