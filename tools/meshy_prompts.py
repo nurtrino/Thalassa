@@ -130,15 +130,19 @@ MODELS = [
              "accents.")),
     dict(id="kraken", rank=6, tier="boss",
          negative=(NEGATIVE + ", floating ring, detached loop, separate tentacle, "
-                   "disconnected part, floating object, halo"),
+                   "extra tentacle, ninth tentacle, stray tentacle, tentacle "
+                   "floating in mid-air, tentacle beside the body, disconnected "
+                   "tentacle, C-shaped floating piece, disconnected part, floating "
+                   "object, halo, second creature"),
          prompt=(
-             "The Kraken: a mountainous sea-monster rising from the water on "
-             "eight thick muscular tentacles that curl and sway. All eight "
-             "tentacles are firmly attached to the body — no detached or floating "
-             "loops or rings. A huge teal mantle head with heavy-lidded amber "
-             "lamp-eyes and a hooked bone beak. Barnacle and suction-cup detail. "
-             "Palette: teal and deep sea-green mantle, amber glowing eyes, bone "
-             "beak.")),
+             "The Kraken: a single compact sea-monster, a big teal octopus head "
+             "with exactly EIGHT thick tentacles that ALL grow directly out from "
+             "the bottom of its body and curl downward together in a tight "
+             "cluster. Every tentacle is rooted to the body — none float free, "
+             "none drift off to the side, nothing detached in the air around it. "
+             "A huge teal mantle head with heavy-lidded amber lamp-eyes and a "
+             "hooked bone beak. One solid connected creature. Palette: teal and "
+             "deep sea-green mantle, amber glowing eyes, bone beak.")),
     dict(id="warden", rank=7, tier="boss",
          prompt=(
              "The Warden of the Pharos: a colossal pale-marble sentinel guardian "
