@@ -850,6 +850,165 @@ function makeRibs(rng) {
   return g;
 }
 
+/* ── realm wilds: the stuff that fills the water/sand BETWEEN stops ─────── */
+
+/* a drifting iceberg — jagged spire over a pack-ice foot */
+export function makeBerg(rng, s = 1) {
+  const g = new THREE.Group();
+  const ice = flat(0xe8f4fb, { emissive: 0x9cc8de, emissiveIntensity: 0.18 });
+  const iceDk = flat(0xc9e2f0, { emissive: 0x7fb2cc, emissiveIntensity: 0.12 });
+  const spire = new THREE.Mesh(new THREE.ConeGeometry(1.6 * s, 3.4 * s, 5), ice);
+  spire.position.y = 1.05 * s;
+  spire.rotation.set(rng() * 0.2 - 0.1, rng() * 6.28, rng() * 0.24 - 0.12);
+  spire.castShadow = true;
+  g.add(spire);
+  const n = 1 + Math.floor(rng() * 2);
+  for (let i = 0; i < n; i++) {
+    const c = new THREE.Mesh(
+      new THREE.ConeGeometry((0.9 + rng() * 0.7) * s, (1.0 + rng() * 1.3) * s, 4), iceDk);
+    const a = rng() * 6.28, r = (1.5 + rng() * 1.2) * s;
+    c.position.set(Math.cos(a) * r, 0.3 * s, Math.sin(a) * r);
+    c.rotation.set(rng() * 0.3 - 0.15, rng() * 6.28, rng() * 0.3 - 0.15);
+    c.castShadow = true;
+    g.add(c);
+  }
+  const floe = new THREE.Mesh(
+    new THREE.CylinderGeometry((2.5 + rng()) * s, (2.8 + rng()) * s, 0.26, 7), iceDk);
+  floe.position.y = 0.09;
+  floe.rotation.y = rng() * 6.28;
+  g.add(floe);
+  return g;
+}
+
+/* a lone slab of drift ice, for scattering between the bergs */
+export function makeFloe(rng, s = 1) {
+  const g = new THREE.Group();
+  const iceDk = flat(0xd4e8f4, { emissive: 0x88b8d0, emissiveIntensity: 0.1 });
+  const slab = new THREE.Mesh(
+    new THREE.CylinderGeometry((1.1 + rng() * 1.3) * s, (1.3 + rng() * 1.4) * s, 0.24, 6), iceDk);
+  slab.position.y = 0.08;
+  slab.rotation.y = rng() * 6.28;
+  g.add(slab);
+  if (rng() < 0.45) {
+    const lump = new THREE.Mesh(new THREE.ConeGeometry(0.5 * s, 0.7 * s, 4), iceDk);
+    lump.position.set((rng() - 0.5) * s, 0.4, (rng() - 0.5) * s);
+    g.add(lump);
+  }
+  return g;
+}
+
+/* a floating tangle of jungle vines and lily pads on the brown water */
+export function makeVineMat(rng, s = 1) {
+  const g = new THREE.Group();
+  const moss = flat(0x2f5a24, { emissive: 0x14260c, emissiveIntensity: 0.5 });
+  const vine = flat(0x3f6d2a);
+  const mat = new THREE.Mesh(new THREE.CylinderGeometry(1.6 * s, 1.9 * s, 0.2, 9), moss);
+  mat.position.y = 0.07;
+  g.add(mat);
+  for (let i = 0; i < 4; i++) {
+    const arc = new THREE.Mesh(
+      new THREE.TorusGeometry((1.2 + rng() * 1.6) * s, 0.07, 5, 10, Math.PI * (0.6 + rng() * 0.5)),
+      vine);
+    const a = rng() * 6.28;
+    arc.position.set(Math.cos(a) * 1.5 * s, 0.1, Math.sin(a) * 1.5 * s);
+    arc.rotation.set(Math.PI / 2, 0, rng() * 6.28);   // snaking flat on the water
+    g.add(arc);
+  }
+  for (let i = 0; i < 3; i++) {
+    const pad = new THREE.Mesh(new THREE.CylinderGeometry(0.5 * s, 0.55 * s, 0.08, 8),
+      flat(0x4f8a34));
+    const a = rng() * 6.28, r = (2.1 + rng() * 1.6) * s;
+    pad.position.set(Math.cos(a) * r, 0.05, Math.sin(a) * r);
+    g.add(pad);
+  }
+  g.name = 'bob';
+  return g;
+}
+
+/* a wind-heaped dune for the Bleached Reach's sand sea — a long ridge with
+   a trailing shoulder, tall enough to actually cast a crest shadow */
+export function makeDune(rng, sandHex, s = 1) {
+  const g = new THREE.Group();
+  const dune = new THREE.Mesh(new THREE.SphereGeometry(3.0 * s, 8, 6), flat(sandHex));
+  dune.scale.set(1.6 + rng() * 1.0, 0.42 + rng() * 0.16, 0.85 + rng() * 0.3);
+  dune.position.y = 0.04;
+  dune.castShadow = true;
+  dune.receiveShadow = true;
+  g.add(dune);
+  if (rng() < 0.6) {
+    const shoulder = new THREE.Mesh(new THREE.SphereGeometry(1.9 * s, 7, 5), flat(sandHex));
+    shoulder.scale.set(1.4 + rng() * 0.7, 0.36 + rng() * 0.12, 0.8);
+    shoulder.position.set((2.6 + rng() * 1.6) * s, 0.03, (rng() - 0.5) * 2.4 * s);
+    shoulder.rotation.y = (rng() - 0.5) * 0.8;
+    shoulder.castShadow = true;
+    shoulder.receiveShadow = true;
+    g.add(shoulder);
+  }
+  return g;
+}
+
+/* The ambient wilds BETWEEN the stops — a berg field, a dune sea, vine-
+   choked channels, or the Vale's unbroken forest. `nodes` are the region's
+   board nodes and `segs` its lane segments [x1,z1,x2,z2]; everything lands
+   clear of both so the road itself stays readable. */
+export function makeRealmField(theme, nodes, segs, rng) {
+  const g = new THREE.Group();
+  if (!nodes.length) return g;
+  let minX = 1e9, maxX = -1e9, minZ = 1e9, maxZ = -1e9;
+  for (const n of nodes) {
+    minX = Math.min(minX, n.x); maxX = Math.max(maxX, n.x);
+    minZ = Math.min(minZ, n.z); maxZ = Math.max(maxZ, n.z);
+  }
+  const M = 55;                                   // the wilds spill past the road
+  minX -= M; maxX += M; minZ -= M; maxZ += M;
+  const nodeDist = (x, z) => {
+    let d = 1e9;
+    for (const n of nodes) d = Math.min(d, Math.hypot(n.x - x, n.z - z));
+    return d;
+  };
+  const segDist = (x, z) => {
+    let d = 1e9;
+    for (const s of segs) {
+      const dx = s[2] - s[0], dz = s[3] - s[1];
+      const L2 = dx * dx + dz * dz || 1;
+      const t = Math.max(0, Math.min(1, ((x - s[0]) * dx + (z - s[1]) * dz) / L2));
+      d = Math.min(d, Math.hypot(s[0] + dx * t - x, s[1] + dz * t - z));
+    }
+    return d;
+  };
+  const scatter = (count, laneClear, isleClear, reach, make) => {
+    let placed = 0, tries = 0;
+    while (placed < count && tries++ < count * 16) {
+      const x = minX + rng() * (maxX - minX);
+      const z = minZ + rng() * (maxZ - minZ);
+      const sd = segDist(x, z);
+      if (sd < laneClear || sd > reach || nodeDist(x, z) < isleClear) continue;
+      const o = make();
+      o.position.set(x, 0, z);
+      o.rotation.y = rng() * 6.28;
+      g.add(o);
+      placed++;
+    }
+  };
+  if (theme.id === 'ice') {
+    scatter(38, 16, 22, 115, () => makeBerg(rng, 0.7 + rng() * 0.9));
+    scatter(34, 13, 20, 115, () => makeFloe(rng, 0.8 + rng() * 0.9));
+  } else if (theme.id === 'jungle') {
+    scatter(52, 13, 20, 115, () => makeVineMat(rng, 0.65 + rng() * 0.7));
+  } else if (theme.id === 'desert') {
+    scatter(170, 9, 15, 130, () => makeDune(rng, theme.palette.sand, 0.7 + rng() * 1.2));
+    scatter(44, 10, 16, 130, () => floraFor(theme, rng, 0.8 + rng() * 0.6));
+    scatter(14, 10, 16, 130, () => makeRock(rng, 0.5 + rng() * 0.7, theme.palette.rock));
+    scatter(8, 12, 18, 130, () => (rng() < 0.5 ? makeCairn(rng) : makeRibs(rng)));
+  } else if (theme.id === 'autumn') {
+    // the Vale is WALL-TO-WALL forest: a deep tree band hugging every track,
+    // thick enough that the fog line always lands inside the woods
+    scatter(430, 8.5, 11, 75, () => floraFor(theme, rng, 1.1 + rng() * 0.9));
+    scatter(30, 9, 12, 75, () => makeRock(rng, 0.4 + rng() * 0.7, theme.palette.rock));
+  }
+  return g;
+}
+
 /* map totem for an active monster node: dark spiked megalith, watching eyes */
 function makeMonsterTotem(rng, m) {
   const g = new THREE.Group();
@@ -1194,29 +1353,72 @@ export function buildIsland(node, theme, domains) {
   if (node.type === 'sea') {
     if (foot) {
       if (theme.id === 'autumn') {
-        // a forest track through the Amber Vale: a mossy waymarker stone in
-        // a grove of amber trees, on a carpet of fallen leaves
+        // a forest track through the Amber Vale: a mossy waymarker stone
+        // swallowed by a DENSE grove — the vale is wall-to-wall trees
         const stone = makeRock(rng0, 0.8, 0x8a7a62);
         stone.position.y = 0.35;
         g.add(stone);
-        for (let i = 0; i < 4 + Math.floor(rng0() * 3); i++) {
-          const tree = floraFor(theme, rng0, 0.9 + rng0() * 0.8);
+        for (let i = 0; i < 9 + Math.floor(rng0() * 5); i++) {
+          const tree = floraFor(theme, rng0, 0.9 + rng0() * 1.0);
           const a = rng0() * 6.28;
-          const r = 2.4 + rng0() * 3.4;
+          const r = 2.2 + rng0() * 5.6;
           tree.position.set(Math.cos(a) * r, 0, Math.sin(a) * r);
           g.add(tree);
         }
-        g.add(sandRippleRing(2.4, 0xb98a3e));       // drifted leaves, not sand
+        g.add(sandRippleRing(3.2, 0xb98a3e));       // drifted leaves, not sand
         g.position.set(node.x, 0, node.z);
         return { group: g, R: 3.4, plateauY: 0 };
       }
-      // dune waypoints on the trek: a cairn, or the bones of the last caravan
+      // dune waypoints on the trek: a cairn or caravan bones, half-lost in
+      // a cluster of wind-heaped dunes
       const marker = rng0() < 0.6 ? makeCairn(rng0) : makeRibs(rng0);
       marker.scale.setScalar(1.4);
       g.add(marker);
+      for (let i = 0; i < 2 + Math.floor(rng0() * 2); i++) {
+        const dune = makeDune(rng0, pal.sand);
+        const a = rng0() * 6.28, r = 4.5 + rng0() * 4;
+        dune.position.set(Math.cos(a) * r, 0, Math.sin(a) * r);
+        g.add(dune);
+      }
+      if (rng0() < 0.6) {
+        const fl = floraFor(theme, rng0, 0.8 + rng0() * 0.5);
+        const a = rng0() * 6.28;
+        fl.position.set(Math.cos(a) * 3.4, 0, Math.sin(a) * 3.4);
+        g.add(fl);
+      }
       g.add(sandRippleRing(2.2, pal.sand));
       g.position.set(node.x, 0, node.z);
       return { group: g, R: 3, plateauY: 0 };
+    }
+    if (theme.id === 'ice' && node.region) {
+      // Frostfang water: every stop between islands is a drifting berg
+      g.add(makeBerg(rng0, 1.1 + rng0() * 0.6));
+      for (let i = 0; i < 2; i++) {
+        const f = makeFloe(rng0, 0.9 + rng0() * 0.6);
+        const a = rng0() * 6.28, r = 5 + rng0() * 3.5;
+        f.position.set(Math.cos(a) * r, 0, Math.sin(a) * r);
+        g.add(f);
+      }
+      g.add(shallowDisc(16, theme.water.shallow));
+      g.position.set(node.x, 0, node.z);
+      return { group: g, R: 4.4, plateauY: 0 };
+    }
+    if (theme.id === 'jungle' && node.region) {
+      // Verdigris water: vine tangles knot the channels between the isles
+      g.add(makeVineMat(rng0, 1.0 + rng0() * 0.5));
+      if (node.look === 'islet') {
+        const t = makeTerrain({ seed, R: 3.6 + rng0() * 1.6, H: 0.9, mode: 'hill',
+          palette: { ...pal } });
+        const zoff = -2 + rng0() * 4;
+        t.mesh.position.set(4.5, 0, zoff);
+        g.add(t.mesh);
+        const fl = floraFor(theme, rng0, 0.9);
+        fl.position.set(4.5, Math.max(0.3, t.heightAt(0.15)), zoff);
+        g.add(fl);
+      }
+      g.add(shallowDisc(16, theme.water.shallow));
+      g.position.set(node.x, 0, node.z);
+      return { group: g, R: 3.2, plateauY: 0 };
     }
     if (node.look === 'rocks') {
       for (let i = 0; i < 2 + Math.floor(rng0() * 2); i++) {

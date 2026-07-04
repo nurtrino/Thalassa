@@ -21,7 +21,7 @@ import { OrbitControls } from './vendor/OrbitControls.js';
 import { hashStr, mulberry32, flat } from './util.js';
 import { themeFor } from './themes.js';
 import { makeWater, makeGround } from './water.js';
-import { buildIsland, makeShip, makeParticles, nameSprite } from './islands.js';
+import { buildIsland, makeShip, makeParticles, nameSprite, makeRealmField } from './islands.js';
 import { buildMountainWall, buildRealmBackdrop } from './wall.js';
 import { getMonster, animateMonster, preloadMonsters, disposeMonster } from './monsters.js';
 import { createBattleStage } from './battle.js';
@@ -407,6 +407,19 @@ export function createWorld(container, handlers = {}) {
       if (gate) wall.rotation.y = Math.atan2(gate.x - center.x, gate.z - center.z) + Math.PI;
     }
     scene.add(wall);
+
+    /* the wilds between the stops: berg fields, dune seas, vine channels,
+       or the Vale's unbroken forest — every realm is FULL, no empty water */
+    if (stageId !== 'hub') {
+      const members = memberNodes(stageId, room);
+      const byId = new Map(members.map((n) => [n.id, n]));
+      const segs = [];
+      for (const [a, b] of room.board?.edges || []) {
+        const na = byId.get(a), nb = byId.get(b);
+        if (na && nb) segs.push([na.x, na.z, nb.x, nb.z]);
+      }
+      scene.add(makeRealmField(theme, members, segs, rng));
+    }
 
     /* drifting clouds, tinted faintly toward the horizon color */
     const cloudTint = new THREE.Color(0xffffff).lerp(new THREE.Color(theme.sky.horizon), 0.22);
@@ -1367,7 +1380,7 @@ export function createWorld(container, handlers = {}) {
     return true;
   }
 
-  function tickCamera(st, t) {
+  function tickCamera(st, t, dt = 0.016) {
     if (window.__freezeCam) {              // dev/screenshot hook only
       st.sun.position.copy(controls.target).addScaledVector(st.sunDir, 380);
       st.sun.target.position.copy(controls.target);
@@ -1377,6 +1390,12 @@ export function createWorld(container, handlers = {}) {
     controls.autoRotate = lobbyMode && !cine;
     viewFollowPid = focusPid(lastRoom);   // follow the mover, then the next captain
     if (cine) { if (tickCinematic(st, performance.now())) return; }
+    // the Amber Vale is a maze: the eye stays pressed close to the captain,
+    // easing in/out as you cross its passes (fog does the rest)
+    const wantMax = st.theme.id === 'autumn' && !lobbyMode ? 24 : 84;
+    if (Math.abs(controls.maxDistance - wantMax) > 0.5) {
+      controls.maxDistance += (wantMax - controls.maxDistance) * Math.min(1, dt * 2.5);
+    }
     if (!lobbyMode) {
       const rec = viewFollowPid ? ships[viewFollowPid] : null;
       if (rec && rec.stageId === st.id) {
@@ -1479,7 +1498,9 @@ export function createWorld(container, handlers = {}) {
     const b = stageBounds(st);
     const cx = (b.minX + b.maxX) / 2, cz = (b.minZ + b.maxZ) / 2;
     const extent = Math.max(b.maxX - b.minX, b.maxZ - b.minZ, 160);
-    if (leg.stage === 'hub') tourFogOpen(st, extent);
+    // the hub sweep and the Vale flyover both need the air cleared; the
+    // other realms are flown LOW where their close fog reads as drama
+    if (leg.stage === 'hub' || leg.stage === 'autumn') tourFogOpen(st, extent);
     else tourFogClose();
     if (leg.pharos) {
       // spiral down from high over the sea to the tower's very door
@@ -1554,6 +1575,7 @@ export function createWorld(container, handlers = {}) {
   function enterMapView() {
     const st = stages[activeBoardId];
     if (!st || battleOn || mapMode || tour) return false;
+    if (st.theme.id === 'autumn') return false;  // the maze allows no chart
     const b = stageBounds(st);
     const extent = Math.max(b.maxX - b.minX, b.maxZ - b.minZ, 140);
     mapMode = {
@@ -1723,7 +1745,7 @@ export function createWorld(container, handlers = {}) {
     syncKraken(lastRoom);
     if (tour) tickTour(performance.now());
     else if (mapMode) tickMapView(dt);
-    else tickCamera(st, t);
+    else tickCamera(st, t, dt);
     renderer.render(st.scene, camera);
   });
 

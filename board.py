@@ -154,6 +154,10 @@ _MAX_WAYPOINTS = 1            # per HUB lane — tuned for exact-roll d3 sailing
 _WAYPOINT_EVERY_REALM = 42.0  # realms are finer-grained: a real crawl
 _MAX_WAYPOINTS_REALM = 2      # per REALM lane
 _SEA_LOOKS = ["buoy", "buoy", "buoy", "rocks", "rocks", "islet", "islet", "none"]
+# approximate rendered island radii, so lane waypoints stay off the coasts
+_NODE_CLEAR = {"home": 17.0, "lair": 18.0, "pharos": 22.0, "monster": 15.0,
+               "haven": 15.0, "shrine": 13.0, "shop": 13.0, "puzzle": 13.0,
+               "gate": 9.0}
 # The Isles of Peace are exactly that — no hunting grounds, no ambushes. All
 # danger lives beyond the mountain passes. (Monsters are grown into the realm
 # spines by _grow_region.)
@@ -313,8 +317,11 @@ class Board:
             node.pop("look", None)
 
         # ── the boss altar, at the radial far end ────────────────────────────
+        # The whole realm is packed TIGHT — stops a short hop apart, nothing
+        # but themed wilds between them (waypoint count per lane is fixed, so
+        # the road is the same number of turns as the old sprawling layout).
         lair_id = f"r{gi}_L"
-        lair = place(lair_id, R0 + 470, ang + rng.uniform(-0.03, 0.03), 9)
+        lair = place(lair_id, R0 + 295, ang + rng.uniform(-0.02, 0.02), 9)
         lair.pop("look", None)
         lair["type"] = "lair"
         lair["name"] = info["name"]
@@ -325,24 +332,32 @@ class Board:
 
         # a junction node both roads share, just before the altar
         junc_id = f"r{gi}_j"
-        place(junc_id, R0 + 340, ang + rng.uniform(-0.03, 0.03), 8)
+        place(junc_id, R0 + 212, ang + rng.uniform(-0.02, 0.02), 8)
 
         # ── the FINAL LOOP: a ring of approach nodes circling the altar ──────
         # The boss sits on a small loop instead of a dead-end spur, so exact
         # rolls always have a way to land on it — circle the ring to line up
         # your step count instead of bouncing back and forth forever.
         appL_id, appR_id, appF_id = f"r{gi}_aL", f"r{gi}_aR", f"r{gi}_aF"
-        place(appL_id, R0 + 405, ang - 0.16, 8)
-        place(appR_id, R0 + 405, ang + 0.16, 8)
-        place(appF_id, R0 + 445, ang + rng.uniform(-0.03, 0.03), 9)
+        # a TRUE circle of approach nodes around the altar, so no ring lane
+        # ever cuts across the lair island itself
+        lx, lz = lair["x"], lair["z"]
+        jx, jz = self.nodes[junc_id]["x"], self.nodes[junc_id]["z"]
+        aj = math.atan2(jz - lz, jx - lx)      # bearing altar → junction
+        rho = 40.0
+        for nid, off, depth in ((appL_id, 1.15, 8), (appR_id, -1.15, 8),
+                                (appF_id, math.pi, 9)):
+            px = lx + math.cos(aj + off) * rho
+            pz = lz + math.sin(aj + off) * rho
+            place(nid, math.hypot(px, pz), math.atan2(pz, px), depth)
         # junction feeds both sides of the ring; the ring wraps around the
         # altar and every ring node touches it, so there are many exact-step
-        # approaches to choose from.
+        # approaches to choose from (the cycle closes THROUGH the far node,
+        # never across the altar's own coast).
         self._link(junc_id, appL_id)
         self._link(junc_id, appR_id)
         self._link(appL_id, appF_id)
         self._link(appR_id, appF_id)
-        self._link(appL_id, appR_id)          # close the loop behind the boss
         self._link(appL_id, lair_id)
         self._link(appR_id, lair_id)
         self._link(appF_id, lair_id)
@@ -372,8 +387,8 @@ class Board:
         loop_a = loop_b = None                 # where the haven loop hangs
         for i, kind in enumerate(plan):
             t = (i + 1) / (n + 1)
-            radius = R0 + 55 + t * (340 - 75)
-            bow = 0.2 if simple else 0.55
+            radius = R0 + 38 + t * (212 - 48)
+            bow = 0.13 if simple else 0.34
             a = ang + side * bow * math.sin(math.pi * t)      # bow out, then back
             depth = 1 + (i * 3) // n                          # 1 … 3 up the spine
             nid = f"r{gi}_m{i}"
@@ -407,7 +422,7 @@ class Board:
             mid_a = (self.nodes[loop_a]["x"] + self.nodes[loop_b]["x"]) / 2
             mid_z = (self.nodes[loop_a]["z"] + self.nodes[loop_b]["z"]) / 2
             r_mid = math.hypot(mid_a, mid_z)
-            a_mid = math.atan2(mid_z, mid_a) - side * 0.14
+            a_mid = math.atan2(mid_z, mid_a) - side * 0.09
             place(v0, r_mid, a_mid, 1)
             self._link(loop_a, v0)
             self._link(v0, loop_b)
@@ -417,8 +432,8 @@ class Board:
             ra = math.hypot(self.nodes[loop_a]["x"], self.nodes[loop_a]["z"])
             rb = math.hypot(self.nodes[loop_b]["x"], self.nodes[loop_b]["z"])
             aa = math.atan2(self.nodes[loop_a]["z"], self.nodes[loop_a]["x"])
-            make_haven(place(v0, ra + 20, aa - side * 0.24, 1))
-            place(v1, rb + 15, aa - side * 0.14, 1)
+            make_haven(place(v0, ra + 13, aa - side * 0.15, 1))
+            place(v1, rb + 10, aa - side * 0.09, 1)
             self._link(loop_a, v0)
             self._link(v0, v1)
             self._link(v1, loop_b)
@@ -430,8 +445,8 @@ class Board:
         for i in range(count):
             nid = f"r{gi}_s{i}"
             t = (i + 1) / (count + 1)
-            radius = R0 + 90 + t * (340 - 120)
-            a = ang - side * 0.30 * math.sin(math.pi * t)     # hugs the far side
+            radius = R0 + 62 + t * (212 - 85)
+            a = ang - side * 0.19 * math.sin(math.pi * t)     # hugs the far side
             make_monster(place(nid, radius, a, 5 + i), elite=True, depth=5 + i)
             self._link(prev, nid)
             prev = nid
@@ -454,13 +469,23 @@ class Board:
                             max(2, round(length / _WAYPOINT_EVERY_REALM) - 1))
             else:
                 n_way = min(_MAX_WAYPOINTS, max(1, round(length / _WAYPOINT_EVERY) - 1))
+            # keep waypoints OFF the coasts: reserve each island's visual
+            # footprint at both ends of the lane, distribute between them
+            ca = _NODE_CLEAR.get(na["type"], 4.0)
+            cb = _NODE_CLEAR.get(nb["type"], 4.0)
+            lo = min(0.45, ca / max(length, 1e-6) + 0.04)
+            # on lanes shorter than the far island's footprint the waypoints
+            # bunch near the START coast rather than landing on the island
+            hi = max(lo + 0.08, 1 - cb / max(length, 1e-6) - 0.04)
             chain = [a]
             for k in range(1, n_way + 1):
-                t = k / (n_way + 1)
+                t = lo + (hi - lo) * (k / (n_way + 1))
                 # perpendicular jitter so routes curve like real currents
                 px, pz = -(nb["z"] - na["z"]), (nb["x"] - na["x"])
                 plen = max(1e-6, (px * px + pz * pz) ** 0.5)
-                jit = rng.uniform(-10.0, 10.0)
+                # tighter lanes wander less — realm roads are packed close now
+                amp = 6.0 if (na.get("region") and nb.get("region")) else 10.0
+                jit = rng.uniform(-amp, amp)
                 nid = f"sea{wp}"
                 wp += 1
                 self.nodes[nid] = {

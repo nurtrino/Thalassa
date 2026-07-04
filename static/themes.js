@@ -89,7 +89,8 @@ const THEMES = {
     water: { deep: 0x4e3c1e, shallow: 0xd0913c, sparkle: 1.5, chop: 0.85 },
     ground: 'sand',
     sky: { zenith: 0x3c4e88, mid: 0xd88c50, horizon: 0xf8ce74 },
-    fog: { color: 0xe3b184, near: 48, far: 300 },
+    // the Vale is a MAZE: amber haze presses in close, you can't see far
+    fog: { color: 0xe3b184, near: 13, far: 95 },
     sun: { color: 0xffc274, intensity: 1.65, position: [250, 85, 150] },
     hemi: { sky: 0xf3d2a0, ground: 0x6e4a2e, intensity: 0.7 },
     ambient: 0x362619,

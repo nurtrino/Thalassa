@@ -253,6 +253,7 @@ function applyStage(stageId) {
     if (stageId !== 'hub') audio.sfx.oracle();
   }
   if (stageId !== 'battle') lastStage = stageId;
+  renderMapBtn();          // the Vale has no chart — hide the button there
 }
 
 let bannerEl = null;
@@ -860,7 +861,9 @@ function mapChipLabel(p) {
 }
 
 function renderMapBtn() {
-  $('mapBtn').classList.toggle('hidden', !room || room.phase === 'lobby');
+  // no chart in the Amber Vale — it's a maze, you navigate by canopy and luck
+  const inVale = world.currentStage?.() === 'autumn';
+  $('mapBtn').classList.toggle('hidden', !room || room.phase === 'lobby' || inVale);
   // modal phases and battles reclaim the screen — the chart rolls itself up
   if (mapOpen && (['question', 'minigame', 'reveal', 'upgrade_pick', 'finished', 'battle']
       .includes(room?.phase) || world.battleActive())) {
@@ -872,7 +875,12 @@ function toggleMap(open) {
   const want = open ?? !mapOpen;
   if (want === mapOpen) return;
   if (want) {
-    if (!world.enterMapView()) return;
+    if (!world.enterMapView()) {
+      if (world.currentStage?.() === 'autumn') {
+        toast('The Vale’s canopy hides the sky — no chart can help you here.');
+      }
+      return;
+    }
     mapOpen = true;
     audio.sfx?.click?.();
     $('mapIcons').classList.remove('hidden');
