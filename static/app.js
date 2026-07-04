@@ -993,7 +993,7 @@ function renderMap() {
     return `<span class="mapnode ${poi.cls}${done ? ' done' : ''}${landmark ? ' land' : ''}${edge}"` +
       ` style="left:${p.l.toFixed(2)}%;top:${p.t.toFixed(2)}%"${realm ? ` data-accent="${realm}"` : ''}` +
       ` title="${esc(n.name || label)}">` +
-      `<span class="mpin">${icon(poi.icon, landmark ? 17 : 14)}</span>` +
+      `<span class="mpin">${icon(poi.icon)}</span>` +
       (landmark ? `<span class="mlabel">${esc(label)}</span>` : '') + `</span>`;
   }).join('');
 
