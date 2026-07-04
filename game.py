@@ -687,7 +687,7 @@ class Game:
             mode = forced
             self._force_mode = None
         if mode == "puzzle":
-            deal = puzzles.deal_battle(self.rng)
+            deal = puzzles.deal_battle(self.rng, tier)
             self.minigame = {"kind": deal["kind"], "island": self.battle["node"],
                              "data": deal, "limit": deal["limit"],
                              "deadline": None, "battle": True}
@@ -1120,7 +1120,7 @@ class Game:
             if ok:
                 self.minigame = None
                 self._resolve_battle(True, -2, None, challenge="puzzle")
-            elif mg["kind"] == "simon":
+            elif mg["kind"] in ("simon", "memory"):
                 self.minigame = None
                 self._resolve_battle(False, -2, None, challenge="puzzle")
             else:
@@ -1142,7 +1142,7 @@ class Game:
             return
         if ok:
             self._puzzle_success(mg["island"])
-        elif mg["kind"] == "simon":
+        elif mg["kind"] in ("simon", "memory"):
             self._puzzle_fail(mg["island"])       # one wrong note ends the echo
         else:
             raise GameError("Not solved yet — the isle waits.")

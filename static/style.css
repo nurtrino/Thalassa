@@ -1299,6 +1299,8 @@ body.shake #world { animation: shake .45s; }
 }
 
 .simonpad { display: grid; grid-template-columns: repeat(3, 64px); gap: var(--s2); }
+.simonpad.mem { grid-template-columns: repeat(2, 78px); }   /* memory: a bigger 2×2 */
+.simonpad.mem .mgpad { width: 78px; height: 78px; }
 .mgpad {
   width: 64px; height: 64px;
   border-radius: 11px;

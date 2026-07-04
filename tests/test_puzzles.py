@@ -15,8 +15,36 @@ def test_deal_covers_all_kinds_and_hides_secrets():
         assert d["limit"] == puzzles.TIME_LIMITS[d["kind"]]
         if d["kind"] in puzzles.INTERACTIVE:
             assert "secret" in d                     # present server-side…
-    assert set(puzzles.INTERACTIVE) <= kinds
+    # every interactive kind turns up on the isles EXCEPT 'memory', which is a
+    # battle-only tier-I puzzle (see puzzles.BATTLE_TIERS)
+    assert set(puzzles.INTERACTIVE) - {"memory"} <= kinds
+    assert "memory" not in kinds
     assert "riddle" in kinds
+
+
+def test_battle_puzzles_are_tiered_and_exclude_slow_kinds():
+    rng = random.Random(11)
+    seen = {1: set(), 2: set(), 3: set()}
+    for tier in (1, 2, 3):
+        for _ in range(80):
+            d = puzzles.deal_battle(rng, tier)
+            seen[tier].add(d["kind"])
+            assert d["limit"] == puzzles.TIME_LIMITS[d["kind"]]
+    allkinds = seen[1] | seen[2] | seen[3]
+    assert "anagram" not in allkinds and "tetromino" not in allkinds
+    assert "memory" in seen[1]                    # the 4-item memory is tier I
+    assert "nonogram" in seen[3]                  # picross is tier III
+    assert "memory" not in seen[3] and "nonogram" not in seen[1]
+
+
+def test_memory_puzzle_generate_and_check():
+    rng = random.Random(2)
+    d = puzzles.gen_memory(rng)
+    assert d["pad"] == 4 and len(d["seq"]) == 4
+    assert all(0 <= t < 4 for t in d["seq"])
+    assert all(d["seq"][i] != d["seq"][i - 1] for i in range(1, 4))   # no repeats
+    assert puzzles.check("memory", d, d["seq"])
+    assert not puzzles.check("memory", d, [0, 0, 0, 0])   # repeats can't be the seq
 
 
 # ── riddle (typed answer) ────────────────────────────────────────────────────

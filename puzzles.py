@@ -45,10 +45,11 @@ import tetromino6
 # simon stays untimed (a wrong note, not the clock, is its failure).
 TIME_LIMITS = {"riddle": 27.5, "tetromino": 97.5, "nonogram": 84.375,
                "simon": None, "anagram": 27.5, "ravens": 22.5,
-               "sequence": 27.5, "lights_out": 27.5, "sliding": 60}
+               "sequence": 27.5, "lights_out": 27.5, "sliding": 60,
+               "memory": None}     # memory (like simon) has no clock
 
 INTERACTIVE = ("tetromino", "nonogram", "simon", "anagram", "ravens", "riddle",
-               "sequence", "lights_out", "sliding")
+               "sequence", "lights_out", "sliding", "memory")
 
 # ── typed-answer riddles — content + normalization live in riddles_typed ─────
 RIDDLES = riddles_typed.RIDDLES
@@ -216,6 +217,17 @@ def gen_simon(rng: random.Random, length: int = 6) -> dict:
 
 def check_simon(data: dict, taps) -> bool:
     return isinstance(taps, list) and taps == data["seq"]
+
+
+# ── memory (simon's little sibling: a 2×2 pad, only 4 to remember) ───────────
+def gen_memory(rng: random.Random, length: int = 4) -> dict:
+    seq = []
+    for _ in range(length):
+        nxt = rng.randrange(4)
+        while seq and nxt == seq[-1]:               # no immediate repeats
+            nxt = rng.randrange(4)
+        seq.append(nxt)
+    return {"pad": 4, "seq": seq, "secret": {}}     # pad 4 → a 2×2 board
 
 
 # ── anagram unscramble ───────────────────────────────────────────────────────
@@ -426,11 +438,12 @@ _WEIGHTS = [("tetromino", 3), ("nonogram", 3), ("simon", 3),
 _GENERATORS = {"tetromino": gen_tetromino, "nonogram": gen_nonogram,
                "simon": gen_simon, "anagram": gen_anagram, "ravens": gen_ravens,
                "sequence": gen_sequence, "lights_out": gen_lights_out,
-               "sliding": gen_sliding}
+               "sliding": gen_sliding, "memory": gen_memory}
 _CHECKERS = {"tetromino": check_tetromino, "nonogram": check_nonogram,
              "simon": check_simon, "anagram": check_anagram, "ravens": check_ravens,
              "riddle": check_riddle, "sequence": check_sequence,
-             "lights_out": check_lights_out, "sliding": check_sliding}
+             "lights_out": check_lights_out, "sliding": check_sliding,
+             "memory": check_simon}     # memory reuses simon's exact-sequence check
 
 # The Sigil of the Isle is now a 6×6 board (9 tetrominoes, NO rotation), dealt
 # from a bank of 20 fixed solvable instances. check_tetromino is size-agnostic
@@ -464,8 +477,16 @@ def check(kind: str, data: dict, payload) -> bool:
 
 
 # ── special deals ─────────────────────────────────────────────────────────────
-# Battles draw from every puzzle kind EXCEPT riddles (the Sphinx keeps those).
-BATTLE_KINDS = tuple(k for k in _GENERATORS)
+# Combat puzzles are TIERED by the stance you chose (STRIKE/GUARD → I, boss
+# STRIKE → II, MAGIC → III), so a harder stance draws a harder trial. Anagrams
+# and the tetromino sigil-fill are TOO SLOW for a fight and never appear here
+# (they still turn up on the puzzle isles). Riddles belong to the Sphinx.
+BATTLE_TIERS = {
+    1: ("memory", "lights_out"),          # quick: a 2×2 memory, a small board
+    2: ("simon", "sliding", "sequence"),  # a beat longer to think
+    3: ("nonogram", "ravens"),            # picross + Raven's matrix — the hard set
+}
+BATTLE_KINDS = tuple(dict.fromkeys(k for ks in BATTLE_TIERS.values() for k in ks))
 
 
 def deal_kind(rng: random.Random, kind: str) -> dict:
@@ -489,9 +510,11 @@ def answer_text(kind: str, data: dict | None) -> str:
     return ""
 
 
-def deal_battle(rng: random.Random) -> dict:
-    """A combat puzzle — any kind but a riddle."""
-    return deal_kind(rng, rng.choice(BATTLE_KINDS))
+def deal_battle(rng: random.Random, tier: int = 1) -> dict:
+    """A combat puzzle drawn from the pool for this battle tier (see
+    BATTLE_TIERS). Never a riddle, anagram, or tetromino."""
+    pool = BATTLE_TIERS.get(tier) or BATTLE_TIERS[2]
+    return deal_kind(rng, rng.choice(pool))
 
 
 def deal_riddle(rng: random.Random, used_riddles: set[int]) -> dict:

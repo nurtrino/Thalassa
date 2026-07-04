@@ -31,7 +31,7 @@ const MG_LABEL = {
   simon: 'Echoes of the Muses', anagram: 'The Scattered Letters',
   ravens: 'The Pattern of Fate', riddle: 'Riddle of the Isle',
   sequence: 'The Fates’ Thread', lights_out: 'The Gorgon’s Gaze',
-  sliding: 'The Shifting Mosaic',
+  sliding: 'The Shifting Mosaic', memory: 'The Muses’ Whisper',
 };
 const MG_PROMPT = {
   tetromino: 'Drag each piece onto the grid. No rotating — they fit as given.',
@@ -43,6 +43,7 @@ const MG_PROMPT = {
   sequence: 'Read the thread and type the next number.',
   lights_out: 'Tap to toggle a stone and its neighbours. Darken them all.',
   sliding: 'Slide the tiles into order, 1 to 8, blank last.',
+  memory: 'Watch the four, then echo them back. One wrong note fails it.',
 };
 const TIER_ROMAN = { 1: 'I', 2: 'II', 3: 'III' };
 const UP_ICON = {
@@ -581,7 +582,7 @@ function reactAudio(prev, next) {
 
   /* duck under trivia cards — and under Simon, whose tones need the spotlight */
   audio.duck((next.phase === 'question' && !puzzleish && !battleish) ||
-             (next.phase === 'minigame' && next.minigame?.kind === 'simon'));
+             (next.phase === 'minigame' && ['simon', 'memory'].includes(next.minigame?.kind)));
   sfxPrevPhase = next.phase;
 }
 
@@ -1699,7 +1700,7 @@ function renderMinigame() {
 
   if (m.kind === 'tetromino') renderTetromino(board, m, mine, fresh);
   else if (m.kind === 'nonogram') renderNonogram(board, m, mine, fresh);
-  else if (m.kind === 'simon') renderSimon(board, m, mine, fresh);
+  else if (m.kind === 'simon' || m.kind === 'memory') renderSimon(board, m, mine, fresh);
   else if (m.kind === 'anagram') renderAnagram(board, m, mine, fresh);
   else if (m.kind === 'ravens') renderRavens(board, m, mine, fresh);
   else if (m.kind === 'riddle') renderRiddle(board, m, mine, fresh);
@@ -1903,15 +1904,16 @@ const SIMON_COLORS = ['#e4572e', '#2e86ab', '#f6ae2d', '#8e5572', '#33ca7f',
 function renderSimon(board, m, mine, fresh) {
   if (!fresh) return;
   board.innerHTML = '';
+  const N = m.pad || 9;                       // memory = 4 (2×2); simon = 9 (3×3)
   const pad = document.createElement('div');
-  pad.className = 'simonpad';
+  pad.className = N <= 4 ? 'simonpad mem' : 'simonpad';
   const tiles = [];
   const flash = (tile, i) => {
     tile.classList.add('lit');
     audio.simonTone(i);
     setTimeout(() => tile.classList.remove('lit'), 380);
   };
-  for (let i = 0; i < 9; i++) {
+  for (let i = 0; i < N; i++) {
     const t = document.createElement('button');
     t.className = 'mgpad';
     t.style.setProperty('--simoncol', SIMON_COLORS[i]);
