@@ -4,3 +4,5 @@ __pycache__/
 .pytest_cache/
 .env
 static/fixture.json
+static/assets/meshy/*.raw.glb
+static/assets/monsters/*.glb.bak

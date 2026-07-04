@@ -1,0 +1,96 @@
+# Generate creature models through the Meshy AI API.
+#
+# Manual dispatch: Actions -> "Meshy model generation" -> Run workflow.
+# Requires the repo secret MESHY_API_KEY (Settings -> Secrets -> Actions).
+# Generated GLBs are staged in static/assets/meshy/, committed back to the
+# branch the workflow was dispatched on, and uploaded as an artifact.
+# Review them with tools/preview_monsters.py, then promote with:
+#   python tools/meshy/pipeline.py install --models <ids>
+
+name: Meshy model generation
+
+on:
+  workflow_dispatch:
+    inputs:
+      tier:
+        description: Generate every model of this tier (bosses are the most complicated — start there)
+        type: choice
+        default: boss
+        options: [boss, hero, elite, mid, grunt, all]
+      models:
+        description: Or a comma-separated list of model ids (overrides tier), e.g. tyrant,wyrm
+        type: string
+        default: ""
+      limit:
+        description: Cap how many models run (credit guard)
+        type: string
+        default: ""
+      install:
+        description: Also copy staged GLBs over the live placeholders
+        type: boolean
+        default: false
+
+concurrency:
+  group: meshy-generate-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  generate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref }}
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Check credit balance
+        env:
+          MESHY_API_KEY: ${{ secrets.MESHY_API_KEY }}
+        run: python tools/meshy/pipeline.py balance
+
+      - name: Generate models
+        env:
+          MESHY_API_KEY: ${{ secrets.MESHY_API_KEY }}
+        run: |
+          ARGS=""
+          if [ -n "${{ inputs.models }}" ]; then
+            ARGS="--models ${{ inputs.models }}"
+          else
+            ARGS="--tier ${{ inputs.tier }}"
+          fi
+          if [ -n "${{ inputs.limit }}" ]; then
+            ARGS="$ARGS --limit ${{ inputs.limit }}"
+          fi
+          python tools/meshy/pipeline.py run $ARGS --timeout 6000
+
+      - name: Install over placeholders
+        if: ${{ inputs.install }}
+        run: python tools/meshy/pipeline.py install
+
+      - name: Show pipeline status
+        run: python tools/meshy/pipeline.py status
+
+      - name: Commit staged models
+        run: |
+          git config user.name "meshy-pipeline[bot]"
+          git config user.email "meshy-pipeline@users.noreply.github.com"
+          git add static/assets/meshy tools/meshy/state.json
+          if [ "${{ inputs.install }}" = "true" ]; then
+            git add static/assets/monsters
+          fi
+          git diff --cached --quiet && echo "nothing new" && exit 0
+          git commit -m "Meshy-generated models (${{ inputs.models || inputs.tier }})"
+          git push
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: meshy-models
+          path: static/assets/meshy/
+          if-no-files-found: ignore
