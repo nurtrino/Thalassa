@@ -662,6 +662,7 @@ function render() {
   renderQuestion();
   renderMinigame();
   renderModal();
+  renderVictory();
   renderLog();
 }
 
@@ -1081,6 +1082,51 @@ function renderShop() {
   panel.querySelectorAll('.buy').forEach((b) => {
     b.onclick = () => { audio.sfx.build(); send({ type: 'shop_buy', item: b.dataset.item }); };
   });
+}
+
+/* ── the VICTORY screen: a real curtain call, not a cut-away ────────────── */
+let victoryShown = false;
+function renderVictory() {
+  const existing = document.getElementById('victoryOv');
+  if (!room || room.phase !== 'finished' || !room.winner) {
+    if (existing) existing.remove();
+    victoryShown = false;
+    return;
+  }
+  if (victoryShown) return;
+  victoryShown = true;
+  const w = room.players.find((p) => p.pid === room.winner);
+  const rows = [...room.players]
+    .sort((a, b) => (b.banked - a.banked) || (b.scrolls - a.scrolls))
+    .map((p, i) => `<div class="vrow ${p.pid === room.winner ? 'vwin' : ''}">
+        <span class="vrank">${p.pid === room.winner ? icon('crown', 15) : i + 1}</span>
+        <span class="vdot" style="background:${p.color}"></span>
+        <span class="vname">${esc(p.name)}</span>
+        <span class="vstat">${p.banked} ${icon('relic', 12)} seals</span>
+        <span class="vstat">${p.scrolls} ${icon('scroll', 12)}</span>
+        <span class="vstat">${(p.upgrades || []).length} fittings</span>
+      </div>`).join('');
+  const d = document.createElement('div');
+  d.id = 'victoryOv';
+  d.innerHTML =
+    `<div class="vwrap">
+      <div class="vlaurel">${icon('crown', 52)}</div>
+      <div class="vtitle">VICTORY</div>
+      <div class="vsub"><strong style="color:${w?.color || 'var(--gilt)'}">${esc(w?.name || '?')}</strong>
+        takes the Pharos — the sea is theirs</div>
+      <div class="vboard">${rows}</div>
+      <div class="vbtns">
+        ${you === room.host
+          ? '<button id="vRematch" class="vgold">NEW VOYAGE</button>'
+          : '<div class="vwait">the host may call a new voyage</div>'}
+        <button id="vHide" class="vghost">gaze upon the sea</button>
+      </div>
+    </div>`;
+  document.body.appendChild(d);
+  const r = document.getElementById('vRematch');
+  if (r) r.onclick = () => send({ type: 'rematch' });
+  document.getElementById('vHide').onclick = () => d.classList.add('vpeek');
+  audio.sfx?.victory?.();
 }
 
 /* ── item belt (bottom-right) ───────────────────────────────────────────── */

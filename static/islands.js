@@ -611,9 +611,9 @@ function makePharos() {
   halo.material.opacity = 0.4;
   halo.position.y = 22.4;
   g.add(fire, light, beam, halo);
-  const gate = makePharosGate();
-  gate.position.set(0, 0, 6.6);      // a propylaea at the tower's foot
-  g.add(gate);
+  // (the old propylaea doorway is gone — the Meshy tower carries its own
+  // carved door; makePharosGate stays available if a sealed-door set piece
+  // is ever wanted again)
   return g;
 }
 

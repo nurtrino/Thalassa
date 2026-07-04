@@ -235,6 +235,9 @@ async def dispatch(pid: str | None, kind: str, msg: dict) -> str | None:
             # test harness only (never set DEV_CHEATS in production):
             # teleport-and-land for driving the client into specific states
             p = g.player_by_pid(pid)
+            if p and msg.get("win"):           # force the curtain call
+                g.winner = p.pid
+                g._bump("finished")
             node = str(msg.get("node", ""))
             if p and node in g.board.nodes:
                 p.prev_node = p.node

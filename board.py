@@ -366,7 +366,9 @@ class Board:
         loop_a = loop_b = None                 # where the haven loop hangs
         for i, kind in enumerate(plan):
             t = (i + 1) / (n + 1)
-            radius = R0 + 38 + t * (330 - 42)
+            # the first isle sits WELL past the arch: sailing in means a real
+            # stretch of open wilds before anything meets you
+            radius = R0 + 80 + t * (330 - 88)
             bow = 0.13 if simple else 0.34
             a = ang + side * bow * math.sin(math.pi * t)      # bow out, then back
             depth = 1 + (i * 3) // n                          # 1 … 3 up the spine

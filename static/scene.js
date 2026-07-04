@@ -274,6 +274,15 @@ export function createWorld(container, handlers = {}) {
   /* shared groups that ride along into whichever stage is active */
   const highlights = new THREE.Group();   // reachable rings
   let hiKey = '';
+  /* the Vale's WAYFINDER: in the maze you can't see the stops, so the trail
+     itself points the way — gold chevrons along every legal route; tapping
+     one sails you toward its destination */
+  const valeArrows = new THREE.Group();
+  let valeKey = '';
+  const ARROW_GEO = new THREE.ConeGeometry(0.55, 1.6, 4);
+  const ARROW_MAT = new THREE.MeshStandardMaterial({
+    color: 0xffd061, emissive: 0xb9791c, emissiveIntensity: 1.1,
+    flatShading: true });
   const fx = new THREE.Group();           // wake sprites live here
 
   /* wake pool: fixed sprites, zero allocation during play */
@@ -593,6 +602,47 @@ export function createWorld(container, handlers = {}) {
         const line = new THREE.Line(geo, mat);
         line.computeLineDistances();
         st.laneGroup.add(line);
+      }
+    }
+  }
+
+  function syncValeArrows(room) {
+    const me = room?.players?.find((p) => p.pid === myPid);
+    const want = activeBoardId === 'autumn' && !battleOn && !fading
+      && room?.phase === 'sail' && room.turn === myPid
+      && me && room.reachable && Object.keys(room.reachable).length;
+    const key = want
+      ? me.node + '|' + Object.keys(room.reachable).sort().join(',')
+      : '';
+    if (key === valeKey) return;
+    valeKey = key;
+    valeArrows.clear();
+    if (!want) return;
+    const _dir = new THREE.Vector3();
+    const _up = new THREE.Vector3(0, 1, 0);
+    for (const dest of Object.keys(room.reachable)) {
+      const path = sailPath(me.node, dest);
+      if (!path || path.length < 2) continue;
+      // sample chevrons at fixed distances down the trail (the fog line is
+      // close — only the first stretch is ever visible anyway)
+      const pts = path.map((id) => nodeById[id]).filter(Boolean);
+      let target = 6;
+      let walked = 0;
+      for (let i = 0; i + 1 < pts.length && target <= 30; i++) {
+        const ax = pts[i].x, az = pts[i].z, bx = pts[i + 1].x, bz = pts[i + 1].z;
+        const seg = Math.hypot(bx - ax, bz - az) || 1e-6;
+        while (target <= walked + seg && target <= 30) {
+          const t = (target - walked) / seg;
+          const arrow = new THREE.Mesh(ARROW_GEO, ARROW_MAT);
+          arrow.position.set(ax + (bx - ax) * t, 0.5, az + (bz - az) * t);
+          _dir.set(bx - ax, 0, bz - az).normalize();
+          arrow.quaternion.setFromUnitVectors(_up, _dir);
+          arrow.userData.node = dest;
+          arrow.userData.ph = target;
+          valeArrows.add(arrow);
+          target += 6.5;
+        }
+        walked += seg;
       }
     }
   }
@@ -980,7 +1030,7 @@ export function createWorld(container, handlers = {}) {
     activeBoardId = stageId;
     if (lastRoom) syncStage(st, lastRoom);
     /* move the ride-along groups into this scene */
-    st.scene.add(highlights, fx);
+    st.scene.add(highlights, fx, valeArrows);
     hiKey = '';
     for (const sp of wakePool) sp.visible = false;
     if (lastRoom) {
@@ -1203,7 +1253,7 @@ export function createWorld(container, handlers = {}) {
     pointer.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
     ray.setFromCamera(pointer, camera);
     const hit = ray.intersectObjects(
-      [...st.proxyList, ...highlights.children], false)
+      [...st.proxyList, ...highlights.children, ...valeArrows.children], false)
       .find((h) => h.object.userData.node);
     if (hit) handlers.onNodeClick?.(hit.object.userData.node);
   });
@@ -1381,6 +1431,26 @@ export function createWorld(container, handlers = {}) {
     const origin = (rec && rec.stageId === st.id)
       ? rec.root.position.clone() : stageCentroid(st);
     origin.y = 0;
+    // SAILING INTO A REALM: ride in WITH the ship — start just behind the
+    // pass, glide through the arch and out into the open wilds. (The ship
+    // record may not have crossed stages yet, so read the mover's NODE.)
+    if (st.id !== 'hub') {
+      const mover = fp ? lastRoom?.players?.find((pl) => pl.pid === fp) : null;
+      const mnode = mover ? nodeById[mover.node] : null;
+      const gate = Object.values(nodeById).find(
+        (n) => n.type === 'gate' && n.region === st.id);
+      if (gate && mnode && mnode.region === st.id
+          && Math.hypot(mnode.x - gate.x, mnode.z - gate.z) < 140) {
+        const gl = Math.hypot(gate.x, gate.z) || 1;
+        cine = {
+          t0: performance.now(), dur: 5200, mode: 'gate',
+          origin: new THREE.Vector3(mnode.x, 0, mnode.z),
+          gate: { x: gate.x, z: gate.z },
+          from: { x: gate.x * (gl - 42) / gl, z: gate.z * (gl - 42) / gl },
+        };
+        return;
+      }
+    }
     const startAzi = Math.atan2(camera.position.z - origin.z,
                                 camera.position.x - origin.x);
     cine = { t0: performance.now(), dur: 4400, origin, startAzi };
@@ -1392,6 +1462,26 @@ export function createWorld(container, handlers = {}) {
     const k = (now - cine.t0) / cine.dur;
     if (k >= 1) { cine = null; return false; }
     const ease = k < 0.5 ? 2 * k * k : 1 - Math.pow(-2 * k + 2, 2) / 2;
+    if (cine.mode === 'gate') {
+      // through the arch: hub side of the pass → low over the channel →
+      // settle in behind the boat, the realm opening up ahead
+      const o = cine.origin;
+      let dx = o.x - cine.gate.x, dz = o.z - cine.gate.z;
+      const dl = Math.hypot(dx, dz) || 1;
+      dx /= dl; dz /= dl;
+      const ex = o.x - dx * 22, ez = o.z - dz * 22;   // end: just astern
+      const cx = cine.from.x + (ex - cine.from.x) * ease;
+      const cz = cine.from.z + (ez - cine.from.z) * ease;
+      camera.position.set(cx, 8 + 5 * ease, cz);
+      controls.target.set(
+        cine.gate.x + (o.x - cine.gate.x) * ease,
+        7 - 5.4 * ease,
+        cine.gate.z + (o.z - cine.gate.z) * ease);
+      controls.update();
+      st.sun.position.copy(controls.target).addScaledVector(st.sunDir, 380);
+      st.sun.target.position.copy(controls.target);
+      return true;
+    }
     const o = cine.origin;
     const azi = cine.startAzi + 1.0 * ease;                 // slow orbit sweep
     const radius = 132 - 106 * ease;                        // wide → chase
@@ -1523,9 +1613,9 @@ export function createWorld(container, handlers = {}) {
     const b = stageBounds(st);
     const cx = (b.minX + b.maxX) / 2, cz = (b.minZ + b.maxZ) / 2;
     const extent = Math.max(b.maxX - b.minX, b.maxZ - b.minZ, 160);
-    // the hub sweep and the Vale flyover both need the air cleared; the
-    // other realms are flown LOW where their close fog reads as drama
-    if (leg.stage === 'hub' || leg.stage === 'autumn') tourFogOpen(st, extent);
+    // only the hub legs clear the air. The Vale is a MAZE — its flyover
+    // stays inside the amber murk so nobody gets a peek at the middle
+    if (leg.stage === 'hub') tourFogOpen(st, extent);
     else tourFogClose();
     if (leg.pharos) {
       // spiral down from high over the sea to the tower's very door
@@ -1563,7 +1653,10 @@ export function createWorld(container, handlers = {}) {
       let dx = lx - px, dz = lz - pz;
       const dl = Math.hypot(dx, dz) || 1;
       dx /= dl; dz /= dl;
-      camera.position.set(px - dx * 65, 92, pz - dz * 65);
+      // the Vale's leg rides above its own fog ceiling: all you see is the
+      // amber sea of murk — the maze keeps its secrets
+      const hgt2 = leg.stage === 'autumn' ? 150 : 92;
+      camera.position.set(px - dx * 65, hgt2, pz - dz * 65);
       controls.target.set(lx, 0, lz);
     }
     controls.update();
@@ -1767,6 +1860,11 @@ export function createWorld(container, handlers = {}) {
     tickShips(st, t, now);
     tickWake(now);
     tickHighlights(t);
+    syncValeArrows(lastRoom);
+    for (let i = 0; i < valeArrows.children.length; i++) {
+      const a = valeArrows.children[i];
+      a.position.y = 0.5 + Math.sin(t * 3 + a.userData.ph) * 0.14;
+    }
     syncKraken(lastRoom);
     if (tour) tickTour(performance.now());
     else if (mapMode) tickMapView(dt);
