@@ -1098,7 +1098,7 @@ export function createWorld(container, handlers = {}) {
   function enterBattle(room) {
     const b = room.battle;
     const node = nodeById[b.node];
-    const theme = themeFor(b.region || node?.region || 'hub');
+    const theme = themeFor(b.is_pharos ? 'pharos' : (b.region || node?.region || 'hub'));
     const fighter = room.players?.find((p) => p.pid === room.turn);
     const heroKind = node?.mode === 'foot' ? 'captain' : 'ship';
     battleKey = b.node + '|' + (fighter?.pid || '') + '|' + (b.round != null ? 'r' : '');

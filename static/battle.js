@@ -420,7 +420,8 @@ export function createBattleStage(renderer) {
     rim.color.set(theme.id === 'ice' ? 0xbfe8ff
       : theme.id === 'desert' ? 0xffd9a0
       : theme.id === 'jungle' ? 0x8fffc9
-      : theme.id === 'autumn' ? 0xffb066 : 0x9fc8ff);
+      : theme.id === 'autumn' ? 0xffb066
+      : theme.id === 'pharos' ? 0xff5a3c : 0x9fc8ff);
     rim.intensity = st.baseRim = 1.0;
     hemi.color.set(theme.hemi.sky);
     hemi.groundColor.set(theme.hemi.ground);

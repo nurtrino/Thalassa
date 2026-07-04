@@ -99,6 +99,25 @@ const THEMES = {
     particles: 'leaves',
     wall: { rock: 0x74584a, snow: 0xf6e9d2, glow: 0xf0a24f },
   },
+
+  // The Dark Presence's arena — the top of the Pharos at a starless midnight.
+  // Battle-only theme (never a board): obsidian floor, storm-black sky, the
+  // great beacon smouldering ember-red overhead. Reached by climbing the
+  // lighthouse, so everything is high, cold and lit only by fire.
+  pharos: {
+    id: 'pharos',
+    water: { deep: 0x090b12, shallow: 0x17111e, sparkle: 0.15, chop: 0.25 },
+    ground: 'sand',                       // solid dark-stone floor via sand disc
+    sky: { zenith: 0x04050a, mid: 0x140f22, horizon: 0x3a1626 },
+    fog: { color: 0x0a0b14, near: 26, far: 140 },
+    sun: { color: 0xff6a34, intensity: 1.2, position: [24, 120, -52] },
+    hemi: { sky: 0x2a2140, ground: 0x110a12, intensity: 0.5 },
+    ambient: 0x0b0912,
+    palette: { grass: 0x26272f, grass2: 0x121319, sand: 0x33343e, rock: 0x24252d },
+    flora: 'none',
+    particles: null,
+    wall: { rock: 0x1b1c24, snow: 0x3a3b46, glow: 0xff6a34 },
+  },
 };
 
 export function themeFor(stageId) {

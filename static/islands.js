@@ -2126,8 +2126,9 @@ export function makeBattleBackdrop(theme) {
   const rng = mulberry32(hashStr('battle:' + theme.id));
   const id = theme.id;
 
-  // floor
-  g.add(id === 'desert' ? dioramaSandDisc(theme) : dioramaWaterDisc(theme));
+  // floor — desert and the Pharos arena stand on solid ground, not water
+  g.add(id === 'desert' || id === 'pharos'
+    ? dioramaSandDisc(theme) : dioramaWaterDisc(theme));
 
   // horizon rim: broken ring of dark rock so the disc never ends in nothing
   for (let i = 0; i < 9; i++) {
@@ -2252,6 +2253,44 @@ export function makeBattleBackdrop(theme) {
       g.add(leaf);
     }
     g.add(hazePlane(0xf8ce74, 70, 14, 0.14, 26, 6, -16));
+  } else if (id === 'pharos') {
+    // the crown of the lighthouse: a ring of shattered parapet columns, iron
+    // braziers throwing the only warm light, the great beacon smouldering red
+    // high behind the foe, and a storm pressing black against the rail.
+    for (let i = 0; i < 11; i++) {
+      const a = (i / 11) * Math.PI * 2 + rng() * 0.12;
+      if (Math.cos(a) < -0.5) continue;              // leave the camera side open
+      const col = makeColumn(2.2 + rng() * 2.8, 0.26);
+      col.traverse((o) => { if (o.isMesh) o.material = flat(0x24242c, { roughness: 0.9 }); });
+      col.position.set(Math.cos(a) * 22, 0.4, Math.sin(a) * 22);
+      col.rotation.z = (rng() - 0.5) * 0.14;
+      g.add(col);
+    }
+    for (const [x, z] of [[10, -12], [20, 2], [-12, -12], [6, 16]]) {
+      const stub = new THREE.Mesh(new THREE.CylinderGeometry(0.5, 0.72, 1.8, 6), flat(0x17171d));
+      stub.position.set(x, 0.9, z);
+      stub.castShadow = true;
+      g.add(stub);
+      const fire = glowSprite(0xff7a2a, 3.4);
+      fire.material.opacity = 0.9; fire.material.fog = false;
+      fire.position.set(x, 2.5, z);
+      g.add(fire);
+      const core = glowSprite(0xffd25a, 1.5);
+      core.material.opacity = 0.85; core.material.fog = false;
+      core.position.set(x, 2.3, z);
+      g.add(core);
+    }
+    const beacon = glowSprite(0xff5626, 26);
+    beacon.material.opacity = 0.5; beacon.material.fog = false;
+    beacon.position.set(30, 22, -34);
+    g.add(beacon);
+    for (const [x, z, s] of [[24, -8, 1.4], [-18, -14, 1.2]]) {
+      const rk = makeRock(rng, 2.0 * s, 0x1e1f26);
+      rk.position.set(x, -0.5, z);
+      g.add(rk);
+    }
+    g.add(hazePlane(0x5a1020, 80, 20, 0.22, 20, 8, -24));
+    g.add(hazePlane(0x1c1030, 92, 28, 0.3, 0, 16, -30));
   }
 
   // Meshy prop dressing: a handful of the good GLB props scattered on the
@@ -2264,6 +2303,7 @@ export function makeBattleBackdrop(theme) {
     desert: ['ruined_arch', 'bone_pile', 'cactus', 'sarcophagus'],
     jungle: ['jungle_tree', 'mossy_idol', 'fern_cluster', 'mushroom_cluster', 'ruined_arch'],
     autumn: ['autumn_tree', 'dead_tree', 'mushroom_cluster', 'campfire', 'boulder'],
+    pharos: ['ruined_column', 'broken_statue', 'sarcophagus', 'bone_pile'],
   };
   const FLOATS = new Set(['iceberg', 'ice_shard', 'lily_pads', 'driftwood']);
   const picks = BATTLE_PROPS[id] || BATTLE_PROPS.hub;
@@ -2276,7 +2316,7 @@ export function makeBattleBackdrop(theme) {
     const pid = picks[i % picks.length];
     const p = propGroup(pid, 0.9 + rng() * 0.5);
     const x = Math.cos(a) * r, z = Math.sin(a) * r;
-    if (id === 'desert' || FLOATS.has(pid)) {
+    if (id === 'desert' || id === 'pharos' || FLOATS.has(pid)) {
       p.position.set(x, 0, z);
     } else {
       const base = makeRock(rng, 1.3 + rng() * 0.7, theme.palette.rock);
