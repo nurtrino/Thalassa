@@ -676,10 +676,12 @@ class Game:
         # battles do not. Bosses rotate all three so a trial tests the whole
         # mind. Puzzles in combat never include riddles (those are the Sphinx's).
         if boss:
-            mode = ("mc", "puzzle", "jeopardy")[self.battle["round"] % 3]
+            # bosses lean on the typed clues too — jeopardy on 2 of every 3 rounds
+            mode = ("jeopardy", "puzzle", "jeopardy", "mc")[self.battle["round"] % 4]
         else:
+            # typed JEOPARDY! is the star (~55%); puzzles 20%, general MC 25%
             r = self.rng.random()
-            mode = "puzzle" if r < 0.25 else ("mc" if r < 0.70 else "jeopardy")
+            mode = "puzzle" if r < 0.20 else ("mc" if r < 0.45 else "jeopardy")
         forced = getattr(self, "_force_mode", None)     # DEV_CHEATS test hook only
         if forced:
             mode = forced

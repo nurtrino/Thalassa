@@ -63,14 +63,12 @@ class QuestionBank:
         return {f"{d}/{diff}": len(q) for (d, diff), q in self.pools.items()}
 
     async def get(self, domain: str, tier: int) -> dict:
-        """Return one shaped question; never blocks on the network for long."""
+        """Return one shaped question. NEVER blocks on the network — the
+        background refill_loop keeps the pools primed; if a pool is empty (the
+        API is slow, unreachable, or hasn't filled yet) we serve a fallback at
+        once so a shrine can't hang on 'A herald fetches the question…'."""
         diff = TIER_DIFFICULTY.get(tier, "hard")
         pool = self.pools[(domain, diff)]
-        if not pool and self._api_ok:
-            try:
-                await self._refill(domain, diff)
-            except Exception:
-                pass
         if pool:
             return pool.pop(self.rng.randrange(len(pool)))
         return self._fallback(domain, diff)
@@ -148,11 +146,9 @@ class OpenTDBBank:
         self._api_ok = not self.offline
 
     async def get(self) -> dict:
-        if not self.pool and self._api_ok:
-            try:
-                await self._refill()
-            except Exception:
-                pass
+        # NEVER block the round on opentdb.com — the background refill_loop keeps
+        # the pool primed. If it's empty (API slow/unreachable, or not filled
+        # yet) serve a fallback at once so a battle can't hang fetching a clue.
         if self.pool:
             return self.pool.pop()
         return self._fallback()
