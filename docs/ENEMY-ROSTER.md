@@ -105,13 +105,20 @@ a lurid **bloom** (petals + emissive `core`). A gold `crown` at the apex.
 Palette: dark wet bark, deep jungle green moss, a magenta/pink flower, sickly
 green eye-glow, blood-red maw.
 
-### `warden` — **The Warden of the Pharos** (final boss, center)
-The guardian inside the lighthouse — a colossal marble automaton/sentinel.
-Same architectural chassis as the colossus but **white marble** and more
-regal: a plumed **bronze helmet**, a long **spear** (`weapon`), a **shield**
-(`shield`), a glowing cyan `core`, and a gold `crown`. The most imposing
-figure in the game (tallest). Palette: pale marble/ivory, bronze-gold armor
-and trim, cyan core glow, a blue crest on the helm.
+### `tyrant` — **The Dark Lord** (final boss, the Pharos)
+The horror that holds the Pharos. A colossal near-black armored biped — the
+largest model in the game (~7.4u, ~2× the other bosses; the frontend trims its
+boss scale so it towers without punching out of frame). Red glowing `eye`s, a
+dark-iron `crown` with ember tips, horns, spiked pauldrons, back-spines, and
+claws. Rig contract: `body`, `head`, `armL/R`, `legL/R`, `eye`, `crown` — so it
+animates like the other bipeds. Palette: near-black iron, ember-orange crown
+tips, red eye-glow.
+
+### `warden` — **The Warden of the Pharos** (asset, unused)
+The former final boss — a colossal pale-marble sentinel: plumed **bronze
+helmet**, a long **spear** (`weapon`), a **shield** (`shield`), a cyan `core`,
+a gold `crown`. Kept as an asset; the Pharos now belongs to the Dark Lord
+(`tyrant`).
 
 ---
 
@@ -262,7 +269,8 @@ segments trailing back; ≥4 segments makes it slither. Optional `fins`.
 | wyrm | The Boreal Wyrm | ice | BOSS | 12·2 |
 | colossus | The Dune Colossus | desert | BOSS | 12·2 |
 | matriarch | The Strangler Matriarch (+ Strangler Saplings) | jungle | BOSS (+elite) | 12·2 |
-| warden | The Warden of the Pharos | center | FINAL BOSS | 14·3 |
+| tyrant | The Dark Lord | the Pharos | FINAL BOSS | 14·3 |
+| warden | (former final boss — asset, unused) | — | — | — |
 | captain | the player, on foot | desert | hero | — |
 | wolf | Leafshade/Frost Wolves, Frostfang Alphas | autumn/ice | grunt/elite | 2·1 / 5·2 |
 | fox | Snow Foxes | ice | grunt | 1·1 |

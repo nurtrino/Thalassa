@@ -222,7 +222,9 @@ export function retint(group, cssColor)         // recolor 'PlayerTint' material
 GLBs live at `/static/assets/monsters/<id>.glb` — ids:
 wolf fox jackal boar stag jaguar stalker shambler harpy bird vulture raider
 faun monkey cyclops drowned golem siren wraith shade serpent drake briar
-crab scorpion skiff captain stag_king wyrm colossus matriarch warden.
+crab scorpion skiff captain stag_king wyrm colossus matriarch warden tyrant.
+(`tyrant` = The Dark Lord, the current final boss; `warden` is the retired
+former final boss, kept as an asset.)
 Load with GLTFLoader (`./vendor/GLTFLoader.js`), cache the parsed scene,
 hand out `clone(true)` copies; clone materials that will be animated
 (emissive pulse). Saturate/deepen base colors ~15% at load (they export a

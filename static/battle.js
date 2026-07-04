@@ -190,9 +190,14 @@ function updateFlash(pool, t) {
 
 /* ── enemy sizing / arrangement ──────────────────────────────────────────── */
 
+// per-model tweaks to the raw-bounds scale. The Dark Lord's tyrant.glb is a
+// giant (~7.4u vs the ~4.5u of other bosses); trim its boss scale so it towers
+// over the arena without punching out of frame.
+const MODEL_SCALE = { tyrant: 0.78 };
+
 function sizeFor(e) {
   const model = e.model || e.name || '';
-  if (BOSS_IDS.has(model) || (e.max_hp || 0) >= 12) return 2.2;
+  if (BOSS_IDS.has(model) || (e.max_hp || 0) >= 12) return 2.2 * (MODEL_SCALE[model] || 1);
   if ((e.max_hp || 0) >= 6) return 1.3;
   return 1 + clamp01(((e.max_hp || 3) - 3) / 10) * 0.15;
 }

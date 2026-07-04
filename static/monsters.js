@@ -34,10 +34,10 @@ export const MONSTER_IDS = [
   'harpy', 'bird', 'vulture', 'raider', 'faun', 'monkey', 'cyclops',
   'drowned', 'golem', 'siren', 'wraith', 'shade', 'serpent', 'drake',
   'briar', 'crab', 'scorpion', 'skiff', 'captain', 'stag_king', 'wyrm',
-  'colossus', 'matriarch', 'warden',
+  'colossus', 'matriarch', 'warden', 'tyrant',
 ];
 
-export const BOSS_IDS = new Set(['stag_king', 'wyrm', 'colossus', 'matriarch', 'warden']);
+export const BOSS_IDS = new Set(['stag_king', 'wyrm', 'colossus', 'matriarch', 'warden', 'tyrant']);
 const FLOATERS = new Set(['wraith', 'shade', 'siren', 'warden']);
 const BOATS = new Set(['skiff']);
 

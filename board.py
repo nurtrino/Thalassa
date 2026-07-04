@@ -48,6 +48,7 @@ ISLAND_NAMES = [
 ]
 
 WARDEN = ("The Dark Lord", 14, 3, 3)
+WARDEN_MODEL = "tyrant"            # the colossal dark biped who holds the Pharos
 
 # ── the four realms, one beyond each mountain pass ───────────────────────────
 # Each realm: display name, travel mode ("sail" | "foot"), a boss (solo,
@@ -220,7 +221,7 @@ class Board:
                 elif ntype == "monster":
                     node["monster"] = None       # hunting grounds: packs spawn on landing
                     node["encounter"] = True
-        self.nodes["pharos"]["monster"] = self._boss(WARDEN, rng)
+        self.nodes["pharos"]["monster"] = self._boss(WARDEN, rng, WARDEN_MODEL)
 
         # edges — ring roads (loops), spokes inward, a few long chords
         for ri in range(1, 4):
@@ -509,7 +510,7 @@ class Board:
     def reset_warden(self):
         """A fresh Warden for the next challenger — the final trial is
         personal too; nobody inherits a softened boss."""
-        self.nodes["pharos"]["monster"] = self._boss(WARDEN, self.rng)
+        self.nodes["pharos"]["monster"] = self._boss(WARDEN, self.rng, WARDEN_MODEL)
 
     def _dist(self, a: str, b: str) -> float:
         na, nb = self.nodes[a], self.nodes[b]

@@ -1562,69 +1562,51 @@ body.shake #world { animation: shake .45s; }
 .mapplot {
   position: relative; flex: 1; min-height: 0; margin: 0 auto; width: 100%;
   border: 1px solid rgba(120, 88, 40, .32); border-radius: 8px;
-  overflow: hidden;
   background:
     repeating-linear-gradient(0deg, transparent 0 30px, rgba(120, 90, 40, .045) 30px 31px),
     repeating-linear-gradient(90deg, transparent 0 30px, rgba(120, 90, 40, .045) 30px 31px);
 }
-.mapzones { position: absolute; inset: 0; width: 100%; height: 100%; }
 .maproutes { position: absolute; inset: 0; width: 100%; height: 100%; }
 .maproutes line { stroke: rgba(90, 62, 24, .3); stroke-width: .3; stroke-dasharray: 1.1 1.2; }
 
-/* the big faded realm names sitting under each territory */
-.mapzone-label {
-  position: absolute; transform: translate(-50%, -50%);
-  display: flex; flex-direction: column; align-items: center; gap: 1px;
-  text-align: center; pointer-events: none; z-index: 1;
-  mix-blend-mode: multiply; opacity: .5;
-}
-.mapzone-label .mzname {
-  font-family: var(--disp); font-weight: 800;
-  font-size: clamp(11px, 1.7vw, 16px); letter-spacing: .12em; text-transform: uppercase;
-  color: var(--rc, #6b4a1c); white-space: nowrap;
-}
-.mapzone-label .mzcat {
-  font-family: var(--disp); font-weight: 700; font-size: 9px;
-  letter-spacing: .3em; text-transform: uppercase; color: var(--rc, #6b4a1c);
-}
-
-.mapdot {
-  position: absolute; width: 5px; height: 5px; border-radius: 50%;
-  background: rgba(90, 62, 24, .42);
-  transform: translate(-50%, -50%);
-}
-.mapdot.wild { background: var(--rc, rgba(90, 62, 24, .5)); opacity: .55; }
-.mapdot.foe { width: 6px; height: 6px; background: #a3402a; opacity: .7; }
-
+/* the marker box IS the icon, centred exactly on the node point; the label is
+   absolutely positioned so it never nudges the icon off its bearing */
 .mapnode {
   position: absolute; transform: translate(-50%, -50%);
-  display: flex; flex-direction: column; align-items: center; gap: 1px;
+  width: 22px; height: 22px;
   z-index: 2; cursor: default;
 }
 .mapnode .mpin {
-  width: 22px; height: 22px; padding: 4px; color: #5a3d18;
+  display: block; width: 100%; height: 100%; padding: 4px; color: #5a3d18;
   background: rgba(255, 249, 232, .8);
   border: 1.5px solid var(--rc, #9a7333);
   border-radius: 50%;
   box-shadow: 0 2px 5px rgba(60, 40, 14, .35);
+  box-sizing: border-box;
 }
-.mapnode.land { z-index: 3; }
-.mapnode.land .mpin { width: 27px; height: 27px; padding: 5px; }
+.mapnode.land { z-index: 3; width: 27px; height: 27px; }
+.mapnode.land .mpin { padding: 5px; }
 .mapnode .mpin svg { width: 100%; height: 100%; }
+/* label hangs below the icon, centred, out of the icon's flow */
 .mapnode .mlabel {
-  margin-top: 1px;
+  position: absolute; top: calc(100% + 2px); left: 50%; transform: translateX(-50%);
   font-family: var(--disp); font-weight: 700; font-size: 8.5px; letter-spacing: .03em;
   color: #6a4a20; white-space: nowrap; text-shadow: 0 1px 0 rgba(255, 250, 233, .85);
-  max-width: 88px; overflow: hidden; text-overflow: ellipsis; opacity: .82;
+  max-width: 118px; overflow: hidden; text-overflow: ellipsis; opacity: .82;
+  pointer-events: none;
 }
 /* landmark labels read as headers: larger, darker, on a faint parchment pill */
 .mapnode.land .mlabel {
   font-size: 11px; font-weight: 800; letter-spacing: .05em; color: #3a2810;
-  opacity: 1; max-width: 128px;
+  opacity: 1;
   padding: 1px 6px; border-radius: 4px;
-  background: rgba(247, 240, 214, .82);
+  background: rgba(247, 240, 214, .9);
   box-shadow: 0 1px 3px rgba(60, 40, 14, .25);
 }
+/* keep edge labels on the chart: grow them inward, and lift bottom ones up */
+.mapnode.edgeL .mlabel { left: 50%; transform: translateX(-12%); }
+.mapnode.edgeR .mlabel { left: 50%; transform: translateX(-88%); }
+.mapnode.edgeB .mlabel { top: auto; bottom: calc(100% + 2px); }
 .mapnode.home .mpin  { color: #7a5a12; border-color: #b8901e; background: #fbedbf; }
 .mapnode.gate .mpin  { color: #4a6070; }
 .mapnode.shrine .mpin { color: #3f6a52; }
@@ -1632,9 +1614,9 @@ body.shake #world { animation: shake .45s; }
 .mapnode.haven .mpin { color: #35617a; }
 .mapnode.puzzle .mpin { color: #6b4a8a; }
 .mapnode.lair .mpin  { color: #9a2f22; border-color: var(--rc, #b34a3a); border-width: 2px; }
-.mapnode.pharos { flex-direction: column-reverse; }   /* label above, clear of Home Port */
 .mapnode.pharos .mpin { color: #6a3fb0; border-color: #8c52ff; border-width: 2px; background: #efe6ff; }
-.mapnode.pharos .mlabel { color: #6a3fb0; }
+/* label above the pin, clear of Home Port which sits just south of it */
+.mapnode.pharos .mlabel { color: #6a3fb0; top: auto; bottom: calc(100% + 3px); }
 .mapnode.done .mpin  { opacity: .48; }
 .mapnode.done .mlabel { opacity: .55; text-decoration: line-through; }
 
