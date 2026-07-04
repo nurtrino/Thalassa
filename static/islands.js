@@ -9,29 +9,9 @@ import { hashStr, mulberry32, flat, displace, seedFrom, softDiscTexture } from '
 import { DOMAIN_COLORS, REALM_INFO } from './themes.js';
 import { propGroup } from './props.js';
 
-/* ── Meshy-baked ground textures ────────────────────────────────────────────
- * Tileable biome textures extracted from Meshy ground tiles (tools/meshy_ground
- * _bake.py). Applied to the terrain material and multiplied by the existing
- * height-based vertex colours, so beaches/rock zones still read while the
- * surface gains real texture. MirroredRepeat hides the tile seams. */
-const _texLoader = new THREE.TextureLoader();
-const _groundTex = new Map();
-function groundTexture(key) {
-  if (!key) return null;
-  if (_groundTex.has(key)) return _groundTex.get(key);
-  const t = _texLoader.load(`/static/assets/textures/${key}.jpg`,
-    undefined, undefined, () => { _groundTex.set(key, null); });   // 404 → no map
-  t.wrapS = t.wrapT = THREE.MirroredRepeatWrapping;
-  t.colorSpace = THREE.SRGBColorSpace;
-  t.anisotropy = 4;
-  _groundTex.set(key, t);
-  return t;
-}
-const TEX_FOR = {
-  hub: 'ground_grass', ice: 'ground_snow', desert: 'ground_sand',
-  jungle: 'ground_jungle', autumn: 'ground_autumn',
-};
-const GROUND_TILE = 7;   // world units per texture repeat
+/* (the Meshy ground-tile textures were tried on the terrain and ROLLED BACK —
+ * the tiled look fought the flat-shaded vertex-colour style. The baked JPGs
+ * stay in static/assets/textures for any future retry.) */
 
 /* ── Meshy landmark GLBs (static/assets/structures) ─────────────────────────
    The AI-generated set ships centred at arbitrary unit scale; mount() grounds
@@ -90,7 +70,7 @@ const COL = {
 };
 
 /* ── terrain (radial sculpted mesh, vertex-colored) — ported from legacy ── */
-export function makeTerrain({ seed, R, H, mode = 'hill', palette = {}, lobes = 0, tex = null }) {
+export function makeTerrain({ seed, R, H, mode = 'hill', palette = {}, lobes = 0 }) {
   const rng = mulberry32(seed);
   const SEG_A = 44, SEG_R = 13;
   const ex = 0.78 + rng() * 0.55;
@@ -117,7 +97,7 @@ export function makeTerrain({ seed, R, H, mode = 'hill', palette = {}, lobes = 0
   const edge = (a) => (1 + h1a * Math.sin(a * h1k + h1p) + h2a * Math.sin(a * h2k + h2p)
                          + h3a * Math.sin(a * h3k + h3p))
                       * (1 + lobes * Math.sin(2 * a + h1p));
-  const bump = (a, rr) => 1 + 0.16 * Math.sin(a * 3 + h1p + rr * 5) * rr;
+  const bump = (a, rr) => 1 + 0.14 * Math.sin(a * 3 + h1p) * rr;
   const smooth = (a, b, x) => {
     const k = Math.min(1, Math.max(0, (x - a) / (b - a)));
     return k * k * (3 - 2 * k);
@@ -130,7 +110,7 @@ export function makeTerrain({ seed, R, H, mode = 'hill', palette = {}, lobes = 0
     return H * (1 - smooth(0.15, 0.95, rr)) * (0.75 + 0.25 * Math.cos(rr * 3));
   };
 
-  const pos = [], col = [], idx = [], uvs = [];
+  const pos = [], col = [], idx = [];
   const RINGS = SEG_R + 3;
   const heightAt = (rr) => Math.max(0, profile(Math.min(rr, 1)));
 
@@ -150,20 +130,19 @@ export function makeTerrain({ seed, R, H, mode = 'hill', palette = {}, lobes = 0
       const wr = rr * R * edge(a);
       const px = Math.cos(a) * wr * ex, pz = Math.sin(a) * wr * ez;
       pos.push(px, y, pz);
-      uvs.push(px / GROUND_TILE, pz / GROUND_TILE);
       const c = new THREE.Color();
       const hFrac = y / Math.max(H, 0.001);
       if (ri > SEG_R) c.copy(ri === SEG_R + 1 ? P.sandWet : P.rock).multiplyScalar(0.75);
       else if (y < 0.42) c.copy(rr > 0.93 ? P.sandWet : P.sand);
       else if (mode === 'mesa' && hFrac > 0.62 && rr > 0.42) c.copy(P.rock);
       else if (mode === 'peak' && hFrac > 0.55) c.copy(P.rock).lerp(new THREE.Color(COL.rockDark), (hFrac - 0.55) * 1.6);
-      else c.copy(P.grass).lerp(P.grass2, (Math.sin(a * 5 + rr * 9 + h2p) + 1) / 2);
+      else c.copy(P.grass).lerp(P.grass2,
+        (Math.sin(px * 0.55 + h2p) * Math.sin(pz * 0.55 + h1p) + 1) / 2);
       col.push(c.r, c.g, c.b);
     }
   }
   const capY = heightAt(0);
   pos.push(0, capY, 0);
-  uvs.push(0, 0);
   const capC = mode === 'peak' ? new THREE.Color(COL.rockDark) : P.grass;
   col.push(capC.r, capC.g, capC.b);
   const capIdx = pos.length / 3 - 1;
@@ -179,13 +158,10 @@ export function makeTerrain({ seed, R, H, mode = 'hill', palette = {}, lobes = 0
   const geo = new THREE.BufferGeometry();
   geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
   geo.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
-  geo.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
   geo.setIndex(idx);
   geo.computeVertexNormals();
-  const matOpts = { vertexColors: true, flatShading: true };
-  const gtex = groundTexture(tex);
-  if (gtex) { matOpts.map = gtex; matOpts.roughness = 1; }
-  const mesh = new THREE.Mesh(geo, new THREE.MeshStandardMaterial(matOpts));
+  const mesh = new THREE.Mesh(geo,
+    new THREE.MeshStandardMaterial({ vertexColors: true, flatShading: true }));
   mesh.receiveShadow = true;
   mesh.castShadow = true;
   return { mesh, heightAt, rng };
@@ -1403,9 +1379,7 @@ export function buildIsland(node, theme, domains) {
   const R = (ISLE_R[node.type] ?? 4.8) * (node.type === 'sea' ? 1 : 0.88 + rng0() * 0.35);
   const foot = node.mode === 'foot';
   const pal = theme.palette;
-  const gtex = TEX_FOR[theme.id] || null;
-  // local wrapper: every terrain in this island gets the biome ground texture
-  const mt = (opts) => makeTerrain({ tex: gtex, ...opts });
+  const mt = (opts) => makeTerrain(opts);
   let terrain;
 
   /* waterline dressing appropriate to sea or sand footing */
