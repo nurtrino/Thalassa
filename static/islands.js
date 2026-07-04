@@ -1107,22 +1107,27 @@ export function makeRealmField(theme, nodes, segs, rng) {
       placed++;
     }
   };
-  // Meshy filler props: a light scatter of ruins/rocks/statues on every isle,
-  // plus a realm-flavoured set. prop(id, s) picks a random member each time.
+  // Meshy filler props. The field floor is WATER in sail realms and sand/
+  // leaf-litter in foot realms — so open-water scatters get only props that
+  // can plausibly float or break the surface (wrecks, drift ice, pads,
+  // sea-stack boulders); ruins, trees and furniture live on the ISLANDS
+  // (see dressIsland). prop(id, s) picks a random member each time.
+  const foot = theme.id === 'desert' || theme.id === 'autumn';
   const prop = (ids, lo, hi) => () =>
     propGroup(ids[(rng() * ids.length) | 0], lo + rng() * (hi - lo));
-  scatter(7, 11, 16, 120, prop(['boulder', 'ruined_column', 'broken_statue', 'cairn', 'ruined_arch'], 0.7, 1.3));
+  if (foot) {
+    scatter(7, 11, 16, 120, prop(['boulder', 'ruined_column', 'broken_statue', 'cairn', 'ruined_arch'], 0.7, 1.3));
+  } else {
+    scatter(6, 12, 17, 120, prop(['boulder'], 0.7, 1.2));   // sea stacks
+  }
   if (theme.id === 'ice') {
     scatter(60, 16, 22, 115, () => makeBerg(rng, 0.7 + rng() * 0.9));
     scatter(52, 13, 20, 115, () => makeFloe(rng, 0.8 + rng() * 0.9));
-    scatter(14, 12, 18, 115, prop(['ice_shard', 'boulder', 'crystal_cluster'], 0.7, 1.4));
-    scatter(10, 11, 16, 115, prop(['pine_snow', 'pine_tree', 'iceberg'], 0.8, 1.5));
+    scatter(14, 12, 18, 115, prop(['ice_shard', 'iceberg'], 0.7, 1.3));
     scatter(4, 14, 20, 115, prop(['shipwreck', 'driftwood'], 0.9, 1.4));
   } else if (theme.id === 'jungle') {
     scatter(80, 13, 20, 115, () => makeVineMat(rng, 0.65 + rng() * 0.7));
-    scatter(16, 12, 18, 115, prop(['mossy_idol', 'ruined_column', 'mushroom_cluster', 'crystal_cluster'], 0.7, 1.4));
-    scatter(14, 12, 18, 115, prop(['jungle_tree', 'fern_cluster', 'palm_tree', 'lily_pads', 'stone_well', 'ruined_arch'], 0.8, 1.6));
-    scatter(5, 13, 19, 115, prop(['broken_statue', 'coral'], 0.8, 1.3));
+    scatter(18, 12, 18, 115, prop(['lily_pads', 'lily_pads', 'coral', 'driftwood'], 0.8, 1.4));
   } else if (theme.id === 'desert') {
     scatter(240, 9, 15, 130, () => makeDune(rng, theme.palette.sand, 0.7 + rng() * 1.1));
     scatter(60, 10, 16, 130, () => floraFor(theme, rng, 0.8 + rng() * 0.6));
@@ -1138,8 +1143,8 @@ export function makeRealmField(theme, nodes, segs, rng) {
     scatter(16, 9, 13, 75, prop(['dead_tree', 'mushroom_cluster', 'boulder', 'cairn'], 0.7, 1.4));
     scatter(12, 9, 13, 75, prop(['autumn_tree', 'campfire', 'stone_well', 'barrel'], 0.8, 1.5));
   } else {
-    // hub / aegean isles
-    scatter(12, 11, 16, 120, prop(['cypress_tree', 'olive_tree', 'palm_tree', 'reeds', 'fishing_net', 'tide_pool', 'banner_pole', 'brazier', 'ruined_arch', 'amphora_pile'], 0.7, 1.4));
+    // hub / aegean open water: flotsam only — the good stuff is ashore
+    scatter(8, 12, 17, 120, prop(['driftwood', 'fishing_net'], 0.7, 1.1));
   }
   return g;
 }
@@ -1442,6 +1447,17 @@ function makeOasis(rng, theme) {
 }
 
 /* scattered coast dressing so islands feel dense and hand-made */
+/* Meshy props that belong ON LAND, dealt per biome to the island tops */
+const ISLE_PROPS = {
+  hub: ['amphora_pile', 'banner_pole', 'brazier', 'tide_pool', 'ruined_column',
+        'broken_statue', 'olive_tree', 'cypress_tree', 'reeds'],
+  ice: ['crystal_cluster', 'pine_snow', 'ice_shard', 'cairn'],
+  jungle: ['mossy_idol', 'mushroom_cluster', 'fern_cluster', 'ruined_arch',
+           'stone_well', 'jungle_tree', 'ruined_column'],
+  desert: ['bone_pile', 'amphora_pile', 'cactus', 'sarcophagus'],
+  autumn: ['mushroom_cluster', 'campfire', 'barrel', 'dead_tree'],
+};
+
 function dressIsland(g, rng, theme, R, terrain) {
   const n = 2 + Math.floor(rng() * 3);
   for (let i = 0; i < n; i++) {
@@ -1457,6 +1473,19 @@ function dressIsland(g, rng, theme, R, terrain) {
       const rk = makeRock(rng, 0.3 + rng() * 0.4, theme.palette.rock);
       rk.position.set(Math.cos(a) * R * rr, y + 0.1, Math.sin(a) * R * rr);
       g.add(rk);
+    }
+  }
+  // …and roughly every other isle carries a Meshy set piece on solid ground
+  const pool = ISLE_PROPS[theme.id] || ISLE_PROPS.hub;
+  if (rng() < 0.55) {
+    const a = rng() * 6.28;
+    const rr = 0.3 + rng() * 0.3;               // well inside the coast
+    const y = terrain.heightAt(rr);
+    if (y >= 0.15) {
+      const pr = propGroup(pool[(rng() * pool.length) | 0], 0.55 + rng() * 0.35);
+      pr.position.set(Math.cos(a) * R * rr, y - 0.06, Math.sin(a) * R * rr);
+      pr.rotation.y = rng() * 6.28;
+      g.add(pr);
     }
   }
 }
