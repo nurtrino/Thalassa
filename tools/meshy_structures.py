@@ -20,14 +20,19 @@ centered diorama piece instead. Colours quote the game's hexes.
 from __future__ import annotations
 
 # Reuse the exact negative prompt from the creature manifest for consistency.
-from meshy_prompts import NEGATIVE  # noqa: F401
+from meshy_prompts import NEGATIVE as _CRE_NEG
+
+# structures must NOT sit on a base/plinth/ground slab
+NEGATIVE = (_CRE_NEG + ", base, plinth, stand, pedestal, platform, socle, "
+            "ground, floor, terrain, paved ground, grass patch, dirt patch, "
+            "diorama base, rock the building sits on")
 
 STYLE = (
     "low-poly, flat-shaded, faceted with hard edges and no smooth normals, "
     "matte clay finish, solid flat hand-painted colours, stylized tabletop "
-    "board-game diorama piece, chunky readable forms, a single isolated "
-    "building or prop centered on a small round base, plain empty background, "
-    "clean game-ready topology, orthographic three-quarter view"
+    "board-game piece, chunky readable forms, a single isolated building or "
+    "prop with no base and no ground, just the structure itself, plain empty "
+    "background, clean game-ready topology, orthographic three-quarter view"
 )
 
 # Structures don't share the creature tiers; give each a sensible budget.

@@ -122,6 +122,31 @@ labelled contact sheet.
 
 ---
 
+## 4. Map upgrade — island props & terrain textures
+
+Two more manifests + a bake step dress the board:
+
+```bash
+# island filler props (rocks, ruins, wrecks, crystals, bones, idols…)
+python tools/meshy_forge.py --manifest meshy_props --state .meshy_props_state.json \
+    --out ../static/assets/props --concurrency 7 --yes
+python tools/meshy_optimize.py ../static/assets/props --texsize 1024
+
+# biome ground tiles → tileable terrain textures
+python tools/meshy_forge.py --manifest meshy_ground --state .meshy_ground_state.json \
+    --out ../static/assets/ground --concurrency 6 --yes
+python tools/meshy_ground_bake.py        # → static/assets/textures/ground_*.jpg
+```
+
+Wiring (already in the frontend):
+- `static/props.js` loads the prop GLBs; `islands.js` scatters them across the
+  realm field per biome (the "filler in the maps").
+- `islands.js` `makeTerrain` UV-maps the biome texture onto the terrain,
+  multiplied by the existing height-based vertex colours (MirroredRepeat hides
+  seams). Textures come from Meshy ground tiles via `meshy_ground_bake.py`.
+- `static/islandtest.html` is a standalone harness that renders one island per
+  biome for quick visual checks (served by the app at `/static/islandtest.html`).
+
 ## Credits & cost
 
 ~15 credits per model (preview 5 + refine 10), +10 per retexture variant, more

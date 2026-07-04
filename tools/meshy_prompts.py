@@ -39,8 +39,10 @@ STYLE = (
 NEGATIVE = (
     "photorealistic, realistic skin pores, smooth subsurface scattering, "
     "high-frequency surface noise, grungy PBR dirt, busy cluttered background, "
-    "base plinth or stand, text, logo, watermark, signature, multiple "
-    "characters, extra limbs, deformed anatomy, motion blur, depth of field"
+    "base, plinth, stand, pedestal, platform, socle, display base, ground "
+    "plane, disc under the feet, terrain, text, logo, watermark, signature, "
+    "multiple characters, extra limbs, deformed anatomy, motion blur, "
+    "depth of field"
 )
 
 # tier → default target polycount (low-poly budget). Bosses read big, so they
@@ -89,13 +91,23 @@ MODELS = [
              "at the apex. Sickly green glowing eyes. Palette: dark bark, "
              "jungle-green moss, magenta bloom, green glow.")),
     dict(id="sphinx", rank=4, tier="boss",
+         negative=(NEGATIVE + ", two heads, second head, extra head, lion head, "
+                   "multiple heads, animal head, building, temple, architecture, "
+                   "realistic, photorealistic, highly detailed, smooth realistic "
+                   "anatomy, hyperrealistic, bright polished gold, cute, serene"),
          prompt=(
-             "The Sphinx: a regal desert lion couchant in sandstone gold with a "
-             "calm human face beneath a striped lapis-blue and gold nemes "
-             "headdress. Folded lapis-tipped feathered wings, a tufted lion "
-             "tail, a gold collar, and a small boss crown. Glowing gold eyes. "
-             "Palette: sandstone gold body, lapis-blue and gold headdress, gold "
-             "glow.")),
+             "A stylized low-poly Sphinx boss creature standing alert on all "
+             "four lion paws on the ground (NOT lying down, NOT resting on a "
+             "stone slab or plinth, no base beneath it, just the creature). The "
+             "body of a lion with ONE SINGLE head (exactly one head, no lion "
+             "head, no second head) wearing a striped pharaoh nemes headdress, "
+             "and folded feathered wings on its back. Stern, imposing and "
+             "predatory, a menacing face with glowing amber eyes, poised to "
+             "strike. Chunky simplified faceted low-poly forms, flat matte "
+             "hand-painted colours, a hand-painted board-game miniature, clearly "
+             "stylized not realistic. A small tarnished dark-gold crown. "
+             "Palette: weathered tan-and-grey sandstone body, blue-and-gold "
+             "striped headdress, amber eye-glow.")),
     dict(id="stag_king", rank=5, tier="boss",
          prompt=(
              "The Stag King: a towering regal elk-lord of the autumn forest on "

@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>island texture + prop test</title>
+<script type="importmap">{ "imports": { "three": "/static/vendor/three.module.min.js" } }</script>
+<style>html,body{margin:0;height:100%;background:#0a1420;overflow:hidden}#world{position:fixed;inset:0}</style>
+</head>
+<body>
+<div id="world"></div>
+<script type="module">
+import * as THREE from 'three';
+import { buildIsland } from '/static/islands.js';
+import { themeFor } from '/static/themes.js';
+import { propGroup } from '/static/props.js';
+
+const el = document.getElementById('world');
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setPixelRatio(1);
+renderer.setSize(innerWidth, innerHeight);
+renderer.shadowMap.enabled = true;
+renderer.outputColorSpace = THREE.SRGBColorSpace;
+el.appendChild(renderer.domElement);
+
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x0a1420);
+scene.add(new THREE.HemisphereLight(0xdfefff, 0x30506a, 1.1));
+const sun = new THREE.DirectionalLight(0xfff1d6, 1.6);
+sun.position.set(40, 80, 30); scene.add(sun);
+scene.add(new THREE.AmbientLight(0x30455a, 0.6));
+
+const cam = new THREE.PerspectiveCamera(50, innerWidth / innerHeight, 0.1, 2000);
+cam.position.set(0, 46, 74);
+cam.lookAt(0, 0, 0);
+
+// one island per biome, spaced on a row
+const biomes = ['jungle', 'desert', 'ice', 'autumn', 'hub'];
+biomes.forEach((id, i) => {
+  const theme = themeFor(id);
+  const node = { id: `t_${id}`, type: 'haven', x: 0, z: 0 };
+  const built = buildIsland(node, theme, {});
+  built.group.position.set((i - 2) * 34, 0, 0);
+  scene.add(built.group);
+  // a few standalone props next to each island to confirm loading
+  ['shipwreck', 'ruined_column', 'crystal_cluster'].forEach((p, j) => {
+    const g = propGroup(p, 2.2);
+    g.position.set((i - 2) * 34 + (j - 1) * 6, 0, 20);
+    scene.add(g);
+  });
+});
+
+let frames = 0;
+function loop() {
+  requestAnimationFrame(loop);
+  renderer.render(scene, cam);
+  if (++frames === 90) window.__ready = true;   // ~1.5s: let async assets load
+}
+loop();
+window.__err = [];
+window.addEventListener('error', (e) => window.__err.push(String(e.message)));
+</script>
+</body>
+</html>

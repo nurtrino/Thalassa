@@ -7,6 +7,31 @@ import * as THREE from 'three';
 import { GLTFLoader } from './vendor/GLTFLoader.js';
 import { hashStr, mulberry32, flat, displace, seedFrom, softDiscTexture } from './util.js';
 import { DOMAIN_COLORS, REALM_INFO } from './themes.js';
+import { propGroup } from './props.js';
+
+/* ── Meshy-baked ground textures ────────────────────────────────────────────
+ * Tileable biome textures extracted from Meshy ground tiles (tools/meshy_ground
+ * _bake.py). Applied to the terrain material and multiplied by the existing
+ * height-based vertex colours, so beaches/rock zones still read while the
+ * surface gains real texture. MirroredRepeat hides the tile seams. */
+const _texLoader = new THREE.TextureLoader();
+const _groundTex = new Map();
+function groundTexture(key) {
+  if (!key) return null;
+  if (_groundTex.has(key)) return _groundTex.get(key);
+  const t = _texLoader.load(`/static/assets/textures/${key}.jpg`,
+    undefined, undefined, () => { _groundTex.set(key, null); });   // 404 → no map
+  t.wrapS = t.wrapT = THREE.MirroredRepeatWrapping;
+  t.colorSpace = THREE.SRGBColorSpace;
+  t.anisotropy = 4;
+  _groundTex.set(key, t);
+  return t;
+}
+const TEX_FOR = {
+  hub: 'ground_grass', ice: 'ground_snow', desert: 'ground_sand',
+  jungle: 'ground_jungle', autumn: 'ground_autumn',
+};
+const GROUND_TILE = 7;   // world units per texture repeat
 
 /* ── Meshy landmark GLBs (static/assets/structures) ─────────────────────────
    The AI-generated set ships centred at arbitrary unit scale; mount() grounds
@@ -65,7 +90,7 @@ const COL = {
 };
 
 /* ── terrain (radial sculpted mesh, vertex-colored) — ported from legacy ── */
-export function makeTerrain({ seed, R, H, mode = 'hill', palette = {}, lobes = 0 }) {
+export function makeTerrain({ seed, R, H, mode = 'hill', palette = {}, lobes = 0, tex = null }) {
   const rng = mulberry32(seed);
   const SEG_A = 44, SEG_R = 13;
   const ex = 0.78 + rng() * 0.55;
@@ -105,7 +130,7 @@ export function makeTerrain({ seed, R, H, mode = 'hill', palette = {}, lobes = 0
     return H * (1 - smooth(0.15, 0.95, rr)) * (0.75 + 0.25 * Math.cos(rr * 3));
   };
 
-  const pos = [], col = [], idx = [];
+  const pos = [], col = [], idx = [], uvs = [];
   const RINGS = SEG_R + 3;
   const heightAt = (rr) => Math.max(0, profile(Math.min(rr, 1)));
 
@@ -123,7 +148,9 @@ export function makeTerrain({ seed, R, H, mode = 'hill', palette = {}, lobes = 0
         y = -k * 1.15;
       }
       const wr = rr * R * edge(a);
-      pos.push(Math.cos(a) * wr * ex, y, Math.sin(a) * wr * ez);
+      const px = Math.cos(a) * wr * ex, pz = Math.sin(a) * wr * ez;
+      pos.push(px, y, pz);
+      uvs.push(px / GROUND_TILE, pz / GROUND_TILE);
       const c = new THREE.Color();
       const hFrac = y / Math.max(H, 0.001);
       if (ri > SEG_R) c.copy(ri === SEG_R + 1 ? P.sandWet : P.rock).multiplyScalar(0.75);
@@ -136,6 +163,7 @@ export function makeTerrain({ seed, R, H, mode = 'hill', palette = {}, lobes = 0
   }
   const capY = heightAt(0);
   pos.push(0, capY, 0);
+  uvs.push(0, 0);
   const capC = mode === 'peak' ? new THREE.Color(COL.rockDark) : P.grass;
   col.push(capC.r, capC.g, capC.b);
   const capIdx = pos.length / 3 - 1;
@@ -151,10 +179,13 @@ export function makeTerrain({ seed, R, H, mode = 'hill', palette = {}, lobes = 0
   const geo = new THREE.BufferGeometry();
   geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
   geo.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
+  geo.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
   geo.setIndex(idx);
   geo.computeVertexNormals();
-  const mesh = new THREE.Mesh(geo,
-    new THREE.MeshStandardMaterial({ vertexColors: true, flatShading: true }));
+  const matOpts = { vertexColors: true, flatShading: true };
+  const gtex = groundTexture(tex);
+  if (gtex) { matOpts.map = gtex; matOpts.roughness = 1; }
+  const mesh = new THREE.Mesh(geo, new THREE.MeshStandardMaterial(matOpts));
   mesh.receiveShadow = true;
   mesh.castShadow = true;
   return { mesh, heightAt, rng };
@@ -1010,21 +1041,35 @@ export function makeRealmField(theme, nodes, segs, rng) {
       placed++;
     }
   };
+  // Meshy filler props: a light scatter of ruins/rocks/statues on every isle,
+  // plus a realm-flavoured set. prop(id, s) picks a random member each time.
+  const prop = (ids, lo, hi) => () =>
+    propGroup(ids[(rng() * ids.length) | 0], lo + rng() * (hi - lo));
+  scatter(7, 11, 16, 120, prop(['boulder', 'ruined_column', 'broken_statue', 'cairn'], 0.7, 1.3));
   if (theme.id === 'ice') {
     scatter(60, 16, 22, 115, () => makeBerg(rng, 0.7 + rng() * 0.9));
     scatter(52, 13, 20, 115, () => makeFloe(rng, 0.8 + rng() * 0.9));
+    scatter(14, 12, 18, 115, prop(['ice_shard', 'boulder', 'crystal_cluster'], 0.7, 1.4));
+    scatter(4, 14, 20, 115, prop(['shipwreck', 'driftwood'], 0.9, 1.4));
   } else if (theme.id === 'jungle') {
     scatter(80, 13, 20, 115, () => makeVineMat(rng, 0.65 + rng() * 0.7));
+    scatter(16, 12, 18, 115, prop(['mossy_idol', 'ruined_column', 'mushroom_cluster', 'crystal_cluster'], 0.7, 1.4));
+    scatter(5, 13, 19, 115, prop(['broken_statue', 'coral'], 0.8, 1.3));
   } else if (theme.id === 'desert') {
     scatter(240, 9, 15, 130, () => makeDune(rng, theme.palette.sand, 0.7 + rng() * 1.1));
     scatter(60, 10, 16, 130, () => floraFor(theme, rng, 0.8 + rng() * 0.6));
     scatter(20, 10, 16, 130, () => makeRock(rng, 0.5 + rng() * 0.7, theme.palette.rock));
     scatter(10, 12, 18, 130, () => (rng() < 0.5 ? makeCairn(rng) : makeRibs(rng)));
+    scatter(16, 11, 17, 130, prop(['bone_pile', 'broken_statue', 'amphora_pile', 'ruined_column'], 0.7, 1.4));
   } else if (theme.id === 'autumn') {
     // the Vale is WALL-TO-WALL forest: a deep tree band hugging every track,
     // thick enough that the fog line always lands inside the woods
     scatter(560, 8.5, 11, 75, () => floraFor(theme, rng, 1.1 + rng() * 0.9));
     scatter(40, 9, 12, 75, () => makeRock(rng, 0.4 + rng() * 0.7, theme.palette.rock));
+    scatter(16, 9, 13, 75, prop(['dead_tree', 'mushroom_cluster', 'boulder', 'cairn'], 0.7, 1.4));
+  } else {
+    // hub / aegean isles
+    scatter(10, 11, 16, 120, prop(['ruined_column', 'broken_statue', 'amphora_pile', 'driftwood'], 0.7, 1.3));
   }
   return g;
 }
@@ -1358,6 +1403,9 @@ export function buildIsland(node, theme, domains) {
   const R = (ISLE_R[node.type] ?? 4.8) * (node.type === 'sea' ? 1 : 0.88 + rng0() * 0.35);
   const foot = node.mode === 'foot';
   const pal = theme.palette;
+  const gtex = TEX_FOR[theme.id] || null;
+  // local wrapper: every terrain in this island gets the biome ground texture
+  const mt = (opts) => makeTerrain({ tex: gtex, ...opts });
   let terrain;
 
   /* waterline dressing appropriate to sea or sand footing */
@@ -1427,7 +1475,7 @@ export function buildIsland(node, theme, domains) {
       // Verdigris water: vine tangles knot the channels between the isles
       g.add(makeVineMat(rng0, 1.0 + rng0() * 0.5));
       if (node.look === 'islet') {
-        const t = makeTerrain({ seed, R: 3.6 + rng0() * 1.6, H: 0.9, mode: 'hill',
+        const t = mt({ seed, R: 3.6 + rng0() * 1.6, H: 0.9, mode: 'hill',
           palette: { ...pal } });
         const zoff = -2 + rng0() * 4;
         t.mesh.position.set(4.5, 0, zoff);
@@ -1450,7 +1498,7 @@ export function buildIsland(node, theme, domains) {
       g.add(shallowDisc(15, theme.water.shallow));
     } else if (node.look === 'islet') {
       const style = rng0();
-      const t = makeTerrain({
+      const t = mt({
         seed, R: 4.6 + rng0() * 2.6,
         H: style < 0.33 ? 0.8 : 1.1,
         mode: style < 0.33 ? 'atoll' : 'hill',
@@ -1504,7 +1552,7 @@ export function buildIsland(node, theme, domains) {
     : pal;
 
   if (node.type === 'home') {
-    terrain = makeTerrain({ seed, R, H: 1.7, mode: 'mesa', palette: { ...footPal } });
+    terrain = mt({ seed, R, H: 1.7, mode: 'mesa', palette: { ...footPal } });
     const dock = makeDock(6.0);
     dock.position.set(1.2, 0.4, R * 0.72);
     dock.rotation.y = Math.PI;
@@ -1519,7 +1567,7 @@ export function buildIsland(node, theme, domains) {
     }
   } else if (node.type === 'shrine') {
     const hex = DOMAIN_COLORS[node.domain] || '#d9a441';
-    terrain = makeTerrain({ seed, R, H: 2.2, mode: 'mesa', palette: { ...footPal } });
+    terrain = mt({ seed, R, H: 2.2, mode: 'mesa', palette: { ...footPal } });
     const spent = (node.charges ?? 0) <= 0;
     const shrine = makeShrine(hex, theme.id, spent);
     shrine.position.y = terrain.heightAt(0);
@@ -1534,7 +1582,7 @@ export function buildIsland(node, theme, domains) {
       g.add(fl);
     }
   } else if (node.type === 'puzzle') {
-    terrain = makeTerrain({ seed, R, H: 2.4, mode: 'mesa',
+    terrain = mt({ seed, R, H: 2.4, mode: 'mesa',
       palette: { ...footPal, grass: foot ? footPal.grass : 0x6fae8f } });
     const ob = makeObelisk();
     ob.position.y = terrain.heightAt(0);
@@ -1544,7 +1592,7 @@ export function buildIsland(node, theme, domains) {
     rk.position.set(-R * 0.4, terrain.heightAt(0.4) + 0.2, R * 0.3);
     g.add(rk);
   } else if (node.type === 'haven') {
-    terrain = makeTerrain({ seed, R, H: foot ? 1.2 : 1.8, mode: 'flat', palette: { ...footPal } });
+    terrain = mt({ seed, R, H: foot ? 1.2 : 1.8, mode: 'flat', palette: { ...footPal } });
     if (foot && theme.id === 'autumn') {
       // a woodland camp: tents in a clearing ringed by amber trees
       const t = makeTents(rng0);
@@ -1584,7 +1632,7 @@ export function buildIsland(node, theme, domains) {
   } else if (node.type === 'lair' && foot) {
     // ON FOOT the tyrant doesn't get a dark island — it gets a HOUSE:
     // a sandstone tomb in the Bleached Reach, a mossy barrow in the Vale
-    terrain = makeTerrain({ seed, R, H: 1.2, mode: 'flat', palette: { ...footPal } });
+    terrain = mt({ seed, R, H: 1.2, mode: 'flat', palette: { ...footPal } });
     const den = theme.id === 'desert' ? makeTomb(rng0) : makeBarrow(rng0);
     den.position.y = terrain.heightAt(0.1);
     den.rotation.y = Math.atan2(-node.x, -node.z);   // door faces back down the trail
@@ -1599,7 +1647,7 @@ export function buildIsland(node, theme, domains) {
     }
   } else if (node.type === 'monster' || node.type === 'lair') {
     const dark = node.type === 'lair';
-    terrain = makeTerrain({ seed, R, H: dark ? 3.6 : 2.6, mode: 'peak',
+    terrain = mt({ seed, R, H: dark ? 3.6 : 2.6, mode: 'peak',
       palette: { ...footPal, ...(dark ? { rock: COL.basalt } : {}) } });
     if (node.type === 'lair') {
       const accent = REALM_INFO[node.region]?.accent ?? '#ff5030';
@@ -1636,7 +1684,7 @@ export function buildIsland(node, theme, domains) {
       g.add(rk);
     }
   } else if (node.type === 'pharos') {
-    terrain = makeTerrain({ seed, R, H: 3.0, mode: 'mesa',
+    terrain = mt({ seed, R, H: 3.0, mode: 'mesa',
       palette: { grass: 0xdfd9c6, grass2: 0xcfc7b2, sand: 0xf6efdc, rock: 0xe8e2d2 } });
     const ph = makePharos();
     ph.position.y = terrain.heightAt(0);
@@ -1647,7 +1695,7 @@ export function buildIsland(node, theme, domains) {
       g.add(c);
     }
   } else if (node.type === 'shop') {
-    terrain = makeTerrain({ seed, R, H: 1.6, mode: 'flat', palette: { ...footPal } });
+    terrain = mt({ seed, R, H: 1.6, mode: 'flat', palette: { ...footPal } });
     const stall = makeMarket(rng0);
     stall.position.y = terrain.heightAt(0.15);
     g.add(stall);
@@ -1661,7 +1709,7 @@ export function buildIsland(node, theme, domains) {
     fl.position.set(-R * 0.45, terrain.heightAt(0.45), -R * 0.25);
     g.add(fl);
   } else {
-    terrain = makeTerrain({ seed, R, H: 2.0, mode: 'hill', palette: { ...footPal } });
+    terrain = mt({ seed, R, H: 2.0, mode: 'hill', palette: { ...footPal } });
   }
 
   if (node.type !== 'pharos') dressIsland(g, rng0, theme, R, terrain);

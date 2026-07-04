@@ -22,6 +22,7 @@ import { hashStr, mulberry32, flat } from './util.js';
 import { themeFor } from './themes.js';
 import { makeWater, makeGround } from './water.js';
 import { buildIsland, makeShip, makeParticles, nameSprite, makeRealmField } from './islands.js';
+import { preloadProps } from './props.js';
 import { buildMountainWall, buildRealmBackdrop } from './wall.js';
 import { getMonster, animateMonster, preloadMonsters, disposeMonster } from './monsters.js';
 import { createBattleStage } from './battle.js';
@@ -213,6 +214,7 @@ function disposeDeep(root) {
  * ═══════════════════════════════════════════════════════════════════════ */
 export function createWorld(container, handlers = {}) {
   ensureTextures();
+  preloadProps();          // start loading Meshy island filler props
 
   /* renderer */
   const renderer = new THREE.WebGLRenderer({ antialias: true });
