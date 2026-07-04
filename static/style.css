@@ -1489,7 +1489,7 @@ body.shake #world { animation: shake .45s; }
 .shoprow.cant .price { color: #6a7885; border-color: rgba(120, 135, 148, .3); background: none; }
 .buy, .buybtn { font-size: 11px; letter-spacing: .1em; padding: 7px 14px; }
 
-/* ═══ CHART — the parchment map ══════════════════════════════════════════ */
+/* ═══ CHART — live aerial view of the current region ═════════════════════ */
 #mapBtn {
   position: fixed; top: var(--s3); right: 128px; z-index: 10;
   width: 44px; height: 44px; padding: 9px;
@@ -1501,170 +1501,76 @@ body.shake #world { animation: shake .45s; }
   transition: transform var(--fast), border-color var(--fast), color var(--fast);
 }
 #mapBtn:hover { transform: translateY(-1px); color: var(--gilt); border-color: rgba(240, 208, 96, .7); }
+#mapBtn.on { color: #0e1822; background: var(--bronze); }
 #mapBtn svg { width: 100%; height: 100%; }
 
-#mapOverlay { z-index: 30; }
-#mapSheet {
-  position: relative;
-  display: flex; flex-direction: column;
-  width: min(1060px, 97vw); height: min(92vh, 840px);
-  padding: var(--s4) var(--s4) var(--s3);
-  color: #3a2c14;
-  background:
-    radial-gradient(120% 90% at 50% 0%, rgba(255, 250, 233, .6), transparent 60%),
-    linear-gradient(180deg, #efe0bd, #e4d0a4 55%, #d8c091);
-  border: 1px solid #b79a56;
-  border-radius: 10px;
-  box-shadow: 0 24px 70px rgba(4, 8, 12, .7), inset 0 0 90px rgba(120, 90, 40, .28);
-  overflow: hidden;
-}
-/* aged edges */
-#mapSheet::after {
-  content: ''; position: absolute; inset: 0; pointer-events: none; border-radius: 10px;
-  box-shadow: inset 0 0 40px rgba(90, 62, 24, .5), inset 0 0 4px rgba(60, 40, 14, .6);
-  background:
-    radial-gradient(60% 50% at 12% 14%, rgba(120, 88, 40, .18), transparent 60%),
-    radial-gradient(50% 45% at 88% 86%, rgba(120, 88, 40, .2), transparent 60%);
-}
-#mapClose {
-  position: absolute; top: 10px; right: 12px; z-index: 3;
-  color: #7a4a2a; width: 30px; height: 30px; padding: 6px;
-}
-#mapClose:hover { background: rgba(150, 80, 40, .16); }
-#mapClose svg { width: 100%; height: 100%; }
-
-#mapBody { flex: 1; min-height: 0; display: flex; }
-.mapframe { display: flex; flex-direction: column; flex: 1; min-height: 0; width: 100%; }
-.maptitle {
-  display: flex; align-items: center; justify-content: center; gap: 8px;
-  font-family: var(--disp); font-weight: 800; font-size: clamp(15px, 3.4vw, 21px);
-  letter-spacing: .18em; text-transform: uppercase; color: #6b4a1c;
-  margin-bottom: var(--s2);
-}
-.maptitle svg { width: 18px; height: 18px; }
-
-/* the region key — five climate categories spelled out */
-.mapregionkey {
-  display: flex; flex-wrap: wrap; justify-content: center; gap: 5px 16px;
-  margin: 0 0 var(--s2);
-}
-.mapregionkey span {
-  display: inline-flex; align-items: center; gap: 6px;
-  font-family: var(--disp); font-weight: 700; font-size: 12px;
-  letter-spacing: .04em; color: #4a3413;
-}
-.mapregionkey em { font-style: italic; font-weight: 600; color: #7a5a2e; letter-spacing: .02em; }
-.mapregionkey .rg {
-  width: 12px; height: 12px; border-radius: 3px; flex: none;
-  border: 1px solid rgba(60, 40, 14, .45);
-}
-
-.mapplot {
-  position: relative; flex: 1; min-height: 0; margin: 0 auto; width: 100%;
-  border: 1px solid rgba(120, 88, 40, .32); border-radius: 8px;
-  background:
-    repeating-linear-gradient(0deg, transparent 0 30px, rgba(120, 90, 40, .045) 30px 31px),
-    repeating-linear-gradient(90deg, transparent 0 30px, rgba(120, 90, 40, .045) 30px 31px);
-}
-.maproutes { position: absolute; inset: 0; width: 100%; height: 100%; }
-.maproutes line { stroke: rgba(90, 62, 24, .3); stroke-width: .3; stroke-dasharray: 1.1 1.2; }
-
-/* the marker box IS the icon, centred exactly on the node point; the label is
-   absolutely positioned so it never nudges the icon off its bearing */
-.mapnode {
-  position: absolute; transform: translate(-50%, -50%);
-  width: 22px; height: 22px;
-  z-index: 2; cursor: default;
-}
-.mapnode .mpin {
+/* floating isle icons over the aerial view */
+#mapIcons { position: fixed; inset: 0; z-index: 12; pointer-events: none; }
+.mapchip {
+  position: absolute; left: 0; top: 0; pointer-events: auto;
+  width: 30px; height: 30px; margin: -15px 0 0 -15px;
   display: flex; align-items: center; justify-content: center;
-  width: 100%; height: 100%; padding: 4px; color: #5a3d18;
-  background: rgba(255, 249, 232, .8);
-  border: 1.5px solid var(--rc, #9a7333);
+  color: #f2e7c8;
+  background: rgba(14, 24, 34, .78);
+  border: 1.5px solid rgba(201, 162, 39, .65);
   border-radius: 50%;
-  box-shadow: 0 2px 5px rgba(60, 40, 14, .35);
-  box-sizing: border-box;
+  box-shadow: 0 2px 8px rgba(4, 8, 12, .55);
+  cursor: help;
 }
-.mapnode.land { z-index: 3; width: 27px; height: 27px; }
-.mapnode.land .mpin { padding: 5px; }
-/* fill the badge and let flex centre it — override any inline size/vertical
-   -align the icon helper may add, which was shifting glyphs off-centre */
-.mapnode .mpin svg { width: 100% !important; height: 100% !important; vertical-align: middle; display: block; }
-/* label hangs below the icon, centred, out of the icon's flow */
-.mapnode .mlabel {
-  position: absolute; top: calc(100% + 2px); left: 50%; transform: translateX(-50%);
-  font-family: var(--disp); font-weight: 700; font-size: 8.5px; letter-spacing: .03em;
-  color: #6a4a20; white-space: nowrap; text-shadow: 0 1px 0 rgba(255, 250, 233, .85);
-  max-width: 118px; overflow: hidden; text-overflow: ellipsis; opacity: .82;
-  pointer-events: none;
+.mapchip .mi { width: 16px; height: 16px; display: block; }
+.mapchip .mi svg { width: 100%; height: 100%; display: block; }
+.mapchip .ml {
+  position: absolute; bottom: calc(100% + 6px); left: 50%; transform: translateX(-50%);
+  display: none;
+  font-family: var(--disp); font-weight: 700; font-size: 12px; letter-spacing: .04em;
+  white-space: nowrap; color: #f5ecd2;
+  background: rgba(10, 17, 25, .92);
+  border: 1px solid rgba(201, 162, 39, .5);
+  border-radius: 6px; padding: 3px 9px;
 }
-/* landmark labels read as headers: larger, darker, on a faint parchment pill */
-.mapnode.land .mlabel {
-  font-size: 11px; font-weight: 800; letter-spacing: .05em; color: #3a2810;
-  opacity: 1;
-  padding: 1px 6px; border-radius: 4px;
-  background: rgba(247, 240, 214, .9);
-  box-shadow: 0 1px 3px rgba(60, 40, 14, .25);
-}
-/* keep edge labels on the chart: grow them inward, and lift bottom ones up */
-.mapnode.edgeL .mlabel { left: 50%; transform: translateX(-12%); }
-.mapnode.edgeR .mlabel { left: 50%; transform: translateX(-88%); }
-.mapnode.edgeB .mlabel { top: auto; bottom: calc(100% + 2px); }
-.mapnode.home .mpin  { color: #7a5a12; border-color: #b8901e; background: #fbedbf; }
-.mapnode.gate .mpin  { color: #4a6070; }
-.mapnode.shrine .mpin { color: #3f6a52; }
-.mapnode.shop .mpin  { color: #7a4a2a; }
-.mapnode.haven .mpin { color: #35617a; }
-.mapnode.puzzle .mpin { color: #6b4a8a; }
-.mapnode.lair .mpin  { color: #9a2f22; border-color: var(--rc, #b34a3a); border-width: 2px; }
-.mapnode.pharos .mpin { color: #6a3fb0; border-color: #8c52ff; border-width: 2px; background: #efe6ff; }
-/* label above the pin, clear of Home Port which sits just south of it */
-.mapnode.pharos .mlabel { color: #6a3fb0; top: auto; bottom: calc(100% + 3px); }
-.mapnode.done .mpin  { opacity: .48; }
-.mapnode.done .mlabel { opacity: .55; text-decoration: line-through; }
+.mapchip:hover { z-index: 3; border-color: var(--gilt); }
+.mapchip:hover .ml { display: block; }
+.mapchip.haven  { border-color: rgba(63, 168, 255, .85); color: #bfe4ff; }
+.mapchip.lair   { border-color: rgba(224, 85, 58, .85); color: #ffc9b8; }
+.mapchip.lair.done { opacity: .55; }
+.mapchip.pharos { border-color: rgba(163, 108, 255, .9); color: #e2d1ff; }
+.mapchip.gate   { border-color: rgba(120, 160, 190, .85); }
+.mapchip.foe    { border-color: rgba(200, 120, 60, .7); opacity: .9; }
 
-.maptoken {
-  position: absolute; transform: translate(-50%, -50%);
-  z-index: 5; width: 20px; height: 20px; border-radius: 50%;
+/* captains on the aerial view */
+.mapav {
+  position: absolute; left: 0; top: 0; pointer-events: auto;
+  width: 24px; height: 24px; margin: -12px 0 0 -12px;
   display: flex; align-items: center; justify-content: center;
-  font-family: var(--disp); font-weight: 800; font-size: 11px; color: #fff;
+  font-family: var(--disp); font-weight: 800; font-size: 12px; color: #fff;
   background: var(--pc, #888);
-  border: 2px solid rgba(255, 250, 233, .92);
-  box-shadow: 0 2px 6px rgba(20, 12, 4, .55);
+  border: 2px solid rgba(255, 250, 233, .95);
+  border-radius: 50%;
+  box-shadow: 0 2px 8px rgba(4, 8, 12, .6);
 }
-.maptoken.you {
-  width: 24px; height: 24px; font-size: 12px;
-  border-color: #fff; box-shadow: 0 0 0 3px rgba(240, 208, 96, .85), 0 2px 8px rgba(20, 12, 4, .6);
-  animation: youpulse 1.8s ease-in-out infinite;
-}
-@keyframes youpulse { 50% { box-shadow: 0 0 0 5px rgba(240, 208, 96, .45), 0 2px 8px rgba(20, 12, 4, .6); } }
+.mapav.you { box-shadow: 0 0 0 3px rgba(240, 208, 96, .8), 0 2px 8px rgba(4, 8, 12, .6); }
 
-.maplegend {
-  display: flex; flex-wrap: wrap; justify-content: center; gap: 6px 14px;
-  margin-top: var(--s2); padding-top: var(--s2);
-  border-top: 1px solid rgba(120, 88, 40, .3);
+/* the control hint bar */
+#mapHint {
+  position: fixed; left: 50%; bottom: 14px; transform: translateX(-50%);
+  z-index: 12;
+  font-family: var(--body); font-size: 13px; color: #e7dcc0;
+  background: rgba(12, 20, 29, .85);
+  border: 1px solid rgba(201, 162, 39, .45);
+  border-radius: 999px;
+  padding: 7px 18px;
+  backdrop-filter: blur(4px);
+  white-space: nowrap;
 }
-.maplegend span {
-  display: inline-flex; align-items: center; gap: 5px;
-  font-family: var(--body); font-size: 12px; color: #5a3d18;
+#mapHint strong { font-family: var(--disp); letter-spacing: .1em; text-transform: uppercase; font-size: 11.5px; color: var(--gilt); }
+#mapHint kbd {
+  font-family: var(--body); font-size: 11.5px; color: #0e1822;
+  background: #cfc3a2; border-radius: 4px; padding: 0 5px;
 }
-.maplegend .lg { width: 11px; height: 11px; border-radius: 50%; border: 1.5px solid #5a3d18; }
-.maplegend .lg.home { background: #fbedbf; border-color: #b8901e; }
-.maplegend .lg.gate { background: #cdd8e0; border-color: #4a6070; }
-.maplegend .lg.shrine { background: #cfe6d8; border-color: #3f6a52; }
-.maplegend .lg.shop { background: #ecd3bf; border-color: #7a4a2a; }
-.maplegend .lg.haven { background: #cfe1ea; border-color: #35617a; }
-.maplegend .lg.puzzle { background: #e0d3ee; border-color: #6b4a8a; }
-.maplegend .lg.lair { background: #f0cabf; border-color: #9a2f22; }
-.maplegend .lg.pharos { background: #efe6ff; border-color: #8c52ff; }
-.maplegend .lg.youdot { background: var(--gilt); border-color: #fff; box-shadow: 0 0 0 1.5px var(--gilt); }
 
 @media (max-width: 700px) {
   #mapBtn { right: 118px; width: 38px; height: 38px; padding: 8px; top: var(--s2); }
-  #mapSheet { width: 96vw; height: 92vh; padding: var(--s3) var(--s2) var(--s2); }
-  .mapnode .mlabel { display: none; }
-  .maplegend { gap: 4px 10px; }
-  .maplegend span { font-size: 11px; }
+  #mapHint { font-size: 11px; padding: 6px 12px; max-width: 94vw; white-space: normal; text-align: center; }
 }
 
 .stallnote {

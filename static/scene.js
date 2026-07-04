@@ -23,7 +23,7 @@ import { themeFor } from './themes.js';
 import { makeWater, makeGround } from './water.js';
 import { buildIsland, makeShip, makeParticles, nameSprite } from './islands.js';
 import { buildMountainWall, buildRealmBackdrop } from './wall.js';
-import { getMonster, animateMonster, preloadMonsters } from './monsters.js';
+import { getMonster, animateMonster, preloadMonsters, disposeMonster } from './monsters.js';
 import { createBattleStage } from './battle.js';
 
 const FADE_MS = 480;               // fade-to-black hold before the swap
@@ -1154,7 +1154,7 @@ export function createWorld(container, handlers = {}) {
     if (!downAt) return;
     const moved = Math.hypot(e.clientX - downAt[0], e.clientY - downAt[1]);
     downAt = null;
-    if (moved > 6 || battleOn || fading) return;
+    if (moved > 6 || battleOn || fading || mapMode) return;  // the chart is view-only
     const st = stages[activeBoardId];
     if (!st || !st.proxyList.length) return;
     const rect = renderer.domElement.getBoundingClientRect();
@@ -1393,6 +1393,154 @@ export function createWorld(container, handlers = {}) {
     st.sun.target.position.copy(controls.target);
   }
 
+  /* ── aerial chart mode: a live top-down view of the CURRENT region ──── */
+  let mapMode = null;   // {saved, bounds, H, Hmin, Hmax, tx, tz, keys, drag}
+
+  function stageBounds(st) {
+    let minX = 1e9, maxX = -1e9, minZ = 1e9, maxZ = -1e9;
+    for (const id in st.islands) {
+      const n = nodeById[id];
+      if (!n) continue;
+      minX = Math.min(minX, n.x); maxX = Math.max(maxX, n.x);
+      minZ = Math.min(minZ, n.z); maxZ = Math.max(maxZ, n.z);
+    }
+    if (minX > maxX) { minX = maxX = minZ = maxZ = 0; }
+    // a soft margin, but never past the mountain wall that rings the stage
+    return { minX: minX - 45, maxX: maxX + 45, minZ: minZ - 45, maxZ: maxZ + 45 };
+  }
+
+  function enterMapView() {
+    const st = stages[activeBoardId];
+    if (!st || battleOn || mapMode) return false;
+    const b = stageBounds(st);
+    const extent = Math.max(b.maxX - b.minX, b.maxZ - b.minZ, 140);
+    mapMode = {
+      saved: { pos: camera.position.clone(), target: controls.target.clone() },
+      bounds: b,
+      H: extent * 0.85, Hmin: extent * 0.3, Hmax: extent * 1.2,
+      tx: (b.minX + b.maxX) / 2, tz: (b.minZ + b.maxZ) / 2,
+      keys: new Set(), drag: null, snapped: false,
+    };
+    controls.enabled = false;
+    skipCinematic();
+    return true;
+  }
+
+  function exitMapView() {
+    if (!mapMode) return;
+    camera.position.copy(mapMode.saved.pos);
+    controls.target.copy(mapMode.saved.target);
+    controls.enabled = true;
+    mapMode = null;
+  }
+
+  function tickMapView(dt) {
+    const m = mapMode;
+    const sp = m.H * 0.9 * dt;                     // pan speed scales with height
+    if (m.keys.has('w') || m.keys.has('arrowup')) m.tz -= sp;
+    if (m.keys.has('s') || m.keys.has('arrowdown')) m.tz += sp;
+    if (m.keys.has('a') || m.keys.has('arrowleft')) m.tx -= sp;
+    if (m.keys.has('d') || m.keys.has('arrowright')) m.tx += sp;
+    // locked within the mountains: the view can never leave the region
+    m.tx = Math.max(m.bounds.minX, Math.min(m.bounds.maxX, m.tx));
+    m.tz = Math.max(m.bounds.minZ, Math.min(m.bounds.maxZ, m.tz));
+    _vA.set(m.tx, m.H, m.tz + m.H * 0.26);         // high, tipped slightly south
+    if (!m.snapped) { camera.position.copy(_vA); m.snapped = true; }
+    else camera.position.lerp(_vA, 0.14);
+    camera.lookAt(m.tx, 0, m.tz);
+    const st = stages[activeBoardId];
+    if (st) {
+      st.sun.position.set(m.tx, 0, m.tz).addScaledVector(st.sunDir, 380);
+      st.sun.target.position.set(m.tx, 0, m.tz);
+    }
+  }
+
+  /* screen-space projection of the region's points of interest + captains,
+     polled by the HUD to float icon chips over the live aerial view */
+  function mapProject() {
+    if (!mapMode) return null;
+    const st = stages[activeBoardId];
+    if (!st) return null;
+    const w = renderer.domElement.clientWidth, h = renderer.domElement.clientHeight;
+    const out = [];
+    for (const id in st.islands) {
+      const n = nodeById[id];
+      if (!n || n.type === 'sea') continue;
+      _vA.set(n.x, (st.islands[id].plateauY ?? 1) + 2, n.z).project(camera);
+      if (_vA.z > 1) continue;
+      out.push({ id, type: n.type, name: n.name, region: n.region || null,
+                 solved: !!n.solved, boss_name: n.boss_name || null,
+                 defeated: (n.defeated || []).length,
+                 x: (_vA.x * 0.5 + 0.5) * w, y: (-_vA.y * 0.5 + 0.5) * h });
+    }
+    for (const pid in ships) {
+      const rec = ships[pid];
+      if (rec.stageId !== activeBoardId) continue;
+      _vA.copy(rec.root.position); _vA.y += 3; _vA.project(camera);
+      if (_vA.z > 1) continue;
+      out.push({ player: pid,
+                 x: (_vA.x * 0.5 + 0.5) * w, y: (-_vA.y * 0.5 + 0.5) * h });
+    }
+    return out;
+  }
+
+  window.addEventListener('keydown', (e) => {
+    if (!mapMode) return;
+    const k = e.key.toLowerCase();
+    if (['w', 'a', 's', 'd', 'arrowup', 'arrowdown', 'arrowleft', 'arrowright'].includes(k)) {
+      mapMode.keys.add(k);
+      e.preventDefault();
+    }
+  });
+  window.addEventListener('keyup', (e) => {
+    if (mapMode) mapMode.keys.delete(e.key.toLowerCase());
+  });
+  renderer.domElement.addEventListener('contextmenu', (e) => {
+    if (mapMode) e.preventDefault();
+  });
+  renderer.domElement.addEventListener('pointerdown', (e) => {
+    if (mapMode && e.button === 2) mapMode.drag = [e.clientX, e.clientY];
+  });
+  renderer.domElement.addEventListener('pointermove', (e) => {
+    if (!mapMode || !mapMode.drag) return;
+    const m = mapMode;
+    const per = m.H * 0.0016;                      // world units per pixel
+    m.tx -= (e.clientX - m.drag[0]) * per;
+    m.tz -= (e.clientY - m.drag[1]) * per;
+    m.drag = [e.clientX, e.clientY];
+  });
+  window.addEventListener('pointerup', () => { if (mapMode) mapMode.drag = null; });
+  renderer.domElement.addEventListener('wheel', (e) => {
+    if (!mapMode) return;
+    e.preventDefault();
+    mapMode.H = Math.max(mapMode.Hmin,
+      Math.min(mapMode.Hmax, mapMode.H * (1 + e.deltaY * 0.001)));
+  }, { passive: false });
+
+  /* ── the kraken surfacing beside a blocked ship ───────────────────────── */
+  let krakenRec = null;   // {node, obj}
+  function syncKraken(room) {
+    const want = room?.minigame?.kraken ? room.minigame.island : null;
+    const st = stages[activeBoardId];
+    if (krakenRec && krakenRec.node !== want) {
+      krakenRec.obj?.parent?.remove(krakenRec.obj);
+      if (krakenRec.obj) disposeMonster(krakenRec.obj);
+      krakenRec = null;
+    }
+    if (want && !krakenRec && st && stageHasNode(activeBoardId, want)) {
+      krakenRec = { node: want, obj: null };
+      getMonster('kraken', { scale: 1.6 }).then((mon) => {
+        if (!krakenRec || krakenRec.node !== want) { disposeMonster(mon); return; }
+        const n = nodeById[want];
+        mon.position.set(n.x + 7, -0.6, n.z - 4);   // rises just off the bow
+        mon.lookAt(n.x, 0, n.z);
+        st.scene.add(mon);
+        krakenRec.obj = mon;
+      });
+    }
+    if (krakenRec?.obj) animateMonster(krakenRec.obj, clock.getElapsedTime(), 'idle');
+  }
+
   const clock = new THREE.Clock();
   let tPrev = 0;
   renderer.setAnimationLoop(() => {
@@ -1400,6 +1548,7 @@ export function createWorld(container, handlers = {}) {
     const dt = Math.min(0.1, t - tPrev);
     tPrev = t;
     if (battleOn) {
+      if (mapMode) exitMapView();
       battleStage.update(t, dt);
       renderer.render(battleStage.scene, battleStage.camera);
       return;
@@ -1411,7 +1560,9 @@ export function createWorld(container, handlers = {}) {
     tickShips(st, t, now);
     tickWake(now);
     tickHighlights(t);
-    tickCamera(st, t);
+    syncKraken(lastRoom);
+    if (mapMode) tickMapView(dt);
+    else tickCamera(st, t);
     renderer.render(st.scene, camera);
   });
 
@@ -1432,6 +1583,10 @@ export function createWorld(container, handlers = {}) {
     arriving: () => arriving(lastRoom),
     animating: () => animatingPid(),
     currentStage: () => (battleOn ? 'battle' : (activeBoardId || 'hub')),
+    enterMapView,
+    exitMapView,
+    mapActive: () => !!mapMode,
+    mapProject,
   };
 
   /* debug handle for dev tooling / screenshot scripts */

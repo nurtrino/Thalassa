@@ -154,8 +154,6 @@ $('nameInput').addEventListener('keydown', (e) => { if (e.key === 'Enter') $('jo
 $('startBtn').onclick = () => send({ type: 'start' });
 $('addBotBtn').onclick = () => send({ type: 'add_bot' });
 $('mapBtn').onclick = () => toggleMap(true);
-$('mapClose').onclick = () => toggleMap(false);
-$('mapOverlay').onclick = (e) => { if (e.target.id === 'mapOverlay') toggleMap(false); };
 document.addEventListener('keydown', (e) => {
   if (e.key === 'Escape' && mapOpen) toggleMap(false);
   else if ((e.key === 'm' || e.key === 'M') && room && room.phase !== 'lobby'
@@ -613,7 +611,7 @@ function render() {
     $('uppanel').classList.add('hidden');
     $('shopPanel').classList.add('hidden');
     $('mapBtn').classList.add('hidden');
-    $('mapOverlay').classList.add('hidden');
+    if (mapOpen) toggleMap(false);
     document.body.classList.remove('battling');
     renderLobby();
     return;
@@ -796,200 +794,100 @@ function renderTurnBanner() {
   }).join('<span class="toarrow">›</span>') + '</div>';
 }
 
-/* ── parchment chart ────────────────────────────────────────────────────── */
+/* ── the chart: a live AERIAL view of the region you are in ─────────────── */
+/* WASD / arrows and right-click-drag pan (locked within the mountains),
+   the wheel zooms, icons float over every isle — hover one to name it. */
 let mapOpen = false;
-let mapLayoutCache = null;      // relaxed node layout, reused until board/size change
+let mapRAF = 0;
 
 const MAP_POI = {
-  home:   { icon: 'home',    label: 'Home Port',    cls: 'home' },
-  gate:   { icon: 'flag',    label: 'Pass',         cls: 'gate' },
-  shrine: { icon: 'laurel',  label: 'Oracle',       cls: 'shrine' },
-  shop:   { icon: 'market',  label: 'Trader',       cls: 'shop' },
-  puzzle: { icon: 'fitting', label: 'Spire',        cls: 'puzzle' },
-  haven:  { icon: 'anchor',  label: 'Haven',        cls: 'haven' },
-  lair:   { icon: 'skull',   label: 'Lair',         cls: 'lair' },
-  pharos: { icon: 'crown',   label: 'The Pharos',   cls: 'pharos' },
+  home:   { icon: 'home',    label: 'Home Port',            cls: 'home' },
+  gate:   { icon: 'flag',    label: 'Mountain Pass',        cls: 'gate' },
+  shrine: { icon: 'laurel',  label: 'Oracle — trivia wagers', cls: 'shrine' },
+  shop:   { icon: 'market',  label: 'Trader — market isle', cls: 'shop' },
+  puzzle: { icon: 'fitting', label: 'Puzzle Spire',         cls: 'puzzle' },
+  haven:  { icon: 'anchor',  label: 'Haven — checkpoint',   cls: 'haven' },
+  monster:{ icon: 'skull',   label: 'Hunting Grounds',      cls: 'foe' },
+  lair:   { icon: 'skull',   label: 'Boss Lair',            cls: 'lair' },
+  pharos: { icon: 'crown',   label: 'The Pharos',           cls: 'pharos' },
 };
 
-/* the five territory categories, drawn as tinted zones on the chart */
-const MAP_REGIONS = {
-  ice:    { cat: 'Frostbound', color: '#7fd4ef' },
-  desert: { cat: 'Sunscorched', color: '#e8c27a' },
-  jungle: { cat: 'Overgrown',  color: '#6fd490' },
-  autumn: { cat: 'Amberwood',  color: '#f0a24f' },
-  hub:    { cat: 'Safe Haven', color: '#d9a441' },
-};
+function mapChipLabel(p) {
+  if (p.player) return '';
+  const poi = MAP_POI[p.type] || {};
+  let name = p.name || poi.label || p.type;
+  if (p.type === 'gate' && p.region) name = `Pass to ${REALM_INFO[p.region]?.name || p.region}`;
+  if (p.type === 'lair') name = `${p.boss_name || 'The tyrant'}${p.defeated ? ' · slain' : ''} — boss lair`;
+  if (p.type === 'haven') name = `${p.name} — haven (checkpoint)`;
+  if (p.type === 'shrine') name = `${p.name} — oracle`;
+  if (p.type === 'shop') name = `${p.name} — trader`;
+  if (p.type === 'puzzle') name = `${p.name} — puzzle spire${p.solved ? ' (solved)' : ''}`;
+  return name;
+}
 
 function renderMapBtn() {
   $('mapBtn').classList.toggle('hidden', !room || room.phase === 'lobby');
-  if (mapOpen) renderMap();
+  // modal phases and battles reclaim the screen — the chart rolls itself up
+  if (mapOpen && (['question', 'minigame', 'reveal', 'upgrade_pick', 'finished', 'battle']
+      .includes(room?.phase) || world.battleActive())) {
+    toggleMap(false);
+  }
 }
 
 function toggleMap(open) {
-  mapOpen = open ?? !mapOpen;
-  $('mapOverlay').classList.toggle('hidden', !mapOpen);
-  if (mapOpen) { audio.sfx?.click?.(); renderMap(); }
-}
-
-// pixel radius each node claims on the chart — POIs get real room so their
-// icons never touch; sea waypoints are near-points that routes thread through.
-const MAP_RADIUS = { home: 21, gate: 20, lair: 21, pharos: 22,
-                     shrine: 17, shop: 17, puzzle: 17, haven: 17,
-                     monster: 5, sea: 3 };
-
-/* Nudge every node apart until no two icons overlap, keeping each as close to
-   its true bearing as it can. Works in the plot's own pixels so spacing is
-   even in both axes. Mutates and returns the {id:{x,y}} px map. */
-function relaxMap(nodes, pos, W, H) {
-  const ids = nodes.map((n) => n.id);
-  for (let it = 0; it < 90; it++) {
-    let moved = false;
-    for (let i = 0; i < ids.length; i++) {
-      for (let j = i + 1; j < ids.length; j++) {
-        const a = pos[ids[i]], b = pos[ids[j]];
-        let dx = b.x - a.x, dy = b.y - a.y;
-        let d = Math.hypot(dx, dy) || 0.001;
-        const min = a.r + b.r;
-        if (d < min) {
-          const push = (min - d) / 2;
-          dx /= d; dy /= d;
-          a.x -= dx * push; a.y -= dy * push;
-          b.x += dx * push; b.y += dy * push;
-          moved = true;
-        }
-      }
-    }
-    for (const id of ids) {
-      const p = pos[id];
-      p.x = Math.max(p.r, Math.min(W - p.r, p.x));
-      p.y = Math.max(p.r, Math.min(H - p.r, p.y));
-    }
-    if (!moved) break;
-  }
-  return pos;
-}
-
-function renderMap() {
-  const body = $('mapBody');
-  if (!room || !room.board) { body.innerHTML = ''; return; }
-  const nodes = room.board.nodes || [];
-  const edges = room.board.edges || [];
-  if (!nodes.length) { body.innerHTML = ''; return; }
-
-  const byId = {};
-  for (const n of nodes) byId[n.id] = n;
-  const xs = nodes.map((n) => n.x), zs = nodes.map((n) => n.z);
-  const minX = Math.min(...xs), maxX = Math.max(...xs);
-  const minZ = Math.min(...zs), maxZ = Math.max(...zs);
-  const spanX = Math.max(1, maxX - minX), spanZ = Math.max(1, maxZ - minZ);
-  const PAD = 7;
-
-  /* the region key — the five categories spelled out (no in-plot zones) */
-  const regionKey = Object.entries(MAP_REGIONS).map(([key, info]) => {
-    const name = key === 'hub' ? 'Isles of Peace' : (REALM_INFO[key]?.name || key);
-    return `<span><i class="rg" style="background:${info.color}"></i>` +
-      `${esc(name)} <em>· ${esc(info.cat)}</em></span>`;
-  }).join('');
-
-  /* frame first, so the plot has real pixel dimensions to lay out within */
-  body.innerHTML =
-    `<div class="mapframe">` +
-      `<div class="maptitle">${icon('compass', 16)} Chart of the Aegean</div>` +
-      `<div class="mapregionkey">${regionKey}</div>` +
-      `<div class="mapplot"></div>` +
-      `<div class="maplegend">` +
-        `<span><i class="lg home"></i>Home</span>` +
-        `<span><i class="lg gate"></i>Pass</span>` +
-        `<span><i class="lg shrine"></i>Oracle</span>` +
-        `<span><i class="lg shop"></i>Trader</span>` +
-        `<span><i class="lg haven"></i>Haven</span>` +
-        `<span><i class="lg puzzle"></i>Spire</span>` +
-        `<span><i class="lg lair"></i>Lair</span>` +
-        `<span><i class="lg pharos"></i>Pharos</span>` +
-        `<span><i class="lg youdot"></i>You</span>` +
-      `</div>` +
-    `</div>`;
-
-  const plot = body.querySelector('.mapplot');
-  const W = plot.clientWidth || 800, H = plot.clientHeight || 500;
-
-  /* the relaxed node layout is fixed per board+size — compute once, then reuse
-     across the frequent state updates (only tokens move between them) */
-  const sig = `${room.code}:${nodes.length}:${W}x${H}`;
-  let pos;
-  if (mapLayoutCache && mapLayoutCache.sig === sig) {
-    pos = mapLayoutCache.pos;
+  const want = open ?? !mapOpen;
+  if (want === mapOpen) return;
+  if (want) {
+    if (!world.enterMapView()) return;
+    mapOpen = true;
+    audio.sfx?.click?.();
+    $('mapIcons').classList.remove('hidden');
+    $('mapHint').classList.remove('hidden');
+    $('mapBtn').classList.add('on');
+    mapTick();
   } else {
-    const inX = W * (1 - PAD / 50), inY = H * (1 - PAD / 50);   // usable px span
-    const oX = W * PAD / 100, oY = H * PAD / 100;
-    pos = {};
-    for (const n of nodes) {
-      pos[n.id] = {
-        x: oX + ((n.x - minX) / spanX) * inX,
-        y: oY + ((n.z - minZ) / spanZ) * inY,
-        r: MAP_RADIUS[n.type] ?? 12,
-      };
-    }
-    relaxMap(nodes, pos, W, H);
-    mapLayoutCache = { sig, pos };
+    mapOpen = false;
+    world.exitMapView();
+    cancelAnimationFrame(mapRAF);
+    $('mapIcons').classList.add('hidden');
+    $('mapIcons').innerHTML = '';
+    $('mapHint').classList.add('hidden');
+    $('mapBtn').classList.remove('on');
   }
-  const pct = (id) => ({ l: (pos[id].x / W * 100), t: (pos[id].y / H * 100) });
+}
 
-  /* routes thread the relaxed waypoints so they still meet the icons */
-  const lines = edges.map(([a, b]) => {
-    if (!pos[a] || !pos[b]) return '';
-    const pa = pct(a), pb = pct(b);
-    return `<line x1="${pa.l.toFixed(2)}" y1="${pa.t.toFixed(2)}"` +
-      ` x2="${pb.l.toFixed(2)}" y2="${pb.t.toFixed(2)}"/>`;
-  }).join('');
-
-  /* POI markers only — no sea/wild dots, no zone blobs. Landmarks are labelled;
-     the many facilities are clean icons you hover to name. Each is centred on
-     its relaxed point, and relaxation guarantees no two icons overlap. */
-  const marks = nodes.map((n) => {
-    const poi = MAP_POI[n.type];
-    if (!poi) return '';
-    const p = pct(n.id);
-    const realm = n.region ? (REALM_INFO[n.region]?.accent || '') : '';
-    const landmark = ['home', 'gate', 'lair', 'pharos'].includes(n.type);
-    let label = poi.label;
-    let done = false;
-    if (n.type === 'gate' && n.region) label = REALM_INFO[n.region]?.name || 'Pass';
-    if (n.type === 'lair') {
-      label = n.boss_name || 'The tyrant';
-      if ((n.defeated || []).length) done = true;
+function mapTick() {
+  if (!mapOpen) return;
+  const pts = world.mapProject() || [];
+  const box = $('mapIcons');
+  const seen = new Set();
+  for (const p of pts) {
+    const key = p.player ? 'pl:' + p.player : p.id;
+    seen.add(key);
+    let el = box.querySelector(`[data-key="${CSS.escape(key)}"]`);
+    if (!el) {
+      el = document.createElement('div');
+      el.dataset.key = key;
+      if (p.player) {
+        const pl = room.players.find((q) => q.pid === p.player);
+        el.className = 'mapav' + (p.player === you ? ' you' : '');
+        el.style.setProperty('--pc', pl?.color || '#888');
+        el.textContent = (pl?.name || '?').slice(0, 1).toUpperCase();
+        el.title = pl ? `${pl.name}${p.player === you ? ' (you)' : ''}` : '';
+      } else {
+        const poi = MAP_POI[p.type] || { icon: 'relic', cls: '' };
+        el.className = `mapchip ${poi.cls}${p.type === 'lair' && p.defeated ? ' done' : ''}`;
+        el.innerHTML = `<span class="mi">${icon(poi.icon)}</span>` +
+          `<span class="ml">${esc(mapChipLabel(p))}</span>`;
+      }
+      box.appendChild(el);
     }
-    // anchor edge labels inward so wide names never run off the chart
-    const edge = (p.l < 15 ? ' edgeL' : p.l > 85 ? ' edgeR' : '') + (p.t > 86 ? ' edgeB' : '');
-    return `<span class="mapnode ${poi.cls}${done ? ' done' : ''}${landmark ? ' land' : ''}${edge}"` +
-      ` style="left:${p.l.toFixed(2)}%;top:${p.t.toFixed(2)}%"${realm ? ` data-accent="${realm}"` : ''}` +
-      ` title="${esc(n.name || label)}">` +
-      `<span class="mpin">${icon(poi.icon)}</span>` +
-      (landmark ? `<span class="mlabel">${esc(label)}</span>` : '') + `</span>`;
-  }).join('');
-
-  /* player tokens ride their node's relaxed point, fanned when they share one */
-  const atNode = {};
-  const tokens = (room.players || []).map((p) => {
-    const n = byId[p.node] || byId.home;
-    if (!n || !pos[n.id]) return '';
-    const seat = (atNode[p.node] = (atNode[p.node] || 0) + 1) - 1;
-    const ox = (seat % 2 ? 1 : -1) * Math.ceil(seat / 2) * 2.4;
-    const oy = seat >= 2 ? 2.4 : 0;
-    const pp = pct(n.id);
-    const mine = p.pid === you;
-    const initial = esc((p.name || '?').slice(0, 1).toUpperCase());
-    return `<span class="maptoken${mine ? ' you' : ''}" title="${esc(p.name)}${mine ? ' (you)' : ''}"` +
-      ` style="left:calc(${pp.l.toFixed(2)}% + ${ox}px);top:calc(${pp.t.toFixed(2)}% + ${oy}px);` +
-      `--pc:${p.color}">${initial}</span>`;
-  }).join('');
-
-  plot.innerHTML =
-    `<svg class="maproutes" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">${lines}</svg>` +
-    marks + tokens;
-  plot.querySelectorAll('[data-accent]').forEach((el) => {
-    el.style.setProperty('--rc', el.dataset.accent);
-  });
+    el.style.transform = `translate(${p.x.toFixed(1)}px, ${p.y.toFixed(1)}px)`;
+  }
+  for (const el of [...box.children]) {
+    if (!seen.has(el.dataset.key)) el.remove();
+  }
+  mapRAF = requestAnimationFrame(mapTick);
 }
 
 /* ── action tray (bottom-center) ────────────────────────────────────────── */
