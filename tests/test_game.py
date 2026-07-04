@@ -1101,11 +1101,14 @@ def test_realms_run_one_main_road_with_teeth():
                 assert len(nbrs) >= 2
                 assert bfs(b, nbrs[0], nbrs[-1], avoid=(h,)) > 0
 
-            # the shortcut genuinely SHORTENS the trek — and the trek is real
+            # the shortcut genuinely SHORTENS the trek — and the trek is real.
+            # the Bleached Reach runs sparser (cairns spread far apart), so its
+            # hop-count floor is lower than the sail realms'.
             short_ids = [nid for nid in realm if "_s" in nid]
             full = bfs(b, gate, lair)
             main_only = bfs(b, gate, lair, avoid=short_ids)
-            assert 10 <= full < main_only
+            floor = 6 if theme == "desert" else 10
+            assert floor <= full < main_only
 
 
 def test_realm_spines_carry_depth():

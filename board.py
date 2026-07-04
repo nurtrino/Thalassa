@@ -290,7 +290,8 @@ class Board:
         crossed on foot (as is the Amber Vale's forest track)."""
         info = REGION_POOL[theme]
         mode = info.get("mode", "sail")
-        trail = "Dune Trail" if mode == "foot" else "Open Sea"
+        trail = ("Forest Trail" if theme == "autumn"
+                 else "Dune Trail" if mode == "foot" else "Open Sea")
         R0 = WALL_R + 10
 
         gate_id = f"gate{gi}"
@@ -413,7 +414,7 @@ class Board:
         # ── the MAIN ROAD: a LONG arc of stops bowing out to one side ────────
         # Every realm is a proper trek now — eight stops thick with POIs. The
         # desert keeps the same length but stays SIMPLE: one fork, one bypass.
-        plan = (["sea", "weak", "sea", "haven", "sea", "shrine", "weak", "sea"]
+        plan = (["weak", "sea", "weak", "haven", "weak", "sea", "shrine", "weak", "weak"]
                 if simple else
                 ["sea", "weak", "sea", "shrine", "sea", "weak", "sea", "weak"])
         main = [gate_id]
@@ -499,11 +500,16 @@ class Board:
             na, nb = self.nodes[a], self.nodes[b]
             autumn_lane = (na.get("region") == "autumn"
                            and nb.get("region") == "autumn")
+            desert_lane = (na.get("region") == "desert"
+                           and nb.get("region") == "desert")
             # Realm lanes get MORE waypoints so a d3 only nudges you a spot or
             # two through the wilds — the trial is a careful crawl, not a
             # sprint. The Amber Vale is finer still: long, winding forest lanes.
+            # The Bleached Reach stays SPARSE: cairns spread far apart on the sand.
             if autumn_lane:
                 n_way = min(4, max(3, round(length / 30) - 1))
+            elif desert_lane:
+                n_way = 1
             elif na.get("region") and nb.get("region"):
                 n_way = min(_MAX_WAYPOINTS_REALM,
                             max(2, round(length / _WAYPOINT_EVERY_REALM) - 1))
@@ -550,7 +556,8 @@ class Board:
                     if mode:
                         self.nodes[nid]["mode"] = mode
                         if mode == "foot":
-                            self.nodes[nid]["name"] = "Dune Trail"
+                            self.nodes[nid]["name"] = ("Forest Trail"
+                                if na.get("region") == "autumn" else "Dune Trail")
                     if na.get("depth") or nb.get("depth"):
                         self.nodes[nid]["depth"] = min(na.get("depth") or 99,
                                                        nb.get("depth") or 99)

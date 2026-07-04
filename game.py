@@ -373,12 +373,16 @@ class Game:
     def _land(self, p: Player, nid: str):
         node = self.board.nodes[nid]
         ntype = node["type"]
-        # drifting flotsam is hauled aboard the moment you arrive — even if
-        # something is about to rise out of the water after it
+        # a lost cache is picked up the moment you arrive — even if something is
+        # about to rise up after it. On foot it's a dropped satchel in the dust;
+        # at sea, flotsam hauled aboard.
         if ntype == "sea" and node.get("flotsam"):
             node["flotsam"] = False
             p.scrolls += 1
-            self._say(f"⚓ {p.name} hauls drifting flotsam aboard — +1 scroll.")
+            if node.get("mode") == "foot":
+                self._say(f"⚓ {p.name} finds a lost cache in the dust — +1 scroll.")
+            else:
+                self._say(f"⚓ {p.name} hauls drifting flotsam aboard — +1 scroll.")
         if node["type"] == "lair":
             if p.pid in node["defeated"]:
                 if p.pid in node["stash"]:
@@ -452,6 +456,15 @@ class Game:
         if (ntype == "sea" and node.get("region") == "desert"
                 and self.rng.random() < SPHINX_CHANCE):
             deal = puzzles.deal_riddle(self.rng, self.used_puzzles)
+            # stage the Sphinx in the BATTLE SCREEN — she rises before you like a
+            # boss, but poses a riddle instead of trading blows: answer or be
+            # swept back. The staged 'monster' is only for the diorama.
+            node["monster"] = {"name": "The Sphinx", "tier": 2, "domain": "apollo",
+                               "boss": True, "model": "sphinx", "riddle": True,
+                               "enemies": [{"name": "The Sphinx", "hp": 1,
+                                            "max_hp": 1, "power": 0, "model": "sphinx"}]}
+            self.battle = {"node": nid, "sphinx": True, "stance": None, "round": 0,
+                           "charging": False, "used_items": [], "first_hit_taken": False}
             self.minigame = {"kind": "riddle", "island": nid, "data": deal,
                              "limit": deal["limit"], "deadline": None,
                              "sphinx": True,
@@ -1215,7 +1228,16 @@ class Game:
         self._next_turn()
 
     # ── the sphinx's toll ────────────────────────────────────────────────────
+    def _clear_sphinx_stage(self):
+        """Tear down the staged Sphinx battle-screen diorama (she never fights)."""
+        if self.battle and self.battle.get("sphinx"):
+            node = self.board.nodes.get(self.battle["node"], {})
+            if isinstance(node.get("monster"), dict) and node["monster"].get("riddle"):
+                node["monster"] = None
+            self.battle = None
+
     def _sphinx_pass(self):
+        self._clear_sphinx_stage()
         self.minigame = None
         self._say(f"🦁 The Sphinx bows her head — {self.current.name} may pass.")
         self._end_turn()
@@ -1223,6 +1245,7 @@ class Game:
     def _sphinx_fail(self):
         p = self.current
         ans = puzzles.answer_text("riddle", self.minigame.get("data")) if self.minigame else ""
+        self._clear_sphinx_stage()
         self.minigame = None
         self._flash(False, f"Wrong — the answer was {ans}" if ans else "The Sphinx sweeps you back!")
         back = p.prev_node if p.prev_node in self.board.nodes else p.node

@@ -717,15 +717,16 @@ export function createWorld(container, handlers = {}) {
     // lets two ships share the mouth without overlapping.
     const rad = new THREE.Vector3(n.x, 0, n.z).normalize();   // outward (radial)
     const inRealm = !!(st && st.id !== 'hub');
-    // ALWAYS berth on the ISLES-facing (inward, −radial) side of the pass — the
-    // gate structure spans the node, the realm's roads open OUTWARD beyond it, so
-    // sitting inward puts the arch AHEAD of you and you sail OUT through it. Never
-    // land inside the mouth. A touch further back once across so the pass reads.
-    const along = inRealm ? 32 : 14;
+    // HUB side (approaching): berth INWARD of the pass so the arch is ahead and
+    // you sail/step OUT through it. REALM side (arrived): berth just PAST the
+    // arch, out on the realm ground, so you stand clear of the structure at the
+    // gate and simply walk on to the first waypoint — never spawning inside it.
+    const along = inRealm ? 26 : 14;
+    const dir = inRealm ? 1 : -1;                    // realm: outward; hub: inward
     const fan = ((slotIdx % 3) - 1) * 3.0;
     return new THREE.Vector3(
-      n.x - rad.x * along - rad.z * fan, 0,
-      n.z - rad.z * along + rad.x * fan);
+      n.x + dir * rad.x * along - rad.z * fan, 0,
+      n.z + dir * rad.z * along + rad.x * fan);
   }
 
   function slotFor(nodeId, slotIdx, st) {

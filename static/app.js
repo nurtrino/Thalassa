@@ -559,7 +559,7 @@ function reactAudio(prev, next) {
   /* soundtrack scenes: lobby / battle / puzzle / endgame / per-realm open sea */
   const battleish = next.phase === 'battle' ||
     (next.phase === 'question' && next.question?.kind === 'battle') ||
-    (next.phase === 'minigame' && next.minigame?.battle) ||
+    (next.phase === 'minigame' && (next.minigame?.battle || next.minigame?.sphinx)) ||
     (next.phase === 'reveal' && next.reveal?.kind === 'battle');
   const puzzleish = next.phase === 'minigame' ||
     (next.phase === 'question' && ['puzzle', 'riddle'].includes(next.question?.kind)) ||
@@ -1099,27 +1099,34 @@ function renderTray() {
     return;
   }
 
+  // on foot in the desert/vale the flavour is a trek, not a voyage
+  const foot = ['desert', 'autumn'].includes(nodeOf(me)?.region);
   if (room.phase === 'roll') {
-    // the previous captain may still be sailing on-screen — don't hand the
-    // dice over until their boat has actually stopped moving
+    // the previous captain may still be moving on-screen — don't hand the
+    // dice over until they've actually stopped
     if (world.animating()) {
-      trayHint(tray, `${icon('anchor', 14)} The wake still runs — hold until the tide settles…`);
+      trayHint(tray, foot
+        ? `${icon('anchor', 14)} The dust still settles — hold a moment…`
+        : `${icon('anchor', 14)} The wake still runs — hold until the tide settles…`);
     } else {
       trayBtn(tray, `${icon('dice', 17)} ROLL`, 'gold big', () => send({ type: 'roll' }));
     }
   } else if (room.phase === 'trade' && !world.arriving()) {
     // the end-of-turn beat: a last word with the trader before the dice pass
-    trayHint(tray, `${icon('market', 14)} The trader hails you before the tide turns…`);
+    trayHint(tray, foot
+      ? `${icon('market', 14)} The trader catches you before you move on…`
+      : `${icon('market', 14)} The trader hails you before the tide turns…`);
     trayBtn(tray, `${icon('market', 14)} TRADER`, 'build',
             () => { shopRemote = !shopRemote; shopClosed = false; renderShop(); });
     trayBtn(tray, 'END TURN', 'gold big', () => send({ type: 'pass' }));
   } else if (room.phase === 'sail') {
     const bonus = me?.upgrades?.includes('sandals') ? ' <small>(+1 sandals)</small>' : '';
-    trayHint(tray, `Rolled <strong>${room.die ?? '?'}</strong>${bonus} — sail exactly that far. Tap a glowing stop.`);
+    trayHint(tray, `Rolled <strong>${room.die ?? '?'}</strong>${bonus} — ${foot ? 'walk' : 'sail'} exactly that far. Tap a glowing stop.`);
   } else if (world.arriving()) {
-    // my own boat is still sailing up to this island — hold the landfall menu
+    // my own avatar is still moving up to this stop — hold the menu
     // (shrine wager / haven repair / trader's stall) until it arrives
-    trayHint(tray, `${icon('anchor', 14)} Making landfall…`);
+    trayHint(tray, foot ? `${icon('anchor', 14)} Making your way…`
+                        : `${icon('anchor', 14)} Making landfall…`);
   } else if (room.phase === 'shrine') {
     const node = nodeOf(me);
     const dom = node?.domain;
