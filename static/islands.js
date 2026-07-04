@@ -2138,7 +2138,7 @@ export function makeBattleBackdrop(theme) {
       g.add(fl);
     }
     const palm = makePalm(rng, 1.4);
-    palm.position.set(-14, 0, 12);
+    palm.position.set(-8, 0, 21);
     g.add(palm);
   } else if (id === 'ice') {
     // drift ice underfoot, two great bergs on the horizon
@@ -2169,7 +2169,7 @@ export function makeBattleBackdrop(theme) {
       spire.position.set(x, -0.3, z);
       g.add(spire);
     }
-    for (const [x, z] of [[15, 12], [-13, 10], [19, 2]]) {
+    for (const [x, z] of [[15, 12], [-10, 19], [19, 2]]) {
       const cac = makeCactus(rng, 1.5);
       cac.position.set(x, 0, z);
       g.add(cac);
@@ -2187,7 +2187,7 @@ export function makeBattleBackdrop(theme) {
       t.position.set(Math.cos(a) * 26 + 4, -0.4, Math.sin(a) * 26);
       g.add(t);
     }
-    for (const [x, z, s] of [[-16, -14, 2.4], [-18, 10, 2.0]]) {
+    for (const [x, z, s] of [[-16, -14, 2.4], [-27, 17, 2.0]]) {
       const t = makeJungleTree(rng, s);
       t.position.set(x, -0.3, z);
       g.add(t);
@@ -2203,7 +2203,7 @@ export function makeBattleBackdrop(theme) {
     g.add(stone);
   } else if (id === 'autumn') {
     // amber groves on rocky banks, low gold sun, a leaf-strewn bronze mirror
-    for (const [x, z, s] of [[20, -10, 1.8], [24, 6, 1.4], [16, 14, 1.2], [-16, -12, 1.5], [-18, 11, 1.2]]) {
+    for (const [x, z, s] of [[20, -10, 1.8], [24, 6, 1.4], [16, 14, 1.2], [-16, -12, 1.5], [-27, 17, 1.2]]) {
       const bank = makeRock(rng, 1.8 * s, theme.palette.rock);
       bank.position.set(x, -0.7, z);
       g.add(bank);
@@ -2238,9 +2238,10 @@ export function makeBattleBackdrop(theme) {
   const picks = BATTLE_PROPS[id] || BATTLE_PROPS.hub;
   const n = picks.length + 2;                        // every pick shows at least once
   for (let i = 0; i < n; i++) {
-    // spread along the arc AWAY from the camera opening (camera sits past ±1.93)
-    const a = -1.7 + (i / (n - 1)) * 3.4 + (rng() - 0.5) * 0.3;
-    const r = 15 + rng() * 12;
+    // spread along the arc BEHIND the foe; ±1.35 keeps the arc's ends from
+    // looming into the camera's flanks (the camera sits past ±1.93 on -x)
+    const a = -1.35 + (i / (n - 1)) * 2.7 + (rng() - 0.5) * 0.24;
+    const r = 17 + rng() * 10;
     const pid = picks[i % picks.length];
     const p = propGroup(pid, 0.9 + rng() * 0.5);
     const x = Math.cos(a) * r, z = Math.sin(a) * r;
