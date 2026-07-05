@@ -281,7 +281,7 @@ async def dispatch(pid: str | None, kind: str, msg: dict) -> str | None:
         elif kind == "stance":
             g.stance(pid, str(msg.get("stance", "")), int(msg.get("target", 0)))
         elif kind == "dodge":
-            g.dodge(pid, bool(msg.get("hit")))
+            g.dodge(pid, bool(msg.get("hit")), bool(msg.get("full")))
         elif kind == "flee":
             g.flee(pid)
         elif kind == "item":

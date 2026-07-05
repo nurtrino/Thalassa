@@ -46,13 +46,14 @@ def advance_to_dodge(g):
     return g.phase
 
 
-def land_blow(g, hit=False):
+def land_blow(g, hit=False, full=False):
     """An enemy's counter waits on the DODGE beat, which itself follows the
     your-move reveal. Advance through both to resolve it. hit=True is a read
-    dodge (half the blow nulled); False lets it land full."""
+    dodge (gold band → half the blow nulled); hit+full nails the bright core
+    for a clean, FULL dodge; False lets it land full."""
     advance_to_dodge(g)
     if g.phase == "dodge":
-        g.dodge(g.current.pid, hit)
+        g.dodge(g.current.pid, hit, full)
 
 
 def force_land(g, pid, nid):
@@ -1823,6 +1824,79 @@ def test_dodge_halves_the_blow():
     ep = g.reveal["enemy_phase"]
     assert ep["dodged"] and ep["dmg"] == power // 2
     assert 30 - p.hull == power // 2
+
+
+def test_core_dodge_fully_nulls_the_blow():
+    # nailing the bright core (full=True) slips the blow ENTIRELY — the option
+    # to escape a boss's heavy blow clean, where a gold-only read only halves it
+    g, (p0, p1), lair = boss_battle()
+    p = g.player_by_pid(p0)
+    p.max_hull = 30
+    p.hull = 30
+    g.stance(p0, "attack")
+    put_question(g, correct=0)
+    g.answer(p0, 1)                               # miss → the blow comes
+    assert advance_to_dodge(g) == "dodge"
+    land_blow(g, hit=True, full=True)             # core → clean dodge
+    ep = g.reveal["enemy_phase"]
+    assert ep["dodged"] and ep["dmg"] == 0
+    assert p.hull == 30                            # not a scratch
+
+
+def test_core_dodge_fully_nulls_a_heavy_blow():
+    # the whole point of the core: a telegraphed HEAVY blow (2–4 dmg, doubled
+    # when unread) can be walked away from without a scratch if you hit centre.
+    # Bosses alternate trivia/puzzle, so the heavy lands on exchange 3.
+    g, (p0, p1), lair = boss_battle()
+    p = g.player_by_pid(p0)
+    p.max_hull = 40
+    p.hull = 40
+    # exchange 1 — trivia
+    g.stance(p0, "attack")
+    put_question(g, correct=0)
+    g.answer(p0, 1)
+    land_blow(g, hit=True, full=True)             # core → take nothing
+    g.advance_after_reveal()
+    # exchange 2 — puzzle
+    g.stance(p0, "attack")
+    g.resolve_minigame(False)
+    land_blow(g, hit=True, full=True)             # core → take nothing
+    g.advance_after_reveal()
+    assert g.battle["charging"] is True           # the heavy now telegraphs
+    hull_before = p.hull
+    # exchange 3 — the HEAVY blow; core-dodge it clean
+    g.stance(p0, "attack")
+    put_question(g, correct=0)
+    g.answer(p0, 1)
+    land_blow(g, hit=True, full=True)
+    ep = g.reveal["enemy_phase"]
+    assert ep["heavy"] and ep["dodged"] and ep["dmg"] == 0
+    assert p.hull == hull_before
+
+
+def test_ravens_battle_wrong_pick_resolves_the_round():
+    # a Raven's-matrix drawn as a BATTLE trial is a SINGLE pick, like the echo
+    # (simon) and pattern (memory) fights: a wrong tile is a botched round that
+    # lets the foe strike — NOT a free retry. (Before the fix a wrong pick only
+    # raised "not solved" and left every wrong tile inert, so the fight seemed
+    # to accept ONLY the correct tile.)
+    import puzzles as PZ
+    g, (p0, p1), lair = boss_battle()
+    p = g.player_by_pid(p0)
+    p.max_hull = 40
+    p.hull = 40
+    g._force_mode = "puzzle"
+    g.stance(p0, "attack")
+    assert g.phase == "minigame" and g.minigame.get("battle")
+    # pin the trial to a Raven's matrix
+    g.minigame["kind"] = "ravens"
+    g.minigame["data"] = PZ.deal_kind(g.rng, "ravens")
+    correct = g.minigame["data"]["secret"]["correct"]
+    wrong = (correct + 1) % len(g.minigame["data"]["options"])
+    g.minigame_submit(p0, wrong)                   # wrong tile → the round is spent
+    assert g.phase != "minigame"                   # not stuck waiting on a retry
+    # the botched round hands the foe its counter (reveal → dodge/blow)
+    assert g.battle and (g.battle.get("incoming") or g.phase in ("reveal", "dodge"))
 
 
 def test_dodge_timeout_lands_the_full_blow():

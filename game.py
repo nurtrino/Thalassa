@@ -946,15 +946,15 @@ class Game:
     # There is no guard stance: when a foe strikes back, the captain gets a
     # DODGE_SECS beat to time a dodge. Read it right and half the blow is
     # nulled; the timing window itself lives client-side and is TIGHT.
-    def dodge(self, pid: str, hit) -> None:
+    def dodge(self, pid: str, hit, full=False) -> None:
         self._require_turn(pid, "dodge")
-        self._finish_dodge(bool(hit))
+        self._finish_dodge(bool(hit), bool(full))
 
     def dodge_timeout(self) -> None:
         if self.phase == "dodge":
-            self._finish_dodge(False)
+            self._finish_dodge(False, False)
 
-    def _finish_dodge(self, dodged: bool) -> None:
+    def _finish_dodge(self, dodged: bool, full: bool = False) -> None:
         p = self.current
         inc = (self.battle or {}).get("incoming") or {}
         self.battle["incoming"] = None
@@ -970,7 +970,17 @@ class Game:
         enemy_phase.pop("pending", None)
         enemy_phase["enemy_turn"] = True
 
-        base = power // 2 if dodged else power   # a read blow is half nulled
+        # the dodge wheel has TWO windows: clip the gold and you twist aside
+        # for HALF the blow; nail the bright core at its centre and you slip it
+        # entirely. On a boss's telegraphed HEAVY blow the core is the only way
+        # out clean — a loose gold-only read still takes half the hit.
+        full = bool(full) and dodged
+        if not dodged:
+            base = power
+        elif full:
+            base = 0
+        else:
+            base = power // 2
         hit_dmg, blocked = self._absorb(p, base)
         note = ""
         if blocked:
@@ -1481,7 +1491,12 @@ class Game:
             if ok:
                 self.minigame = None
                 self._resolve_battle(True, -2, None, challenge="puzzle")
-            elif mg["kind"] in ("simon", "memory"):
+            elif mg["kind"] in ("simon", "memory", "ravens"):
+                # a SINGLE-PICK trial (echo, or the one missing pattern tile):
+                # the guess stands whether right or wrong — a miss is a botched
+                # round, not a free retry. (Without ravens here a wrong tile
+                # only raised "not solved" and let you keep clicking, so the
+                # fight seemed to accept ONLY the correct tile.)
                 self.minigame = None
                 self._resolve_battle(False, -2, None, challenge="puzzle")
             else:

@@ -980,34 +980,44 @@ function renderDodge() {
   // is inside the gold and the dodge lands. The arc is narrow and the hand
   // is quick — not easy, and never in the same place twice.
   const ARC = 42;                       // gold window, degrees (~135ms of hand)
+  const CORE = 15;                       // bright core inside the gold: a PERFECT
   const PERIOD = 1150;                  // ms per revolution
   const WINDUP = 450;                   // arc shown, hand held at 12 o'clock
   const REVS = 2;                       // two laps, then the blow lands
   const arcStart = 100 + Math.random() * 200;   // degrees clockwise from 12
+  const coreOff = (ARC - CORE) / 2;             // core centred in the gold band
 
   el.innerHTML = warn +
     `<div class="dodgecap">${esc(d.attacker)} strikes! <strong>DODGE!</strong></div>` +
     '<div class="dodgewheel">' +
+    // gold band = twist aside for HALF; the pale core at its centre = a clean,
+    // FULL dodge (the only way clear of a boss's heavy blow)
     `<div class="dq-arc" style="background:conic-gradient(from ${arcStart}deg,` +
-    'rgba(240,208,96,.95) 0deg, rgba(240,208,96,.75) ' + ARC + 'deg,' +
+    'rgba(240,208,96,.92) 0deg,' +
+    `rgba(240,208,96,.92) ${coreOff}deg,` +
+    `rgba(255,248,214,1) ${coreOff}deg,` +
+    `rgba(255,248,214,1) ${coreOff + CORE}deg,` +
+    `rgba(240,208,96,.92) ${coreOff + CORE}deg,` +
+    `rgba(240,208,96,.92) ${ARC}deg,` +
     `transparent ${ARC}deg)"></div>` +
     '<div class="dq-hand"></div><div class="dq-verdict"></div></div>' +
-    '<div class="dodgehint">tap when the hand crosses the gold</div>';
+    `<div class="dodgehint">${d.heavy
+      ? 'nail the bright core to slip the heavy blow — the gold only softens it'
+      : 'tap when the hand crosses the gold'}</div>`;
   const hand = el.querySelector('.dq-hand');
   const verdict = el.querySelector('.dq-verdict');
 
   const t0 = performance.now();
   const angleAt = (t) =>                // degrees clockwise from 12 o'clock
     Math.max(0, (t - t0 - WINDUP)) / PERIOD * 360;
-  const inGold = (a) => {
-    const rel = ((a - arcStart) % 360 + 360) % 360;
-    return rel <= ARC;
-  };
+  const relAt = (a) => ((a - arcStart) % 360 + 360) % 360;
+  const inGold = (a) => relAt(a) <= ARC;
+  const inCore = (a) => { const r = relAt(a); return r >= coreOff && r <= coreOff + CORE; };
   const st = { id: key, done: false, raf: 0, key: null };
-  const finish = (hit, label) => {
+  const finish = (hit, full, label) => {
     if (st.done) return;
     st.done = true;
-    send({ type: 'dodge', hit });
+    send({ type: 'dodge', hit, full });
     verdict.textContent = label;
     verdict.className = 'dq-verdict ' + (hit ? 'hit' : 'miss');
     if (hit) audio.sfx.sail(); else audio.sfx.hurt();
@@ -1018,15 +1028,17 @@ function renderDodge() {
     const a = angleAt(now);
     hand.style.transform = `rotate(${(a % 360).toFixed(2)}deg)`;
     hand.style.opacity = now - t0 < WINDUP ? '0.45' : '1';
-    if (a >= REVS * 360) { finish(false, 'TOO LATE'); return; }
+    if (a >= REVS * 360) { finish(false, false, 'TOO LATE'); return; }
     st.raf = requestAnimationFrame(tick);
   };
   const attempt = () => {
     if (st.done) return;
     const t = performance.now();
     if (t - t0 < WINDUP) return;                   // hand not moving yet
-    const hit = inGold(angleAt(t));
-    finish(hit, hit ? 'DODGED!' : 'MISSED');
+    const a = angleAt(t);
+    const full = inCore(a);
+    const hit = inGold(a);
+    finish(hit, full, full ? 'PERFECT!' : hit ? 'DODGED!' : 'MISSED');
   };
   el.onpointerdown = (e) => { e.preventDefault(); attempt(); };
   st.key = (e) => { if (e.code === 'Space') { e.preventDefault(); attempt(); } };

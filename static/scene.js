@@ -1238,9 +1238,23 @@ export function createWorld(container, handlers = {}) {
     // and keep it up through the VICTORY / YOU DIED card, so the closing
     // beat plays over the diorama, not the board the fight has left behind.
     if ((room.battle || battleHold) && !arriving(room)) return 'battle';
+    // The Amber Vale is each captain's PRIVATE labyrinth — fogged from everyone
+    // else — so the view only ever walks INTO the woods for ME. While I stand
+    // in my own Vale, stay there no matter whose turn it is: otherwise a rival's
+    // turn out on the hub would yank the camera off to the sea and blank my
+    // whole forest for the length of their move ("after a battle all the trees
+    // despawn" — the turn had simply passed to a captain out of the woods).
+    const me = room.players?.find((p) => p.pid === myPid);
+    const myNode = me && nodeById[me.node];
+    if (myNode && myNode.region === 'autumn' && myNode.type !== 'gate')
+      return 'autumn';
     // stay in the stage of whoever is actually on the move (or the active
-    // captain once everyone's parked)
-    return stageForViewer(room, focusPid(room) || myPid);
+    // captain once everyone's parked) — but never get dragged INTO the Vale to
+    // spectate a rival's maze we cannot see; hold our own ground instead.
+    const focus = focusPid(room) || myPid;
+    let tgt = stageForViewer(room, focus);
+    if (tgt === 'autumn' && focus !== myPid) tgt = stageForViewer(room, myPid);
+    return tgt;
   }
 
   function requestStage(target) {
