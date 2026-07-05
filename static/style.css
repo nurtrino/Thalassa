@@ -1979,38 +1979,6 @@ body.dev .mapchip:hover {
 }
 .hpbar.foe .hpcell { width: 30px; height: 15px; background: rgba(10, 14, 20, .55); }
 
-/* the turn rail — who strikes back next, pinned to the battle's right edge */
-#brail {
-  position: fixed; right: 14px; top: 50%; transform: translateY(-50%);
-  z-index: 15; display: flex; flex-direction: column; gap: 6px;
-  min-width: 120px; max-width: 190px;
-}
-#brail .railtitle {
-  font-family: var(--disp); font-weight: 800; font-size: 10.5px;
-  letter-spacing: .22em; color: var(--gilt);
-  text-shadow: 0 1px 3px rgba(0, 0, 0, .8);
-  margin-bottom: 2px; text-align: right;
-}
-#brail .railentry {
-  display: flex; align-items: center; gap: 7px; justify-content: flex-end;
-  font-family: var(--disp); font-weight: 700; font-size: 12px;
-  letter-spacing: .04em; color: var(--bone);
-  background: linear-gradient(180deg, rgba(22, 39, 58, .92), rgba(11, 20, 29, .92));
-  border: 1px solid rgba(201, 162, 39, .35);
-  border-radius: 8px; padding: 6px 10px;
-  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-}
-#brail .railentry.you { color: var(--gilt); border-color: rgba(201, 162, 39, .7); }
-#brail .railentry.next {
-  border-color: #ef6448;
-  box-shadow: 0 0 10px rgba(224, 58, 47, .45);
-}
-#brail .railn {
-  width: 16px; height: 16px; border-radius: 50%; flex: none;
-  display: grid; place-items: center;
-  font-size: 10px; color: #0e1822; background: var(--bronze);
-}
-
 /* the DODGE beat: full-screen tap zone, collapsing ring onto a target */
 #dodgeQte {
   position: fixed; inset: 0; z-index: 16;
@@ -2083,8 +2051,6 @@ body.dev .mapchip:hover {
 #dodgeQte.dodged .dq-hand, #dodgeQte.flubbed .dq-hand { opacity: .5; }
 
 @media (max-width: 700px) {
-  #brail { right: 6px; min-width: 96px; }
-  #brail .railentry { font-size: 10.5px; padding: 5px 8px; }
   .dodgewheel { width: 132px; height: 132px; }
   .hpbar.foe .hpcell { width: 24px; height: 13px; }
 }

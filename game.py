@@ -898,9 +898,9 @@ class Game:
         return dmg, False
 
     # ── enemy attack order ────────────────────────────────────────────────
-    # Foes take turns striking back. The upcoming order is a visible queue
-    # (the battle screen's turn rail); every living foe gets its licks in,
-    # and none may strike more than ATTACK_RUN_CAP times in a row.
+    # Foes take turns striking back off an internal queue (never shown to the
+    # player): every living foe gets its licks in, and none may strike more
+    # than ATTACK_RUN_CAP times in a row.
     def _attack_queue(self, enemies) -> list[int]:
         b = self.battle
         q = [i for i in b.get("order", []) if enemies[i]["hp"] > 0]
@@ -924,8 +924,8 @@ class Game:
         return q
 
     def _arm_battle(self) -> None:
-        """Seed the attack rail the moment a fight begins, so the turn
-        order is visible before the first stance is picked."""
+        """Seed the internal attack queue the moment a fight begins, so a
+        counter-attacker is ready before the first stance is picked."""
         m = self.board.nodes[self.battle["node"]].get("monster")
         if m:
             self._attack_queue(m["enemies"])
@@ -938,7 +938,7 @@ class Game:
         h = self.battle.setdefault("hist", [])
         h.append(i)
         del h[:-ATTACK_RUN_CAP]
-        self._attack_queue(enemies)          # keep the rail topped up
+        self._attack_queue(enemies)          # keep the queue topped up
 
     # ── the dodge (Paper-Mario action command) ────────────────────────────
     # There is no guard stance: when a foe strikes back, the captain gets a
@@ -955,9 +955,6 @@ class Game:
     def _finish_dodge(self, dodged: bool) -> None:
         p = self.current
         inc = (self.battle or {}).get("incoming") or {}
-        ctx = inc.get("ctx", {})
-        note = ctx.get("note", "")
-        enemy_phase = ctx.get("enemy_phase", {})
         self.battle["incoming"] = None
         self.dodge_deadline = None
         m = self.board.nodes[self.battle["node"]]["monster"]
@@ -965,16 +962,22 @@ class Game:
         attacker = inc.get("attacker", "the foe")
         heavy = bool(inc.get("heavy"))
         power = int(inc.get("power", 1))
+        # the blow gets its own reveal, AFTER the answer's verdict has had its
+        # beat on screen — carry your move's stats so the snapshot stays whole
+        enemy_phase = dict(inc.get("move_phase") or {})
+        enemy_phase.pop("pending", None)
+        enemy_phase["enemy_turn"] = True
 
         base = power // 2 if dodged else power   # a read blow is half nulled
         hit_dmg, blocked = self._absorb(p, base)
-        pre = ""
+        note = ""
         if blocked:
-            pre = "🛡 The aegis charm turns the blow. "
+            note = "🛡 The aegis charm turns the blow. "
+            enemy_phase["blocked"] = True
         elif p.has("aegis") and hit_dmg > 0 and not self.battle["first_hit_taken"]:
             hit_dmg = max(1, hit_dmg // 2)
             self.battle["first_hit_taken"] = True
-            pre = "Your Aegis shard flares — "
+            note = "Your Aegis shard flares — "
         enemy_phase["attacker"] = attacker
         enemy_phase["heavy"] = heavy
         enemy_phase["dodged"] = dodged
@@ -982,14 +985,14 @@ class Game:
         if not blocked:
             blow = "HEAVY blow" if heavy else "blow"
             if dodged and hit_dmg <= 0:
-                pre += f"🌀 You read {attacker}'s {blow} and slip clear!"
+                note += f"🌀 You read {attacker}'s {blow} and slip clear!"
             elif dodged:
-                pre += (f"🌀 You twist aside — {attacker}'s {blow} "
-                        f"only grazes for {hit_dmg}!")
+                note += (f"🌀 You twist aside — {attacker}'s {blow} "
+                         f"only grazes for {hit_dmg}!")
             else:
-                pre += (f"💥 {attacker} lands a HEAVY blow for {hit_dmg}!"
-                        if heavy else f"💥 {attacker} strikes for {hit_dmg}!")
-        note = (note + " " + pre).strip()
+                note += (f"💥 {attacker} lands a HEAVY blow for {hit_dmg}!"
+                         if heavy else f"💥 {attacker} strikes for {hit_dmg}!")
+        note = note.strip()
         p.hull -= hit_dmg
 
         battle_over = False
@@ -1009,10 +1012,11 @@ class Game:
             if self.battle["charging"]:
                 note += f" ⚠ {m['name']} rears back, gathering a heavy blow…"
 
+        # the ENEMY-TURN reveal: a bare beat for the blow itself (no question
+        # card — that verdict already had its own reveal a moment ago)
         self._emit_battle_reveal(
-            ctx.get("correct", False), ctx.get("idx", -2),
-            ctx.get("correct_idx"), ctx.get("side") or {},
-            ctx.get("challenge", "trivia"), note, ctx.get("gained", 0),
+            bool(inc.get("was_correct")), -2, None, {},
+            "enemy", note, 0,
             battle_over, player_dead, enemy_phase)
 
     # ── battle (Paper-Mario turns: your move, then the enemies') ─────────────
@@ -1368,8 +1372,9 @@ class Game:
 
                 # ── the enemies' move ────────────────────────────────────────
                 # Packs only punish a miss; a boss answers EVERY exchange.
-                # The attacker comes off the visible turn rail, and its blow
-                # doesn't land yet — the DODGE beat gets the last word.
+                # The counter does NOT land yet — first the reveal shows
+                # plainly how YOUR move went; only after that beat does the
+                # foe wind up and the DODGE action command interrupt.
                 front_idx = self._attack_queue(enemies)[0]
                 front = enemies[front_idx]
                 if not correct and stance == "magic" and not boss:
@@ -1382,17 +1387,14 @@ class Game:
                 elif boss or not correct:
                     self._advance_attacker(enemies)
                     power = front["power"] * (HEAVY_MULT if heavy else 1)
+                    enemy_phase["attacker"] = front["name"]
+                    enemy_phase["pending"] = True   # a blow hangs over the reveal
                     self.battle["incoming"] = {
                         "attacker_idx": front_idx, "attacker": front["name"],
                         "power": power, "heavy": heavy,
-                        "ctx": {"correct": correct, "idx": idx,
-                                "correct_idx": correct_idx,
-                                "side": side or {}, "challenge": challenge,
-                                "note": note, "gained": gained,
-                                "enemy_phase": enemy_phase},
+                        "was_correct": correct,
+                        "move_phase": dict(enemy_phase),
                     }
-                    self._bump("dodge")
-                    return
                 else:
                     # your successful move carries you clear of the counter
                     enemy_phase["evaded"] = True
@@ -1453,6 +1455,11 @@ class Game:
         rv = self.reveal or {}
         self.question = None
         self.question_deadline = None
+        # a counter hangs over this reveal — now that YOUR move has been shown
+        # plainly, the foe winds up and the DODGE action command interrupts
+        if self.battle and self.battle.get("incoming") and not rv.get("battle_over"):
+            self._bump("dodge")
+            return
         if self.winner:
             self._bump("finished")
         elif self.upgrade_offer:
@@ -1736,10 +1743,6 @@ class Game:
                              "model": e.get("model")}
                             for e in m["enemies"]],
                 "strike_tier": 2 if boss else 1,
-                # the visible turn rail: which foes strike back next (indices
-                # into `enemies`; dead foes are filtered without re-rolling)
-                "order": [i for i in self.battle.get("order", [])
-                          if m["enemies"][i]["hp"] > 0][:4],
                 "node": self.battle["node"], "is_lair": node["type"] == "lair",
                 "is_pharos": node["type"] == "pharos",
                 "region": node.get("region"),
