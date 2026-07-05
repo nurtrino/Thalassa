@@ -241,11 +241,11 @@ def gen_visual_memory(rng: random.Random, n: int = 6,
     """An n×n board briefly flashes `lit` tiles; memorise them, then click them
     all back. THREE misses (lives) and it's lost. The flashed set is PUBLIC —
     the client has to light it — exactly like simon's sequence; the checker just
-    verifies the picks match it. One clean round wins the trial. The lit count
-    scales with the board (~a fifth of the cells) so a 5×5 STRIKE board asks for
-    ~5 tiles and a 7×7 for ~10."""
+    verifies the picks match it. One clean round wins the trial. About a THIRD of
+    the board lights (the Human-Benchmark density): ~8 tiles on a 5×5, 11 on a
+    6×6, 15 on a 7×7."""
     if lit is None:
-        lit = max(4, round(n * n * 0.2))
+        lit = max(4, round(n * n * 0.3))
     lit = min(lit, n * n)
     cells = sorted(rng.sample(range(n * n), lit))
     return {"n": n, "flash": cells, "lives": 3, "secret": {}}

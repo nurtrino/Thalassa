@@ -74,10 +74,12 @@ def test_visual_memory_generate_and_check():
     rng = random.Random(4)
     d = puzzles.gen_visual_memory(rng)                # default 6×6
     assert d["n"] == 6 and d["lives"] == 3
-    assert len(d["flash"]) == 7 and len(set(d["flash"])) == 7   # ~a fifth of 36
+    assert len(d["flash"]) == 11 and len(set(d["flash"])) == 11   # ~a third of 36
     assert all(0 <= c < 36 for c in d["flash"])
     small = puzzles.gen_visual_memory(rng, n=5)       # STRIKE board
-    assert small["n"] == 5 and len(small["flash"]) == 5
+    assert small["n"] == 5 and len(small["flash"]) == 8
+    big = puzzles.gen_visual_memory(rng, n=7)         # the deepest board
+    assert big["n"] == 7 and len(big["flash"]) == 15
     assert puzzles.check("visual_memory", d, d["flash"])          # all found → win
     assert puzzles.check("visual_memory", d, list(reversed(d["flash"])))  # order-free
     assert not puzzles.check("visual_memory", d, d["flash"][:-1])  # one missed → fail
