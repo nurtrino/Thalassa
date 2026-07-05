@@ -1134,7 +1134,17 @@ export function createWorld(container, handlers = {}) {
     // the Vale is a wall of giant trees that swallows the horizon — let the
     // eye crane further up here to look past the canopy to the barrow beacon
     // poking through it; other realms keep the flatter cap (just the skyline).
-    controls.maxPolarAngle = stageId === 'autumn' ? 1.52 : 1.34;
+    // And LOCK the chase in tight to the captain so the camera can't dolly
+    // back out through the trunks (no clipping deep into the wood).
+    // (OrbitControls.update() clamps the live distance into this band every
+    // frame, so an already-dollied-out camera pulls itself back in on entry)
+    if (stageId === 'autumn') {
+      controls.maxPolarAngle = 1.52;
+      controls.minDistance = 20; controls.maxDistance = 26;
+    } else {
+      controls.maxPolarAngle = 1.34;
+      controls.minDistance = 16; controls.maxDistance = 84;
+    }
     if (lastRoom) syncStage(st, lastRoom);
     /* move the ride-along groups into this scene */
     st.scene.add(highlights, fx, valeArrows);
