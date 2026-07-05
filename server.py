@@ -391,6 +391,8 @@ async def bot_move(nonce: int, tag: str, pid: str):
             err = await dispatch(pid, "pass", {})
     elif phase == "pharos":
         err = await dispatch(pid, "pharos_enter", {})
+        if err:                       # the door is sealed: turn away
+            err = await dispatch(pid, "pass", {})
     elif phase == "shop":
         buy = bots.decide_shop(g, pid)
         if buy:

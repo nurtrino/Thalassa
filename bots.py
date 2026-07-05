@@ -107,10 +107,13 @@ def decide_sail(g: G.Game, pid: str, rng: random.Random) -> str:
     dist_to_goal = _distances_from(g.board, goal)
     best, best_d = None, 1e9
     for nid in g.reachable:
+        # never berth at a sealed Pharos door by accident — a wasted turn
+        if g.board.nodes[nid]["type"] == "pharos" and not g._pharos_ok(p):
+            continue
         d = dist_to_goal.get(nid, 1e8)
         if d < best_d:
             best, best_d = nid, d
-    return best
+    return best or next(iter(g.reachable))
 
 
 def decide_shrine_tier(g: G.Game, pid: str, skill: Skill, rng: random.Random) -> int:

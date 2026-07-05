@@ -916,15 +916,22 @@ def test_bank_and_pharos_open_and_win():
     assert g.phase == "finished"
 
 
-def test_pharos_locked_without_seals():
+def test_pharos_shore_is_open_but_the_door_is_sealed():
+    # ANYONE may sail to the Pharos shore (it glows like any landfall) and
+    # stand before the door — but without the seals it is sealed bronze:
+    # no way in, only the walk back to the ship
     g, (p0, p1) = make_game()
-    g.pharos_open = True
     p = g.player_by_pid(p0)
-    # right next to the Pharos with nothing banked
     nb = g.board.neighbors["pharos"][0]
     p.node = nb
     g.roll(p0, 6)
-    assert "pharos" not in g.reachable
+    assert "pharos" in g.reachable            # the shore is a legal landfall
+    g.sail(p0, "pharos")
+    assert g.phase == "pharos"                # standing before the door...
+    with pytest.raises(GameError):
+        g.enter_pharos(p0)                    # ...which does not open
+    g.pass_turn(p0)                           # turn away
+    assert g.phase == "trade"
 
 
 def test_pharos_takes_any_roll_and_gates_on_ceremony():

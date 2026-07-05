@@ -250,8 +250,9 @@ class Game:
         return self.board.nodes[nid]["type"] == "pharos"
 
     def _can_land(self, p: Player, nid: str) -> bool:
-        if self.board.nodes[nid]["type"] == "pharos":
-            return self._pharos_ok(p)
+        # the Pharos SHORE is open to anyone — sail up, stand before the
+        # great door, see it sealed. Only stepping THROUGH needs the seals
+        # (enter_pharos guards that).
         return True
 
     def _reachable_for(self, p: Player, steps: int) -> dict[str, int]:
@@ -564,11 +565,17 @@ class Game:
             self._bump("battle")
             return
         if ntype == "pharos":
-            # The final door. You only reach it with the seals already banked;
-            # the CEREMONY plays first (set the seals, the leaves grind open,
-            # darkness spills out) — the Warden battle begins only when the
-            # captain steps THROUGH, via enter_pharos().
-            self._say(f"🕯 {p.name} stands before the Pharos door — set the seals and enter.")
+            # The final door. Anyone may land on the shore and stand before
+            # it; with the seals banked the CEREMONY plays (set the seals,
+            # the leaves grind open, darkness spills out) and enter_pharos()
+            # begins the trial. Without them there is only sealed bronze —
+            # no handle, no keyhole — and the way back to your ship.
+            if self._pharos_ok(p):
+                self._say(f"🕯 {p.name} stands before the Pharos door — set the seals and enter.")
+            else:
+                self._say(f"🚪 {p.name} lands at the Pharos. The great door is "
+                          f"sealed fast — three empty sockets, no way in. "
+                          f"({p.banked}/{RELICS_TO_WIN} seals banked)")
             self._bump("pharos")
             return
         monster = self.board.alive_monster(nid)
@@ -705,6 +712,8 @@ class Game:
         nid = p.node
         if self.board.nodes[nid]["type"] != "pharos":
             raise GameError("There is no tower here.")
+        if not self._pharos_ok(p):
+            raise GameError("The door is sealed — bank three sigil seals to open it.")
         if not self.board.alive_monster(nid):
             self.board.reset_warden()          # a fresh Warden for this challenger
         self.battle = {"node": nid, "stance": None, "round": 0,
@@ -729,9 +738,10 @@ class Game:
         self._bump("question")
 
     def pass_turn(self, pid: str):
-        self._require_turn(pid, "shrine", "haven", "shop", "trade")
+        self._require_turn(pid, "shrine", "haven", "shop", "trade", "pharos")
         # leaving the land market or the trade beat ends the turn outright;
-        # walking away from a shrine or haven still earns the trade beat
+        # walking away from a shrine, haven or the sealed Pharos door still
+        # earns the trade beat
         if self.phase in ("shop", "trade"):
             self._next_turn()
         else:
