@@ -406,9 +406,25 @@ let lastStage = null;
 const REALM_MUSIC = new Set(['hub', 'ice', 'desert', 'jungle', 'autumn']);
 let curRealm = 'hub';
 
-/* every realm plays its single named track (static/music/<realm>.mp3) */
+/* Overworld tracks (static/music/<realm>.mp3). Realms with a SECOND
+   uploaded theme rotate it per visit — the long-lost option tracks were
+   recovered from the release branch: desert2 ("deser music option
+   backround") and hub2 ("backround option 2"). First visit plays the
+   base theme; each re-entry flips. audio.setScene's base-name fallback
+   (desert2 → desert) keeps a missing file harmless. */
+const MUSIC_ALTS = { desert: 2, hub: 2 };
+let musicWhere = null;      // which realm's theme is playing (visit edge)
+const musicPick = {};       // realm → variant index for the current visit
 function realmMusic(realm) {
-  return realm;
+  if (musicWhere !== realm) {
+    musicWhere = realm;
+    if (MUSIC_ALTS[realm]) {
+      musicPick[realm] = musicPick[realm] === undefined
+        ? 0 : (musicPick[realm] + 1) % MUSIC_ALTS[realm];
+    }
+  }
+  const k = musicPick[realm] || 0;
+  return k ? `${realm}${k + 1}` : realm;
 }
 
 function applyStage(stageId) {
@@ -427,7 +443,10 @@ function applyStage(stageId) {
   // matches where you actually are through the gate (not a snapshot later)
   if (stageId !== 'battle' && room && REALM_MUSIC.has(realm)
       && !['question', 'minigame', 'reveal', 'upgrade_pick', 'lobby'].includes(room.phase)) {
-    audio.setScene(realmMusic(realm));
+    // the opening fly-over cycles every stage — play base themes under it
+    // and don't let it burn 'visits', so your first real landfall opens on
+    // each realm's primary track
+    audio.setScene(world.tourActive?.() ? realm : realmMusic(realm));
   }
   renderMapBtn();
 }
