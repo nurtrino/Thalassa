@@ -34,10 +34,9 @@ Battles are stance, target, trivia:
             retreat from a trial or the Warden)
 
 BOSSES fight like bosses: they counter EVERY exchange (a correct answer no
-longer slips you out of reach), every HEAVY_EVERY-th blow is a telegraphed
-heavy for double damage — guard it or eat it — and at half strength they
-ENRAGE for +1 power. Beating one takes preparation: hull fittings, planks,
-aegis charms, and guarding the right rounds.
+longer slips you out of reach), and every blow lands in the 2–4 band — every
+HEAVY_EVERY-th is a telegraphed heavy at the top of it. Beating one takes
+preparation: hull fittings, planks, aegis charms, and reading the dodges.
 
 Scrolls are the economy: temples pay them, shops spend them — hint stones,
 gale charms, pitch & planks, aegis charms, war horns, permanent ship
@@ -1365,14 +1364,6 @@ class Game:
                     if node.get("encounter") or node["type"] == "sea":
                         node["monster"] = None     # the waters fall quiet — for now
             else:
-                # a wounded boss enrages — and the fury lands this very round
-                if boss and not m.get("enraged"):
-                    if sum(e["hp"] for e in enemies) * 2 <= sum(e["max_hp"] for e in enemies):
-                        m["enraged"] = True
-                        for e in enemies:
-                            e["power"] += 1
-                        note += f" 🔥 {m['name']} ENRAGES — its blows land harder!"
-
                 # ── the enemies' move ────────────────────────────────────────
                 # Packs only punish a miss; a boss answers EVERY exchange.
                 # The counter does NOT land yet — first the reveal shows
@@ -1389,7 +1380,12 @@ class Game:
                     p.hull -= hit
                 elif boss or not correct:
                     self._advance_attacker(enemies)
-                    power = front["power"] * (HEAVY_MULT if heavy else 1)
+                    # bosses ALL land in the 2–4 band (a telegraphed heavy sits
+                    # at the top of it); packs strike for their own power
+                    if boss:
+                        power = min(4, max(2, front["power"] * (HEAVY_MULT if heavy else 1)))
+                    else:
+                        power = front["power"]
                     enemy_phase["attacker"] = front["name"]
                     enemy_phase["pending"] = True   # a blow hangs over the reveal
                     self.battle["incoming"] = {
@@ -1507,8 +1503,10 @@ class Game:
             return
         if ok:
             self._puzzle_success(mg["island"])
-        elif mg["kind"] in ("simon", "memory"):
-            self._puzzle_fail(mg["island"])       # one wrong note ends the echo
+        elif mg["kind"] in ("simon", "memory", "ravens"):
+            # a single-pick challenge (the echo, the pattern tile): one wrong
+            # answer ENDS it — no reward, no picking again at the same obelisk
+            self._puzzle_fail(mg["island"])
         else:
             raise GameError("Not solved yet — the isle waits.")
 
@@ -1736,7 +1734,6 @@ class Game:
         boss = bool(m.get("boss")) or any(e["max_hp"] >= 5 for e in m["enemies"])
         return {"name": m["name"], "tier": m["tier"], "domain": m["domain"],
                 "boss": boss, "model": m.get("model"),
-                "enraged": bool(m.get("enraged")),
                 "escalation": m.get("escalation", 0),
                 "ambush": bool(self.battle.get("ambush")),
                 "round": self.battle.get("round", 0),

@@ -958,9 +958,15 @@ function renderDodge() {
   if (dodgeState) { cancelAnimationFrame(dodgeState.raf); removeEventListener('keydown', dodgeState.key); }
   el.classList.remove('hidden');
 
+  // a big warning banner over the telegraphed heavy blow, so the dodge for
+  // the bigger hit never takes you by surprise
+  const warn = d.heavy
+    ? `<div class="dodgewarn heavy">${icon('guard', 15)} HEAVY BLOW</div>`
+    : '';
+
   if (!mine) {
     const fighter = room.players.find((p) => p.pid === room.turn);
-    el.innerHTML = `<div class="dodgecap">${esc(d.attacker)} strikes — ` +
+    el.innerHTML = warn + `<div class="dodgecap">${esc(d.attacker)} strikes — ` +
       `${esc(fighter?.name || 'the captain')} reads the blow…</div>`;
     dodgeState = { id: key, raf: 0, key: () => {} };
     return;
@@ -976,9 +982,8 @@ function renderDodge() {
   const REVS = 2;                       // two laps, then the blow lands
   const arcStart = 100 + Math.random() * 200;   // degrees clockwise from 12
 
-  el.innerHTML =
-    `<div class="dodgecap">${d.heavy ? '<strong>HEAVY BLOW</strong> — ' : ''}` +
-    `${esc(d.attacker)} strikes! <strong>DODGE!</strong></div>` +
+  el.innerHTML = warn +
+    `<div class="dodgecap">${esc(d.attacker)} strikes! <strong>DODGE!</strong></div>` +
     '<div class="dodgewheel">' +
     `<div class="dq-arc" style="background:conic-gradient(from ${arcStart}deg,` +
     'rgba(240,208,96,.95) 0deg, rgba(240,208,96,.75) ' + ARC + 'deg,' +
@@ -1686,7 +1691,6 @@ function renderBattle() {
     '</div>' +
     (b.boss ? roundPips : '') +
     (b.escalation > 0 ? ` <span class="escalated" title="A rival already felled this guardian — it rises harder for you. Reach the trial first to face its weakest form.">Risen ×${b.escalation}</span>` : '') +
-    (b.enraged ? ' <span class="enraged">Enraged</span>' : '') +
     (b.charging
       ? `<div class="chargewarn">${icon('guard', 13)} CHARGING — a heavy blow comes. Guard it.</div>`
       : '');
