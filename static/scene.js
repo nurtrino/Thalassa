@@ -153,7 +153,9 @@ export function createWorld(container, handlers = {}) {
   controls.enablePan = false;
   controls.minDistance = 16;
   controls.maxDistance = 84;
-  controls.maxPolarAngle = 1.12;
+  // flat enough to lift the eye to the horizon — the Vale's golden barrow
+  // beacon (and the realms' skylines) must be sightable from the deck
+  controls.maxPolarAngle = 1.34;
   controls.autoRotateSpeed = 0.45;
   controls.target.set(0, 1.5, 0);
 

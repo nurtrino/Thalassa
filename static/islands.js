@@ -1247,7 +1247,7 @@ export function makeRealmField(theme, nodes, segs, rng, heightAt = null) {
     // never interpenetrate, standing clear of the trails and of every POI's
     // clearing. The maze's stops reveal over time, so the wood fills the
     // WHOLE wedge and the fog (and woodsmoke) does the hiding.
-    scatter(2400, 7.5, 6, 9999, () => floraFor(theme, rng, 2.6 + rng() * 1.8), 0, 8);
+    scatter(2400, 8.5, 6, 9999, () => floraFor(theme, rng, 3.4 + rng() * 2.2), 0, 10);
     scatter(46, 6, 7, 9999, prop(['dead_tree', 'mushroom_cluster'], 0.9, 1.6), 0, 3);
     scatter(26, 6, 7, 9999, prop(['campfire', 'stone_well', 'barrel', 'waymarker_stone'], 0.8, 1.5), 0, 4);
   } else {

@@ -94,7 +94,7 @@ const THEMES = {
     // the Vale is a fog-of-war maze: THICK amber murk, pressing in close —
     // the flat golden trail arrows, landing beacons and barrow beam are all
     // fog-free, so the WAY always reads even when the woods beyond it don't
-    fog: { color: 0xe3b184, near: 14, far: 135 },
+    fog: { color: 0xe3b184, near: 11, far: 110 },
     sun: { color: 0xffc274, intensity: 1.65, position: [250, 85, 150] },
     hemi: { sky: 0xf3d2a0, ground: 0x6e4a2e, intensity: 0.7 },
     ambient: 0x362619,
