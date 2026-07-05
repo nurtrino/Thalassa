@@ -1192,10 +1192,9 @@ body.shake #world { animation: shake .45s; }
   box-shadow: 0 0 8px rgba(240, 208, 96, .5);
   transition: background .3s;
 }
-/* numeric countdown riding the timer track (data-secs set by startTimerBar):
-   the shrinking strip alone is hard to parse and its red shift is lost on
-   protan color vision */
-#qtimer[data-secs]::after, #mgtimer[data-secs]::after {
+/* the shrinking timer LINE is the whole readout on question cards — no numeric
+   countdown (minigames keep theirs, their grids need the exact seconds) */
+#mgtimer[data-secs]::after {
   content: attr(data-secs) 's';
   position: absolute; right: 6px; top: -19px;
   font-family: var(--disp); font-weight: 700; font-size: 12px;

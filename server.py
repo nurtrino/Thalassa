@@ -38,7 +38,7 @@ from questions import QuestionBank, TriviaAPIBank
 
 BASE = os.path.dirname(os.path.abspath(__file__))
 QUESTION_SECS = float(os.environ.get("QUESTION_SECS", "35"))
-JEOPARDY_SECS = float(os.environ.get("JEOPARDY_SECS", "15"))   # typed clues
+JEOPARDY_SECS = float(os.environ.get("JEOPARDY_SECS", "20"))   # 5s read + 15s type
 JCHOOSE_SECS = float(os.environ.get("JCHOOSE_SECS", "12"))     # pick a category
 REVEAL_SECS = float(os.environ.get("REVEAL_SECS", "5"))
 ABANDON_RESET_SECS = float(os.environ.get("ABANDON_RESET_SECS", "300"))

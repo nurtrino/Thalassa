@@ -1884,9 +1884,10 @@ function renderQuestion() {
   const typed = !!(q?.typed || rv?.typed);            // a JEOPARDY! clue: you type it
   const ctxDomain = q?.domain ?? rv?.domain;
   const ctxKind = q?.kind ?? rv?.kind;
-  // typed JEOPARDY! clues wear a bronze header (an inscribed-stele look), not
-  // the TV-show blue — it belongs to the Aegean HUD like everything else
-  const dcolor = typed ? '#6b4f1a' : (ctxDomain ? DOMAIN_COLORS[ctxDomain] : '#7d5ba6');
+  // typed JEOPARDY! clues wear the HUD's own bronze header (empty = fall back to
+  // the #qhead stylesheet gradient) — not the TV-show blue, and not a flat slab
+  // that fights the notched frame at the corners
+  const dcolor = typed ? '' : (ctxDomain ? DOMAIN_COLORS[ctxDomain] : '#7d5ba6');
   const dinfo = ctxDomain ? room.board.domains[ctxDomain] : null;
 
   $('qhead').style.background = dcolor;
@@ -2000,8 +2001,9 @@ function renderQuestion() {
   }
 }
 
-/* a typed JEOPARDY! clue — the challenger types their answer on the 15s clock.
+/* a typed JEOPARDY! clue — 5s to read, then 15s to type the answer.
    Rebuild only when the clue changes, so live re-renders never wipe typing. */
+let readTimer = 0;
 function renderTypedQuestion(q, mine) {
   const opts = $('qopts');
   const key = 'typed:' + `${q.text}`.slice(0, 80);
@@ -2029,6 +2031,7 @@ function renderTypedQuestion(q, mine) {
   btn.className = 'opt typedgo';
   btn.textContent = 'Answer';
   const submit = () => {
+    if (input.disabled) return;                    // still in the reading beat
     const t = input.value.trim();
     if (!t) return;
     input.disabled = true;
@@ -2039,8 +2042,34 @@ function renderTypedQuestion(q, mine) {
   btn.onclick = submit;
   wrap.append(input, btn);
   opts.appendChild(wrap);
-  $('qnote').textContent = 'Type the answer and press Enter — 15 seconds.';
-  setTimeout(() => { try { input.focus(); } catch (e) {} }, 30);
+
+  // 5 seconds to READ the clue, then 15 to TYPE: lock the box during the read
+  // beat (the server window is 20s = 5 + 15; typing opens at deadline − 15).
+  clearTimeout(readTimer);
+  const TYPE_SECS = 15;
+  const openTyping = () => {
+    input.disabled = false; btn.disabled = false;
+    $('qnote').textContent = 'Type the answer and press Enter — 15 seconds.';
+    try { input.focus(); } catch (e) {}
+  };
+  const readUntil = (q.deadline || (Date.now() / 1000 + 20)) - TYPE_SECS;
+  if (Date.now() / 1000 < readUntil) {
+    input.disabled = true; btn.disabled = true;
+    input.placeholder = 'read the clue…';
+    const tickRead = () => {
+      if (room.phase !== 'question') return;       // question gone — do nothing
+      const left = Math.ceil(readUntil - Date.now() / 1000);
+      if (left > 0) {
+        $('qnote').textContent = `Read the clue — you may answer in ${left}s`;
+        readTimer = setTimeout(tickRead, 250);
+      } else {
+        openTyping();
+      }
+    };
+    tickRead();
+  } else {
+    openTyping();
+  }
 }
 
 function startTimerBar(deadline, barSel) {
