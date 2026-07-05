@@ -592,12 +592,12 @@ class Game:
             self._kraken_deal()
             return
 
-        # Danger scales with the passage. Realm hunting grounds bite on most
-        # landings (deeper = surer) and realm open water can spring a sea
-        # attack too. The Isles of Peace are far calmer — but not empty: a
-        # stray raider still turns up now and then in the home waters.
-        if node.get("encounter") and node.get("depth"):
-            chance = min(0.85, 0.45 + 0.1 * node["depth"])
+        # HUNTING GROUNDS BITE, EVERY TIME: land on a skull stop and the pack
+        # is there — no dice about it. Realm open water can still spring a
+        # sea attack (deeper = surer), and the Isles of Peace are far calmer —
+        # but not empty: a stray raider still turns up in the home waters.
+        if node.get("encounter"):
+            chance = 1.0
         elif ntype == "sea" and node.get("depth"):
             # quieter open water: battles are meatier now (puzzles!), and the
             # roads are longer — the hunting grounds carry the realm's teeth

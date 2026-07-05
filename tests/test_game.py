@@ -498,6 +498,17 @@ def test_watchdog_heals_a_stuck_table():
     S.table.reset()
 
 
+def test_hunting_grounds_always_bite():
+    # a skull stop is an AUTO-encounter: landing there always means a fight
+    g, (p0, p1) = make_game()
+    g.rng.random = lambda: 0.999          # even the unluckiest roll of the dice
+    monster = next(nid for nid, n in g.board.nodes.items()
+                   if n["type"] == "monster" and n.get("owner") in (None, p0))
+    force_land(g, p0, monster)
+    assert g.phase == "battle"
+    assert g.board.alive_monster(monster)
+
+
 def test_vale_hidden_from_anonymous_spectators():
     # an unjoined watcher socket (or a lost token) is NOT a debug backdoor:
     # no private ground, no reachable set, rivals veiled at the pass
