@@ -75,9 +75,11 @@ export function makeWater(theme, size = 3000) {
         vec3 R = reflect(-sunDir, N);
         float spec = pow(max(dot(R, V), 0.0), 120.0);
         c += sunCol * spec * 1.1;
-        // sun glitter riding the chop — sparse moving glints (two rotated
-        // interference fields), not the old printed dot-grid
-        float g1 = sin(vW.x*0.9 + t*1.3) * sin(vW.z*1.1 - t*1.1);
+        // sun glitter riding the chop — sparse moving glints on two fields
+        // rotated ~36° apart (incommensurate axes: axis-aligned + 45° made
+        // the interference peaks line up into a checkerboard sheet)
+        float gu = vW.x*0.809 - vW.z*0.588, gv = vW.x*0.588 + vW.z*0.809;
+        float g1 = sin(gu*0.9 + t*1.3) * sin(gv*1.1 - t*1.1);
         float g2 = sin((vW.x+vW.z)*0.53 + t*0.7) * sin((vW.x-vW.z)*0.61 + t*1.9);
         float sp = pow(max(0.0, g1*g2), 32.0);
         c += sunCol * sp * (0.5 + fres) * 1.2 * sparkle;

@@ -41,7 +41,7 @@ storm the Pharos.
    | **STRIKE** | tier I (II vs bosses) | 1 damage, reliable |
    | **MAGIC** | tier III | 3 damage; a miss backfires |
    | **GUARD** | tier I | riposte — turn the blow aside and drive it back for its power (2× a heavy) |
-   | **FLEE** | 2 scrolls | 50/50 escape; never from a boss |
+   | **FLEE** | 1 scroll | 50/50 escape; never from a boss |
 
    Bosses counter **every** exchange, telegraph a **heavy blow** every third
    round (guard it or eat double damage), and **enrage** at half strength.

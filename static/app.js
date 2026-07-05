@@ -292,6 +292,7 @@ function connect() {
   ws = new WebSocket(`${proto}://${location.host}/ws`);
   ws.onopen = () => {
     reconnectN = 0;
+    setConnVeil(false);
     send({ type: 'hello', token, name });
   };
   ws.onmessage = (ev) => handle(JSON.parse(ev.data));
@@ -306,11 +307,26 @@ function scheduleReconnect() {
   if (room && room.phase === 'finished') return;
   const delay = Math.min(15000, 900 * Math.pow(2, reconnectN++));
   if (reconnectN === 1) toast('Connection lost — reconnecting…', true);
+  setConnVeil(true);        // the board must not look alive while taps go nowhere
   clearTimeout(reconnectTimer);
   reconnectTimer = setTimeout(() => {
     resetTransient();       // stale timers/targets must not survive the gap
     connect();
   }, delay);
+}
+
+/* a persistent veil while the socket is down: one transient toast wasn't
+   enough — during a long outage the board looked live and taps died silently */
+let connVeilEl = null;
+function setConnVeil(on) {
+  if (!on) { connVeilEl?.remove(); connVeilEl = null; return; }
+  if (connVeilEl) return;
+  const d = document.createElement('div');
+  connVeilEl = d;
+  d.id = 'connVeil';
+  d.innerHTML = '<div class="plaque" style="padding:12px 22px">' +
+    'Connection lost — reconnecting…</div>';
+  document.body.appendChild(d);
 }
 
 function send(obj) { if (ws?.readyState === 1) ws.send(JSON.stringify(obj)); }
@@ -399,11 +415,15 @@ function showRealmBanner(info) {
   bannerEl = d;
   d.style.cssText =
     'position:fixed;left:50%;top:26%;transform:translateX(-50%);z-index:18;' +
-    'pointer-events:none;text-align:center;opacity:0';
+    'pointer-events:none;text-align:center;opacity:0;' +
+    // a translucent dark scrim so the accent stays readable on ANY stage —
+    // gold on sand and ice-blue on sun glare both failed without it
+    'padding:10px 26px;border-radius:12px;background:rgba(6,10,16,.42);' +
+    '-webkit-backdrop-filter:blur(2.5px);backdrop-filter:blur(2.5px)';
   d.innerHTML =
     `<div style="font-family:var(--disp,serif);font-weight:800;font-size:clamp(22px,4.6vw,42px);` +
     `letter-spacing:.24em;text-transform:uppercase;color:${info.accent};` +
-    `text-shadow:0 2px 14px rgba(3,6,10,.9),0 0 34px ${info.accent}55;white-space:nowrap">${esc(info.name)}</div>` +
+    `text-shadow:0 2px 14px rgba(3,6,10,.95),0 0 34px ${info.accent}55;white-space:nowrap">${esc(info.name)}</div>` +
     `<div style="margin:6px auto 0;width:180px;height:1px;` +
     `background:linear-gradient(90deg,transparent,${info.accent},transparent)"></div>`;
   document.body.appendChild(d);
@@ -1580,8 +1600,10 @@ function renderBattle() {
      'Riposte — turn the blow aside and drive it back for its power (2× a heavy)');
   if (!b.boss) {
     const fleeCost = room.config?.flee_cost ?? 2;
-    mk(`${icon('flee', 16)} FLEE`, 'battlebtn ghost', () => send({ type: 'flee' }),
-       `${fleeCost} scrolls · 50/50 escape — fail and the front enemy strikes free`,
+    // .flee carries a spacer gap: butted against GUARD it was the #1
+    // fat-finger complaint — an accidental flee costs scrolls AND a free hit
+    mk(`${icon('flee', 16)} FLEE`, 'battlebtn ghost flee', () => send({ type: 'flee' }),
+       `${fleeCost} scroll${fleeCost === 1 ? '' : 's'} · 50/50 escape — fail and the front enemy strikes free`,
        (me?.scrolls ?? 0) < fleeCost);
   }
   if ((me?.items?.horn || 0) > 0 && !b.horn) {
@@ -1791,6 +1813,9 @@ function startTimerBar(deadline, barSel) {
     const pct = Math.max(0, Math.min(1, left / total));
     bar.style.width = (pct * 100) + '%';
     bar.style.background = pct < 0.25 ? '#e4572e' : '';
+    // numeric readout beside the bar — a shrinking 7px strip alone is a lot
+    // to parse mid-question, and its red shift is invisible to protans
+    bar.parentElement.dataset.secs = Math.max(0, Math.ceil(left));
     if (pct > 0 && (room.phase === 'question' || room.phase === 'minigame')) {
       timerRAF = requestAnimationFrame(tick);
     }

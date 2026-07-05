@@ -103,7 +103,14 @@ function structTemplate(id) {
     .then((gltf) => {
       const s = gltf.scene;
       s.traverse((o) => {
-        if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; }
+        if (o.isMesh) {
+          o.castShadow = true;
+          o.receiveShadow = true;
+          // matte the Meshy PBR down so landmarks sit in the faceted world
+          if (o.material && 'roughness' in o.material) {
+            o.material.roughness = Math.max(0.85, o.material.roughness);
+          }
+        }
       });
       s.userData.box = new THREE.Box3().setFromObject(s);
       return s;

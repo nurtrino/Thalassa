@@ -440,7 +440,13 @@ def visual(outdir):
                 shop = next((n for n in nodes if n["type"] == "shop"), None)
                 if shop:
                     await c.teleport(shop["id"], land=True)
-                    await keep(c, "vis_shop", 1200)
+                    # the stall sheet appears only after the arrival camera
+                    # settles, then fades in over 250ms — shooting early
+                    # catches a ghost frame and reads as a transparency bug
+                    with contextlib.suppress(Exception):
+                        await c.page.wait_for_selector(
+                            "#shopPanel:not(.hidden)", timeout=8000)
+                    await keep(c, "vis_shop", 1400)
                     await c.send({"type": "pass"})
                 shrine = next((n for n in nodes if n["type"] == "shrine"
                                and not n.get("region")), None)
