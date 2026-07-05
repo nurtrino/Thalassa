@@ -34,7 +34,7 @@ from fastapi.staticfiles import StaticFiles
 import bots
 import questions
 from game import Game, GameError
-from questions import QuestionBank
+from questions import QuestionBank, TriviaAPIBank
 
 BASE = os.path.dirname(os.path.abspath(__file__))
 QUESTION_SECS = float(os.environ.get("QUESTION_SECS", "35"))
@@ -68,6 +68,7 @@ class Table:
 
 table = Table()
 bank = QuestionBank()          # temples: themed by domain
+trivia_bank = TriviaAPIBank()  # battles: live The Trivia API, buffered offline-safe
 app = FastAPI(title="Thalassa")
 
 
@@ -118,9 +119,12 @@ async def fetch_question(nonce: int):
     if pending is not None:
         limit = pending.get("limit", 60)
         q = pending
-    elif mode in ("jeopardy", "mc"):         # typed clue, 15s on the clock
-        limit = JEOPARDY_SECS                 # ('mc' retired — always a jeopardy clue now)
+    elif mode == "jeopardy":                 # typed clue, 15s on the clock
+        limit = JEOPARDY_SECS
         q = questions.jeopardy_pick(g.rng)
+    elif mode == "mc":                        # battle MC — live Trivia API (buffered)
+        limit = QUESTION_SECS
+        q = trivia_bank.get()
     else:                                     # temples: themed by domain
         limit = QUESTION_SECS
         q = await bank.get(g.qctx["domain"], g.qctx["tier"])
@@ -498,5 +502,6 @@ async def abandoned_game_reset():
 @app.on_event("startup")
 async def startup():
     schedule(bank.refill_loop())
+    schedule(trivia_bank.refill_loop())
     schedule(bot_driver())
     schedule(abandoned_game_reset())

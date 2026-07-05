@@ -1699,9 +1699,8 @@ def test_boss_rotates_all_three_challenge_decks():
         else:
             assert g.phase == "question"
             modes.add(g.qctx["mode"])
-    # the curriculum is now two decks — typed Jeopardy (the star) and puzzles;
-    # the general MC deck (Open Trivia DB) has been retired
-    assert "jeopardy" in modes and modes <= {"puzzle", "jeopardy"}
+    # three decks: general MC (offline trivia), typed Jeopardy, and puzzles
+    assert "jeopardy" in modes and modes <= {"mc", "puzzle", "jeopardy"}
 
 
 def test_typed_jeopardy_correct_answer():

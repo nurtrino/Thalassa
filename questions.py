@@ -1,26 +1,41 @@
 """
-Question service — FULLY OFFLINE. No trivia API is ever contacted.
+Question service.
 
-  · Multiple-choice questions (TEMPLES by domain, BATTLES general) come from a
-    bundled slice of the uberspot/OpenTriviaQA set — data/trivia.json, ~3200
-    questions grouped into the four Thalassa domains (clio/athena/apollo/
-    dionysos). QuestionBank serves temples by domain; OpenTDBBank (name kept for
-    the import) serves battles from every domain.
-  · Typed JEOPARDY! clues come from data/jeopardy.json (see below).
-  · FALLBACK (bottom of file) is a tiny hand-written safety net if a bundle is
-    missing.
+  · TEMPLE multiple-choice questions come from a bundled slice of the
+    uberspot/OpenTriviaQA set — data/trivia.json, ~3200 questions grouped into
+    the four Thalassa domains (clio/athena/apollo/dionysos). QuestionBank serves
+    temples by domain, fully offline.
+  · BATTLE multiple-choice questions come from the LIVE The Trivia API
+    (TriviaAPIBank), pulled into a background buffer so the request path is
+    instant; if the API is slow or unreachable it falls back to the bundle.
+  · Typed JEOPARDY! clues come from data/jeopardy.json (offline).
+  · FALLBACK (bottom of file) is a tiny hand-written safety net.
 
-Nothing here blocks or fetches, so a shrine or battle can never hang on
+The battle bank NEVER blocks the request path — get() returns from the buffer
+or the offline bundle — so a shrine or battle can't hang on
 "A herald fetches the question…".
 """
 from __future__ import annotations
 
+import asyncio
 import html
 import json
+import os
 import pathlib
 import random
 import re
 import unicodedata
+
+try:
+    import httpx
+except Exception:                      # pragma: no cover - httpx should be present
+    httpx = None
+
+# The live The Trivia API (the-trivia-api.com). A key isn't required for basic
+# /questions requests but lifts the rate limit — read one from the environment,
+# falling back to the project key.
+_TRIVIA_API_URL = "https://the-trivia-api.com/v2/questions"
+_TRIVIA_API_KEY = os.environ.get("TRIVIA_API_KEY", "iLE7akLJFkCQAK5fCCMqgybzC")
 
 TIER_DIFFICULTY = {1: "medium", 2: "hard", 3: "hard", 4: "hard"}
 
@@ -45,6 +60,72 @@ _ALL_TRIVIA = [q for lst in TRIVIA.values() for q in lst]
 
 def _shape_item(it: dict, rng: random.Random) -> dict:
     return _shape(it["q"], it["a"], it["w"], rng)
+
+
+def trivia_pick(rng: random.Random) -> dict:
+    """BATTLES: a general multiple-choice trivia question, drawn INSTANTLY from
+    the offline bundle — synchronous, no network, so the herald never waits."""
+    if _ALL_TRIVIA:
+        return _shape_item(rng.choice(_ALL_TRIVIA), rng)
+    pools = []
+    for d in FALLBACK.values():
+        pools += d["medium"] + d["hard"]
+    raw = rng.choice(pools)
+    return _shape(raw[0], raw[1], list(raw[2]), rng)
+
+
+class TriviaAPIBank:
+    """BATTLES: general multiple-choice trivia from the LIVE The Trivia API,
+    kept in a background-filled BUFFER so a battle question is always instant.
+    get() pops the buffer; if it's empty (API slow or unreachable) it falls
+    straight back to the offline bundle — the herald therefore never hangs."""
+
+    LOW = 12                       # refill when the buffer dips below this
+    FILL = 40                      # questions to pull per refill
+
+    def __init__(self):
+        self.rng = random.Random()
+        self.buffer: list[dict] = []
+
+    def get(self) -> dict:
+        if self.buffer:
+            return self.buffer.pop()
+        return trivia_pick(self.rng)          # instant offline fallback
+
+    def counts(self) -> dict:
+        return {"buffered": len(self.buffer)}
+
+    async def _fetch(self, n: int) -> list[dict]:
+        if httpx is None:
+            return []
+        params = {"limit": str(min(50, n)), "types": "text_choice",
+                  "difficulties": "medium,hard"}
+        headers = {"X-API-Key": _TRIVIA_API_KEY} if _TRIVIA_API_KEY else {}
+        async with httpx.AsyncClient(timeout=8.0, trust_env=True) as client:
+            r = await client.get(_TRIVIA_API_URL, params=params, headers=headers)
+            r.raise_for_status()
+            out = []
+            for it in r.json():
+                if it.get("type") != "text_choice":
+                    continue
+                q = (it.get("question") or {}).get("text")
+                a = it.get("correctAnswer")
+                w = it.get("incorrectAnswers") or []
+                if q and a and len(w) >= 3:
+                    out.append(_shape(html.unescape(q), html.unescape(a),
+                                      [html.unescape(x) for x in w[:3]], self.rng))
+            return out
+
+    async def refill_loop(self):
+        while True:
+            try:
+                if len(self.buffer) < self.LOW:
+                    got = await self._fetch(self.FILL)
+                    if got:
+                        self.buffer = got + self.buffer
+            except Exception:
+                pass                          # API hiccup — the offline bundle covers it
+            await asyncio.sleep(4)
 
 
 class QuestionBank:
