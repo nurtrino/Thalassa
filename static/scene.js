@@ -128,10 +128,15 @@ function makeSunGlow(colorHex) {
 
 function makeCloud(rng, big, tint) {
   const cl = new THREE.Group();
-  const n = 4 + Math.floor(rng() * 3);
+  const n = 5 + Math.floor(rng() * 4);
   for (let j = 0; j < n; j++) {
     const sp = new THREE.Sprite(new THREE.SpriteMaterial({
-      map: TEX_CLOUD, transparent: true, opacity: 0.88, depthWrite: false, color: tint,
+      map: TEX_CLOUD, transparent: true, opacity: 0.82, depthWrite: false,
+      color: tint,
+      // clouds live against the SKY, above the weather — never inside the
+      // stage fog. Fogged sprites orbiting the stage kept swimming in and
+      // out of the murk, popping into and out of existence every lap.
+      fog: false,
     }));
     const s = (16 + rng() * 18) * big;
     sp.scale.set(s, s * 0.62, 1);
@@ -498,13 +503,16 @@ export function createWorld(container, handlers = {}) {
       scene.add(field);
     }
 
-    /* drifting clouds, tinted faintly toward the horizon color */
-    const cloudTint = new THREE.Color(0xffffff).lerp(new THREE.Color(theme.sky.horizon), 0.22);
+    /* drifting clouds: BIG, high, tinted toward each theme's horizon so
+       they belong to its sky — and fog-free, so a lap around the stage
+       never makes one appear or disappear */
+    const cloudTint = new THREE.Color(0xffffff).lerp(new THREE.Color(theme.sky.horizon), 0.3);
     const clouds = [];
-    for (let i = 0; i < 10; i++) {
-      const cl = makeCloud(rng, 0.9 + rng() * 1.6, cloudTint);
-      cl.userData = { a: rng() * Math.PI * 2, r: 140 + rng() * 300 };
-      cl.position.y = 72 + rng() * 70;
+    for (let i = 0; i < 12; i++) {
+      const cl = makeCloud(rng, 2.1 + rng() * 2.1, cloudTint);
+      cl.userData = { a: (i / 12) * Math.PI * 2 + rng() * 0.5,
+                      r: 170 + rng() * 330 };
+      cl.position.y = 78 + rng() * 66;     // in the sky band a chase camera sees
       clouds.push(cl);
       scene.add(cl);
     }
