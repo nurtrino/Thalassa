@@ -398,7 +398,9 @@ class Board:
                 off = (-side if si % 2 == 0 else side) * (0.14 + 0.045 * (si % 3))
                 depth_end = 5 + si                   # spur ends run deep
                 prev = main[k]
-                length = 1 + (si % 2)                 # 1–2 stops deep, then stops
+                length = 2 + (si % 2)                 # 2–3 stops deep, then stops
+                #  ↳ a blind alley is still a proper little side-track: never a
+                #    single lone island stranded off the path on its own.
                 for j in range(length):
                     node = place(f"r{gi}_d{si}_{j}", hr + (j + 1) * 34,
                                  ha + off * (j + 1), 2)
@@ -413,8 +415,10 @@ class Board:
 
         # ── the MAIN ROAD: a LONG arc of stops bowing out to one side ────────
         # Every realm is a proper trek now — eight stops thick with POIs. The
-        # desert keeps the same length but stays SIMPLE: one fork, one bypass.
-        plan = (["weak", "sea", "weak", "haven", "weak", "sea", "shrine", "weak", "weak"]
+        # desert keeps the same length but stays SIMPLE: one elite fork and one
+        # haven detour. The checkpoint NEVER sits on the through-road — it lives
+        # out on the detour, so the two arms are a real choice.
+        plan = (["weak", "sea", "weak", "sea", "weak", "sea", "shrine", "weak", "weak"]
                 if simple else
                 ["sea", "weak", "sea", "shrine", "sea", "weak", "sea", "weak"])
         main = [gate_id]
@@ -437,54 +441,52 @@ class Board:
             elif kind == "shrine":
                 make_shrine(node)
             main.append(nid)
-            if simple:
-                # the desert haven gets a BYPASS so it sits on a loop
-                if kind == "haven":
-                    loop_a, loop_b = main[-2], None            # stop before it
-                elif loop_a and loop_b is None and kind != "haven":
-                    loop_b = nid                               # stop after it
-            else:
-                if i == 3:
-                    loop_a = nid                               # loop leaves here
-                elif i == 4:
-                    loop_b = nid                               # …and rejoins here
+            # the haven detour hangs off a mid-road span in BOTH layouts: the
+            # through-road runs loop_a → (one plain stop) → loop_b, and the
+            # detour arm loop_a → v0(haven) → v1 → loop_b runs alongside it,
+            # one hop longer. Roughly equal — you take the long arm to bank the
+            # checkpoint, the short arm to save the turn.
+            if i == 3:
+                loop_a = nid                                  # loop leaves here
+            elif i == (5 if simple else 4):
+                loop_b = nid                                  # …and rejoins here
         main.append(junc_id)
         for u, v in zip(main, main[1:]):
             self._link(u, v)
 
-        # ── the HAVEN LOOP / desert bypass: a checkpoint on a cycle ──────────
-        if simple:
-            # bypass runs parallel past the haven: loop_a → v0 → loop_b
-            v0 = f"r{gi}_v0"
-            mid_a = (self.nodes[loop_a]["x"] + self.nodes[loop_b]["x"]) / 2
-            mid_z = (self.nodes[loop_a]["z"] + self.nodes[loop_b]["z"]) / 2
-            r_mid = math.hypot(mid_a, mid_z)
-            a_mid = math.atan2(mid_z, mid_a) - side * 0.09
-            place(v0, r_mid, a_mid, 1)
-            self._link(loop_a, v0)
-            self._link(v0, loop_b)
-        else:
-            # the loop bulges AWAY from the main arc's bow and carries the haven
-            v0, v1 = f"r{gi}_v0", f"r{gi}_v1"
-            ra = math.hypot(self.nodes[loop_a]["x"], self.nodes[loop_a]["z"])
-            rb = math.hypot(self.nodes[loop_b]["x"], self.nodes[loop_b]["z"])
-            aa = math.atan2(self.nodes[loop_a]["z"], self.nodes[loop_a]["x"])
-            make_haven(place(v0, ra + 13, aa - side * 0.15, 1))
-            place(v1, rb + 10, aa - side * 0.09, 1)
-            self._link(loop_a, v0)
-            self._link(v0, v1)
-            self._link(v1, loop_b)
+        # ── the HAVEN LOOP: the checkpoint sits OUT ON THE DETOUR ────────────
+        # loop_a and loop_b are already joined through the main road; this arm
+        # bulges away from the road's bow and carries the haven plus one more
+        # stop, so it is a genuine two-isle side-track (never a lone cairn).
+        v0, v1 = f"r{gi}_v0", f"r{gi}_v1"
+        la, lb = self.nodes[loop_a], self.nodes[loop_b]
+        ra = math.hypot(la["x"], la["z"])
+        rb = math.hypot(lb["x"], lb["z"])
+        aa = math.atan2(la["z"], la["x"])
+        ab = math.atan2(lb["z"], lb["x"])
+        bulge = 26 if simple else 13
+        make_haven(place(v0, ra + bulge, aa - side * 0.15, 1))
+        place(v1, rb + bulge, ab - side * 0.11, 1)
+        self._link(loop_a, v0)
+        self._link(v0, v1)
+        self._link(v1, loop_b)
 
-        # ── the SHORTCUT: fewer stops, all elite, rejoins at the junction ────
+        # ── the SHORTCUT: fewer stops, elite grounds, rejoins at the junction ─
+        # Always a TWO-isle fork so it never strands a single lone island out on
+        # a side. On the sail realms both stops are elite hunting grounds; the
+        # desert keeps its promised SINGLE elite (only the deep end bites) with a
+        # quiet dune stop leading in.
         branch = main[1]                       # leaves the road at the first stop
-        count = 1 if simple else 2
+        count = 2
         prev = branch
         for i in range(count):
             nid = f"r{gi}_s{i}"
             t = (i + 1) / (count + 1)
             radius = R0 + 70 + t * (330 - 95)
             a = ang - side * 0.19 * math.sin(math.pi * t)     # hugs the far side
-            make_monster(place(nid, radius, a, 5 + i), elite=True, depth=5 + i)
+            node = place(nid, radius, a, 5 + i)
+            if not simple or i == count - 1:
+                make_monster(node, elite=True, depth=5 + i)
             self._link(prev, nid)
             prev = nid
         self._link(prev, junc_id)
