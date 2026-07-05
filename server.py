@@ -279,12 +279,15 @@ async def dispatch(pid: str | None, kind: str, msg: dict) -> str | None:
                        [nid for nid, n in g.board.nodes.items() if not n.get("region")]
                 if region == "pharos":
                     pool = [nid for nid, n in g.board.nodes.items() if n["type"] == "pharos"]
-                # drop in at the region's PASS (a safe entrance, no ambush), else
-                # a shallow interior stop, else anything in it
+                # drop in on a shallow INTERIOR stop (a plain sea/trail node near
+                # the entrance) so the client actually switches to the region's
+                # stage — a gate is a hub/realm boundary and would keep you on the
+                # hub. Fall back to the gate, then anything in the region.
                 shallow = sorted((nid for nid in pool if g.board.nodes[nid]["type"] == "sea"),
                                  key=lambda nid: g.board.nodes[nid].get("depth", 9))
-                pick = ([nid for nid in pool if g.board.nodes[nid]["type"] == "gate"]
-                        or shallow or pool)
+                pick = (shallow
+                        or [nid for nid in pool if g.board.nodes[nid]["type"] == "gate"]
+                        or pool)
                 node = pick[0] if pick else node
             if p and node in g.board.nodes:
                 p.prev_node = p.node
