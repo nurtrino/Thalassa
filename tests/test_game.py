@@ -100,8 +100,74 @@ def test_full_map_visible_from_turn_one():
     g, (p0, p1) = make_game()
     snap = g.to_dict(p0)
     shown = {n["id"] for n in snap["board"]["nodes"]}
-    assert shown == set(g.board.nodes)                # everything, pharos included
+    # the whole sea is open from the start — EXCEPT the Amber Vale, which is a
+    # fog-of-war maze you must personally discover (see the vale-fog tests)
+    outside_vale = {nid for nid, n in g.board.nodes.items()
+                    if n.get("region") != "autumn"}
+    assert shown == outside_vale                       # everything but the fogged Vale
     assert "pharos" in shown
+    assert not any(g.board.nodes[nid].get("region") == "autumn" for nid in shown)
+
+
+def _autumn_gate(g):
+    return next(nid for nid, n in g.board.nodes.items()
+                if n["type"] == "gate" and n.get("region") == "autumn")
+
+
+def test_vale_is_walked_step_by_step_with_forks():
+    # In the Amber Vale a roll WALKS you forward along the trail (it is not a
+    # pick-a-stop sail): corridors glide by, forks pause for a choice, and the
+    # walk stops at a dead end / POI / when the roll runs out.
+    g, (p0, p1) = make_game()
+    p = g.player_by_pid(p0)
+    gate = _autumn_gate(g)
+    # stand at the pass, having stepped in from the hub
+    hub_nb = next(n for n in g.board.neighbors[gate]
+                  if g.board.nodes[n].get("region") != "autumn")
+    p.node = gate
+    p.prev_node = hub_nb
+    g.phase = "roll"
+    g.roll(p0, 3)
+    # either the walk paused at a fork, or it resolved to a landing
+    steps = 0
+    while g.walk and g.walk.get("options"):
+        assert g.phase == "sail"
+        assert len(g.walk["options"]) >= 2            # a genuine fork
+        # a bad fork is rejected; a real one is taken
+        with pytest.raises(GameError):
+            g.walk_choose(p0, "not_a_node")
+        g.walk_choose(p0, g.walk["options"][0])
+        steps += 1
+        assert steps < 20                             # never loops forever
+    assert g.walk is None                             # the walk always resolves
+    assert g.board.nodes[p.node].get("region") == "autumn"
+    assert p.node != gate                             # you actually moved inward
+    assert gate in p.discovered                       # and remember where you were
+
+
+def test_vale_fog_hides_the_maze_from_spectators():
+    g, (p0, p1) = make_game()
+    p = g.player_by_pid(p0)
+    gate = _autumn_gate(g)
+    p.node = gate
+    p.prev_node = "home"
+    g.phase = "roll"
+    g.roll(p0, 2)                                     # p0 is now crossing the Vale
+    autumn = {nid for nid, n in g.board.nodes.items() if n.get("region") == "autumn"}
+    # the walker sees only what they've discovered — never the whole maze
+    walker_shown = {n["id"] for n in g.to_dict(p0)["board"]["nodes"]}
+    walker_vale = walker_shown & autumn
+    assert walker_vale == p.discovered & autumn        # only your own discoveries
+    assert walker_vale and walker_vale != autumn      # partial reveal, not all
+    # a spectator sees NOTHING in the Vale while the crossing is under way
+    spec = g.to_dict(p1)
+    spec_vale = {n["id"] for n in spec["board"]["nodes"]} & autumn
+    assert spec_vale == set()
+    assert spec["vale_shrouded"] is True
+    # ...until the walker reaches the barrow, when it opens to everyone
+    g.vale_barrow_seen = True
+    spec_after = {n["id"] for n in g.to_dict(p1)["board"]["nodes"]} & autumn
+    assert spec_after == autumn
 
 
 def test_sea_waypoints_pad_the_routes():

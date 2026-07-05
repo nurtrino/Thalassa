@@ -636,58 +636,48 @@ export function createWorld(container, handlers = {}) {
     }
   }
 
-  function syncValeArrows(room) {
-    const me = room?.players?.find((p) => p.pid === myPid);
+  /* The Amber Vale is walked, not sailed: the server carries you forward and
+     PAUSES at each fork, handing back walk.options. We plant a glowing arrow
+     (and a fat invisible click-ribbon) down each fork so you tap the way you
+     want to go — no guide line, just the choice in front of you. */
+  function syncValeWalk(room) {
+    const w = room?.walk;
     const want = activeBoardId === 'autumn' && !battleOn && !fading
       && room?.phase === 'sail' && room.turn === myPid
-      && me && room.reachable && Object.keys(room.reachable).length;
-    const key = want
-      ? me.node + '|' + Object.keys(room.reachable).sort().join(',')
-      : '';
+      && w && w.options && w.options.length && !animatingPid();
+    const key = want ? w.node + '|' + w.options.join(',') : '';
     if (key === valeKey) return;
     valeKey = key;
     valeArrows.clear();
     if (!want) return;
+    const head = nodeById[w.node];
+    if (!head) return;
     const _dir = new THREE.Vector3();
     const _up = new THREE.Vector3(0, 1, 0);
-    for (const dest of Object.keys(room.reachable)) {
-      const path = sailPath(me.node, dest);
-      if (!path || path.length < 2) continue;
-      // sample chevrons at fixed distances down the trail (the fog line is
-      // close — only the first stretch is ever visible anyway)
-      const pts = path.map((id) => nodeById[id]).filter(Boolean);
-      // a wide invisible click-ribbon along the visible trail toward this fork —
-      // tap anywhere on the GROUND path to take it
-      let acc = 0;
-      for (let i = 0; i + 1 < pts.length && acc < 34; i++) {
-        const ax = pts[i].x, az = pts[i].z, bx = pts[i + 1].x, bz = pts[i + 1].z;
-        const seg = Math.hypot(bx - ax, bz - az) || 1e-6;
-        const L = Math.min(seg, 34 - acc);
-        const strip = new THREE.Mesh(VALE_STRIP_GEO, VALE_STRIP_MAT);
-        strip.scale.set(9, 0.9, L + 2.5);
-        strip.position.set(ax + (bx - ax) * (L / 2 / seg), 0.45, az + (bz - az) * (L / 2 / seg));
-        strip.rotation.y = Math.atan2(bx - ax, bz - az);
-        strip.userData.node = dest;                 // no ph → not bobbed
-        valeArrows.add(strip);
-        acc += seg;
-      }
-      let target = 6;
-      let walked = 0;
-      for (let i = 0; i + 1 < pts.length && target <= 30; i++) {
-        const ax = pts[i].x, az = pts[i].z, bx = pts[i + 1].x, bz = pts[i + 1].z;
-        const seg = Math.hypot(bx - ax, bz - az) || 1e-6;
-        while (target <= walked + seg && target <= 30) {
-          const t = (target - walked) / seg;
-          const arrow = new THREE.Mesh(ARROW_GEO, ARROW_MAT);
-          arrow.position.set(ax + (bx - ax) * t, 0.5, az + (bz - az) * t);
-          _dir.set(bx - ax, 0, bz - az).normalize();
-          arrow.quaternion.setFromUnitVectors(_up, _dir);
-          arrow.userData.node = dest;
-          arrow.userData.ph = target;
-          valeArrows.add(arrow);
-          target += 6.5;
-        }
-        walked += seg;
+    for (const dest of w.options) {
+      const d = nodeById[dest];
+      if (!d) continue;
+      const dx = d.x - head.x, dz = d.z - head.z;
+      const len = Math.hypot(dx, dz) || 1e-6;
+      const ux = dx / len, uz = dz / len;
+      // a fat invisible click-ribbon down this fork
+      const L = Math.min(len, 22);
+      const strip = new THREE.Mesh(VALE_STRIP_GEO, VALE_STRIP_MAT);
+      strip.scale.set(8, 0.9, L);
+      strip.position.set(head.x + ux * (L / 2 + 2), 0.45, head.z + uz * (L / 2 + 2));
+      strip.rotation.y = Math.atan2(ux, uz);
+      strip.userData.node = dest;                   // no ph → not bobbed
+      valeArrows.add(strip);
+      // two bobbing chevrons pointing the way
+      for (let k = 0; k < 2; k++) {
+        const dd = 5 + k * 5.5;
+        const arrow = new THREE.Mesh(ARROW_GEO, ARROW_MAT);
+        arrow.position.set(head.x + ux * dd, 0.5, head.z + uz * dd);
+        _dir.set(ux, 0, uz);
+        arrow.quaternion.setFromUnitVectors(_up, _dir);
+        arrow.userData.node = dest;
+        arrow.userData.ph = dd;
+        valeArrows.add(arrow);
       }
     }
   }
@@ -921,8 +911,14 @@ export function createWorld(container, handlers = {}) {
       const rec = ensureShip(p, idx);
       rec.idx = idx;
 
-      const moved = rec.node !== p.node;
-      if (moved) { rec.prevNode = rec.node; rec.node = p.node; }
+      // In the Amber Vale you walk step-by-step: the server holds your true
+      // node until the walk ends, but hands the LOCAL walker a live walk.node
+      // (the head of the trail so far). Drive the captain to that head so they
+      // stride up to each fork on-screen, then the fork arrows appear.
+      const nodeNow = (p.pid === myPid && room.walk && room.walk.node)
+        ? room.walk.node : p.node;
+      const moved = rec.node !== nodeNow;
+      if (moved) { rec.prevNode = rec.node; rec.node = nodeNow; }
 
       // which stage does this ship live in now? (gates belong to two)
       const targetStage = stageHasNode(activeBoardId, rec.node) ? activeBoardId : null;
@@ -1963,7 +1959,7 @@ export function createWorld(container, handlers = {}) {
     tickShips(st, t, now);
     tickWake(now);
     tickHighlights(t);
-    syncValeArrows(lastRoom);
+    syncValeWalk(lastRoom);
     for (let i = 0; i < valeArrows.children.length; i++) {
       const a = valeArrows.children[i];
       if (a.userData.ph == null) continue;          // click-strips don't bob

@@ -216,6 +216,8 @@ async def dispatch(pid: str | None, kind: str, msg: dict) -> str | None:
             await broadcast_event({"type": "dice", "pid": pid, "value": die})
         elif kind == "sail":
             g.sail(pid, str(msg.get("node", "")))
+        elif kind == "vale_step":
+            g.walk_choose(pid, str(msg.get("node", "")))
         elif kind == "wager":
             g.wager(pid, int(msg.get("tier", 0)))
         elif kind == "pass":
@@ -267,6 +269,23 @@ async def dispatch(pid: str | None, kind: str, msg: dict) -> str | None:
             if msg.get("battle_mode"):         # force the next battle round's deck
                 g._force_mode = str(msg["battle_mode"])
             node = str(msg.get("node", ""))
+            region = msg.get("region")
+            if p and region and node not in g.board.nodes:
+                # the Amber Vale is fogged, so the client can't name its stops —
+                # resolve a landing spot for the region server-side (prefer a
+                # quiet interior stop, else anything in it)
+                pool = [nid for nid, n in g.board.nodes.items()
+                        if n.get("region") == region] if region != "hub" else \
+                       [nid for nid, n in g.board.nodes.items() if not n.get("region")]
+                if region == "pharos":
+                    pool = [nid for nid, n in g.board.nodes.items() if n["type"] == "pharos"]
+                # drop in at the region's PASS (a safe entrance, no ambush), else
+                # a shallow interior stop, else anything in it
+                shallow = sorted((nid for nid in pool if g.board.nodes[nid]["type"] == "sea"),
+                                 key=lambda nid: g.board.nodes[nid].get("depth", 9))
+                pick = ([nid for nid in pool if g.board.nodes[nid]["type"] == "gate"]
+                        or shallow or pool)
+                node = pick[0] if pick else node
             if p and node in g.board.nodes:
                 p.prev_node = p.node
                 p.node = node
@@ -320,8 +339,13 @@ async def bot_move(nonce: int, tag: str, pid: str):
             await dispatch(pid, "shop_buy", {"item": buy})
         err = await dispatch(pid, "pass", {})
     elif phase == "sail":
-        node = bots.decide_sail(g, pid, rng)
-        err = await dispatch(pid, "sail", {"node": node}) if node else "no move"
+        if g.walk and g.walk.get("options"):
+            # the Amber Vale: a bot picks a fork at random and walks on
+            choice = rng.choice(g.walk["options"])
+            err = await dispatch(pid, "vale_step", {"node": choice})
+        else:
+            node = bots.decide_sail(g, pid, rng)
+            err = await dispatch(pid, "sail", {"node": node}) if node else "no move"
     elif phase == "shrine":
         tier = bots.decide_shrine_tier(g, pid, skill, rng)
         err = await dispatch(pid, "wager", {"tier": tier})

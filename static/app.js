@@ -110,6 +110,13 @@ let devUnlocked = false;
 world = createWorld($('world'), {
   onNodeClick(nodeId) {
     if (devUnlocked) { devTeleport(nodeId, false); return; }   // dev: click to jump
+    // the Amber Vale: a fork click steps the walk down that branch
+    if (room && room.phase === 'sail' && room.turn === you &&
+        room.walk && (room.walk.options || []).includes(nodeId)) {
+      audio.sfx.sail();
+      send({ type: 'vale_step', node: nodeId });
+      return;
+    }
     if (room && room.phase === 'sail' && room.turn === you &&
         nodeId in (room.reachable || {})) {
       audio.sfx.sail();
@@ -179,9 +186,13 @@ function devRegionNode(region) {
   }
   return pick((n) => n.region === region);
 }
-function devTeleport(node, land) {
-  if (!node || !ws || ws.readyState !== 1) return;
-  send({ type: 'dev', node, land: !!land, code: '783' });
+function devTeleport(node, land, region) {
+  if (!ws || ws.readyState !== 1) return;
+  // pass the region too: the Amber Vale is fogged so the client can't name its
+  // stops — the server resolves a landing spot for the region when `node` is
+  // unknown. (`node` alone still works for clicked, already-visible stops.)
+  if (!node && !region) return;
+  send({ type: 'dev', node: node || '', land: !!land, region: region || '', code: '783' });
 }
 function buildDevBar() {
   if (document.getElementById('devBar')) { document.getElementById('devBar').remove(); return; }
@@ -192,7 +203,7 @@ function buildDevBar() {
     const b = document.createElement('button');
     b.className = 'dev-btn';
     b.textContent = label;
-    b.onclick = () => devTeleport(devRegionNode(reg), false);
+    b.onclick = () => devTeleport(devRegionNode(reg), false, reg);
     bar.appendChild(b);
   }
   const hint = document.createElement('div');
@@ -1090,10 +1101,11 @@ function mapChipLabel(p) {
 }
 
 function renderMapBtn() {
-  // no chart in the Amber Vale — it's a maze, you navigate by canopy and luck.
-  // DEV mode overrides this: the chart is always available for teleporting.
-  const inVale = world.currentStage?.() === 'autumn' && !devUnlocked;
-  $('mapBtn').classList.toggle('hidden', !room || room.phase === 'lobby' || inVale);
+  // In the Amber Vale the chart is your DISCOVERED map — it fills in as you
+  // explore (the server only ever sends the stops you've found). It is hidden
+  // only while the Vale is SHROUDED (a spectator locked out mid-crossing).
+  const shroud = !!room?.vale_shrouded && world.currentStage?.() === 'autumn';
+  $('mapBtn').classList.toggle('hidden', !room || room.phase === 'lobby' || shroud);
   // modal phases and battles reclaim the screen — the chart rolls itself up
   if (mapOpen && (['question', 'minigame', 'reveal', 'upgrade_pick', 'finished', 'battle']
       .includes(room?.phase) || world.battleActive())) {
@@ -1105,12 +1117,8 @@ function toggleMap(open) {
   const want = open ?? !mapOpen;
   if (want === mapOpen) return;
   if (want) {
-    if (!world.enterMapView(devUnlocked)) {
-      if (world.currentStage?.() === 'autumn') {
-        toast('The Vale’s canopy hides the sky — no chart can help you here.');
-      }
-      return;
-    }
+    // the Vale chart is now allowed — it shows only what YOU have discovered
+    if (!world.enterMapView(true)) return;
     mapOpen = true;
     audio.sfx?.click?.();
     $('mapIcons').classList.remove('hidden');
@@ -1193,6 +1201,10 @@ function renderTray() {
     return;
   }
   if (!mine) {
+    if (room.vale_shrouded) {
+      const w = room.players.find((p) => p.pid === room.turn);
+      trayHint(tray, `${icon('anchor', 14)} The Amber Vale swallows <strong>${esc(w?.name || 'the captain')}</strong> — the canopy is too thick to follow until they reach the barrow.`);
+    }
     if (you === room.host) {
       trayBtn(tray, 'skip turn', 'ghost small', () => send({ type: 'skip' }));
     }
@@ -1219,6 +1231,13 @@ function renderTray() {
     trayBtn(tray, `${icon('market', 14)} TRADER`, 'build',
             () => { shopRemote = !shopRemote; shopClosed = false; renderShop(); });
     trayBtn(tray, 'END TURN', 'gold big', () => send({ type: 'pass' }));
+  } else if (room.phase === 'sail' && room.walk) {
+    // the Amber Vale walk: the arrow carries you forward; forks pause for a pick
+    if (room.walk.options && room.walk.options.length) {
+      trayHint(tray, `${icon('anchor', 14)} The trail forks in the fog — <strong>tap an arrow</strong> to choose your way.`);
+    } else {
+      trayHint(tray, `${icon('anchor', 14)} You press on through the trees…`);
+    }
   } else if (room.phase === 'sail') {
     const bonus = me?.upgrades?.includes('sandals') ? ' <small>(+1 sandals)</small>' : '';
     trayHint(tray, `Rolled <strong>${room.die ?? '?'}</strong>${bonus} — ${foot ? 'walk' : 'sail'} exactly that far. Tap a glowing stop.`);
