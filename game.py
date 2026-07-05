@@ -592,12 +592,16 @@ class Game:
             self._kraken_deal()
             return
 
-        # HUNTING GROUNDS BITE, EVERY TIME: land on a skull stop and the pack
-        # is there — no dice about it. Realm open water can still spring a
-        # sea attack (deeper = surer), and the Isles of Peace are far calmer —
-        # but not empty: a stray raider still turns up in the home waters.
+        # Danger by ground: an ELITE hunting ground bites EVERY time — the
+        # Vale's door guard is a true toll — while weak packs keep a
+        # depth-scaled chance. Realm open water can spring a sea attack
+        # (deeper = surer; the Vale's quiet trails only rarely), and the
+        # Isles of Peace are far calmer — but not empty.
         if node.get("encounter"):
-            chance = 1.0
+            chance = (1.0 if node.get("elite")
+                      else min(0.85, 0.45 + 0.1 * (node.get("depth") or 1)))
+        elif ntype == "sea" and node.get("region") == "autumn":
+            chance = 0.10          # the Vale's plain trail: a hush, mostly
         elif ntype == "sea" and node.get("depth"):
             # quieter open water: battles are meatier now (puzzles!), and the
             # roads are longer — the hunting grounds carry the realm's teeth

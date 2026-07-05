@@ -498,15 +498,16 @@ def test_watchdog_heals_a_stuck_table():
     S.table.reset()
 
 
-def test_hunting_grounds_always_bite():
-    # a skull stop is an AUTO-encounter: landing there always means a fight
+def test_elite_hunting_grounds_always_bite():
+    # an ELITE skull stop is an AUTO-encounter: landing there always fights
     g, (p0, p1) = make_game()
     g.rng.random = lambda: 0.999          # even the unluckiest roll of the dice
-    monster = next(nid for nid, n in g.board.nodes.items()
-                   if n["type"] == "monster" and n.get("owner") in (None, p0))
-    force_land(g, p0, monster)
+    elite = next(nid for nid, n in g.board.nodes.items()
+                 if n["type"] == "monster" and n.get("elite")
+                 and n.get("owner") in (None, p0))
+    force_land(g, p0, elite)
     assert g.phase == "battle"
-    assert g.board.alive_monster(monster)
+    assert g.board.alive_monster(elite)
 
 
 def test_vale_hidden_from_anonymous_spectators():
