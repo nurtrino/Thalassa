@@ -1009,7 +1009,6 @@ export function createWorld(container, handlers = {}) {
         if (dd > len - 3) break;
         const arrow = new THREE.Mesh(ARROW_GEO, ARROW_MAT);
         arrow.position.set(x, 0.3, z);
-        arrow.scale.setScalar(1.35);               // bigger read, bigger target
         arrow.rotation.y = Math.atan2(-ux, -uz);   // tip is -Z pre-yaw
         arrow.renderOrder = 30;                    // over stones, trees, smoke
         arrow.userData = { node: dest, walkArrow: true };
