@@ -301,28 +301,31 @@ def battle(outdir):
                         limit = (r.get("minigame") or {}).get("limit") or 45
                         await c.send({"type": "solve", "payload": None})
                         resolve_ms = min(95, limit + 10) * 1000
-                    try:
-                        await c.wait_phase("battle", "roll", "reveal", "dodge",
-                                           timeout=resolve_ms)
-                    except Exception:
+                    # ride the whole exchange: the enemy's counter now lands
+                    # on a DODGE beat AFTER the move's reveal, so the phase
+                    # cycles reveal → dodge → reveal → (battle/roll). Poll
+                    # across the reveals, answer the dodge when it appears,
+                    # and settle once the exchange fully resolves.
+                    import time as _t
+                    end = _t.time() + resolve_ms / 1000 + 8
+                    resolved = False
+                    while _t.time() < end:
                         rr = await c.room()
+                        ph = rr["phase"]
+                        if ph == "dodge":
+                            dodges += 1
+                            await c.send({"type": "dodge", "hit": True},
+                                         settle=500)
+                            continue
+                        if ph in ("battle", "roll", "trade", "upgrade_pick"):
+                            resolved = True
+                            break
+                        await c.page.wait_for_timeout(400)   # reveal / fx
+                    if not resolved:
                         notes.append(f"{stance}/{deck}: never resolved "
-                                     f"(phase={rr['phase']})")
+                                     f"(phase={(await c.room())['phase']})")
                         bad = True
                         continue
-                    r = await c.room()
-                    if r["phase"] == "dodge":     # the action beat appeared
-                        dodges += 1
-                        await c.send({"type": "dodge", "hit": True})
-                        try:
-                            await c.wait_phase("battle", "roll", "reveal",
-                                               timeout=9000)
-                        except Exception:
-                            notes.append(f"{stance}/{deck}: dodge never "
-                                         "resolved")
-                            bad = True
-                            continue
-                    await c.page.wait_for_timeout(6500)   # reveal + fx settle
                     notes.append(f"{stance}/{deck}: dealt and resolved ✓")
                 notes.append(f"dodge beats seen: {dodges}")
                 if dodges == 0:

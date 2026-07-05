@@ -1395,6 +1395,7 @@ class Game:
                     self.battle["incoming"] = {
                         "attacker_idx": front_idx, "attacker": front["name"],
                         "power": power, "heavy": heavy,
+                        "enraged": bool(m.get("enraged")),
                         "was_correct": correct,
                         "move_phase": dict(enemy_phase),
                     }
@@ -1889,6 +1890,7 @@ class Game:
                        "attacker_idx": self.battle["incoming"]["attacker_idx"],
                        "power": self.battle["incoming"]["power"],
                        "heavy": self.battle["incoming"]["heavy"],
+                       "enraged": self.battle["incoming"].get("enraged", False),
                        "deadline": self.dodge_deadline}
                       if self.phase == "dodge" and self.battle
                       and self.battle.get("incoming") else None),

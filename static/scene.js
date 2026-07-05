@@ -179,6 +179,7 @@ export function createWorld(container, handlers = {}) {
 
   let activeBoardId = null;   // board stage currently shown (also under battle)
   let battleOn = false;
+  let battleHold = false;     // keep the diorama rendered under the win/death card
   let battleKey = null;
   let fading = false;
   let pendingTarget = null;
@@ -1223,8 +1224,10 @@ export function createWorld(container, handlers = {}) {
 
   function desiredTarget(room) {
     if (!room) return activeBoardId || 'hub';
-    // hold the cut to the battle stage until the boat finishes sailing up
-    if (room.battle && !arriving(room)) return 'battle';
+    // hold the cut to the battle stage until the boat finishes sailing up —
+    // and keep it up through the VICTORY / YOU DIED card, so the closing
+    // beat plays over the diorama, not the board the fight has left behind.
+    if ((room.battle || battleHold) && !arriving(room)) return 'battle';
     // stay in the stage of whoever is actually on the move (or the active
     // captain once everyone's parked)
     return stageForViewer(room, focusPid(room) || myPid);
@@ -2071,6 +2074,7 @@ export function createWorld(container, handlers = {}) {
     update,
     battlePlay,
     battleActive: () => battleOn,
+    holdBattleStage: (v) => { battleHold = !!v; },
     arriving: () => arriving(lastRoom),
     animating: () => animatingPid(),
     currentStage: () => (battleOn ? 'battle' : (activeBoardId || 'hub')),

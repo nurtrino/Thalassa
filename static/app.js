@@ -515,13 +515,16 @@ function showBattleEnd(kind, sub) {
   battleEndEl?.remove();
   const win = kind === 'win';
   const color = win ? '#f0c674' : '#e0472f';
-  const wash = win ? 'rgba(28,20,4,.30)' : 'rgba(46,4,4,.52)';
+  // a LIGHT vignette, not a curtain: the diorama stays fully visible behind
+  // the word — the fight's last frame is the backdrop of its own ending
+  const inner = win ? 'rgba(20,14,2,.10)' : 'rgba(40,4,4,.24)';
+  const outer = win ? 'rgba(4,5,9,.46)' : 'rgba(24,2,2,.60)';
   const d = document.createElement('div');
   battleEndEl = d;
   d.style.cssText =
     'position:fixed;inset:0;z-index:24;display:flex;flex-direction:column;' +
     'align-items:center;justify-content:center;pointer-events:none;opacity:0;' +
-    `background:radial-gradient(ellipse at center, ${wash}, rgba(3,4,7,.85))`;
+    `background:radial-gradient(ellipse at center, ${inner}, ${outer})`;
   d.innerHTML =
     `<div style="font-family:var(--disp,serif);font-weight:800;` +
     `font-size:clamp(46px,12vw,128px);letter-spacing:.14em;text-transform:uppercase;` +
@@ -975,16 +978,32 @@ function renderDodge() {
   const WINDUP = 450;                   // arc shown, hand held at 12 o'clock
   const REVS = 2;                       // two laps, then the blow lands
   const arcStart = 100 + Math.random() * 200;   // degrees clockwise from 12
+  // an ENRAGED blow can only be FULLY dodged on a smaller middle slice of
+  // the gold: the outer gold still reads as the danger window, but only the
+  // bright core counts — the fury is genuinely harder to read.
+  const CORE = d.enraged ? 13 : ARC;    // success window, degrees
+  const coreLo = (ARC - CORE) / 2, coreHi = coreLo + CORE;
+
+  const arcBg = d.enraged
+    ? `conic-gradient(from ${arcStart}deg,` +
+      `rgba(240,208,96,.32) 0deg, rgba(240,208,96,.32) ${coreLo}deg,` +
+      `rgba(255,244,196,1) ${coreLo}deg, rgba(255,244,196,1) ${coreHi}deg,` +
+      `rgba(240,208,96,.32) ${coreHi}deg, rgba(240,208,96,.28) ${ARC}deg,` +
+      `transparent ${ARC}deg)`
+    : `conic-gradient(from ${arcStart}deg,` +
+      `rgba(240,208,96,.95) 0deg, rgba(240,208,96,.75) ${ARC}deg,` +
+      `transparent ${ARC}deg)`;
 
   el.innerHTML =
-    `<div class="dodgecap">${d.heavy ? '<strong>HEAVY BLOW</strong> — ' : ''}` +
+    `<div class="dodgecap">${d.enraged ? '<strong>ENRAGED</strong> — '
+       : d.heavy ? '<strong>HEAVY BLOW</strong> — ' : ''}` +
     `${esc(d.attacker)} strikes! <strong>DODGE!</strong></div>` +
-    '<div class="dodgewheel">' +
-    `<div class="dq-arc" style="background:conic-gradient(from ${arcStart}deg,` +
-    'rgba(240,208,96,.95) 0deg, rgba(240,208,96,.75) ' + ARC + 'deg,' +
-    `transparent ${ARC}deg)"></div>` +
+    `<div class="dodgewheel${d.enraged ? ' enraged' : ''}">` +
+    `<div class="dq-arc" style="background:${arcBg}"></div>` +
     '<div class="dq-hand"></div><div class="dq-verdict"></div></div>' +
-    '<div class="dodgehint">tap when the hand crosses the gold</div>';
+    `<div class="dodgehint">${d.enraged
+      ? 'hit the BRIGHT core — the fury is fast'
+      : 'tap when the hand crosses the gold'}</div>`;
   const hand = el.querySelector('.dq-hand');
   const verdict = el.querySelector('.dq-verdict');
 
@@ -993,7 +1012,7 @@ function renderDodge() {
     Math.max(0, (t - t0 - WINDUP)) / PERIOD * 360;
   const inGold = (a) => {
     const rel = ((a - arcStart) % 360 + 360) % 360;
-    return rel <= ARC;
+    return rel >= coreLo && rel <= coreHi;   // enraged: only the middle counts
   };
   const st = { id: key, done: false, raf: 0, key: null };
   const finish = (hit, label) => {
@@ -1030,6 +1049,10 @@ function renderDodge() {
 /* ── rendering ──────────────────────────────────────────────────────────── */
 function render() {
   if (!room) return;
+  // keep the 3D diorama rendered through the whole battle reveal — the
+  // VICTORY / YOU DIED card plays OVER the fight, not the board it left.
+  // (Set before world.update so the stage picker sees it this frame.)
+  world.holdBattleStage(room.phase === 'reveal' && room.reveal?.kind === 'battle');
   world.update(room, you);
   // the VICTORY / YOU DIED beat lives only over the closing battle reveal
   if (room.phase !== 'reveal') clearBattleEnd();

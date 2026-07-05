@@ -2005,6 +2005,16 @@ body.dev .mapchip:hover {
   border: 3px solid rgba(201, 162, 39, .55);
   box-shadow: 0 0 22px rgba(3, 8, 13, .8), inset 0 0 18px rgba(3, 8, 13, .7);
 }
+/* an ENRAGED blow: red fury ring — you must catch the smaller bright core */
+.dodgewheel.enraged {
+  border-color: rgba(224, 70, 40, .75);
+  box-shadow: 0 0 26px rgba(224, 60, 30, .5), inset 0 0 18px rgba(3, 8, 13, .7);
+  animation: dqfury .9s ease-in-out infinite;
+}
+@keyframes dqfury {
+  50% { box-shadow: 0 0 34px rgba(240, 70, 34, .8), inset 0 0 18px rgba(30, 4, 4, .8); }
+}
+@media (prefers-reduced-motion: reduce) { .dodgewheel.enraged { animation: none; } }
 /* the gold window — a conic sector (inline background) cut into a ring band */
 .dodgewheel .dq-arc {
   position: absolute; inset: 4px; border-radius: 50%;
