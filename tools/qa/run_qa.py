@@ -289,15 +289,21 @@ def battle(outdir):
                                      f"phase={rr['phase']} — no {want}")
                         bad = True
                         continue
+                    resolve_ms = 12000
                     if deck == "mc":
                         await c.send({"type": "answer", "idx": 0})
                     elif deck == "jeopardy":
                         await c.send({"type": "answer_text", "text": "alpha"})
                     else:
+                        # most puzzle kinds reject wrong submissions and only
+                        # resolve on their own deadline — wait the limit out
+                        r = await c.room()
+                        limit = (r.get("minigame") or {}).get("limit") or 45
                         await c.send({"type": "solve", "payload": None})
+                        resolve_ms = min(95, limit + 10) * 1000
                     try:
                         await c.wait_phase("battle", "roll", "reveal",
-                                           timeout=12000)
+                                           timeout=resolve_ms)
                     except Exception:
                         rr = await c.room()
                         notes.append(f"{stance}/{deck}: never resolved "
@@ -336,9 +342,13 @@ SAMPLER = """
     const rec = T.ships[pid];
     if (!rec) return;
     const p = rec.root.position;
-    if (!cur) cur = { pid, start: performance.now(), from: rec.node, samples: 0 };
+    if (!cur) cur = { pid, start: performance.now(), from: rec.prevNode || rec.node,
+                      samples: 0 };
     cur.samples++;
     for (const [id, o] of Object.entries(isles)) {
+      // berthing at the destination (or casting off from the origin) island
+      // is not a clip — only THIRD islands count
+      if (id === rec.node || id === cur.from) continue;
       const d = Math.hypot(p.x - o.x, p.z - o.z);
       if (d < o.r - 0.5) {
         const last = window.__qaClips[window.__qaClips.length - 1];
