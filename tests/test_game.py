@@ -37,6 +37,19 @@ def put_question(g, correct=0):
     g.set_question({"text": "Q?", "options": ["a", "b", "c", "d"], "correct": correct})
 
 
+def strike(g, pid, target=0):
+    """Take the STRIKE stance with the multiple-choice deck forced, so the round
+    is an option-index question (not a puzzle minigame or a Jeopardy board)."""
+    g._force_mode = "mc"
+    g.stance(pid, "attack", target)
+
+
+def cast(g, pid, target=0):
+    """MAGIC stance, MC deck forced (see strike)."""
+    g._force_mode = "mc"
+    g.stance(pid, "magic", target)
+
+
 def advance_to_dodge(g):
     """A counter no longer interrupts the instant you answer: first the
     YOUR-move reveal shows the verdict, THEN the foe winds up into the DODGE
@@ -631,7 +644,7 @@ def test_hunting_grounds_spawn_random_packs():
     # win it → the grounds fall quiet again
     set_pack(g, mon, [1])
     g.rng = _r.Random(0)                              # coin ≥ .5 → a trivia round
-    g.stance(p0, "attack")
+    strike(g, p0)
     put_question(g)
     g.answer(p0, 0)
     assert g.reveal["battle_over"]
@@ -770,7 +783,7 @@ def test_strike_miss_takes_monster_counter():
     set_pack(g, mon, [3])
     g.board.nodes[mon]["monster"]["enemies"][0]["power"] = 2
     battle_at(g, p0, mon)
-    g.stance(p0, "attack")
+    strike(g, p0)
     assert g.qctx["tier"] == 1                            # strikes ask easy questions
     put_question(g, correct=0)
     g.answer(p0, 3)
@@ -887,7 +900,7 @@ def test_shipwreck_stashes_fragment_at_altar():
     g.battle = {"node": mon, "stance": None, "round": 0, "charging": False,
                 "used_items": [], "first_hit_taken": False}
     g._bump("battle")
-    g.stance(p0, "attack")
+    strike(g, p0)
     put_question(g, correct=0)
     g.answer(p0, 1)                                        # wrong → hit incoming
     land_blow(g)                                           # …no dodge → sunk
@@ -1218,7 +1231,7 @@ def test_owl_disables_two_wrong_options():
     mon = find_node(g, "monster")
     set_pack(g, mon, [4])
     battle_at(g, p0, mon)
-    g.stance(p0, "attack")
+    strike(g, p0)
     put_question(g, correct=2)
     g.use_item(p0, "owl")
     assert len(g.question["disabled"]) == 2
@@ -1427,7 +1440,7 @@ def test_aegis_charm_blocks_the_next_damage():
     mon = find_node(g, "monster")
     set_pack(g, mon, [3])
     battle_at(g, p0, mon)
-    g.stance(p0, "attack")
+    strike(g, p0)
     put_question(g, correct=0)
     g.answer(p0, 1)                                   # miss → counter incoming
     land_blow(g)                                      # charm eats it at the beat
@@ -1461,7 +1474,7 @@ def test_shipwreck_respawns_at_checkpoint():
     mon = find_node(g, "monster")
     set_pack(g, mon, [3])
     battle_at(g, p0, mon)
-    g.stance(p0, "attack")
+    strike(g, p0)
     put_question(g, correct=0)
     g.answer(p0, 1)                                       # counter incoming
     land_blow(g)                                          # unread → sunk
@@ -1665,7 +1678,7 @@ def test_sea_attacks_on_the_crossing():
     assert m
     set_pack(g, sea, [1])
     g.rng = _r.Random(0)                       # coin ≥ .5 → a trivia round
-    g.stance(p0, "attack")
+    strike(g, p0)
     put_question(g)
     g.answer(p0, 0)
     assert g.reveal["battle_over"]
@@ -1762,7 +1775,7 @@ def test_pack_still_lets_a_clean_hit_evade():
     mon = find_node(g, "monster")
     set_pack(g, mon, [4])
     battle_at(g, p0, mon)
-    g.stance(p0, "attack")
+    strike(g, p0)
     put_question(g)
     g.answer(p0, 0)
     assert g.reveal["enemy_phase"]["evaded"]      # packs punish only misses
@@ -2275,6 +2288,11 @@ def test_boss_rotates_all_three_challenge_decks():
         g.stance(p0, "attack")
         if g.phase == "minigame":
             modes.add("puzzle")
+        elif g.phase == "jchoose":
+            # a Jeopardy round opens on the category board before the clue
+            modes.add("jeopardy")
+            assert len(g.jboard["cells"]) == 4
+            assert g.jboard["band"] == "low"        # STRIKE deals the low money
         else:
             assert g.phase == "question"
             modes.add(g.qctx["mode"])
@@ -2298,6 +2316,55 @@ def test_typed_question_snapshot_never_crashes():
         assert q["options"] == []
         assert q["text"]
         assert "answer" not in q              # the secret stays server-side
+
+
+def _serve_pending_jeopardy(g):
+    """Mimic the server's fetch: turn the board-picked clue into the question."""
+    q = g._pending_jeopardy
+    g._pending_jeopardy = None
+    g.set_question(q)
+    return q
+
+
+def test_jeopardy_board_strike_low_band_pick_and_answer():
+    g, (p0, p1) = make_game()
+    mon = find_node(g, "monster")
+    set_pack(g, mon, [3])
+    battle_at(g, p0, mon)
+    g._force_mode = "jeopardy"
+    g.stance(p0, "attack", 0)                      # STRIKE → the low-money board
+    assert g.phase == "jchoose"
+    board = g.jboard
+    assert board["band"] == "low" and len(board["cells"]) == 4
+    assert all(c["value"] in (200, 400) for c in board["cells"])
+    assert len({c["category"] for c in board["cells"]}) == 4     # distinct cats
+    # the snapshot shows only category + value — never the clue or answer
+    snap = g.to_dict(p0)["jboard"]
+    assert len(snap["cells"]) == 4
+    assert "text" not in snap["cells"][0] and "answer" not in snap["cells"][0]
+    chosen = board["cells"][2]
+    g.jpick(p0, 2)
+    assert g.phase == "question" and g.jboard is None
+    q = _serve_pending_jeopardy(g)
+    assert q["typed"] and q["text"] == chosen["text"]
+    assert g.question["category"] == chosen["category"]
+    g.answer_text(p0, chosen["answer"])            # exact answer → correct
+    assert g.reveal["was_correct"] and g.reveal["typed"]
+
+
+def test_jeopardy_board_magic_high_band_and_timeout():
+    g, (p0, p1) = make_game()
+    mon = find_node(g, "monster")
+    set_pack(g, mon, [3])
+    battle_at(g, p0, mon)
+    g._force_mode = "jeopardy"
+    g.stance(p0, "magic", 0)                        # MAGIC → the high-money board
+    assert g.phase == "jchoose" and g.jboard["band"] == "high"
+    assert all(c["value"] in (800, 1000) for c in g.jboard["cells"])
+    g.jchoose_timeout()                            # no pick → the board picks
+    assert g.phase == "question" and g._pending_jeopardy is not None
+    _serve_pending_jeopardy(g)
+    assert g.question["typed"]
 
 
 def test_typed_jeopardy_correct_answer():

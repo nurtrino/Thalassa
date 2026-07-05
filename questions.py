@@ -176,56 +176,59 @@ class OpenTDBBank:
         return          # offline bundle — nothing to fetch
 
 
-# ── BATTLE questions: typed clues ────────────────────────────────────────────
-# The old data/jeopardy.json bundle was music & literature top to bottom —
-# retired wholesale. Typed clues are now built from the game's OWN offline
-# trivia bundle: history & places, science & nature, culture & sport (pop
-# culture), plus Arts & Letters' word/language questions — and nothing
-# musical, literary or theatrical survives the filter. Only questions with
-# short, cleanly typeable answers make the deck.
-_TYPED_BANNED = ("music", "song", "singer", "album", "opera", "composer",
-                 "musical", "literature", "novel", "author", "poet", " book",
-                 "shakespeare", "writer", "lyric", "symphony", "orchestra",
-                 "guitar", "piano", "broadway", "playwright")
-_TYPED_CATEGORY = {"clio": "HISTORY & PLACES", "athena": "SCIENCE & NATURE",
-                   "dionysos": "CULTURE & SPORT", "apollo": "WORDS & LANGUAGE"}
-# Arts & Letters contributes ONLY its wordplay/language questions
-_TYPED_WORDY = ("word", "meaning", "latin", "greek", "term", "phrase",
-                "letter", "language", "prefix", "suffix", "plural",
-                "translat", "spell", "synonym", "definition")
-_TYPED_ANSWER_RE = re.compile(r"[A-Za-z0-9 .'\-]{2,26}$")
+# ── BATTLE questions: the JEOPARDY! board ─────────────────────────────────────
+# A real deck now: ~56k clues scraped from Seasons 1–41 of the show, bucketed
+# by dollar value (data/jeopardy.json), EVERY topic (no filter — music,
+# literature, the lot). STRIKE deals the low band ($200/$400), MAGIC the high
+# band ($800/$1000). A round offers four DISTINCT categories to choose from.
+_JEOPARDY_PATH = os.path.join(os.path.dirname(__file__), "data", "jeopardy.json")
+JEOPARDY: dict[str, list] = {}
+try:
+    with open(_JEOPARDY_PATH, encoding="utf-8") as _jf:
+        JEOPARDY = json.load(_jf)          # {"200":[[cat,clue,ans],...], ...}
+except Exception:
+    JEOPARDY = {}
+
+JEOPARDY_BANDS = {"low": ("200", "400"), "high": ("800", "1000")}
 
 
-def _typedable(it: dict) -> bool:
-    a = it["a"]
-    if not _TYPED_ANSWER_RE.fullmatch(a) or len(a.split()) > 4:
-        return False
-    text = (it["q"] + " " + a).lower()
-    return not any(b in text for b in _TYPED_BANNED)
-
-
-TYPED_CLUES: list[dict] = []
-for _dom in ("clio", "athena", "dionysos", "apollo"):
-    for _it in TRIVIA.get(_dom, []):
-        if not _typedable(_it):
+def jeopardy_board(rng: random.Random, band: str = "low", n: int = 4) -> list:
+    """A mini board: n clues from the band's dollar values, all DISTINCT
+    categories. Each cell: {category, value, text, answer}."""
+    vals = JEOPARDY_BANDS.get(band, JEOPARDY_BANDS["low"])
+    pool = [(v, cell) for v in vals for cell in JEOPARDY.get(v, [])]
+    rng.shuffle(pool)
+    cells: list[dict] = []
+    used: set[str] = set()
+    for v, cell in pool:
+        cat, clue, ans = cell
+        key = cat.lower()
+        if key in used:
             continue
-        if _dom == "apollo" and not any(w in _it["q"].lower()
-                                        for w in _TYPED_WORDY):
-            continue
-        TYPED_CLUES.append({"q": _it["q"], "a": _it["a"],
-                            "c": _TYPED_CATEGORY[_dom], "t": _dom})
+        used.add(key)
+        cells.append({"category": cat, "value": int(v),
+                      "text": clue, "answer": ans})
+        if len(cells) >= n:
+            break
+    # never stall a battle if the bundle is missing/short — a typed fallback
+    while len(cells) < n:
+        raw = rng.choice(FALLBACK["clio"]["hard"] + FALLBACK["athena"]["hard"])
+        cells.append({"category": f"MYSTERY {len(cells) + 1}",
+                      "value": int(vals[len(cells) % len(vals)]),
+                      "text": raw[0], "answer": raw[1]})
+    return cells
+
+
+def jeopardy_question(cell: dict) -> dict:
+    """Turn a chosen board cell into a typed battle question."""
+    return {"text": cell["text"], "answer": cell["answer"], "typed": True,
+            "kind": "jeopardy", "category": cell.get("category", ""),
+            "value": cell.get("value", 0)}
 
 
 def jeopardy_pick(rng: random.Random) -> dict:
-    """One typed clue: {text, answer, typed, kind, category, theme}."""
-    if TYPED_CLUES:
-        it = rng.choice(TYPED_CLUES)
-        return {"text": it["q"], "answer": it["a"], "typed": True,
-                "kind": "jeopardy", "category": it["c"], "theme": it["t"]}
-    # never stall a battle if the bundle is missing — a typed fallback
-    raw = rng.choice(FALLBACK["clio"]["hard"] + FALLBACK["athena"]["hard"])
-    return {"text": raw[0], "answer": raw[1], "typed": True,
-            "kind": "jeopardy", "category": "", "theme": "clio"}
+    """One typed clue (legacy single-clue path / fallback)."""
+    return jeopardy_question(jeopardy_board(rng, "low", 1)[0])
 
 
 # ── typed-answer matching ────────────────────────────────────────────────────
