@@ -37,6 +37,13 @@ def put_question(g, correct=0):
     g.set_question({"text": "Q?", "options": ["a", "b", "c", "d"], "correct": correct})
 
 
+def land_blow(g, hit=False):
+    """An enemy's counter now waits on the DODGE beat: resolve it. hit=True
+    is a read dodge (half the blow nulled); False lets it land full."""
+    if g.phase == "dodge":
+        g.dodge(g.current.pid, hit)
+
+
 def force_land(g, pid, nid):
     """Teleport the current player onto a node and resolve the landing."""
     p = g.player_by_pid(pid)
@@ -394,8 +401,9 @@ def test_strike_miss_takes_monster_counter():
     assert g.qctx["tier"] == 1                            # strikes ask easy questions
     put_question(g, correct=0)
     g.answer(p0, 3)
+    land_blow(g)                                          # miss → counter lands
     p = g.player_by_pid(p0)
-    assert p.hull == G.MAX_HULL - 2                       # front enemy counters
+    assert p.hull == G.MAX_HULL - 2                       # an enemy counters
     assert g.reveal["enemy_phase"]["dmg"] == 2
     g.advance_after_reveal()
     assert g.phase == "battle"                            # fight continues
@@ -508,7 +516,8 @@ def test_shipwreck_stashes_fragment_at_altar():
     g._bump("battle")
     g.stance(p0, "attack")
     put_question(g, correct=0)
-    g.answer(p0, 1)                                        # wrong → hit → sunk
+    g.answer(p0, 1)                                        # wrong → hit incoming
+    land_blow(g)                                           # …no dodge → sunk
     assert p.node == "home" and p.hull == p.max_hull
     assert p.cargo == [] and p.scrolls == 4
     assert p0 in node["stash"]                   # waiting at the altar
@@ -942,6 +951,7 @@ def test_adamant_ram_stacks_strike_damage():
     g.stance(p0, "attack")
     put_question(g)
     g.answer(p0, 0)
+    land_blow(g)                                      # boss counter → dodge beat
     assert g.reveal["enemy_phase"]["dealt"] == plain + 3
 
 
@@ -1019,7 +1029,8 @@ def test_aegis_charm_blocks_the_next_damage():
     battle_at(g, p0, mon)
     g.stance(p0, "attack")
     put_question(g, correct=0)
-    g.answer(p0, 1)                                   # miss → counter → blocked
+    g.answer(p0, 1)                                   # miss → counter incoming
+    land_blow(g)                                      # charm eats it at the beat
     assert p.hull == G.MAX_HULL
     assert p.items["aegis_charm"] == 0
     assert g.reveal["enemy_phase"]["dmg"] == 0
@@ -1052,7 +1063,8 @@ def test_shipwreck_respawns_at_checkpoint():
     battle_at(g, p0, mon)
     g.stance(p0, "attack")
     put_question(g, correct=0)
-    g.answer(p0, 1)                                       # counter-hit → sunk
+    g.answer(p0, 1)                                       # counter incoming
+    land_blow(g)                                          # unread → sunk
     assert p.node == haven and p.hull == p.max_hull
 
 
@@ -1351,6 +1363,8 @@ def test_boss_counters_even_when_you_hit():
     g.stance(p0, "attack")
     put_question(g)
     g.answer(p0, 0)                               # correct strike
+    assert g.phase == "dodge"                     # the counter still comes
+    land_blow(g)
     assert g.reveal["enemy_phase"]["dealt"] >= 1  # you drew blood
     assert p.hull < G.MAX_HULL                    # ...and still got hit back
     assert not g.reveal["enemy_phase"]["evaded"]
@@ -1368,98 +1382,99 @@ def test_pack_still_lets_a_clean_hit_evade():
     assert g.player_by_pid(p0).hull == G.MAX_HULL
 
 
-def test_boss_heavy_telegraph_cycle_and_guard():
+def test_guard_stance_is_gone():
+    g, (p0, p1), lair = boss_battle()
+    with pytest.raises(GameError):
+        g.stance(p0, "guard")                     # dodging replaced guarding
+
+
+def test_boss_heavy_telegraph_cycle_and_dodge():
     g, (p0, p1), lair = boss_battle()
     p = g.player_by_pid(p0)
     p.max_hull = 30
     p.hull = 30
     # exchange 1 — a TRIVIA round (bosses alternate, starting with trivia)
-    g.stance(p0, "guard")
-    assert g.qctx["tier"] == 1                    # guard reads, not strikes
+    g.stance(p0, "attack")
     put_question(g, correct=0)
-    g.answer(p0, 1)                               # failed guard → take the hit
+    g.answer(p0, 1)                               # miss → the counter comes
+    land_blow(g)                                  # frozen: it lands full
     g.advance_after_reveal()
     assert g.battle["charging"] is False
     # exchange 2 — a PUZZLE round (never a riddle); fail it → take the hit
-    g.stance(p0, "guard")
+    g.stance(p0, "attack")
     assert g.phase == "minigame" and g.minigame["battle"]
     assert g.minigame["kind"] != "riddle"
     g.resolve_minigame(False)
+    land_blow(g)
     g.advance_after_reveal()
     assert g.battle["charging"] is True           # after 2, the heavy telegraphs
     hull_before = p.hull
-    # exchange 3 (trivia again) is the heavy: guard it clean → no damage
-    g.stance(p0, "guard")
+    power = g.board.alive_monster(lair)["enemies"][0]["power"]
+    # exchange 3 is the heavy: read the dodge → half the doubled blow nulled
+    g.stance(p0, "attack")
     put_question(g, correct=2)
     g.answer(p0, 2)
-    assert g.reveal["enemy_phase"]["blocked"]
-    assert g.reveal["enemy_phase"]["heavy"]
-    assert p.hull == hull_before
+    assert g.phase == "dodge"
+    land_blow(g, hit=True)
+    ep = g.reveal["enemy_phase"]
+    assert ep["heavy"] and ep["dodged"]
+    assert hull_before - p.hull == (power * G.HEAVY_MULT) // 2
     g.advance_after_reveal()
     assert not g.battle["charging"]               # the cycle resets
 
 
-def test_guard_riposte_reflects_the_blow():
-    g, (p0, p1), lair = boss_battle()
-    p = g.player_by_pid(p0)
-    p.max_hull = 30
-    p.hull = 30
-    front = g.board.alive_monster(lair)["enemies"][0]
-    power = front["power"]
-    hp_before = front["hp"]
-    # a normal exchange: a read blow is turned back on the attacker for its
-    # own power, and you take nothing
-    g.stance(p0, "guard")
-    put_question(g, correct=1)
-    g.answer(p0, 1)
-    ep = g.reveal["enemy_phase"]
-    assert ep["blocked"] and ep["riposte"]
-    assert ep["dealt"] == power
-    assert p.hull == 30
-    assert g.board.alive_monster(lair)["enemies"][0]["hp"] == hp_before - power
-
-
-def test_guard_riposte_doubles_on_a_heavy():
+def test_dodge_halves_the_blow():
     g, (p0, p1), lair = boss_battle()
     p = g.player_by_pid(p0)
     p.max_hull = 30
     p.hull = 30
     power = g.board.alive_monster(lair)["enemies"][0]["power"]
-    # burn two exchanges to reach the telegraphed heavy on exchange 3
-    g.stance(p0, "guard")
+    g.stance(p0, "attack")
     put_question(g, correct=0)
-    g.answer(p0, 1)                               # trivia miss → take the counter
-    g.advance_after_reveal()
-    g.stance(p0, "guard")
-    g.resolve_minigame(False)                     # puzzle round missed too
-    g.advance_after_reveal()
-    hull_before = p.hull                          # already dinged by two misses
-    g.stance(p0, "guard")                         # heavy round, read it clean
-    put_question(g, correct=2)
-    g.answer(p0, 2)
+    g.answer(p0, 1)                               # miss → the blow comes
+    assert g.phase == "dodge"
+    land_blow(g, hit=True)                        # read it → half nulled
     ep = g.reveal["enemy_phase"]
-    assert ep["heavy"] and ep["riposte"]
-    assert ep["dealt"] == power * G.HEAVY_MULT
-    assert p.hull == hull_before                  # the heavy never lands on you
+    assert ep["dodged"] and ep["dmg"] == power // 2
+    assert 30 - p.hull == power // 2
 
 
-def test_boss_heavy_hits_double_when_not_guarded():
+def test_dodge_timeout_lands_the_full_blow():
     g, (p0, p1), lair = boss_battle()
     p = g.player_by_pid(p0)
     p.max_hull = 30
     p.hull = 30
     power = g.board.alive_monster(lair)["enemies"][0]["power"]
-    g.stance(p0, "guard")                         # trivia counter
+    g.stance(p0, "attack")
     put_question(g, correct=0)
     g.answer(p0, 1)
+    assert g.phase == "dodge"
+    g.dodge_timeout()                             # asleep at the tiller
+    ep = g.reveal["enemy_phase"]
+    assert not ep.get("dodged") and ep["dmg"] == power
+    assert 30 - p.hull == power
+
+
+def test_boss_heavy_hits_double_when_not_dodged():
+    g, (p0, p1), lair = boss_battle()
+    p = g.player_by_pid(p0)
+    p.max_hull = 30
+    p.hull = 30
+    power = g.board.alive_monster(lair)["enemies"][0]["power"]
+    g.stance(p0, "attack")                        # trivia counter
+    put_question(g, correct=0)
+    g.answer(p0, 1)
+    land_blow(g)
     g.advance_after_reveal()
-    g.stance(p0, "guard")                         # puzzle counter
+    g.stance(p0, "attack")                        # puzzle counter
     g.resolve_minigame(False)
+    land_blow(g)
     g.advance_after_reveal()
     hull_before = p.hull
-    g.stance(p0, "guard")                         # heavy round, failed guard
+    g.stance(p0, "attack")                        # heavy round, missed dodge
     put_question(g, correct=0)
     g.answer(p0, 1)
+    land_blow(g)
     assert g.reveal["enemy_phase"]["heavy"]
     assert hull_before - p.hull == power * G.HEAVY_MULT
 
@@ -1476,6 +1491,7 @@ def test_boss_enrages_at_half_strength():
     g.stance(p0, "magic")
     put_question(g)
     g.answer(p0, 0)
+    land_blow(g)                                  # boss counter → dodge beat
     assert m["enraged"] and e["power"] == power_before + 1
     assert "ENRAGES" in g.reveal["note"]
 
@@ -1503,7 +1519,8 @@ def test_warden_resets_between_challengers():
     warden["hp"] = 2                              # nearly slain...
     g.stance(p0, "attack")
     put_question(g, correct=0)
-    g.answer(p0, 1)                               # ...but the counter sinks you
+    g.answer(p0, 1)                               # ...but the counter comes
+    land_blow(g)                                  # unread → it sinks you
     assert p.node == p.checkpoint
     fresh = g.board.nodes["pharos"]["monster"]["enemies"][0]
     assert fresh["hp"] == fresh["max_hp"]         # nobody inherits a weak Warden
@@ -1759,6 +1776,7 @@ def test_battle_puzzle_failure_gets_you_hit():
     g.stance(p0, "attack")
     assert g.phase == "minigame"
     g.resolve_minigame(False)
+    land_blow(g)                                        # the punishment lands
     assert g.reveal["challenge"] == "puzzle"
     assert not g.reveal["was_correct"]
     assert p.hull < G.MAX_HULL                          # the pack punished the miss
@@ -1817,6 +1835,7 @@ def test_typed_jeopardy_wrong_answer_reveals():
     battle_at(g, p0, mon)
     _typed_battle(g, p0, mon)
     g.answer_text(p0, "charles dickens")
+    land_blow(g)                                   # wrong → the pack punishes
     assert g.phase == "reveal" and not g.reveal["was_correct"]
     assert g.flash and not g.flash["ok"]
     assert "Shakespeare" in g.flash["text"]        # the answer is revealed
@@ -1860,7 +1879,8 @@ def test_correct_answer_but_boss_counter_kills_is_marked_death():
     g._force_mode = "mc"
     g.stance(p0, "attack", 0)
     put_question(g)
-    g.answer(p0, 0)                                 # correct, but the counter lands
+    g.answer(p0, 0)                                 # correct, but the counter comes
+    land_blow(g)                                    # …and lands
     assert g.reveal["was_correct"] and g.reveal["battle_over"]
     assert g.reveal["player_dead"]                  # → YOU DIED, not VICTORY
     assert pack(g, mon)[0]["hp"] > 0                # boss survived

@@ -171,6 +171,8 @@ class Client:
                 else:                      # can't afford to run — swing away
                     await self.send({"type": "dev", "battle_mode": "mc"})
                     await self.send({"type": "stance", "stance": "attack"})
+            elif ph == "dodge":            # frozen at the tiller: eat the blow
+                await self.send({"type": "dodge", "hit": False}, settle=900)
             elif ph == "question":
                 await self.send({"type": "answer", "idx": 0})
                 await self.page.wait_for_timeout(6200)

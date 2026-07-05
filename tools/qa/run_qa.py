@@ -99,23 +99,9 @@ def shots_dir(outdir):
     return d
 
 
-# Known, deliberate degradations that must not fail the gate. The desert's
-# second overworld theme is optional content: audio.js falls back to
-# desert.mp3, but the probe request still 404s once.
-ALLOWED = ("music/desert2.mp3",)
-
-
 def console_verdict(c, notes):
     """Console errors demote a suite to FAIL; returns the status."""
     errors = list(c.errors)
-    allowed_hit = any(any(a in e for a in ALLOWED) for e in errors)
-    errors = [e for e in errors if not any(a in e for a in ALLOWED)]
-    if allowed_hit:
-        # the paired generic console line for the allowlisted 404
-        errors = [e for e in errors
-                  if "Failed to load resource" not in e or "http" in e]
-        notes.append("known degradation: desert2.mp3 missing "
-                     "(falls back to desert.mp3)")
     if not errors:
         return "PASS"
     seen = []
@@ -268,8 +254,11 @@ def battle(outdir):
                 # every stance must deal its challenge and resolve. Battles
                 # draw from THREE decks (mc / jeopardy / puzzle); the dev
                 # hook pins the deck so each path is tested deterministically.
+                # A wrong move triggers the DODGE beat — the suite must see
+                # it appear and resolve it.
+                dodges = 0
                 plans = [("attack", "mc"), ("magic", "jeopardy"),
-                         ("guard", "puzzle")]
+                         ("attack", "puzzle")]
                 for stance, deck in plans:
                     r = await c.room()
                     if r["phase"] != "battle":
@@ -302,7 +291,7 @@ def battle(outdir):
                         await c.send({"type": "solve", "payload": None})
                         resolve_ms = min(95, limit + 10) * 1000
                     try:
-                        await c.wait_phase("battle", "roll", "reveal",
+                        await c.wait_phase("battle", "roll", "reveal", "dodge",
                                            timeout=resolve_ms)
                     except Exception:
                         rr = await c.room()
@@ -310,8 +299,25 @@ def battle(outdir):
                                      f"(phase={rr['phase']})")
                         bad = True
                         continue
+                    r = await c.room()
+                    if r["phase"] == "dodge":     # the action beat appeared
+                        dodges += 1
+                        await c.send({"type": "dodge", "hit": True})
+                        try:
+                            await c.wait_phase("battle", "roll", "reveal",
+                                               timeout=9000)
+                        except Exception:
+                            notes.append(f"{stance}/{deck}: dodge never "
+                                         "resolved")
+                            bad = True
+                            continue
                     await c.page.wait_for_timeout(6500)   # reveal + fx settle
                     notes.append(f"{stance}/{deck}: dealt and resolved ✓")
+                notes.append(f"dodge beats seen: {dodges}")
+                if dodges == 0:
+                    notes.append("no dodge beat ever appeared — is the "
+                                 "counter-attack flow wired?")
+                    bad = True
 
                 status = console_verdict(c, notes)
                 if bad:
