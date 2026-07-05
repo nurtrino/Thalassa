@@ -362,53 +362,58 @@ class Board:
         side = rng.choice([-1, 1])
         maze = mode == "foot" and theme == "autumn"
         if maze:
-            # The Amber Vale is a wooded LABYRINTH: a weaving main track that
-            # carries a normal complement of foes plus a shrine and a haven,
-            # threaded with dead-end spurs that fork off the path and simply
-            # stop — some guarded by an elite, most just blind alleys in the fog.
-            plan = ["sea", "weak", "sea", "shrine", "weak", "sea", "haven", "weak"]
+            # The Amber Vale is a fog-of-war LABYRINTH. ONE true trail winds from
+            # the pass to the barrow — but it is UNMARKED, and at nearly every
+            # stop a dead-end branch peels off that looks just as much like the
+            # way on. The true trail carries NO forced fights (easy, like the
+            # other realms — the danger is getting lost); the branches hold the
+            # rewards and the avoidable foes, and most simply END IN NOTHING.
+            SPINE = 7                                  # true-path stops before the junc
             main = [gate_id]
-            n = len(plan)
-            for i, kind in enumerate(plan):
-                t = (i + 1) / (n + 1)
+            for i in range(SPINE):
+                t = (i + 1) / (SPINE + 1)
                 radius = R0 + 80 + t * (330 - 88)
-                # a WIDE serpentine weave — the track swings far to each side so
-                # the trail winds a long way through the trees between forks
-                a = ang + side * 0.52 * math.sin(math.pi * t * 2.1)
-                depth = 1 + (i * 3) // n
-                node = place(f"r{gi}_m{i}", radius, a, depth)
-                if kind == "weak":
-                    make_monster(node, elite=False, depth=min(2, depth))
-                elif kind == "haven":
-                    make_haven(node)
-                elif kind == "shrine":
-                    make_shrine(node)
-                main.append(f"r{gi}_m{i}")
+                # the true trail winds hard to and fro so it never reads as the
+                # obvious straight shot through the trees
+                a = ang + side * 0.5 * math.sin(math.pi * t * 2.2)
+                place(f"r{gi}_c{i}", radius, a, 1 + (i * 3) // SPINE)   # plain trail
+                main.append(f"r{gi}_c{i}")
             main.append(junc_id)
             for u, v in zip(main, main[1:]):
                 self._link(u, v)
-            # dead-end spurs — the maze's blind alleys, forking off the interior
-            # stops and stopping after a step or two of empty wilds
-            for si, k in enumerate((1, 2, 3, 5, 6)):
+            # the blind alleys: a dead-end chain off a mid-trail stop. Lengths
+            # vary so a long one feels like the real way on. Tips cycle through
+            # a shrine, a haven, a couple of (avoidable) fights incl. one elite,
+            # and several empty fog-ends — (spine index, length, tip).
+            branches = [
+                (1, 3, "weak"),  (2, 4, "shrine"), (3, 2, None),
+                (4, 3, "elite"), (5, 4, "haven"),  (6, 2, "weak"),
+                (7, 3, None),    (3, 2, None),
+            ]
+            for bi, (k, length, tip) in enumerate(branches):
                 if k >= len(main) - 1:
                     continue
                 hn = self.nodes[main[k]]
                 hr = math.hypot(hn["x"], hn["z"])
                 ha = math.atan2(hn["z"], hn["x"])
-                off = (-side if si % 2 == 0 else side) * (0.14 + 0.045 * (si % 3))
-                depth_end = 5 + si                   # spur ends run deep
+                turn = (1 if bi % 2 == 0 else -1) * side
+                off = turn * (0.13 + 0.05 * (bi % 3))
                 prev = main[k]
-                length = 2 + (si % 2)                 # 2–3 stops deep, then stops
-                #  ↳ a blind alley is still a proper little side-track: never a
-                #    single lone island stranded off the path on its own.
                 for j in range(length):
-                    node = place(f"r{gi}_d{si}_{j}", hr + (j + 1) * 34,
-                                 ha + off * (j + 1), 2)
-                    # two of the spurs are GUARDED — an elite lurks at the dead end
-                    if j == length - 1 and si in (0, 2):
-                        make_monster(node, elite=True, depth=depth_end)
-                    self._link(prev, f"r{gi}_d{si}_{j}")
-                    prev = f"r{gi}_d{si}_{j}"
+                    nid = f"r{gi}_b{bi}_{j}"
+                    node = place(nid, hr + (j + 1) * 30, ha + off * (j + 1), 2)
+                    if j == length - 1:                # the dead-end tip
+                        if tip == "weak":
+                            make_monster(node, elite=False, depth=2)
+                        elif tip == "elite":
+                            make_monster(node, elite=True, depth=6)
+                        elif tip == "shrine":
+                            make_shrine(node)
+                        elif tip == "haven":
+                            make_haven(node)
+                        # tip None → a plain blind alley that ends in empty fog
+                    self._link(prev, nid)
+                    prev = nid
             return
 
         simple = mode == "foot" and theme == "desert"
@@ -509,7 +514,10 @@ class Board:
             # sprint. The Amber Vale is finer still: long, winding forest lanes.
             # The Bleached Reach stays SPARSE: cairns spread far apart on the sand.
             if autumn_lane:
-                n_way = min(4, max(3, round(length / 30) - 1))
+                # the Amber Vale is WALKED stop-to-stop now (fog-of-war maze):
+                # each placed stop IS a step, so lanes link directly — no
+                # intermediate waypoints padding the trail into a 40-hop slog.
+                n_way = 0
             elif desert_lane:
                 n_way = 1
             elif na.get("region") and nb.get("region"):
