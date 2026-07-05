@@ -891,10 +891,12 @@ export function createWorld(container, handlers = {}) {
       total += len;
     }
     const foot = rec.mode === 'foot';
-    // unhurried: a voyage should read as a voyage, not a teleport
+    // unhurried: a voyage should read as a voyage, not a teleport — but the
+    // hub's longest lanes were dragging past 7s a hop, so long legs pick up
+    // speed while short putters keep their lazy glide
     rec.anim = {
       pts, legs, total, t0: performance.now(),
-      dur: foot ? Math.min(9000, 900 + total * 52) : Math.min(8000, 700 + total * 40),
+      dur: foot ? Math.min(9000, 900 + total * 52) : Math.min(5800, 700 + total * 32),
     };
   }
 
@@ -1231,9 +1233,15 @@ export function createWorld(container, handlers = {}) {
     }
     if (!nodes.length) return;
 
-    /* rematch / new sea detection */
+    /* rematch / new sea detection. NOT total node count: the Amber Vale's
+     * fog reveals stops (its gate included) mid-game, growing the list —
+     * counting them made every reveal read as a brand-new sea, wiping the
+     * world and replaying the whole opening fly-over. Only hub-side data is
+     * stable through reveals; a real rematch re-rolls Home Port's position
+     * and the hub's waypoint lattice. */
     const home = nodeById.home;
-    const sig = `${home?.x},${home?.z}:${room.code}:${nodes.length}`;
+    const hubN = nodes.reduce((k, n) => k + (n.region ? 0 : 1), 0);
+    const sig = `${home?.x},${home?.z}:${room.code}:${hubN}`;
     if (boardSig && boardSig !== sig) clearWorld();
     boardSig = sig;
 

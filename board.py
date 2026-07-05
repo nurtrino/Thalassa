@@ -154,7 +154,8 @@ _RING_R = [150.0, 265.0, 380.0]
 _HOME_R = 70.0                # Home Port, just south of the Pharos
 WALL_R = 490.0                # the mountain wall that seals the Isles of Peace
 _WAYPOINT_EVERY = 60.0        # aim for a sea node roughly every N world units
-_MAX_WAYPOINTS = 1            # per HUB lane — tuned for exact-roll d3 sailing
+_MAX_WAYPOINTS = 3            # per HUB lane — ring-3 arcs run past 330 wu; one
+                              # waypoint left 140+ wu hops that sailed forever
 _WAYPOINT_EVERY_REALM = 42.0  # realms are finer-grained: a real crawl
 _MAX_WAYPOINTS_REALM = 2      # per REALM lane
 _SEA_LOOKS = ["buoy", "buoy", "buoy", "rocks", "rocks", "islet", "islet", "none"]
@@ -270,6 +271,7 @@ class Board:
         self._build_neighbors()
         self._ensure_connected()
         self._insert_waypoints(rng)
+        self._declip_lanes()
 
     def _grow_region(self, gi: int, theme: str, ang: float, rings, names, rng):
         """A pass through the mountain wall, then ONE MAIN ROAD to the boss —
@@ -525,6 +527,10 @@ class Board:
                             max(2, round(length / _WAYPOINT_EVERY_REALM) - 1))
             else:
                 n_way = min(_MAX_WAYPOINTS, max(1, round(length / _WAYPOINT_EVERY) - 1))
+                # …but NEVER leave a hop past ~90 wu, however long the lane —
+                # the chase camera turns those into featureless open-water
+                # dollies. Only the very longest ring-3 arcs exceed the cap.
+                n_way = max(n_way, math.ceil(length / 90.0) - 1)
             # keep waypoints OFF the coasts: reserve each island's visual
             # footprint at both ends of the lane, distribute between them
             ca = _NODE_CLEAR.get(na["type"], 4.0)
@@ -533,6 +539,13 @@ class Board:
             # on lanes shorter than the far island's footprint the waypoints
             # bunch near the START coast rather than landing on the island
             hi = max(lo + 0.08, 1 - cb / max(length, 1e-6) - 0.04)
+            # once the coasts are reserved, short lanes may have almost no
+            # open water left — cramming the quota in anyway stacked buoys
+            # 4 wu apart (a "sail" that reads as a twitch). Thin the count
+            # until every hop on the lane gets ≥ ~10 wu of water.
+            usable = (hi - lo) * length
+            if not autumn_lane:
+                n_way = min(n_way, max(0, int(usable / 10.0) - 1))
             chain = [a]
             for k in range(1, n_way + 1):
                 t = lo + (hi - lo) * (k / (n_way + 1))
@@ -576,6 +589,89 @@ class Board:
             for u, v in zip(chain, chain[1:]):
                 self._link(u, v)
         self._build_neighbors()
+
+    def _declip_lanes(self):
+        """No lane may cross a third island's footprint — the ship (and the
+        lane's buoys) would cut straight through its terrain. Two passes:
+        shoo sea waypoints out of every island's clearance disc, then bend
+        any island-to-island lane that still crosses one by dropping a bend
+        buoy at the closest approach, pushed off the coast. The Amber Vale
+        is left untouched: its serpentine trail is designed geometry."""
+        def clear_r(n):
+            return _NODE_CLEAR.get(n["type"], 0.0)
+
+        def in_vale(n):
+            return n.get("region") == "autumn"
+
+        islands = [n for n in self.nodes.values() if clear_r(n) > 0]
+
+        for _ in range(3):                      # repulsion can cascade a little
+            moved = False
+            for n in self.nodes.values():
+                if n["type"] != "sea" or in_vale(n):
+                    continue
+                for isl in islands:
+                    need = clear_r(isl) + 2.0
+                    dx, dz = n["x"] - isl["x"], n["z"] - isl["z"]
+                    d = math.hypot(dx, dz)
+                    if d >= need:
+                        continue
+                    if d < 1e-6:
+                        dx, dz, d = 1.0, 0.0, 1.0
+                    n["x"] = round(isl["x"] + dx / d * need, 2)
+                    n["z"] = round(isl["z"] + dz / d * need, 2)
+                    moved = True
+            if not moved:
+                break
+
+        bends = 0
+        for _round in range(4):     # a bend's own halves can still cross
+            dirty = False
+            for a, b in self.edges[:]:
+                na, nb = self.nodes[a], self.nodes[b]
+                if in_vale(na) or in_vale(nb):
+                    continue
+                for isl in islands:
+                    if isl["id"] in (a, b):
+                        continue
+                    need = clear_r(isl) + 1.0
+                    ax, az, bx, bz = na["x"], na["z"], nb["x"], nb["z"]
+                    dx, dz = bx - ax, bz - az
+                    L2 = dx * dx + dz * dz
+                    if L2 < 1e-9:
+                        continue
+                    t = max(0.0, min(1.0, ((isl["x"] - ax) * dx
+                                           + (isl["z"] - az) * dz) / L2))
+                    px, pz = ax + t * dx, az + t * dz
+                    d = math.hypot(px - isl["x"], pz - isl["z"])
+                    if d >= need or t in (0.0, 1.0):
+                        continue
+                    ox, oz = px - isl["x"], pz - isl["z"]
+                    if d < 1e-6:
+                        ox, oz, d = -dz, dx, math.hypot(dz, dx)
+                    push = clear_r(isl) + 3.0
+                    nid = f"seab{bends}"
+                    bends += 1
+                    self.nodes[nid] = {
+                        "id": nid, "name": na["name"] if na["type"] == "sea"
+                        else "Open Sea", "type": "sea",
+                        "band": max(na["band"], nb["band"]),
+                        "x": round(isl["x"] + ox / d * push, 2),
+                        "z": round(isl["z"] + oz / d * push, 2),
+                        "flotsam": False, "look": "buoy",
+                    }
+                    for k in ("region", "mode", "depth"):
+                        if na.get(k) is not None and na.get(k) == nb.get(k):
+                            self.nodes[nid][k] = na[k]
+                    self.edges.remove((a, b))
+                    self._link(a, nid)
+                    self._link(nid, b)
+                    dirty = True
+                    break                        # this edge is gone; next edge
+            if not dirty:
+                break
+        if bends:
+            self._build_neighbors()
 
     # Titles for a boss that has already been slain once and rises again,
     # harder, for the next challenger. Index by how many rivals beat it before.
