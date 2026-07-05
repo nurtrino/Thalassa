@@ -194,6 +194,9 @@ class Game:
         self.question: dict | None = None
         self.question_deadline: float | None = None
         self.dodge_deadline: float | None = None
+        self.jboard: dict | None = None      # the Jeopardy category board
+        self.jchoose_deadline: float | None = None
+        self._pending_jeopardy: dict | None = None   # clue chosen off the board
         self.gate_walk: dict | None = None   # pending carry-through at a pass
         self.side_answers: dict[str, int] = {}
         self.reveal: dict | None = None
@@ -1037,18 +1040,20 @@ class Game:
         self.battle["target"] = target
 
         # ── what challenge does this round pose? ─────────────────────────────
-        # Battles draw from THREE decks: 40% general trivia (multiple-choice,
-        # from the live Trivia API), 40% combat puzzles, 20% typed clues.
+        # Battles draw from THREE decks: 31.25% general trivia (multiple-choice,
+        # from the live Trivia API), 31.25% combat puzzles, 37.5% typed JEOPARDY!
+        # boards. (Jeopardy took +17.5 points, split evenly off the other two.)
         # Temples keep the themed-category gimmick; battles don't. Puzzles
         # never include riddles (those are the Sphinx's).
         if boss:
             # bosses rotate the decks round by round — trivia-heavy (exchange
-            # 2 is always a puzzle), with one typed clue per cycle.
+            # 2 is always a puzzle), with one Jeopardy board per cycle.
             # Deterministic, so it spends no extra RNG draw.
             mode = ("mc", "puzzle", "mc", "jeopardy")[self.battle["round"] % 4]
         else:
             r = self.rng.random()
-            mode = "puzzle" if r < 0.40 else ("mc" if r < 0.80 else "jeopardy")
+            mode = ("puzzle" if r < 0.3125
+                    else ("mc" if r < 0.625 else "jeopardy"))
         forced = getattr(self, "_force_mode", None)     # DEV_CHEATS test hook only
         if forced:
             mode = forced
@@ -1063,13 +1068,40 @@ class Game:
             self.side_answers = {}
             self._bump("minigame")
             return
-        # trivia rounds (MC or typed Jeopardy) share the question phase; the
-        # server fetches the right kind from `mode`.
         self.qctx = {"kind": "battle", "island": self.battle["node"],
                      "tier": tier, "domain": None, "mode": mode}
         self.question = None
         self.side_answers = {}
+        if mode == "jeopardy":
+            # a JEOPARDY! board: four categories to choose from. STRIKE deals the
+            # low money ($200/$400), MAGIC the high ($800/$1000). The chosen clue
+            # becomes the typed question.
+            band = "high" if stance == "magic" else "low"
+            self.jboard = {"band": band, "node": self.battle["node"],
+                           "cells": questions.jeopardy_board(self.rng, band)}
+            self.jchoose_deadline = None
+            self._bump("jchoose")
+            return
+        # MC trivia shares the question phase; the server fetches from `mode`.
         self._bump("question")
+
+    def jpick(self, pid: str, idx: int):
+        """Choose one of the four Jeopardy categories on the board; that clue
+        becomes the typed question."""
+        self._require_turn(pid, "jchoose")
+        board = self.jboard
+        if not board or not (0 <= idx < len(board["cells"])):
+            raise GameError("Pick a category.")
+        self._pending_jeopardy = questions.jeopardy_question(board["cells"][idx])
+        self.jboard = None
+        self.jchoose_deadline = None
+        self.question = None
+        self._bump("question")
+
+    def jchoose_timeout(self):
+        """No pick in time — the board makes the choice for you."""
+        if self.phase == "jchoose" and self.jboard:
+            self.jpick(self.current.pid, self.rng.randrange(len(self.jboard["cells"])))
 
     def flee(self, pid: str):
         """FLEE_COST scrolls buys a coin flip: slip away clean, or the front
@@ -1881,6 +1913,13 @@ class Game:
                           and self.current.pid == viewer_pid) else {},
             "walk": walk,
             "question": q,
+            # the JEOPARDY! board: four categories to pick from (clue text and
+            # answers stay server-side — only the category + value show)
+            "jboard": ({"band": self.jboard["band"],
+                        "deadline": self.jchoose_deadline,
+                        "cells": [{"category": c["category"], "value": c["value"]}
+                                  for c in self.jboard["cells"]]}
+                       if self.phase == "jchoose" and self.jboard else None),
             # the incoming blow awaiting its dodge (Paper-Mario action beat)
             "dodge": ({"attacker": self.battle["incoming"]["attacker"],
                        "attacker_idx": self.battle["incoming"]["attacker_idx"],

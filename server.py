@@ -39,6 +39,7 @@ from questions import QuestionBank, TriviaAPIBank
 BASE = os.path.dirname(os.path.abspath(__file__))
 QUESTION_SECS = float(os.environ.get("QUESTION_SECS", "35"))
 JEOPARDY_SECS = float(os.environ.get("JEOPARDY_SECS", "15"))   # typed clues
+JCHOOSE_SECS = float(os.environ.get("JCHOOSE_SECS", "12"))     # pick a category
 REVEAL_SECS = float(os.environ.get("REVEAL_SECS", "5"))
 ABANDON_RESET_SECS = float(os.environ.get("ABANDON_RESET_SECS", "300"))
 BOT_TEMPO = float(os.environ.get("BOT_TEMPO", "1.0"))
@@ -127,7 +128,12 @@ async def fetch_question(nonce: int):
     try:
         pending = g.needs_puzzle()
         mode = ctx.get("mode")
-        if pending is not None:
+        pending_j = getattr(g, "_pending_jeopardy", None)
+        if pending_j is not None:            # a clue picked off the Jeopardy board
+            g._pending_jeopardy = None
+            limit = JEOPARDY_SECS
+            q = pending_j
+        elif pending is not None:
             limit = pending.get("limit", 60)
             q = pending
         elif mode == "jeopardy":             # typed clue, 15s on the clock
@@ -200,6 +206,15 @@ async def dodge_timer(nonce: int, limit: float):
         await broadcast()
 
 
+async def jchoose_timer(nonce: int, limit: float):
+    await asyncio.sleep(limit + 1)
+    g = table.game
+    if g.nonce == nonce and g.phase == "jchoose":
+        g.jchoose_timeout()           # no pick → the board chooses for you
+        after_phase_change()          # arm the fetch for the chosen clue
+        await broadcast()
+
+
 async def gate_walk_task(pid: str, gate: str, dest: str):
     """The pass carries you through: a beat after landfall, walk the captain
     on to the far side's first waypoint (they spawn IN the region, never
@@ -223,6 +238,9 @@ def after_phase_change():
         schedule(gate_walk_task(gw["pid"], gw["gate"], gw["to"]))
     if g.phase == "question" and g.question is None:
         schedule(fetch_question(g.nonce))
+    elif g.phase == "jchoose" and g.jchoose_deadline is None:
+        g.jchoose_deadline = time.time() + JCHOOSE_SECS
+        schedule(jchoose_timer(g.nonce, JCHOOSE_SECS))
     elif g.phase == "minigame" and g.minigame and g.minigame["deadline"] is None:
         limit = g.minigame["limit"]
         if limit:                            # simon runs without a clock
@@ -266,6 +284,8 @@ async def dispatch(pid: str | None, kind: str, msg: dict) -> str | None:
             g.sail(pid, str(msg.get("node", "")))
         elif kind == "walk":
             g.walk_step(pid, str(msg.get("node", "")))
+        elif kind == "jpick":
+            g.jpick(pid, int(msg.get("idx", 0)))
         elif kind == "wager":
             g.wager(pid, int(msg.get("tier", 0)))
         elif kind == "pass":
@@ -429,6 +449,9 @@ async def bot_move(nonce: int, tag: str, pid: str):
                 err = await dispatch(pid, "stance", {"stance": "attack"})
         else:
             err = await dispatch(pid, "stance", {"stance": choice})
+    elif phase == "jchoose":
+        n = len(g.jboard["cells"]) if g.jboard else 1
+        err = await dispatch(pid, "jpick", {"idx": rng.randrange(n)})
     elif phase == "question":
         if g.question is None:
             return
@@ -481,8 +504,8 @@ async def bot_driver():
         if not g.players or g.current.pid not in table.bots:
             continue
         if g.phase in ("roll", "sail", "shrine", "haven", "shop", "battle",
-                       "question", "minigame", "dodge", "upgrade_pick",
-                       "trade", "pharos"):
+                       "question", "minigame", "dodge", "jchoose",
+                       "upgrade_pick", "trade", "pharos"):
             if g.phase == "question" and g.question is None:
                 continue
             key = (g.nonce, g.phase)
@@ -599,6 +622,10 @@ def heal_stuck_phase(g, stuck: float) -> str | None:
     if (g.phase == "dodge" and g.dodge_deadline
             and now > g.dodge_deadline + 2):
         g.dodge_timeout()
+        return "timeout"
+    if (g.phase == "jchoose" and g.jchoose_deadline
+            and now > g.jchoose_deadline + 3):
+        g.jchoose_timeout()                   # the pick timer was lost
         return "timeout"
     if g.phase == "reveal" and stuck > 15:
         g.advance_after_reveal()              # the reveal timer was lost

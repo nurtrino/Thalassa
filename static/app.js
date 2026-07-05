@@ -743,6 +743,7 @@ function reactAudio(prev, next) {
 
   /* soundtrack scenes: lobby / battle / puzzle / endgame / per-realm open sea */
   const battleish = next.phase === 'battle' || next.phase === 'dodge' ||
+    next.phase === 'jchoose' ||
     (next.phase === 'question' && next.question?.kind === 'battle') ||
     (next.phase === 'minigame' && (next.minigame?.battle || next.minigame?.sphinx)) ||
     (next.phase === 'reveal' && next.reveal?.kind === 'battle');
@@ -1035,6 +1036,70 @@ function renderDodge() {
   dodgeState = st;
 }
 
+/* ── the JEOPARDY! category board ───────────────────────────────────────────
+ * A jeopardy round opens on a board of four categories (STRIKE deals $200/$400,
+ * MAGIC $800/$1000). Tap a tile to lock that clue in; it becomes the typed
+ * question. Its own RAF drives the countdown so it never fights the shared
+ * question timer. */
+let jbTimerRAF = 0;
+function renderJboard() {
+  const el = $('jboard');
+  const b = room?.jboard;
+  const active = room.phase === 'jchoose' && b && !world.arriving();
+  if (!active) {
+    cancelAnimationFrame(jbTimerRAF); jbTimerRAF = 0;
+    el.classList.add('hidden'); el.innerHTML = ''; el.dataset.key = '';
+    return;
+  }
+  const mine = room.turn === you;
+  const fighter = room.players.find((p) => p.pid === room.turn);
+  const key = 'jb#' + b.cells.map((c) => c.category + c.value).join('|') + (mine ? '#me' : '');
+  if (el.dataset.key !== key) {
+    el.dataset.key = key;
+    el.classList.remove('hidden');
+    const title = b.band === 'high' ? 'MAGIC · $800 / $1000' : 'STRIKE · $200 / $400';
+    el.innerHTML =
+      `<div class="jbhead">${icon('scroll', 18)} JEOPARDY! — ` +
+      `${mine ? 'pick a category' : esc(fighter?.name || 'the captain') + ' is choosing…'}</div>` +
+      `<div class="jbsub">${title}</div>` +
+      '<div class="jbtimer"><div class="jbtimerBar"></div></div>' +
+      '<div class="jbgrid">' +
+      b.cells.map((c, i) =>
+        `<button class="jbcell${mine ? '' : ' disabled'}" data-idx="${i}"${mine ? '' : ' disabled'}>` +
+        `<span class="jbval">$${c.value}</span>` +
+        `<span class="jbcat">${esc(c.category)}</span></button>`).join('') +
+      '</div>';
+    if (mine) {
+      el.querySelectorAll('.jbcell').forEach((btn) => {
+        btn.onclick = () => {
+          if (el.classList.contains('picked')) return;
+          el.classList.add('picked');
+          send({ type: 'jpick', idx: parseInt(btn.dataset.idx, 10) });
+        };
+      });
+    } else {
+      el.classList.remove('picked');
+    }
+  }
+  // own countdown bar (server deadline vs the client clock)
+  const bar = el.querySelector('.jbtimerBar');
+  cancelAnimationFrame(jbTimerRAF);
+  if (bar && b.deadline) {
+    if (bar.dataset.deadline !== String(b.deadline)) {
+      bar.dataset.deadline = String(b.deadline);
+      bar.dataset.total = String(Math.max(0.001, b.deadline - Date.now() / 1000));
+    }
+    const total = parseFloat(bar.dataset.total);
+    const tick = () => {
+      const pct = Math.max(0, Math.min(1, (b.deadline - Date.now() / 1000) / total));
+      bar.style.width = (pct * 100) + '%';
+      bar.style.background = pct < 0.25 ? '#e4572e' : '';
+      if (pct > 0 && room.phase === 'jchoose') jbTimerRAF = requestAnimationFrame(tick);
+    };
+    tick();
+  }
+}
+
 /* ── rendering ──────────────────────────────────────────────────────────── */
 function render() {
   if (!room) return;
@@ -1071,6 +1136,7 @@ function render() {
   renderItembelt();
   renderBattle();
   renderDodge();
+  renderJboard();
   renderQuestion();
   renderMinigame();
   renderModal();
@@ -1666,7 +1732,7 @@ function renderBattle() {
   const hud = $('battleHud');
   const b = battleView();
   // hold the whole battle screen until the boat has sailed up to the island
-  const show = b && (['battle', 'question', 'reveal', 'dodge'].includes(room.phase) ||
+  const show = b && (['battle', 'question', 'reveal', 'dodge', 'jchoose'].includes(room.phase) ||
       (room.phase === 'minigame' && room.minigame?.battle)) &&
     (room.phase !== 'reveal' || room.reveal?.kind === 'battle') &&
     !world.arriving();
@@ -1806,7 +1872,9 @@ function renderQuestion() {
   const typed = !!(q?.typed || rv?.typed);            // a JEOPARDY! clue: you type it
   const ctxDomain = q?.domain ?? rv?.domain;
   const ctxKind = q?.kind ?? rv?.kind;
-  const dcolor = typed ? '#0b1e8f' : (ctxDomain ? DOMAIN_COLORS[ctxDomain] : '#7d5ba6');
+  // typed JEOPARDY! clues wear a bronze header (an inscribed-stele look), not
+  // the TV-show blue — it belongs to the Aegean HUD like everything else
+  const dcolor = typed ? '#6b4f1a' : (ctxDomain ? DOMAIN_COLORS[ctxDomain] : '#7d5ba6');
   const dinfo = ctxDomain ? room.board.domains[ctxDomain] : null;
 
   $('qhead').style.background = dcolor;
