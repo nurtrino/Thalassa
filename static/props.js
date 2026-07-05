@@ -55,7 +55,16 @@ function ensure(id) {
   p = loader.loadAsync(`/static/assets/props/${id}.glb`)
     .then((gltf) => {
       const s = gltf.scene;
-      s.traverse((o) => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; } });
+      s.traverse((o) => {
+        if (!o.isMesh) return;
+        o.castShadow = true;
+        o.receiveShadow = true;
+        // roughness floor: Meshy bakes glossy PBR that reads as glazed
+        // plastic beside the flat-shaded world — matte it down to belong
+        if (o.material && 'roughness' in o.material) {
+          o.material.roughness = Math.max(0.85, o.material.roughness);
+        }
+      });
       // normalize to the prop's NATURAL height and rest it on the ground
       const box = new THREE.Box3().setFromObject(s);
       const h = Math.max(0.001, box.max.y - box.min.y);

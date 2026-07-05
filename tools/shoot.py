@@ -51,6 +51,12 @@ async def join_and_start(page):
         await page.click("#introGo", timeout=3000)   # dismiss the rules card
     except Exception:
         pass
+    # cut the 42s opening fly-over short — it OWNS the stage while it runs,
+    # so screenshots taken under it show tour frames, not the game
+    await page.evaluate("() => window.__world && window.__world.tourActive()"
+                        " && window.__world.endTour()")
+    await page.mouse.down()
+    await page.mouse.up()
     await page.wait_for_timeout(600)
 
 

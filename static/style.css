@@ -1200,12 +1200,21 @@ body.shake #world { animation: shake .45s; }
   opacity: .92;
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
-#qtimer, #mgtimer { height: 7px; background: rgba(90, 70, 30, .3); }
+#qtimer, #mgtimer { height: 7px; background: rgba(90, 70, 30, .3); position: relative; }
 #qtimerBar, #mgtimerBar {
   height: 100%; width: 100%;
   background: linear-gradient(180deg, var(--gleam), var(--bronze));
   box-shadow: 0 0 8px rgba(240, 208, 96, .5);
   transition: background .3s;
+}
+/* numeric countdown riding the timer track (data-secs set by startTimerBar):
+   the shrinking strip alone is hard to parse and its red shift is lost on
+   protan color vision */
+#qtimer[data-secs]::after, #mgtimer[data-secs]::after {
+  content: attr(data-secs) 's';
+  position: absolute; right: 6px; top: -19px;
+  font-family: var(--disp); font-weight: 700; font-size: 12px;
+  color: var(--gilt); text-shadow: 0 1px 2px rgba(0, 0, 0, .6);
 }
 #qtext { padding: var(--s4) 22px var(--s1); font-size: 19px; line-height: 1.4; font-weight: 500; }
 #qitems { display: flex; gap: var(--s2); justify-content: center; padding: var(--s2) 22px 0; }
@@ -1241,6 +1250,12 @@ body.shake #world { animation: shake .45s; }
   border-color: #6e2012; color: #fff1ec;
   text-shadow: 0 1px 1px rgba(0, 0, 0, .3);
 }
+/* the verdict must survive without color vision: stamp glyphs, not just hue */
+.opt.good::after, .opt.bad::after {
+  float: right; margin-left: 8px; font-weight: 800;
+}
+.opt.good::after { content: '✓'; }
+.opt.bad::after { content: '✕'; }
 .opt.ruled { opacity: .32; text-decoration: line-through; }
 .opt.picked { border-color: var(--bronze); box-shadow: inset 0 0 0 2px var(--bronze), 0 2px 5px rgba(90, 70, 30, .22); }
 
@@ -1927,4 +1942,152 @@ body.dev .mapchip { cursor: pointer; }
 body.dev .mapchip:hover {
   border-color: #7fe0a0;
   box-shadow: 0 0 0 2px rgba(127, 224, 160, .55), 0 2px 8px rgba(4, 8, 12, .55);
+}
+
+/* ═══ QA POLISH PASS (reviewer panel, docs/QA-REVIEWS.md) ════════════════ */
+
+/* FLEE stands apart from the stance trio — butted against GUARD it was the
+   top fat-finger complaint (an accidental flee costs scrolls AND a free hit) */
+.battlebtn.flee { margin-left: clamp(10px, 3vw, 26px); }
+
+/* the reconnecting veil: dims and blocks the board while the socket is down */
+#connVeil {
+  position: fixed; inset: 0; z-index: 90;
+  display: flex; align-items: center; justify-content: center;
+  background: rgba(5, 9, 14, .55);
+  -webkit-backdrop-filter: blur(1.5px);
+  backdrop-filter: blur(1.5px);
+  animation: veilin .4s ease-out;
+}
+@keyframes veilin { from { opacity: 0; } }
+#connVeil .plaque { font-family: var(--disp); font-weight: 700; letter-spacing: .06em; }
+
+/* phone-scale touch targets: 44px minimum on the toolbar icons + item belt */
+@media (max-width: 700px) {
+  #muteBtn, #mapBtn { width: 44px; height: 44px; }
+  #bactions .itemslot, #bactions .beltslot { width: 44px; height: 44px; padding: 8px; }
+  .itemslot, .beltslot { min-width: 44px; min-height: 44px; }
+}
+
+/* ═══ BATTLE REWORK: turn rail, dodge beat, readable foe HP ══════════════ */
+
+/* foe HP reads at a glance: fatter cells + a numeric count beside them */
+.ehprow { display: flex; align-items: center; justify-content: center; gap: 7px; }
+.ehpnum {
+  font-family: var(--disp); font-weight: 800; font-size: 12.5px;
+  color: #ffb4a4; text-shadow: 0 1px 2px rgba(0, 0, 0, .7);
+}
+.hpbar.foe .hpcell { width: 30px; height: 15px; background: rgba(10, 14, 20, .55); }
+
+/* the turn rail — who strikes back next, pinned to the battle's right edge */
+#brail {
+  position: fixed; right: 14px; top: 50%; transform: translateY(-50%);
+  z-index: 15; display: flex; flex-direction: column; gap: 6px;
+  min-width: 120px; max-width: 190px;
+}
+#brail .railtitle {
+  font-family: var(--disp); font-weight: 800; font-size: 10.5px;
+  letter-spacing: .22em; color: var(--gilt);
+  text-shadow: 0 1px 3px rgba(0, 0, 0, .8);
+  margin-bottom: 2px; text-align: right;
+}
+#brail .railentry {
+  display: flex; align-items: center; gap: 7px; justify-content: flex-end;
+  font-family: var(--disp); font-weight: 700; font-size: 12px;
+  letter-spacing: .04em; color: var(--bone);
+  background: linear-gradient(180deg, rgba(22, 39, 58, .92), rgba(11, 20, 29, .92));
+  border: 1px solid rgba(201, 162, 39, .35);
+  border-radius: 8px; padding: 6px 10px;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+#brail .railentry.you { color: var(--gilt); border-color: rgba(201, 162, 39, .7); }
+#brail .railentry.next {
+  border-color: #ef6448;
+  box-shadow: 0 0 10px rgba(224, 58, 47, .45);
+}
+#brail .railn {
+  width: 16px; height: 16px; border-radius: 50%; flex: none;
+  display: grid; place-items: center;
+  font-size: 10px; color: #0e1822; background: var(--bronze);
+}
+
+/* the DODGE beat: full-screen tap zone, collapsing ring onto a target */
+#dodgeQte {
+  position: fixed; inset: 0; z-index: 16;
+  display: flex; flex-direction: column; align-items: center;
+  justify-content: center; gap: 18px;
+  background: radial-gradient(circle at 50% 46%, rgba(6, 10, 16, .18), rgba(6, 10, 16, .55));
+  touch-action: none; cursor: pointer;
+}
+#dodgeQte .dodgecap {
+  font-family: var(--disp); font-weight: 700; font-size: clamp(16px, 3vw, 24px);
+  letter-spacing: .08em; color: var(--bone);
+  text-shadow: 0 2px 10px rgba(0, 0, 0, .9);
+}
+#dodgeQte .dodgecap strong { color: #ef6448; }
+#dodgeQte .dodgehint {
+  font-family: var(--body); font-style: italic; font-size: 13px;
+  color: var(--mist); text-shadow: 0 1px 4px rgba(0, 0, 0, .8);
+}
+/* the timing wheel: a dark clock face, a GOLD arc shaded onto its ring, a
+   thin WHITE hand sweeping clockwise. Tap while the hand crosses the gold. */
+.dodgewheel {
+  position: relative; width: 160px; height: 160px; border-radius: 50%;
+  background: radial-gradient(circle, rgba(10, 16, 24, .55) 58%, rgba(16, 24, 34, .85) 100%);
+  border: 3px solid rgba(201, 162, 39, .55);
+  box-shadow: 0 0 22px rgba(3, 8, 13, .8), inset 0 0 18px rgba(3, 8, 13, .7);
+}
+/* the gold window — a conic sector (inline background) cut into a ring band */
+.dodgewheel .dq-arc {
+  position: absolute; inset: 4px; border-radius: 50%;
+  -webkit-mask: radial-gradient(circle, transparent 62%, #000 63%);
+  mask: radial-gradient(circle, transparent 62%, #000 63%);
+  filter: drop-shadow(0 0 8px rgba(240, 208, 96, .7));
+}
+/* the little white clock hand, pivoting from the centre */
+.dodgewheel .dq-hand {
+  position: absolute; left: 50%; bottom: 50%;
+  width: 3.5px; height: 46%;
+  margin-left: -1.75px;
+  transform-origin: bottom center;
+  background: linear-gradient(180deg, #ffffff, rgba(255, 255, 255, .35));
+  border-radius: 3px;
+  box-shadow: 0 0 9px rgba(255, 255, 255, .85);
+  will-change: transform;
+}
+.dodgewheel .dq-hand::before {           /* tip knob riding the ring */
+  content: '';
+  position: absolute; top: -5px; left: 50%;
+  width: 11px; height: 11px; margin-left: -5.5px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 0 10px rgba(255, 255, 255, .9);
+}
+.dodgewheel .dq-hand::after {             /* centre pin */
+  content: '';
+  position: absolute; bottom: -4px; left: 50%;
+  width: 9px; height: 9px; margin-left: -4.5px;
+  border-radius: 50%;
+  background: var(--gilt);
+  box-shadow: 0 0 6px rgba(240, 208, 96, .8);
+}
+.dodgewheel .dq-verdict {
+  position: absolute; inset: 0; display: grid; place-items: center;
+  font-family: var(--disp); font-weight: 800; font-size: 19px;
+  letter-spacing: .1em; pointer-events: none;
+}
+.dodgewheel .dq-verdict.hit { color: #7cffb2; text-shadow: 0 0 18px rgba(60, 220, 130, .8); }
+.dodgewheel .dq-verdict.miss { color: #ff7a6b; text-shadow: 0 0 18px rgba(224, 70, 40, .8); }
+#dodgeQte.dodged .dodgewheel { border-color: #7cffb2; }
+#dodgeQte.flubbed .dodgewheel { border-color: #55606e; }
+#dodgeQte.dodged .dq-hand, #dodgeQte.flubbed .dq-hand { opacity: .5; }
+
+@media (max-width: 700px) {
+  #brail { right: 6px; min-width: 96px; }
+  #brail .railentry { font-size: 10.5px; padding: 5px 8px; }
+  .dodgewheel { width: 132px; height: 132px; }
+  .hpbar.foe .hpcell { width: 24px; height: 13px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  #dodgeQte { background: rgba(6, 10, 16, .55); }
 }

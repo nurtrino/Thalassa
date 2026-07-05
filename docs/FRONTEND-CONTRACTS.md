@@ -36,8 +36,14 @@ Client→server messages and snapshot shape: see legacy/app.js §protocol —
 port it verbatim. New/changed since the legacy client was written:
 
 - `roll` results are 1..3 (d3). `config.die_sides = 3`.
-- `stance` accepts `'guard'` as well as `'attack'|'magic'` (guard = tier-I
-  question; success blocks the whole enemy phase).
+- `stance` accepts `'attack'|'magic'` only — there is NO guard stance.
+  Incoming enemy blows enter the `'dodge'` phase instead: the snapshot
+  carries `room.dodge = {attacker, attacker_idx, power, heavy, deadline}`
+  and the client answers with `dodge {hit: bool}` (a timing action beat,
+  judged client-side; the server times out to a full hit after
+  `DODGE_SECS`). A read dodge nulls half the blow.
+- `room.battle.order` — upcoming enemy attacker indices (the turn rail);
+  every living foe rotates in and none strikes more than twice in a row.
 - `use {item:'planks'}` — patch 3 hull; legal on your turn in phases
   roll/sail/battle/shrine/haven/shop.
 - `config.shop_items` now includes `planks`; costs rebalanced;
@@ -45,8 +51,8 @@ port it verbatim. New/changed since the legacy client was written:
 - `room.battle` extra fields: `model` (string id), `enraged` (bool),
   `round` (int), `charging` (bool — the NEXT enemy blow is heavy),
   `region` (realm id or null), per-enemy `model`.
-- `room.reveal.enemy_phase` extra fields: `blocked` (guard success),
-  `heavy` (bool).
+- `room.reveal.enemy_phase` extra fields: `dodged` (the blow was read —
+  half nulled), `heavy` (bool).
 - Board nodes: `depth` (1..7, realm dungeon depth), `mode` (`'sail'|'foot'`,
   foot = the desert trek), `region` ∈
   `{'ice','desert','jungle','autumn'}` or absent (hub).
@@ -339,11 +345,11 @@ the NEW world API (`createWorld(container, {onNodeClick, onStageChange})`).
 Key new behavior:
 - d3 dice: tumble shows 1-3 (die faces show 1..3 twice); `dice` WS message
   unchanged.
-- Stance UI: STRIKE/MAGIC/GUARD (+tier chips: strike I/II by boss, magic
-  III, guard I); GUARD tooltip "read the blow — success turns it aside".
-  Boss `charging` → show the warning strip in `#bfoe` + suggest guard;
-  `enraged` badge; battle beats extended: on reveal with
-  `enemy_phase.blocked` → `battlePlay('guard_block',{heavy})`; `heavy` hits
+- Stance UI: STRIKE/MAGIC (+tier chips: strike I/II by boss, magic III) —
+  guarding is the DODGE action beat (`#dodgeQte`), not a stance. Boss
+  `charging` → show the warning strip in `#bfoe`; `enraged` badge; battle
+  beats extended: `enemy_phase.dodged` → the blow text carries the
+  twist-aside verdict; `heavy` hits
   → `('enemy_attack',{dmg,heavy:true})`; kills → `('enemy_die',{idx})`;
   boss `charging` after reveal → `('charge_telegraph')`. Keep legacy beat
   timings (900/1500/2200/2600ms) and sfx pairings (audio.js API unchanged).

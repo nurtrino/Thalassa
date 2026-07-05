@@ -121,7 +121,8 @@ def decide_shrine_tier(g: G.Game, pid: str, skill: Skill, rng: random.Random) ->
 
 
 def decide_battle(g: G.Game, pid: str, rng: random.Random) -> str:
-    """'attack' | 'magic' | 'guard' | 'flee' | 'planks' for the stance phase."""
+    """'attack' | 'magic' | 'flee' | 'planks' for the stance phase. There is
+    no guard stance any more — incoming blows are met by the dodge beat."""
     p = g.player_by_pid(pid)
     m = g.board.alive_monster(g.battle["node"])
     boss = bool(m.get("boss"))
@@ -133,9 +134,10 @@ def decide_battle(g: G.Game, pid: str, rng: random.Random) -> str:
             and (p.hull <= 3 or boss):
         return "planks"
     if boss:
-        # a telegraphed heavy is the round to guard, not to trade blows
-        if g.battle.get("charging") and (p.hull <= 4 or rng.random() < 0.6):
-            return "guard"
+        # a telegraphed heavy favours the sure hand: chip reliably and trust
+        # the dodge; otherwise swing big
+        if g.battle.get("charging") and p.hull <= 3:
+            return "attack"
         return "magic"
     if p.hull <= 1 or (p.hull <= 2 and total_hp >= 4):
         return "flee"

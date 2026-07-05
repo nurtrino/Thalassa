@@ -33,7 +33,7 @@ from fastapi.staticfiles import StaticFiles
 
 import bots
 import questions
-from game import Game, GameError
+from game import DODGE_SECS, Game, GameError
 from questions import QuestionBank, TriviaAPIBank
 
 BASE = os.path.dirname(os.path.abspath(__file__))
@@ -173,6 +173,15 @@ async def minigame_timer(nonce: int, limit: float):
         await broadcast()
 
 
+async def dodge_timer(nonce: int, limit: float):
+    await asyncio.sleep(limit + 0.5)
+    g = table.game
+    if g.nonce == nonce and g.phase == "dodge":
+        g.dodge_timeout()             # frozen at the tiller — the blow lands full
+        after_phase_change()
+        await broadcast()
+
+
 def after_phase_change():
     """Kick off whatever the new phase demands (fetches, timers)."""
     g = table.game
@@ -183,6 +192,9 @@ def after_phase_change():
         if limit:                            # simon runs without a clock
             g.minigame["deadline"] = time.time() + limit
             schedule(minigame_timer(g.nonce, limit))
+    elif g.phase == "dodge" and g.dodge_deadline is None:
+        g.dodge_deadline = time.time() + DODGE_SECS
+        schedule(dodge_timer(g.nonce, DODGE_SECS))
     elif g.phase == "reveal":
         # ANY path into a reveal must arm the timer that advances it — trivia
         # answers, puzzle-battle solves, timeouts, all of it. Missing this on the
@@ -232,6 +244,8 @@ async def dispatch(pid: str | None, kind: str, msg: dict) -> str | None:
             g.use_item_charm(pid, str(msg.get("item", "")))
         elif kind == "stance":
             g.stance(pid, str(msg.get("stance", "")), int(msg.get("target", 0)))
+        elif kind == "dodge":
+            g.dodge(pid, bool(msg.get("hit")))
         elif kind == "flee":
             g.flee(pid)
         elif kind == "item":
@@ -316,7 +330,7 @@ async def dispatch(pid: str | None, kind: str, msg: dict) -> str | None:
 # ── bot driver ───────────────────────────────────────────────────────────────
 def _bot_delay(tag: str) -> float:
     base = {"roll": 1.0, "sail": 1.6, "shrine": 1.2, "haven": 1.0,
-            "battle": 1.6, "question": 3.5, "minigame": 9.0,
+            "battle": 1.6, "question": 3.5, "minigame": 9.0, "dodge": 1.2,
             "upgrade_pick": 1.4, "side": 2.2, "trade": 0.8}.get(tag, 1.0)
     return (base + table.bot_rng.random() * base * 0.7) * BOT_TEMPO
 
@@ -391,6 +405,10 @@ async def bot_move(nonce: int, tag: str, pid: str):
         g.resolve_minigame(rng.random() < p_solve)
         after_phase_change()
         await broadcast()
+    elif phase == "dodge":
+        # philosopher reflexes: sharper minds read the blow more often
+        err = await dispatch(pid, "dodge",
+                             {"hit": rng.random() < 0.25 + skill.t1 * 0.4})
     elif phase == "upgrade_pick":
         err = await dispatch(pid, "pick", {"upgrade": bots.decide_upgrade(g, pid)})
     if err:
@@ -425,7 +443,8 @@ async def bot_driver():
         if not g.players or g.current.pid not in table.bots:
             continue
         if g.phase in ("roll", "sail", "shrine", "haven", "shop", "battle",
-                       "question", "minigame", "upgrade_pick", "trade", "pharos"):
+                       "question", "minigame", "dodge", "upgrade_pick",
+                       "trade", "pharos"):
             if g.phase == "question" and g.question is None:
                 continue
             key = (g.nonce, g.phase)

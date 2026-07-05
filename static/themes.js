@@ -73,7 +73,9 @@ const THEMES = {
     water: { deep: 0x4a3a1c, shallow: 0x8a7440, sparkle: 0.4, chop: 0.7 },
     ground: 'water',
     sky: { zenith: 0x1f7fae, mid: 0x7cc4ad, horizon: 0xdcecb4 },
-    fog: { color: 0x86b294, near: 24, far: 260 },
+    // lifted ~8% (was 0x86b294): green fog on green islands collapsed the
+    // stage's value separation — the murk needs to sit lighter than the isles
+    fog: { color: 0x93bfa0, near: 24, far: 260 },
     sun: { color: 0xffe9ac, intensity: 1.85, position: [140, 220, -100] },
     hemi: { sky: 0xbfe4c8, ground: 0x2c6440, intensity: 0.9 },
     ambient: 0x1e3226,

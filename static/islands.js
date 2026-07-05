@@ -16,29 +16,76 @@ import { propGroup } from './props.js';
  * no per-biome art — the island colour is "painted on" purely via the palette,
  * and islands generate cleanly. Tweak the greys below to taste. */
 const GROUND_TILE = 9;   // world units per texture repeat
+
+/* draw a wrap-safe blotch field onto a canvas context */
+function blotch(ctx, S, rng, n, rMin, rMax, ink) {
+  for (let i = 0; i < n; i++) {
+    const x = rng() * S, y = rng() * S, r = rMin + rng() * (rMax - rMin);
+    ctx.fillStyle = ink(rng);
+    for (const ox of [-S, 0, S]) for (const oy of [-S, 0, S]) {
+      ctx.beginPath(); ctx.arc(x + ox, y + oy, r, 0, 6.2832); ctx.fill();
+    }
+  }
+}
+
 let _paintedTex = null;
-function paintedGroundTexture() {
+export function paintedGroundTexture() {
   if (_paintedTex) return _paintedTex;
-  const S = 128;
+  const S = 256;
   const cv = document.createElement('canvas');
   cv.width = cv.height = S;
   const ctx = cv.getContext('2d');
   ctx.fillStyle = '#ffffff';
   ctx.fillRect(0, 0, S, S);                       // base = no tint (solid colour)
-  const rng = mulberry32(24239);                  // deterministic, subtle blotches
-  for (let i = 0; i < 110; i++) {
-    const x = rng() * S, y = rng() * S, r = 7 + rng() * 20;
-    const v = 206 + ((rng() * 46) | 0);           // 0.81–1.0 grey → gentle shade
-    ctx.fillStyle = `rgba(${v},${v},${v},${0.05 + rng() * 0.06})`;
-    for (const ox of [-S, 0, S]) for (const oy of [-S, 0, S]) {   // wrap-safe
-      ctx.beginPath(); ctx.arc(x + ox, y + oy, r, 0, 6.2832); ctx.fill();
-    }
-  }
+  const rng = mulberry32(24239);                  // deterministic detail layers
+  // broad soft patches → meadows read as ground, not paint
+  blotch(ctx, S, rng, 70, 22, 52, (r) => {
+    const v = 200 + ((r() * 50) | 0);
+    return `rgba(${v},${v},${v},${0.06 + r() * 0.07})`;
+  });
+  // mid clumps
+  blotch(ctx, S, rng, 240, 6, 18, (r) => {
+    const v = 192 + ((r() * 63) | 0);
+    return `rgba(${v},${v},${v},${0.06 + r() * 0.08})`;
+  });
+  // fine stipple — the tooth that reads at deck height
+  blotch(ctx, S, rng, 2400, 0.6, 1.8, (r) => {
+    const dark = r() < 0.6;
+    const v = dark ? 168 + ((r() * 50) | 0) : 255;
+    return `rgba(${v},${v},${v},${0.05 + r() * 0.07})`;
+  });
   const t = new THREE.CanvasTexture(cv);
   t.wrapS = t.wrapT = THREE.RepeatWrapping;
   t.colorSpace = THREE.SRGBColorSpace;
-  t.anisotropy = 4;
+  t.anisotropy = 8;
   _paintedTex = t;
+  return t;
+}
+
+/* matching greyscale relief — bump-mapped so grass, sand and rock catch the
+   sun with actual surface tooth instead of reading as smooth plastic */
+let _bumpTex = null;
+export function groundBumpTexture() {
+  if (_bumpTex) return _bumpTex;
+  const S = 256;
+  const cv = document.createElement('canvas');
+  cv.width = cv.height = S;
+  const ctx = cv.getContext('2d');
+  ctx.fillStyle = '#808080';
+  ctx.fillRect(0, 0, S, S);
+  const rng = mulberry32(77121);
+  blotch(ctx, S, rng, 120, 10, 34, (r) => {
+    const v = 96 + ((r() * 128) | 0);
+    return `rgba(${v},${v},${v},${0.10 + r() * 0.10})`;
+  });
+  blotch(ctx, S, rng, 2600, 0.6, 2.2, (r) => {
+    const v = r() < 0.5 ? 40 + ((r() * 60) | 0) : 190 + ((r() * 65) | 0);
+    return `rgba(${v},${v},${v},${0.16 + r() * 0.16})`;
+  });
+  const t = new THREE.CanvasTexture(cv);
+  t.wrapS = t.wrapT = THREE.RepeatWrapping;
+  t.anisotropy = 8;
+  _bumpTex = t;
   return t;
 }
 
@@ -56,7 +103,14 @@ function structTemplate(id) {
     .then((gltf) => {
       const s = gltf.scene;
       s.traverse((o) => {
-        if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; }
+        if (o.isMesh) {
+          o.castShadow = true;
+          o.receiveShadow = true;
+          // matte the Meshy PBR down so landmarks sit in the faceted world
+          if (o.material && 'roughness' in o.material) {
+            o.material.roughness = Math.max(0.85, o.material.roughness);
+          }
+        }
       });
       s.userData.box = new THREE.Box3().setFromObject(s);
       return s;
@@ -257,8 +311,10 @@ export function makeTerrain({ seed, R, H, mode = 'hill', palette = {}, lobes = 0
   geo.setIndex(idx);
   geo.computeVertexNormals();
   const mesh = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({
-    vertexColors: true, flatShading: true, roughness: 1,
+    vertexColors: true, flatShading: true, roughness: 0.95,
     map: paintedGroundTexture(),        // neutral painted mottle × vertex colour
+    bumpMap: groundBumpTexture(),       // …with real tooth under the sun
+    bumpScale: 0.55,
   }));
   mesh.receiveShadow = true;
   mesh.castShadow = true;
