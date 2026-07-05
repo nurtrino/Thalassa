@@ -482,10 +482,10 @@ def check(kind: str, data: dict, payload) -> bool:
 # and the tetromino sigil-fill are TOO SLOW for a fight and never appear here
 # (they still turn up on the puzzle isles). Riddles belong to the Sphinx.
 BATTLE_TIERS = {
-    # quick STRIKE fare — memory leads; the Gorgon's Gaze only 1 deal in 4
-    1: ("memory", "memory", "memory", "lights_out"),
-    2: ("simon", "sliding", "sequence"),  # a beat longer to think
-    3: ("nonogram", "ravens"),            # picross + Raven's matrix — the hard set
+    # quick STRIKE fare — memory leads; the Gorgon's Gaze / a riddle 1 deal in 5
+    1: ("memory", "memory", "memory", "lights_out", "riddle"),
+    2: ("simon", "sliding", "sequence", "riddle"),  # a beat longer to think
+    3: ("nonogram", "ravens", "riddle"),            # picross, matrix + riddle: hard set
 }
 BATTLE_KINDS = tuple(dict.fromkeys(k for ks in BATTLE_TIERS.values() for k in ks))
 
@@ -511,11 +511,16 @@ def answer_text(kind: str, data: dict | None) -> str:
     return ""
 
 
-def deal_battle(rng: random.Random, tier: int = 1) -> dict:
+def deal_battle(rng: random.Random, tier: int = 1,
+                used_riddles: set[int] | None = None) -> dict:
     """A combat puzzle drawn from the pool for this battle tier (see
-    BATTLE_TIERS). Never a riddle, anagram, or tetromino."""
+    BATTLE_TIERS). Riddles are dealt from the shared used-riddle set so a fight
+    never poses the same one twice; the slow anagram/tetromino are still out."""
     pool = BATTLE_TIERS.get(tier) or BATTLE_TIERS[2]
-    return deal_kind(rng, rng.choice(pool))
+    kind = rng.choice(pool)
+    if kind == "riddle":
+        return deal_riddle(rng, set() if used_riddles is None else used_riddles)
+    return deal_kind(rng, kind)
 
 
 def deal_riddle(rng: random.Random, used_riddles: set[int]) -> dict:

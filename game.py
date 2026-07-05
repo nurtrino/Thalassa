@@ -1050,26 +1050,20 @@ class Game:
         self.battle["target"] = target
 
         # ── what challenge does this round pose? ─────────────────────────────
-        # Battles draw from THREE decks: 31.25% general trivia (multiple-choice,
-        # from the live Trivia API), 31.25% combat puzzles, 37.5% typed JEOPARDY!
-        # boards. (Jeopardy took +17.5 points, split evenly off the other two.)
-        # Temples keep the themed-category gimmick; battles don't. Puzzles
-        # never include riddles (those are the Sphinx's).
-        if boss:
-            # bosses rotate the decks round by round — trivia-heavy (exchange
-            # 2 is always a puzzle), with one Jeopardy board per cycle.
-            # Deterministic, so it spends no extra RNG draw.
-            mode = ("mc", "puzzle", "mc", "jeopardy")[self.battle["round"] % 4]
-        else:
-            r = self.rng.random()
-            mode = ("puzzle" if r < 0.3125
-                    else ("mc" if r < 0.625 else "jeopardy"))
+        # Every battle — pack OR boss alike — draws from THREE decks on the same
+        # weighting: 31.25% general trivia (multiple-choice, from the live Trivia
+        # API), 31.25% combat puzzles, 37.5% typed JEOPARDY! boards. Temples keep
+        # the themed-category gimmick; battles don't. Combat puzzles can now
+        # include a typed riddle (the Sphinx's toll turns up here too).
+        r = self.rng.random()
+        mode = ("puzzle" if r < 0.3125
+                else ("mc" if r < 0.625 else "jeopardy"))
         forced = getattr(self, "_force_mode", None)     # DEV_CHEATS test hook only
         if forced:
             mode = forced
             self._force_mode = None
         if mode == "puzzle":
-            deal = puzzles.deal_battle(self.rng, tier)
+            deal = puzzles.deal_battle(self.rng, tier, self.used_puzzles)
             self.minigame = {"kind": deal["kind"], "island": self.battle["node"],
                              "data": deal, "limit": deal["limit"],
                              "deadline": None, "battle": True}

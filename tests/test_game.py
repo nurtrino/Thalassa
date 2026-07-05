@@ -748,7 +748,7 @@ def test_boss_trial_is_personal_and_yields_fragment():
     battle_at(g, p0, lair)                       # a fresh boss rises
     assert g.board.alive_monster(lair)["boss"]
     set_pack(g, lair, [1])                       # one clean hit fells it
-    g.stance(p0, "attack")
+    strike(g, p0)
     put_question(g)
     g.answer(p0, 0)
     p = g.player_by_pid(p0)
@@ -800,7 +800,7 @@ def test_magic_hits_hard_and_backfires():
     mon = find_node(g, "monster")
     set_pack(g, mon, [5])
     battle_at(g, p0, mon)
-    g.stance(p0, "magic")
+    cast(g, p0)
     assert g.qctx["tier"] == 3                            # magic asks hard questions
     put_question(g, correct=1)
     g.answer(p0, 1)                                       # correct → 3 damage
@@ -808,7 +808,7 @@ def test_magic_hits_hard_and_backfires():
     assert g.reveal["enemy_phase"]["evaded"]              # your success dodges the counter
     g.advance_after_reveal()
     assert g.phase == "battle"
-    g.stance(p0, "magic")
+    cast(g, p0)
     put_question(g, correct=0)
     g.answer(p0, 2)                                       # miss → backfire 1
     p = g.player_by_pid(p0)
@@ -825,7 +825,7 @@ def test_battle_rounds_until_dead_monster():
     for _ in range(6):
         if g.phase != "battle":
             break
-        g.stance(p0, "attack")
+        strike(g, p0)
         put_question(g)
         g.answer(p0, 0)                                   # always correct
         g.advance_after_reveal()
@@ -947,7 +947,7 @@ def test_bank_and_pharos_open_and_win():
     assert g.phase == "pharos"                 # the door ceremony beat first
     g.enter_pharos(p.pid)                       # step THROUGH into the trial
     assert g.phase == "battle"
-    g.stance(p.pid, "attack")
+    strike(g, p.pid)
     put_question(g)
     g.answer(p.pid, 0)
     assert g.winner == p.pid
@@ -1361,7 +1361,7 @@ def test_adamant_ram_stacks_strike_damage():
     p = g.player_by_pid(p0)
     plain = G.STRIKE_DMG
     p.upgrades = ["ram", "titan_ram"]                 # +1 and +2 on top of base
-    g.stance(p0, "attack")
+    strike(g, p0)
     put_question(g)
     g.answer(p0, 0)
     land_blow(g)                                      # boss counter → dodge beat
@@ -1372,7 +1372,7 @@ def test_oracle_eye_pre_burns_battle_lies():
     g, (p0, p1), lair = boss_battle()
     p = g.player_by_pid(p0)
     p.upgrades = ["oracle_eye"]
-    g.stance(p0, "attack")
+    strike(g, p0)
     put_question(g, correct=2)
     assert len(g.question["disabled"]) == 2
     assert 2 not in g.question["disabled"]            # never burns the truth
@@ -1427,7 +1427,7 @@ def test_war_horn_boosts_next_strike():
     battle_at(g, p0, mon)
     g.use_item_charm(p0, "horn")
     assert p.items["horn"] == 0 and g.battle["horn"]
-    g.stance(p0, "attack")
+    strike(g, p0)
     put_question(g)
     g.answer(p0, 0)
     assert pack(g, mon)[0]["hp"] == 5 - (G.STRIKE_DMG + G.HORN_BONUS)
@@ -1759,7 +1759,7 @@ def boss_battle(seed=3):
 def test_boss_counters_even_when_you_hit():
     g, (p0, p1), lair = boss_battle()
     p = g.player_by_pid(p0)
-    g.stance(p0, "attack")
+    strike(g, p0)
     put_question(g)
     g.answer(p0, 0)                               # correct strike
     assert g.phase == "reveal"                    # your move is shown first…
@@ -1793,24 +1793,28 @@ def test_boss_heavy_telegraph_cycle_and_dodge():
     p = g.player_by_pid(p0)
     p.max_hull = 30
     p.hull = 30
-    # exchange 1 — a TRIVIA round (bosses alternate, starting with trivia)
+    # exchanges are pinned to trivia here (bosses draw decks at random now) so
+    # the telegraph CYCLE is what's under test, not which deck each round dealt
+    # exchange 1
+    g._force_mode = "mc"
     g.stance(p0, "attack")
     put_question(g, correct=0)
     g.answer(p0, 1)                               # miss → the counter comes
     land_blow(g)                                  # frozen: it lands full
     g.advance_after_reveal()
     assert g.battle["charging"] is False
-    # exchange 2 — a PUZZLE round (never a riddle); fail it → take the hit
+    # exchange 2
+    g._force_mode = "mc"
     g.stance(p0, "attack")
-    assert g.phase == "minigame" and g.minigame["battle"]
-    assert g.minigame["kind"] != "riddle"
-    g.resolve_minigame(False)
+    put_question(g, correct=0)
+    g.answer(p0, 1)
     land_blow(g)
     g.advance_after_reveal()
     assert g.battle["charging"] is True           # after 2, the heavy telegraphs
     hull_before = p.hull
     power = g.board.alive_monster(lair)["enemies"][0]["power"]
     # exchange 3 is the heavy: read the dodge → half the doubled blow nulled
+    g._force_mode = "mc"
     g.stance(p0, "attack")
     put_question(g, correct=2)
     g.answer(p0, 2)
@@ -1829,7 +1833,7 @@ def test_dodge_halves_the_blow():
     p.max_hull = 30
     p.hull = 30
     power = g.board.alive_monster(lair)["enemies"][0]["power"]
-    g.stance(p0, "attack")
+    strike(g, p0)
     put_question(g, correct=0)
     g.answer(p0, 1)                               # miss → the blow comes
     assert advance_to_dodge(g) == "dodge"
@@ -1846,7 +1850,7 @@ def test_core_dodge_fully_nulls_the_blow():
     p = g.player_by_pid(p0)
     p.max_hull = 30
     p.hull = 30
-    g.stance(p0, "attack")
+    strike(g, p0)
     put_question(g, correct=0)
     g.answer(p0, 1)                               # miss → the blow comes
     assert advance_to_dodge(g) == "dodge"
@@ -1859,25 +1863,22 @@ def test_core_dodge_fully_nulls_the_blow():
 def test_core_dodge_fully_nulls_a_heavy_blow():
     # the whole point of the core: a telegraphed HEAVY blow (2–4 dmg, doubled
     # when unread) can be walked away from without a scratch if you hit centre.
-    # Bosses alternate trivia/puzzle, so the heavy lands on exchange 3.
+    # Two exchanges to charge the heavy; pin them to trivia for a clean drive.
     g, (p0, p1), lair = boss_battle()
     p = g.player_by_pid(p0)
     p.max_hull = 40
     p.hull = 40
-    # exchange 1 — trivia
-    g.stance(p0, "attack")
-    put_question(g, correct=0)
-    g.answer(p0, 1)
-    land_blow(g, hit=True, full=True)             # core → take nothing
-    g.advance_after_reveal()
-    # exchange 2 — puzzle
-    g.stance(p0, "attack")
-    g.resolve_minigame(False)
-    land_blow(g, hit=True, full=True)             # core → take nothing
-    g.advance_after_reveal()
+    for _ in range(2):                            # exchanges 1 & 2 charge the heavy
+        g._force_mode = "mc"
+        g.stance(p0, "attack")
+        put_question(g, correct=0)
+        g.answer(p0, 1)
+        land_blow(g, hit=True, full=True)         # core → take nothing on the way
+        g.advance_after_reveal()
     assert g.battle["charging"] is True           # the heavy now telegraphs
     hull_before = p.hull
     # exchange 3 — the HEAVY blow; core-dodge it clean
+    g._force_mode = "mc"
     g.stance(p0, "attack")
     put_question(g, correct=0)
     g.answer(p0, 1)
@@ -1918,7 +1919,7 @@ def test_dodge_timeout_lands_the_full_blow():
     p.max_hull = 30
     p.hull = 30
     power = g.board.alive_monster(lair)["enemies"][0]["power"]
-    g.stance(p0, "attack")
+    strike(g, p0)
     put_question(g, correct=0)
     g.answer(p0, 1)
     assert advance_to_dodge(g) == "dodge"
@@ -1934,16 +1935,15 @@ def test_boss_heavy_hits_double_when_not_dodged():
     p.max_hull = 30
     p.hull = 30
     power = g.board.alive_monster(lair)["enemies"][0]["power"]
-    g.stance(p0, "attack")                        # trivia counter
-    put_question(g, correct=0)
-    g.answer(p0, 1)
-    land_blow(g)
-    g.advance_after_reveal()
-    g.stance(p0, "attack")                        # puzzle counter
-    g.resolve_minigame(False)
-    land_blow(g)
-    g.advance_after_reveal()
+    for _ in range(2):                            # two exchanges charge the heavy
+        g._force_mode = "mc"
+        g.stance(p0, "attack")                    # trivia counter
+        put_question(g, correct=0)
+        g.answer(p0, 1)
+        land_blow(g)
+        g.advance_after_reveal()
     hull_before = p.hull
+    g._force_mode = "mc"
     g.stance(p0, "attack")                        # heavy round, missed dodge
     put_question(g, correct=0)
     g.answer(p0, 1)
@@ -1999,7 +1999,7 @@ def test_warden_resets_between_challengers():
     g.enter_pharos(p0)                            # through the door into the trial
     warden = g.board.nodes["pharos"]["monster"]["enemies"][0]
     warden["hp"] = 2                              # nearly slain...
-    g.stance(p0, "attack")
+    strike(g, p0)
     put_question(g, correct=0)
     g.answer(p0, 1)                               # ...but the counter comes
     land_blow(g)                                  # unread → it sinks you
@@ -2227,7 +2227,7 @@ def test_pack_rounds_split_between_trivia_and_puzzles():
         kinds.add("puzzle" if g.phase == "minigame" else "trivia")
         if g.phase == "minigame":
             assert g.minigame["battle"]
-            assert g.minigame["kind"] != "riddle"
+            assert g.minigame["kind"] not in ("anagram", "tetromino")  # too slow for a fight
     assert kinds == {"trivia", "puzzle"}                # both faces of the coin
 
 
@@ -2264,11 +2264,60 @@ def test_battle_puzzle_failure_gets_you_hit():
     assert p.hull < G.MAX_HULL                          # the pack punished the miss
 
 
-def test_boss_rotates_all_three_challenge_decks():
+def test_battle_puzzle_pool_now_includes_riddles():
+    # riddles were the Sphinx's alone; now they turn up as a combat trial too,
+    # dealt from the shared used-riddle set (no repeat within a fight) and
+    # resolving like any other typed puzzle.
+    import random as _r
+    g, (p0, p1) = make_game()
+    mon = find_node(g, "monster")
+    set_pack(g, mon, [4])
+    battle_at(g, p0, mon)
+    saw_riddle = False
+    for seed in range(80):
+        g.rng = _r.Random(seed)
+        g.phase = "battle"
+        g.minigame = None
+        g.question = None
+        g.qctx = None
+        g.stance(p0, "attack")
+        if g.phase == "minigame" and g.minigame["kind"] == "riddle":
+            saw_riddle = True
+            data = g.minigame["data"]
+            assert data["text"] and data["secret"]["answer"]     # a real riddle
+            break
+    assert saw_riddle, "a riddle never came up as a battle puzzle"
+
+
+def test_battle_riddle_resolves_on_the_typed_answer():
+    import random as _r
+    g, (p0, p1) = make_game()
+    mon = find_node(g, "monster")
+    set_pack(g, mon, [1])
+    battle_at(g, p0, mon)
+    # force a riddle battle trial and answer it correctly → your blow lands
+    for seed in range(120):
+        g.rng = _r.Random(seed)
+        g.phase = "battle"
+        g.minigame = None
+        g.question = None
+        g.qctx = None
+        g._force_mode = "puzzle"
+        g.stance(p0, "attack")
+        if g.phase == "minigame" and g.minigame["kind"] == "riddle":
+            g.minigame_submit(p0, g.minigame["data"]["secret"]["answer"])
+            assert g.reveal["challenge"] == "puzzle"
+            assert g.reveal["was_correct"] and g.reveal["battle_over"]
+            return
+    assert False, "a riddle never came up to resolve"
+
+
+def test_boss_draws_all_three_challenge_decks():
     # Battles no longer theme trivia by domain — the general Open Trivia DB
-    # already spans every category. A boss instead ROTATES the three decks
-    # (multiple-choice, puzzle, typed Jeopardy) across its rounds so a trial
-    # tests the whole mind.
+    # already spans every category. A boss now draws from the SAME three-deck
+    # weighting as any pack (multiple-choice, puzzle, typed Jeopardy), so a long
+    # trial still tests the whole mind.
+    import random as _r
     g, (p0, p1) = make_game()
     p = g.player_by_pid(p0)
     p.banked = RELICS_TO_WIN
@@ -2279,9 +2328,9 @@ def test_boss_rotates_all_three_challenge_decks():
     g.enter_pharos(p0)                            # through the door into the trial
     assert g.phase == "battle"
     modes = set()
-    for rnd in range(6):
+    for seed in range(40):
+        g.rng = _r.Random(seed)
         g.phase = "battle"
-        g.battle["round"] = rnd
         g.minigame = None
         g.question = None
         g.qctx = None
@@ -2296,8 +2345,8 @@ def test_boss_rotates_all_three_challenge_decks():
         else:
             assert g.phase == "question"
             modes.add(g.qctx["mode"])
-    # three decks: general MC (offline trivia), typed Jeopardy, and puzzles
-    assert "jeopardy" in modes and modes <= {"mc", "puzzle", "jeopardy"}
+    # all three decks turn up across the run: general MC, typed Jeopardy, puzzles
+    assert modes == {"mc", "puzzle", "jeopardy"}
 
 
 def test_typed_question_snapshot_never_crashes():
