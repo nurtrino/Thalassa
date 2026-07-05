@@ -1451,14 +1451,22 @@ function renderTray() {
     if (shopClosed) trayBtn(tray, 'BROWSE THE STALL', 'build', () => { shopClosed = false; renderShop(); });
     trayBtn(tray, 'set sail on', 'ghost', () => send({ type: 'pass' }));
   } else if (room.phase === 'pharos') {
-    // the tower door: ENTER plays the seal ceremony, then steps you through
-    // into the final trial against the Dark Presence
-    const seals = Math.min(me?.banked ?? 3, room.config?.relics_to_win ?? 3);
-    trayHint(tray, `${icon('crown', 15)} The Pharos looms — set your ${seals} seal${seals === 1 ? '' : 's'} and enter the tower.`);
-    trayBtn(tray, `${icon('crown', 14)} ENTER THE PHAROS`, 'gold big', () => {
-      if (pharosCeremonyRunning) return;
-      playPharosCeremony(seals, () => send({ type: 'pharos_enter' }));
-    });
+    const need = room.config?.relics_to_win ?? 3;
+    const seals = Math.min(me?.banked ?? 0, need);
+    if (seals >= need && room.pharos_open) {
+      // the tower door: ENTER plays the seal ceremony, then steps you through
+      // into the final trial against the Dark Presence
+      trayHint(tray, `${icon('crown', 15)} The Pharos looms — set your ${seals} seal${seals === 1 ? '' : 's'} and enter the tower.`);
+      trayBtn(tray, `${icon('crown', 14)} ENTER THE PHAROS`, 'gold big', () => {
+        if (pharosCeremonyRunning) return;
+        playPharosCeremony(seals, () => send({ type: 'pharos_enter' }));
+      });
+    } else {
+      // anyone may land on the shore — but the door is just sealed bronze:
+      // three empty sockets, no handle, no way in
+      trayHint(tray, `${icon('crown', 15)} The great door is SEALED — three empty sockets stare back. (${seals}/${need} seals banked)`);
+      trayBtn(tray, 'TURN AWAY', 'gold big', () => send({ type: 'pass' }));
+    }
   }
 }
 
