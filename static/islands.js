@@ -1242,13 +1242,14 @@ export function makeRealmField(theme, nodes, segs, rng, heightAt = null) {
     scatter(20, 12, 16, 240, () => propGroup('dead_scrub', 0.8 + rng() * 0.6));
     scatter(9, 22, 24, 240, () => propGroup('cairn', 1.0 + rng() * 0.6));
   } else if (theme.id === 'autumn') {
-    // the Vale is a wood of GIANTS on a FLAT floor: trees tower well over
-    // the captain's head, each with a personal-space bubble so canopies
-    // never interpenetrate, standing clear of the trails and of every POI's
-    // clearing. The maze's stops reveal over time, so the wood fills the
-    // WHOLE wedge and the fog (and woodsmoke) does the hiding.
-    scatter(2400, 8.5, 6, 9999, () => floraFor(theme, rng, 3.4 + rng() * 2.2), 0, 10);
-    scatter(46, 6, 7, 9999, prop(['dead_tree', 'mushroom_cluster'], 0.9, 1.6), 0, 3);
+    // the Vale is a wood of TITANS on a FLAT floor: the trees tower so far
+    // over the captain's head they swallow the horizon — pan up and all you
+    // see is canopy and the barrow beacon poking through it. Each keeps a
+    // personal-space bubble so crowns never interpenetrate, standing clear of
+    // the trails and of every POI's clearing. The maze's stops reveal over
+    // time, so the wood fills the WHOLE wedge and the fog does the hiding.
+    scatter(3000, 8.5, 6, 9999, () => floraFor(theme, rng, 5.8 + rng() * 4.0), 0, 12);
+    scatter(46, 6, 7, 9999, prop(['dead_tree', 'mushroom_cluster'], 1.4, 2.4), 0, 3);
     scatter(26, 6, 7, 9999, prop(['campfire', 'stone_well', 'barrel', 'waymarker_stone'], 0.8, 1.5), 0, 4);
   } else {
     // hub / aegean open water: flotsam only — the good stuff is ashore
