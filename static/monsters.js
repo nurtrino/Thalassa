@@ -68,7 +68,10 @@ const BOATS = new Set(['skiff']);
  * facing, so they all get the same quarter-turn. */
 const MODEL_YAW = {
   sphinx: Math.PI / 2, monkey: Math.PI / 2, harpy: Math.PI / 2,
-  bird: Math.PI / 2, bird_poison: Math.PI / 2, vulture: Math.PI / 2,
+  bird: Math.PI / 2, bird_poison: Math.PI / 2,
+  // the vulture sculpt sits a further quarter-turn off its avian kin —
+  // squared up (90° clockwise from the old fix) so it fronts the hero
+  vulture: 0,
   // squared up from the visual rotation review so each fronts the hero
   shade: Math.PI / 2, scorpion: Math.PI / 2, tyrant: Math.PI / 2,
   skiff: 3 * Math.PI / 2, wyrm: 3 * Math.PI / 2,
