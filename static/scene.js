@@ -441,6 +441,7 @@ export function createWorld(container, handlers = {}) {
 
     /* the wilds between the stops: berg fields, dune seas, vine channels,
        or the Vale's unbroken forest — every realm is FULL, no empty water */
+    let field = null;
     if (stageId !== 'hub') {
       const members = memberNodes(stageId, room);
       const byId = new Map(members.map((n) => [n.id, n]));
@@ -449,20 +450,22 @@ export function createWorld(container, handlers = {}) {
         const na = byId.get(a), nb = byId.get(b);
         if (na && nb) segs.push([na.x, na.z, nb.x, nb.z]);
       }
-      if (members.length && !members.some((n) => n.type !== 'gate')) {
-        // an EMPTY realm (the Vale mid-rebuild): no stops to hang the wilds
-        // on yet, so feed the field a virtual spine running from the pass
-        // into the depths — the forest still fills the empty ground
-        const gate = members[0];
-        const r = Math.hypot(gate.x, gate.z) || 1;
-        const ux = gate.x / r, uz = gate.z / r;
+      const gateN = members.find((n) => n.type === 'gate');
+      if (stageId === 'autumn' && gateN) {
+        // The Vale's fog reveals its stops over time, but the FOREST must
+        // stand from the first frame and cover the whole wedge — so the
+        // field is grown over a virtual spine running from the pass into
+        // the depths, independent of what the lantern has found so far.
+        const r = Math.hypot(gateN.x, gateN.z) || 1;
+        const ux = gateN.x / r, uz = gateN.z / r;
         for (let d = 60; d <= 380; d += 64) {
           members.push({ id: 'fill' + d, type: 'sea',
-                         x: gate.x + ux * d, z: gate.z + uz * d });
+                         x: gateN.x + ux * d, z: gateN.z + uz * d });
         }
-        segs.push([gate.x, gate.z, gate.x + ux * 380, gate.z + uz * 380]);
+        segs.push([gateN.x, gateN.z, gateN.x + ux * 380, gateN.z + uz * 380]);
       }
-      scene.add(makeRealmField(theme, members, segs, rng, surf.heightAt));
+      field = makeRealmField(theme, members, segs, rng, surf.heightAt);
+      scene.add(field);
     }
 
     /* drifting clouds, tinted faintly toward the horizon color */
@@ -497,7 +500,7 @@ export function createWorld(container, handlers = {}) {
 
     return {
       id: stageId, theme, scene, center, rng,
-      sun, sunDir, glow, surf, wall, clouds, particles, gulls, dolphins,
+      sun, sunDir, glow, surf, wall, clouds, particles, gulls, dolphins, field,
       islands: {},           // nodeId → {key, group, proxy, R, plateauY, fxBits}
       proxyList: [],
       laneGroup, laneKey: '',
@@ -591,6 +594,32 @@ export function createWorld(container, handlers = {}) {
     const ekey = edges.map((e) => e.join('~')).join('|');
     if (ekey !== st.laneKey) {
       st.laneKey = ekey;
+      /* the Vale's fog: as the lantern reveals trails, part the trees that
+         stood on them — the way through was there all along */
+      if (st.theme.id === 'autumn' && st.field) {
+        const segs = edges
+          .map(([a, b]) => [nodeById[a], nodeById[b]])
+          .filter(([a, b]) => a && b)
+          .map(([a, b]) => [a.x, a.z, b.x, b.z]);
+        const onTrail = (x, z) => {
+          for (const n of nodes) {
+            if (Math.hypot(n.x - x, n.z - z) < 5) return true;
+          }
+          for (const s of segs) {
+            const dx = s[2] - s[0], dz = s[3] - s[1];
+            const L2 = dx * dx + dz * dz || 1;
+            const t = Math.max(0, Math.min(1, ((x - s[0]) * dx + (z - s[1]) * dz) / L2));
+            if (Math.hypot(s[0] + dx * t - x, s[1] + dz * t - z) < 4.2) return true;
+          }
+          return false;
+        };
+        for (const o of [...st.field.children]) {
+          if (onTrail(o.position.x, o.position.z)) {
+            st.field.remove(o);
+            disposeDeep(o);
+          }
+        }
+      }
       disposeDeep(st.laneGroup);
       st.laneGroup.clear();
       for (const [a, b] of edges) {
@@ -1053,7 +1082,10 @@ export function createWorld(container, handlers = {}) {
     const fighter = room.players?.find((p) => p.pid === room.turn);
     // the final trial is fought on foot atop the Pharos — the captain climbs
     // the lighthouse to face the Dark Presence, boat left far below.
-    const heroKind = (b.is_pharos || node?.mode === 'foot') ? 'captain' : 'ship';
+    // (b.mode comes from the server: for a fight in a private Vale the node
+    // id is veiled, so the local board can't answer "on foot?")
+    const heroKind = (b.is_pharos || b.mode === 'foot' || node?.mode === 'foot')
+      ? 'captain' : 'ship';
     battleKey = b.node + '|' + (fighter?.pid || '') + '|' + (b.round != null ? 'r' : '');
     battleStage.enter({
       battle: b, room, you: myPid, theme,
@@ -1181,9 +1213,11 @@ export function createWorld(container, handlers = {}) {
     }
     if (!nodes.length) return;
 
-    /* rematch / new sea detection */
+    /* rematch / new sea detection — keyed on the rolled geometry, NOT the
+     * node count: the Amber Vale reveals stops as your lantern finds them,
+     * so the count changes mid-game without the sea being new */
     const home = nodeById.home;
-    const sig = `${home?.x},${home?.z}:${room.code}:${nodes.length}`;
+    const sig = `${home?.x},${home?.z}:${room.code}`;
     if (boardSig && boardSig !== sig) clearWorld();
     boardSig = sig;
 
@@ -1721,9 +1755,12 @@ export function createWorld(container, handlers = {}) {
     return { minX: minX - 45, maxX: maxX + 45, minZ: minZ - 45, maxZ: maxZ + 45 };
   }
 
-  function enterMapView() {
+  function enterMapView(dev) {
     const st = stages[activeBoardId];
     if (!st || battleOn || mapMode || tour) return false;
+    // no chart holds the Amber Vale — every captain walks their own woods.
+    // DEV mode overrides it so the owner can inspect their maze while testing.
+    if (st.theme.id === 'autumn' && !dev) return false;
     const b = stageBounds(st);
     const extent = Math.max(b.maxX - b.minX, b.maxZ - b.minZ, 140);
     mapMode = {

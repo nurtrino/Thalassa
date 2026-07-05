@@ -1564,6 +1564,42 @@ body.touring #mapBtn, body.touring #dice, body.touring #shopPanel { display: non
   letter-spacing: .3em; text-transform: uppercase; color: rgba(240, 230, 200, .55);
 }
 
+/* the Amber Vale's "chart" — a question mark; the Vale is different for
+   every captain, so there is nothing to draw */
+#valeChart {
+  position: fixed; inset: 0; z-index: 20;
+  display: flex; align-items: center; justify-content: center;
+  background: rgba(6, 9, 13, .45);
+  backdrop-filter: blur(2px);
+  cursor: pointer;
+}
+#valeChart .vc-card {
+  text-align: center;
+  padding: 34px 44px 30px;
+  background: linear-gradient(168deg, rgba(22, 30, 24, .94), rgba(12, 16, 13, .96));
+  border: 1px solid rgba(240, 162, 79, .45);
+  border-radius: 14px;
+  box-shadow: 0 18px 60px rgba(3, 6, 10, .8), 0 0 44px rgba(240, 162, 79, .12) inset;
+  max-width: min(440px, 86vw);
+}
+#valeChart .vc-mark {
+  font-family: var(--disp); font-weight: 900;
+  font-size: clamp(84px, 18vw, 130px); line-height: 1;
+  color: #f0a24f;
+  text-shadow: 0 0 34px rgba(240, 162, 79, .5), 0 4px 18px rgba(3, 6, 10, .9);
+}
+#valeChart .vc-line {
+  margin-top: 12px;
+  font-family: var(--disp); font-weight: 700; font-size: 15px;
+  letter-spacing: .12em; text-transform: uppercase;
+  color: var(--gilt);
+}
+#valeChart .vc-sub {
+  margin-top: 8px;
+  font-family: var(--body); font-style: italic; font-size: 15px;
+  line-height: 1.5; color: #e8dcc0;
+}
+
 /* ═══ CHART — live aerial view of the current region ═════════════════════ */
 #mapBtn {
   position: fixed; top: var(--s3); right: 128px; z-index: 10;

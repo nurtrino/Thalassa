@@ -310,7 +310,10 @@ class Board:
         self._link(gate_id, near)
 
         if theme == "autumn":
-            return                      # the Vale stands empty, awaiting its rebuild
+            # The Vale's interior is grown LATER, per captain, once the fleet
+            # is known — see grow_vale(). Only the pass exists on the chart.
+            self.vale_gate = gate_id
+            return
 
         def place(nid, radius, a, depth):
             node = {"id": nid, "name": trail, "type": "sea", "band": 4,
@@ -447,6 +450,208 @@ class Board:
             self._link(prev, nid)
             prev = nid
         self._link(prev, junc_id)
+
+    # ── the Amber Vale: a private labyrinth per captain ──────────────────────
+    VALE_NAMES = ["Bracken Hollow", "Foxglove Dell", "Eldergrove", "Stagmark",
+                  "Rootway Cross", "Lantern Glade", "Whisper Thicket",
+                  "Hartsfoot Rise", "Cindershade", "Mistling Hollow"]
+
+    def grow_vale(self, pids: list[str]) -> dict[str, str]:
+        """Grow one PRIVATE maze per captain beyond the Amber Vale's pass —
+        called once when the voyage launches (the fleet is known then).
+        Returns {pid: lair node id} so the engine can seed each captain's
+        map with their own barrow (the beacon: direction, never route).
+
+        THE VALE IS DIFFERENT FOR EVERYONE. Each captain gets their own
+        labyrinth in the same wedge of the world, and only ever sees or
+        walks their own (the engine filters both vision and movement by
+        the nodes' ``owner``). Design rules, tuned for the d3:
+
+          · LOOPS, NOT DEAD ENDS — three arc-roads crossed by staggered
+            radial links, so a wrong turn is the long way round, never a
+            wall. The couple of true dead ends both PAY (a cache, a
+            shrine), so "lost" is a detour, never a waste.
+          · the barrow sits at the far end behind two doors: one short
+            and elite-guarded, one the long quiet way round.
+          · fog is VISION, not movement — movement stays exact-roll
+            sail; the engine reveals the woods lantern-radius by
+            lantern-radius as you walk them."""
+        gate_id = self.vale_gate
+        gn = self.nodes[gate_id]
+        ang = gn["gate_angle"]
+        R0 = WALL_R + 10
+        info = REGION_POOL["autumn"]
+        lairs: dict[str, str] = {}
+        for pi, pid in enumerate(pids):
+            rng = random.Random(self.rng.randrange(2**31))
+            names = self.VALE_NAMES[:]
+            rng.shuffle(names)
+
+            def put(nid, radius, a, depth, **extra):
+                node = {"id": nid, "name": "Forest Trail", "type": "sea",
+                        "band": 4, "region": "autumn", "mode": "foot",
+                        "owner": pid, "depth": depth, "look": "none",
+                        "x": round(math.cos(a) * radius, 2),
+                        "z": round(math.sin(a) * radius, 2),
+                        "flotsam": rng.random() < 0.15}
+                node.update(extra)
+                self.nodes[nid] = node
+                return node
+
+            def adelta(a, b):        # wrapped angle difference, safe at ±π
+                return math.atan2(math.sin(a - b), math.cos(a - b))
+
+            def mid_of(a_id, b_id, k, depth, bow=0.0):
+                """A waypoint between two stops (radial links are two hops)."""
+                na, nb = self.nodes[a_id], self.nodes[b_id]
+                r = (math.hypot(na["x"], na["z"]) + math.hypot(nb["x"], nb["z"])) / 2
+                aa = math.atan2(na["z"], na["x"])
+                ab = math.atan2(nb["z"], nb["x"])
+                am = aa + adelta(ab, aa) / 2 + bow
+                node = put(k, r, am, depth)
+                self._link(a_id, k)
+                self._link(k, b_id)
+                return node
+
+            # ── three arc-roads across the wedge, offset counts so the way
+            #    through zigzags; every arc is a chain you can run along ──
+            counts = [3, 4, 3]
+            radii = [R0 + 88, R0 + 178, R0 + 268]
+            span = 0.62
+            arcs: list[list[str]] = []
+            for ai, (cnt, rad) in enumerate(zip(counts, radii)):
+                row = []
+                for k in range(cnt):
+                    a = ang + span * ((k + 0.5) / cnt - 0.5) + rng.uniform(-0.02, 0.02)
+                    nid = f"av{pi}_a{ai}_{k}"
+                    put(nid, rad + rng.uniform(-10, 10), a, ai + 1)
+                    row.append(nid)
+                for u, v in zip(row, row[1:]):
+                    self._link(u, v)
+                arcs.append(row)
+
+            # the pass opens on a FORK: two ways into the first arc
+            mouth = sorted(arcs[0], key=lambda n: abs(adelta(math.atan2(
+                self.nodes[n]["z"], self.nodes[n]["x"]), ang)))[:2]
+            for mi, m in enumerate(mouth):
+                mid_of(gate_id, m, f"av{pi}_g{mi}", 1,
+                       bow=rng.uniform(0.03, 0.06) * (1 if mi == 0 else -1))
+
+            # staggered radial links between the arcs (each carries one
+            # waypoint) — offset indices so no straight shot lines up
+            for gap in (0, 1):
+                a_row, b_row = arcs[gap], arcs[gap + 1]
+                picks = rng.sample(range(len(a_row)), 2)
+                for li, ak in enumerate(picks):
+                    shift = (1 if (ak + li) % 2 == 0 else -1)
+                    bk = max(0, min(len(b_row) - 1, ak + shift))
+                    mid_of(a_row[ak], b_row[bk], f"av{pi}_r{gap}_{li}",
+                           gap + 2, bow=rng.uniform(-0.04, 0.04))
+
+            # ── the barrow, behind TWO doors: a short elite-guarded march
+            #    from the nearest arc stop, or the long quiet way from the
+            #    arc's far end ──
+            lair_id = f"av{pi}_L"
+            lair = put(lair_id, R0 + 345, ang + rng.uniform(-0.05, 0.05), 4)
+            lair.pop("flotsam", None)
+            lair.pop("look", None)
+            lair["type"] = "lair"
+            lair["name"] = info["name"]
+            lair["boss_spec"] = list(info["boss"])
+            lair["monster"] = None
+            lair["defeated"] = []
+            lair["stash"] = []
+            by_gap = sorted(arcs[2], key=lambda n: self._dist(n, lair_id))
+            fast = mid_of(by_gap[0], lair_id, f"av{pi}_d0", 5)
+            fast["type"] = "monster"
+            fast["monster"] = None
+            fast["encounter"] = True
+            fast["elite"] = True
+            fast["name"] = names.pop()
+            fast.pop("flotsam", None)
+            fast.pop("look", None)
+            mid_of(by_gap[-1], lair_id, f"av{pi}_d1", 4,
+                   bow=rng.uniform(0.05, 0.09))
+
+            # ── the paying dead ends: a lost cache and a hidden shrine ──
+            cache_host = rng.choice(arcs[1])
+            hn = self.nodes[cache_host]
+            ha = math.atan2(hn["z"], hn["x"])
+            side = rng.choice([-1, 1])
+            cache = put(f"av{pi}_c", math.hypot(hn["x"], hn["z"]) + rng.uniform(18, 26),
+                        ha + side * 0.11, 2, flotsam=True)
+            self._link(cache_host, cache["id"])
+            shrine_host = rng.choice(arcs[0] + arcs[2])
+            sn = self.nodes[shrine_host]
+            sa = math.atan2(sn["z"], sn["x"])
+            shrine = put(f"av{pi}_s", math.hypot(sn["x"], sn["z"]) + rng.uniform(-24, -16),
+                         sa - side * 0.12, 2)
+            shrine.pop("flotsam", None)
+            shrine.pop("look", None)
+            shrine["type"] = "shrine"
+            shrine["name"] = names.pop()
+            shrine["domain"] = rng.choice(DOMAINS)
+            shrine["charges"] = SHRINE_CHARGES
+            shrine["tier"] = 2
+            self._link(shrine_host, shrine["id"])
+
+            # a haven ON the middle road — the checkpoint sits on a loop, so
+            # an exact roll can always be tuned to land there
+            haven_id = rng.choice(arcs[1])
+            hv = self.nodes[haven_id]
+            hv["type"] = "haven"
+            hv["name"] = names.pop()
+            hv.pop("flotsam", None)
+            hv.pop("look", None)
+
+            # a couple of avoidable weak packs on the way through
+            for host, depth in ((rng.choice(arcs[0]), 2),
+                                (rng.choice([n for n in arcs[2]
+                                             if n != by_gap[0]]), 3)):
+                node = self.nodes[host]
+                if node["type"] != "sea":
+                    continue
+                node["type"] = "monster"
+                node["monster"] = None
+                node["encounter"] = True
+                node["elite"] = False
+                node["depth"] = depth
+                node["name"] = names.pop()
+                node.pop("flotsam", None)
+                node.pop("look", None)
+
+            # ── safety nets: no accidental walls, no orphaned stops ──
+            mine = [nid for nid, n in self.nodes.items() if n.get("owner") == pid]
+            spurs = {cache["id"], shrine["id"]}
+            self._build_neighbors()
+            for nid in mine:
+                if nid in spurs or len(self.neighbors[nid]) >= 2:
+                    continue
+                near = min((o for o in mine if o != nid
+                            and o not in self.neighbors[nid]),
+                           key=lambda o: self._dist(nid, o), default=None)
+                if near:
+                    self._link(nid, near)
+            reach = {gate_id}
+            frontier = [gate_id]
+            allowed = set(mine) | {gate_id}
+            self._build_neighbors()
+            while frontier:
+                cur = frontier.pop()
+                for nb in self.neighbors[cur]:
+                    if nb in allowed and nb not in reach:
+                        reach.add(nb)
+                        frontier.append(nb)
+            for nid in mine:
+                if nid not in reach:
+                    near = min((o for o in reach if o != gate_id),
+                               key=lambda o: self._dist(nid, o))
+                    self._link(nid, near)
+                    reach.add(nid)
+            lairs[pid] = lair_id
+        self._build_neighbors()
+        self.vale_lairs = lairs
+        return lairs
 
     def _insert_waypoints(self, rng):
         """Split every island-to-island edge into a chain of open-sea nodes,

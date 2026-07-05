@@ -764,6 +764,37 @@ function makeRelicBeacon() {
   return g;
 }
 
+/* the BARROW beacon: the Amber Vale is a fog-of-war maze, so its goal wears
+   a great golden pillar of light that burns THROUGH the murk (fog-free) —
+   you always know the direction, never the route */
+function makeBarrowBeacon() {
+  const g = new THREE.Group();
+  const GOLD = 0xffc14d;
+  const beam = new THREE.Mesh(new THREE.CylinderGeometry(1.4, 3.2, 190, 12, 1, true),
+    new THREE.MeshBasicMaterial({ color: GOLD, transparent: true, opacity: 0.34,
+      side: THREE.DoubleSide, depthWrite: false, blending: THREE.AdditiveBlending,
+      fog: false }));
+  beam.position.y = 95;
+  const core = new THREE.Mesh(new THREE.CylinderGeometry(0.5, 1.1, 190, 8, 1, true),
+    new THREE.MeshBasicMaterial({ color: 0xfff3d0, transparent: true, opacity: 0.5,
+      side: THREE.DoubleSide, depthWrite: false, blending: THREE.AdditiveBlending,
+      fog: false }));
+  core.position.y = 95;
+  const halo = glowSprite(GOLD, 16);
+  halo.material.opacity = 0.55;
+  halo.material.fog = false;
+  halo.position.y = 6;
+  const crown = glowSprite(0xfff3d0, 26);
+  crown.material.opacity = 0.4;
+  crown.material.fog = false;
+  crown.position.y = 120;
+  const light = new THREE.PointLight(GOLD, 14, 60, 1.8);
+  light.position.y = 8;
+  g.add(beam, core, halo, crown, light);
+  g.name = 'barrowbeacon';
+  return g;
+}
+
 /* the CHECKPOINT light: every haven wears a permanent azure beam — you can
    read where you'll respawn from anywhere on the water */
 function makeCheckpointBeacon() {
@@ -1130,13 +1161,13 @@ export function makeRealmField(theme, nodes, segs, rng, heightAt = null) {
     scatter(20, 12, 16, 240, () => propGroup('dead_scrub', 0.8 + rng() * 0.6));
     scatter(9, 22, 24, 240, () => propGroup('cairn', 1.0 + rng() * 0.6));
   } else if (theme.id === 'autumn') {
-    // the Vale is a THICK wood on a FLAT floor: trees crowd right up to the
-    // corridors and pack deep into the wilds — but no rocky bumps, boulders or
-    // cairns, just soft forest-floor litter (fallen trunks, mushrooms) and the
-    // occasional woodland camp.
-    scatter(1600, 4.5, 5, 110, () => floraFor(theme, rng, 1.1 + rng() * 0.9));
-    scatter(30, 5, 7, 110, prop(['dead_tree', 'mushroom_cluster'], 0.7, 1.4));
-    scatter(20, 5, 7, 110, prop(['autumn_tree', 'campfire', 'stone_well', 'barrel', 'waymarker_stone'], 0.8, 1.5));
+    // the Vale is a THICK wood on a FLAT floor: the maze's stops reveal over
+    // time, so the trees fill the WHOLE wedge (huge reach — not hugging the
+    // known lanes) and the fog does the hiding. No rocky bumps, boulders or
+    // cairns — just soft litter (fallen trunks, mushrooms) and the odd camp.
+    scatter(3200, 4.5, 5, 9999, () => floraFor(theme, rng, 1.1 + rng() * 0.9));
+    scatter(46, 5, 7, 9999, prop(['dead_tree', 'mushroom_cluster'], 0.7, 1.4));
+    scatter(26, 5, 7, 9999, prop(['autumn_tree', 'campfire', 'stone_well', 'barrel', 'waymarker_stone'], 0.8, 1.5));
   } else {
     // hub / aegean open water: flotsam only — the good stuff is ashore
     scatter(8, 12, 17, 120, prop(['driftwood', 'fishing_net', 'buoy'], 0.7, 1.1));
@@ -1730,6 +1761,13 @@ export function buildIsland(node, theme, domains) {
     const beacon = makeRelicBeacon();
     beacon.position.set(-R * 0.52, terrain.surfaceY(-R * 0.52, R * 0.34), R * 0.34);
     g.add(beacon);
+    if (theme.id === 'autumn') {
+      // the maze's lodestar: a golden pillar over the barrow, visible
+      // through the fog from every corner of the Vale
+      const lode = makeBarrowBeacon();
+      lode.position.y = terrain.heightAt(0.1);
+      g.add(lode);
+    }
     if (node.monster) {
       const totem = makeMonsterTotem(rng0, node.monster);
       totem.position.set(R * 0.5, terrain.surfaceY(R * 0.5, R * 0.2) + 0.3, R * 0.2);

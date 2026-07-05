@@ -1095,17 +1095,44 @@ function mapChipLabel(p) {
 function renderMapBtn() {
   $('mapBtn').classList.toggle('hidden', !room || room.phase === 'lobby');
   // modal phases and battles reclaim the screen — the chart rolls itself up
-  if (mapOpen && (['question', 'minigame', 'reveal', 'upgrade_pick', 'finished', 'battle']
-      .includes(room?.phase) || world.battleActive())) {
-    toggleMap(false);
+  if (['question', 'minigame', 'reveal', 'upgrade_pick', 'finished', 'battle']
+      .includes(room?.phase) || world.battleActive()) {
+    document.getElementById('valeChart')?.remove();
+    if (mapOpen) toggleMap(false);
   }
+}
+
+/* The Amber Vale's "chart": a question mark. The Vale is DIFFERENT FOR
+   EVERY CAPTAIN — a private labyrinth read by lantern light, so the chart
+   has nothing to show. Any tap (or the map key again) dismisses it. */
+function showValeChart() {
+  let ov = document.getElementById('valeChart');
+  if (ov) { ov.remove(); return; }
+  audio.sfx?.click?.();
+  ov = document.createElement('div');
+  ov.id = 'valeChart';
+  ov.innerHTML = `
+    <div class="vc-card">
+      <div class="vc-mark">?</div>
+      <div class="vc-line">The Amber Vale is different for every captain.</div>
+      <div class="vc-sub">No chart can hold it — walk it by lantern light,
+        and steer for the golden beacon.</div>
+    </div>`;
+  ov.onclick = () => ov.remove();
+  document.body.appendChild(ov);
 }
 
 function toggleMap(open) {
   const want = open ?? !mapOpen;
   if (want === mapOpen) return;
   if (want) {
-    if (!world.enterMapView()) return;
+    // the Amber Vale is different for every captain — the chart is just a
+    // question mark there. (DEV mode keeps the real chart for testing.)
+    if (world.currentStage?.() === 'autumn' && !devUnlocked) {
+      showValeChart();
+      return;
+    }
+    if (!world.enterMapView(devUnlocked)) return;
     mapOpen = true;
     audio.sfx?.click?.();
     $('mapIcons').classList.remove('hidden');
@@ -1188,6 +1215,10 @@ function renderTray() {
     return;
   }
   if (!mine) {
+    const cur = room.players.find((p) => p.pid === room.turn);
+    if (cur?.veiled) {
+      trayHint(tray, `${icon('anchor', 14)} <strong>${esc(cur.name)}</strong> walks their own Amber Vale — the fog keeps their trail.`);
+    }
     if (you === room.host) {
       trayBtn(tray, 'skip turn', 'ghost small', () => send({ type: 'skip' }));
     }

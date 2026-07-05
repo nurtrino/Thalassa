@@ -92,9 +92,12 @@ def decide_sail(g: G.Game, pid: str, rng: random.Random) -> str:
     """Pick a destination worth wanting, then take the reachable node that
     gets closest to it (the map is huge — most turns are passage-making)."""
     p = g.player_by_pid(pid)
+    # rivals' private Vale trails are not places — a bot only wants stops it
+    # could actually stand on (its own labyrinth, or the open sea)
     targets = sorted(
         ((nid, _target_score(g, p, nid) + rng.random() * 8)
-         for nid in g.board.nodes),
+         for nid, n in g.board.nodes.items()
+         if n.get("owner") in (None, pid)),
         key=lambda t: -t[1])
     goal, goal_score = targets[0]
     if goal_score <= 0:                                     # nothing appeals: drift home

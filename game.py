@@ -73,6 +73,7 @@ ITEM_CAP = 2                       # max carried of each consumable charm
 KRAKEN_CHANCE = 0.10               # hub crossings: odds the kraken blocks you
 KRAKEN_RIDDLES = 3                 # ...and how many mind-riddles it poses
 SPHINX_CHANCE = 0.35               # desert crossings: odds the Sphinx stops you
+VALE_LANTERN = 3                   # hops of the Amber Vale your lantern shows
 
 COLORS = ["#e4572e", "#2e86ab", "#f6ae2d", "#8e5572", "#33ca7f", "#6457a6"]
 
@@ -155,6 +156,10 @@ class Player:
         self.streak = 0
         self.puzzles_solved = 0
         self.skip_turns = 0                # turns owed to the kraken
+        # the Amber Vale is a private fog-of-war maze: this is the captain's
+        # own map of it — every stop their lantern has ever shown. Monotonic;
+        # persists all game, so the crossing home is walked on known ground.
+        self.seen: set[str] = set()
 
     def has(self, upgrade: str) -> bool:
         return upgrade in self.upgrades
@@ -230,6 +235,12 @@ class Game:
             raise GameError("Not your turn.")
 
     # ── movement rules ───────────────────────────────────────────────────────
+    def _blocked(self, p: Player, nid: str) -> bool:
+        """A rival's private Vale trails: invisible AND unwalkable — each
+        captain's labyrinth belongs to them alone."""
+        owner = self.board.nodes[nid].get("owner")
+        return owner is not None and owner != p.pid
+
     def _wall(self, p: Player, nid: str) -> bool:
         """Nodes you cannot sail THROUGH — only (maybe) end a voyage on."""
         return self.board.nodes[nid]["type"] == "pharos"
@@ -260,7 +271,8 @@ class Game:
             last = step == steps - 1
             nxt = set()
             for node, came in cur:
-                nbrs = self.board.neighbors[node]
+                nbrs = [nb for nb in self.board.neighbors[node]
+                        if not self._blocked(p, nb)]
                 fwd = [nb for nb in nbrs if nb != came] or list(nbrs)
                 if not last and all(self._wall(p, nb) for nb in fwd):
                     fwd = list(nbrs)               # walled in: allowed to turn back
@@ -334,8 +346,17 @@ class Game:
             raise GameError("Only the host can launch the fleet.")
         if len(self.players) < MIN_PLAYERS:
             raise GameError(f"Need at least {MIN_PLAYERS} captain(s).")
+        self._grow_vale()
         self.turn_idx = 0
         self._start_turn()
+
+    def _grow_vale(self):
+        """Each captain gets a private Amber Vale labyrinth; their barrow is
+        on their map from the first turn — the golden beacon you steer by.
+        Direction, never route."""
+        lairs = self.board.grow_vale([p.pid for p in self.players])
+        for p in self.players:
+            p.seen.add(lairs[p.pid])
 
     def _start_turn(self):
         self.die = None
@@ -359,6 +380,10 @@ class Game:
             self._say(f"🌬 A gale fills {p.name}'s sails — +{p.next_roll_bonus}.")
             p.next_roll_bonus = 0
         self.reachable = self._reachable_for(p, steps)
+        # in the Vale, every stop this roll can land on is ALWAYS shown — you
+        # never have to click into blind fog, whatever the die (or a gale) says
+        p.seen.update(nid for nid in self.reachable
+                      if self.board.nodes[nid].get("owner"))
         if not self.reachable:
             self._say(f"{p.name} is boxed in and waits out the tide.")
             self._end_turn()
@@ -375,10 +400,38 @@ class Game:
         self.reachable = {}
         self._land(p, node)
 
+    # ── the Amber Vale's fog: vision, never movement ─────────────────────────
+    def _reveal_vale(self, p: Player):
+        """The captain's lantern: everything within VALE_LANTERN hops of
+        where they stand joins their personal map of the Vale — monotonic,
+        the woods never go dark again. Covers a d3 from a standstill, so
+        the maze is read a clearing at a time, not solved from above."""
+        nid = p.node
+        node = self.board.nodes.get(nid)
+        if not node or node.get("region") != "autumn":
+            return
+        depth = {nid: 0}
+        frontier = [nid]
+        while frontier:
+            cur = frontier.pop(0)
+            if depth[cur] >= VALE_LANTERN:
+                continue
+            for nb in self.board.neighbors[cur]:
+                if nb in depth or self._blocked(p, nb):
+                    continue
+                depth[nb] = depth[cur] + 1
+                frontier.append(nb)
+        p.seen.update(depth)
+
     # ── landing dispatch ─────────────────────────────────────────────────────
     def _land(self, p: Player, nid: str):
         node = self.board.nodes[nid]
         ntype = node["type"]
+        self._reveal_vale(p)                 # the lantern lights the next bend
+        if (node.get("owner") == p.pid
+                and self.board.nodes.get(p.prev_node, {}).get("type") == "gate"):
+            self._say(f"🍂 {p.name} passes beneath the amber boughs — "
+                      f"the woods close behind.")
         # a lost cache is picked up the moment you arrive — even if something is
         # about to rise up after it. On foot it's a dropped satchel in the dust;
         # at sea, flotsam hauled aboard.
@@ -513,7 +566,13 @@ class Game:
         elif ntype == "haven":
             if p.checkpoint != nid:
                 p.checkpoint = nid
-                self._say(f"⚓ {p.name} makes camp — checkpoint set at {node['name']}.")
+                if node.get("owner"):
+                    # a hidden camp in a private labyrinth: the shared log
+                    # never names a Vale stop
+                    self._say(f"⚓ {p.name} makes camp in a hidden clearing "
+                              f"of the Amber Vale.")
+                else:
+                    self._say(f"⚓ {p.name} makes camp — checkpoint set at {node['name']}.")
             self._bump("haven")        # repair or pass
         elif ntype == "shop":
             self._bump("shop")         # browse the trader's stall
@@ -811,7 +870,11 @@ class Game:
         for theme in p.cargo:
             for nid in self.board.lairs():
                 node = self.board.nodes[nid]
-                if node.get("region") == theme and p.pid not in node["stash"]:
+                # a Vale seal drifts back to YOUR barrow — every captain's
+                # labyrinth (and altar) is their own
+                if (node.get("region") == theme
+                        and node.get("owner") in (None, p.pid)
+                        and p.pid not in node["stash"]):
                     node["stash"].append(p.pid)       # waits at the altar for you
                     returned.append(node["name"])
         p.cargo = []
@@ -821,7 +884,9 @@ class Game:
         p.node = p.checkpoint
         p.prev_node = p.checkpoint
         p.hull = p.max_hull
-        where = self.board.nodes[p.checkpoint]["name"]
+        cp = self.board.nodes[p.checkpoint]
+        where = ("their hidden camp in the Amber Vale" if cp.get("owner")
+                 else cp["name"])
         msg = f"☠ {p.name}'s ship goes down! The crew washes ashore at {where}."
         if returned:
             msg += " Lost relics drift back to their lairs."
@@ -1396,6 +1461,7 @@ class Game:
         self.board = Board(self.rng.randrange(2**31))     # a brand-new sea
         for p in self.players:
             p.reset()
+        self._grow_vale()                  # fresh private labyrinths too
         self.winner = None
         self.pharos_open = False
         self.kraken = None
@@ -1428,6 +1494,9 @@ class Game:
                 "node": self.battle["node"], "is_lair": node["type"] == "lair",
                 "is_pharos": node["type"] == "pharos",
                 "region": node.get("region"),
+                # sent explicitly: spectators may get a VEILED node id (a
+                # private Vale fight), so the client can't look mode up
+                "mode": node.get("mode"),
                 "target": self.battle.get("target", 0),
                 "horn": bool(self.battle.get("horn")),
                 "used_items": self.battle["used_items"]}
@@ -1473,9 +1542,57 @@ class Game:
                 base["stash"] = node["stash"]
         return base
 
+    def _vale_shown(self, viewer_pid: str | None):
+        """Which nodes a viewer may see. Everything unowned is public; a
+        captain's private Vale trails show only to THEM, and only the stops
+        their lantern has found (their own barrow is seeded from turn one —
+        the beacon). An anonymous viewer (spectator socket, lost token) is
+        NOT a debug backdoor: they see no private ground at all."""
+        viewer = self.player_by_pid(viewer_pid) if viewer_pid else None
+
+        def shown(nid):
+            owner = self.board.nodes[nid].get("owner")
+            if owner is None:
+                return True
+            if viewer is None or owner != viewer_pid:
+                return False
+            # you never lose sight of the ground you stand on, whatever
+            # state got you there (reconnects, dev drops)
+            return nid in viewer.seen or nid == viewer.node
+        return shown
+
     def to_dict(self, viewer_pid: str | None = None) -> dict:
-        nodes = [self._node_view(nid) for nid in self.board.nodes]
-        edges = [[a, b] for a, b in self.board.edges]
+        shown = self._vale_shown(viewer_pid)
+        nodes = [self._node_view(nid) for nid in self.board.nodes if shown(nid)]
+        edges = [[a, b] for a, b in self.board.edges if shown(a) and shown(b)]
+        # rivals inside their own labyrinth are VEILED: from outside you see
+        # them make landfall at the pass, and nothing more until they emerge
+        gate = getattr(self.board, "vale_gate", None)
+        players = []
+        for p in self.players:
+            d = p.public()
+            if gate:
+                if not shown(d["node"]):
+                    d["node"] = gate
+                    d["veiled"] = True
+                if not shown(d["checkpoint"]):
+                    d["checkpoint"] = gate
+            players.append(d)
+        # a battle fought inside a private labyrinth: spectators get the fight
+        # (the diorama needs no chart), but the stop id itself stays veiled
+        battle = self._battle_public()
+        if battle and gate and not shown(battle["node"]):
+            battle = {**battle, "node": gate}
+        reveal = self.reveal if self.phase == "reveal" else None
+        if (reveal and reveal.get("monster")
+                and gate and not shown(reveal["monster"]["node"])):
+            reveal = {**reveal, "monster": {**reveal["monster"], "node": gate}}
+        minigame = ({k: v for k, v in {**self.minigame,
+                     **self.minigame["data"]}.items()
+                     if k not in ("data", "secret")}
+                    if self.phase == "minigame" and self.minigame else None)
+        if minigame and gate and not shown(minigame.get("island", "home")):
+            minigame = {**minigame, "island": gate}
         q = None
         if self.question is not None:
             q = {"text": self.question["text"], "options": self.question["options"],
@@ -1491,21 +1608,17 @@ class Game:
                                       "mode": REGION_POOL[t].get("mode", "sail"),
                                       "boss": REGION_POOL[t]["boss"][0]}
                                   for t in self.board.regions}},
-            "players": [p.public() for p in self.players],
+            "players": players,
             "host": self.players[0].pid if self.players else None,
             "turn": self.current.pid if self.players and self.phase != "lobby" else None,
             "die": self.die,
-            "reachable": self.reachable if viewer_pid is None or
-                         (self.players and self.phase != "lobby"
+            "reachable": self.reachable if (self.players and self.phase != "lobby"
                           and self.current.pid == viewer_pid) else {},
             "question": q,
             "side_answered": list(self.side_answers.keys()),
-            "reveal": self.reveal if self.phase == "reveal" else None,
-            "battle": self._battle_public(),
-            "minigame": ({k: v for k, v in {**self.minigame,
-                          **self.minigame["data"]}.items()
-                          if k not in ("data", "secret")}
-                         if self.phase == "minigame" and self.minigame else None),
+            "reveal": reveal,
+            "battle": battle,
+            "minigame": minigame,
             "upgrade_offer": self.upgrade_offer if self.phase == "upgrade_pick" else None,
             "upgrade_info": ALL_UPGRADES,
             "pharos_open": self.pharos_open,

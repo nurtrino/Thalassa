@@ -270,9 +270,11 @@ async def dispatch(pid: str | None, kind: str, msg: dict) -> str | None:
             region = msg.get("region")
             if p and region and node not in g.board.nodes:
                 # the dev bar names a REGION, not a stop — resolve a landing
-                # spot server-side (prefer a quiet interior stop, else anything)
+                # spot server-side (prefer a quiet interior stop, else anything;
+                # in the Vale only YOUR OWN labyrinth counts)
                 pool = [nid for nid, n in g.board.nodes.items()
-                        if n.get("region") == region] if region != "hub" else \
+                        if n.get("region") == region
+                        and n.get("owner") in (None, pid)] if region != "hub" else \
                        [nid for nid, n in g.board.nodes.items() if not n.get("region")]
                 if region == "pharos":
                     pool = [nid for nid, n in g.board.nodes.items() if n["type"] == "pharos"]
@@ -289,6 +291,7 @@ async def dispatch(pid: str | None, kind: str, msg: dict) -> str | None:
             if p and node in g.board.nodes:
                 p.prev_node = p.node
                 p.node = node
+                g._reveal_vale(p)          # a Vale drop still lights its ground
                 if msg.get("land"):
                     g._land(p, node)
                 else:
