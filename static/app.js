@@ -2148,14 +2148,21 @@ function renderTetromino(board, m, mine, fresh) {
     const v = mg.cells[i];
     if (v >= 0) c.style.background = PIECE_COLORS[v % PIECE_COLORS.length];
     c.disabled = !mine;
-    c.onclick = () => {
-      if (mg.cells[i] >= 0) {                     // tap a placed piece to lift it
-        const idx = mg.cells[i];
-        for (const j of mg.placed[idx]) mg.cells[j] = -1;
-        delete mg.placed[idx];
-        renderTetromino(board, m, mine, false);
-      }
-    };
+    // drag a PLACED piece straight to a new spot — no need to send it back to
+    // the tray first. Grab it anywhere on the piece; it follows the cursor and
+    // snaps home if you let go somewhere it can't sit.
+    c.addEventListener('pointerdown', (e) => {
+      if (!mine || mg.cells[i] < 0) return;
+      e.preventDefault();
+      const idx = mg.cells[i];
+      const origCells = (mg.placed[idx] || []).slice();
+      const minX = Math.min(...origCells.map((j) => j % m.w));
+      const minY = Math.min(...origCells.map((j) => Math.floor(j / m.w)));
+      const grab = [(i % m.w) - minX, Math.floor(i / m.w) - minY];
+      for (const j of origCells) { mg.cells[j] = -1; grid.children[j].style.background = ''; }
+      delete mg.placed[idx];
+      dragPiece(e, board, grid, m, m.pieces[idx], idx, mine, origCells, grab);
+    });
     grid.appendChild(c);
   }
   board.appendChild(grid);
@@ -2188,12 +2195,15 @@ function renderTetromino(board, m, mine, fresh) {
   });
   const tip = document.createElement('span');
   tip.className = 'tag';
-  tip.textContent = 'drag a piece onto the grid · tap a placed piece to lift it';
+  tip.textContent = 'drag a piece onto the grid · drag a placed piece to move it';
   palette.appendChild(tip);
   board.appendChild(palette);
 }
 
-function dragPiece(e0, board, grid, m, form, idx, mine) {
+// origCells/grab are set when dragging a piece that was already on the board:
+// origCells is where it sat (so an invalid drop snaps it home), grab is which
+// sub-cell you grabbed (so the piece tracks the cursor from that point).
+function dragPiece(e0, board, grid, m, form, idx, mine, origCells = null, grab = [0, 0]) {
   const cellRect = grid.querySelector('.mgcell').getBoundingClientRect();
   const cellPx = cellRect.width + 4;
   const ghost = document.createElement('div');
@@ -2209,19 +2219,21 @@ function dragPiece(e0, board, grid, m, form, idx, mine) {
   let hoverCells = null;
 
   const move = (e) => {
-    ghost.style.left = (e.clientX - cellPx * 0.4) + 'px';
-    ghost.style.top = (e.clientY - cellPx * 0.4) + 'px';
+    ghost.style.left = (e.clientX - cellPx * (grab[0] + 0.4)) + 'px';
+    ghost.style.top = (e.clientY - cellPx * (grab[1] + 0.4)) + 'px';
     [...grid.children].forEach((c) => c.classList.remove('drop-ok', 'drop-bad'));
     hoverCells = null;
     const el = document.elementFromPoint(e.clientX, e.clientY);
     const cell = el && el.closest ? el.closest('.mgcell') : null;
     if (!cell || !grid.contains(cell)) return;
     const anchor = parseInt(cell.dataset.cell, 10);
-    const x0 = anchor % m.w, y0 = Math.floor(anchor / m.w);
+    const x0 = (anchor % m.w) - grab[0], y0 = Math.floor(anchor / m.w) - grab[1];
     const cells = [];
     for (const [dx, dy] of form) {
       const x = x0 + dx, y = y0 + dy;
-      if (x >= m.w || y >= m.h || mg.cells[y * m.w + x] >= 0) { cells.length = 0; break; }
+      if (x < 0 || y < 0 || x >= m.w || y >= m.h || mg.cells[y * m.w + x] >= 0) {
+        cells.length = 0; break;
+      }
       cells.push(y * m.w + x);
     }
     if (cells.length === form.length) {
@@ -2239,9 +2251,14 @@ function dragPiece(e0, board, grid, m, form, idx, mine) {
     if (hoverCells) {
       for (const j of hoverCells) mg.cells[j] = idx;
       mg.placed[idx] = hoverCells;
-      if (Object.keys(mg.placed).length === m.pieces.length) {
-        send({ type: 'solve', payload: mg.cells });
-      }
+    } else if (origCells) {
+      // let go somewhere it can't sit — return a lifted piece to its home, so a
+      // fumbled move never loses it off the board
+      for (const j of origCells) mg.cells[j] = idx;
+      mg.placed[idx] = origCells;
+    }
+    if (Object.keys(mg.placed).length === m.pieces.length) {
+      send({ type: 'solve', payload: mg.cells });
     }
     renderTetromino(board, m, mine, false);
   };

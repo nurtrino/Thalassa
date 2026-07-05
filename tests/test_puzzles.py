@@ -25,18 +25,25 @@ def test_deal_covers_all_kinds_and_hides_secrets():
 def test_battle_puzzles_are_tiered_and_exclude_slow_kinds():
     rng = random.Random(11)
     seen = {1: set(), 2: set(), 3: set()}
+    sizes = {1: {}, 2: {}, 3: {}}
     for tier in (1, 2, 3):
         for _ in range(80):
             d = puzzles.deal_battle(rng, tier)
             seen[tier].add(d["kind"])
+            sizes[tier][d["kind"]] = d.get("n") or (d.get("w"), d.get("h"))
             assert d["limit"] == puzzles.TIME_LIMITS[d["kind"]]
     allkinds = seen[1] | seen[2] | seen[3]
-    assert "anagram" not in allkinds and "tetromino" not in allkinds
+    assert "anagram" not in allkinds             # the slow unscramble stays out
     # the memory trials lead the quick STRIKE tier: the 6-tone echo (simon) and
-    # the flashed-board recall (visual_memory)
+    # the flashed-board recall (visual_memory), plus a small sigil-fill
     assert "simon" in seen[1] and "visual_memory" in seen[1]
     assert "nonogram" in seen[3]                  # picross is tier III
     assert "nonogram" not in seen[1]
+    # the sigil-fill (tetromino) is a small 4×4 in STRIKE, the full 6×6 in MAGIC
+    assert sizes[1]["tetromino"] == (4, 4)
+    assert sizes[3]["tetromino"] == (6, 6)
+    # visual-memory scales: 5×5 STRIKE → 7×7 the deepest trial
+    assert sizes[1]["visual_memory"] == 5
 
 
 def test_memory_puzzle_generate_and_check():
@@ -51,10 +58,12 @@ def test_memory_puzzle_generate_and_check():
 
 def test_visual_memory_generate_and_check():
     rng = random.Random(4)
-    d = puzzles.gen_visual_memory(rng)
-    assert d["n"] == 7 and d["lives"] == 3
-    assert len(d["flash"]) == 6 and len(set(d["flash"])) == 6
-    assert all(0 <= c < 49 for c in d["flash"])
+    d = puzzles.gen_visual_memory(rng)                # default 6×6
+    assert d["n"] == 6 and d["lives"] == 3
+    assert len(d["flash"]) == 7 and len(set(d["flash"])) == 7   # ~a fifth of 36
+    assert all(0 <= c < 36 for c in d["flash"])
+    small = puzzles.gen_visual_memory(rng, n=5)       # STRIKE board
+    assert small["n"] == 5 and len(small["flash"]) == 5
     assert puzzles.check("visual_memory", d, d["flash"])          # all found → win
     assert puzzles.check("visual_memory", d, list(reversed(d["flash"])))  # order-free
     assert not puzzles.check("visual_memory", d, d["flash"][:-1])  # one missed → fail
