@@ -742,7 +742,7 @@ function reactAudio(prev, next) {
   if (next.phase !== 'finished') sfxAnnouncedWin = false;
 
   /* soundtrack scenes: lobby / battle / puzzle / endgame / per-realm open sea */
-  const battleish = next.phase === 'battle' ||
+  const battleish = next.phase === 'battle' || next.phase === 'dodge' ||
     (next.phase === 'question' && next.question?.kind === 'battle') ||
     (next.phase === 'minigame' && (next.minigame?.battle || next.minigame?.sphinx)) ||
     (next.phase === 'reveal' && next.reveal?.kind === 'battle');
@@ -973,7 +973,7 @@ function renderDodge() {
   // shaded onto the ring at a random position each beat. Tap while the hand
   // is inside the gold and the dodge lands. The arc is narrow and the hand
   // is quick — not easy, and never in the same place twice.
-  const ARC = 34;                       // gold window, degrees (~110ms of hand)
+  const ARC = 42;                       // gold window, degrees (~135ms of hand)
   const PERIOD = 1150;                  // ms per revolution
   const WINDUP = 450;                   // arc shown, hand held at 12 o'clock
   const REVS = 2;                       // two laps, then the blow lands
@@ -981,7 +981,7 @@ function renderDodge() {
   // an ENRAGED blow can only be FULLY dodged on a smaller middle slice of
   // the gold: the outer gold still reads as the danger window, but only the
   // bright core counts — the fury is genuinely harder to read.
-  const CORE = d.enraged ? 13 : ARC;    // success window, degrees
+  const CORE = d.enraged ? 17 : ARC;    // success window, degrees
   const coreLo = (ARC - CORE) / 2, coreHi = coreLo + CORE;
 
   const arcBg = d.enraged
