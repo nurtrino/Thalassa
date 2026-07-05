@@ -1810,7 +1810,15 @@ class Game:
                     "options": self.walk["options"]}
         q = None
         if self.question is not None:
-            q = {"text": self.question["text"], "options": self.question["options"],
+            # typed JEOPARDY! clues have NO options — indexing ["options"]
+            # here crashed EVERY snapshot the moment a jeopardy round was
+            # dealt, freezing the whole table on "A herald fetches the
+            # question…" (and hiding that jeopardy existed at all). The
+            # answer itself never ships to clients.
+            q = {"text": self.question["text"],
+                 "options": self.question.get("options", []),
+                 "typed": bool(self.question.get("typed")),
+                 "category": self.question.get("category", ""),
                  "kind": self.qctx["kind"], "tier": self.qctx["tier"],
                  "domain": self.qctx["domain"], "deadline": self.question_deadline,
                  "disabled": self.question.get("disabled", [])}

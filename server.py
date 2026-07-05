@@ -84,7 +84,16 @@ async def _send(ws: WebSocket, payload: dict) -> bool:
 async def broadcast():
     dead = []
     for ws, pid in list(table.sockets.items()):
-        snap = table.game.to_dict(pid)
+        # one bad field in one viewer's snapshot must never freeze the whole
+        # table's stream (a to_dict crash here once soft-locked every client
+        # on a stale card) — log it loudly and keep the others flowing
+        try:
+            snap = table.game.to_dict(pid)
+        except Exception:
+            import traceback
+            print(f"snapshot build failed for viewer {pid}:", flush=True)
+            traceback.print_exc()
+            continue
         if not await _send(ws, {"type": "snapshot", "you": pid, "room": snap}):
             dead.append(ws)
     for ws in dead:
