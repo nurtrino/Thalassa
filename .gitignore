@@ -14,3 +14,6 @@ tools/.meshy*state.json
 tools/.meshy_*_state.json
 tools/samples/
 tools/*.tmp*
+
+# QA pipeline output (regenerated every run)
+qa_report/

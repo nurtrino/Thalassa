@@ -414,7 +414,11 @@ export function buildRealmBackdrop(theme, { radius = 520, gateAngle = 0 } = {}) 
         seed: seedFrom(rng),
         rock, rockDark, snow,
         snowline: theme.id === 'desert' ? 0.72 : row.snowline,
-        haze: new THREE.Color(theme.sky.horizon), hazeAmt: 0.5,
+        // dissolve the crescent toward the REALM'S FOG, hard: the material
+        // ignores true fog (the baked-painting trick), so without this the
+        // ridge floats over the murk as raw saturated slabs — worst in the
+        // jungle, whose fog sits at 24 wu while the ridge stands at ~500
+        haze: new THREE.Color(theme.fog.color), hazeAmt: 0.78,
       }));
     }
   }

@@ -36,18 +36,21 @@ storm the Pharos.
    your ship at the pass. At the far end: the realm's **boss**, a personal
    trial (everyone faces their own, fresh).
 5. **Battles** are stance + trivia, and bosses fight like bosses:
-   | Stance | Question | Effect |
+   | Move | Question | Effect |
    |---|---|---|
    | **STRIKE** | tier I (II vs bosses) | 1 damage, reliable |
    | **MAGIC** | tier III | 3 damage; a miss backfires |
-   | **GUARD** | tier I | riposte — turn the blow aside and drive it back for its power (2× a heavy) |
-   | **FLEE** | 2 scrolls | 50/50 escape; never from a boss |
+   | **FLEE** | 1 scroll | 50/50 escape; never from a boss |
 
-   Bosses counter **every** exchange, telegraph a **heavy blow** every third
-   round (guard it or eat double damage), and **enrage** at half strength.
-   You do not beat one without preparation: hull fittings, aegis charms,
-   **pitch & planks** (patch 3 Health mid-battle), a war horn, and guard
-   timing.
+   And when a foe strikes back, the **DODGE** beat: a ring collapses onto
+   its target and one perfectly-timed tap nulls **half** the blow — miss
+   the window (it's tight) and it lands full. Foes take turns attacking
+   from a visible **turn rail**; no foe swings more than twice in a row.
+   Bosses counter **every** exchange, telegraph a **heavy blow** every
+   third round (dodge it or eat double damage), and **enrage** at half
+   strength. You do not beat one without preparation: hull fittings, aegis
+   charms, **pitch & planks** (patch 3 Health mid-battle), a war horn, and
+   a steady dodge hand.
 6. **Win.** Shipwreck sends seals back to their lairs — bank them at Home
    Port. Three banked seals open the Pharos; put down the Warden inside and
    the Aegean is yours.
@@ -103,6 +106,23 @@ regenerates the Blender creature models (`pip install bpy`).
 ```bash
 .venv/bin/pip install pytest && .venv/bin/python -m pytest tests/ -q
 ```
+
+## QA pipeline
+
+One command runs the whole quality gate — unit tests, JS syntax, a
+multi-seed board-geometry audit (clipping lanes, hop lengths, clumping —
+see `docs/QA-TRAVEL.md`), then headless-Chromium suites against a fresh
+server each: smoke, a full play loop, realm stage routing, all three
+battle decks, a sail monitor that samples the moving ship against every
+island footprint, and the reviewer screenshot set:
+
+```bash
+.venv/bin/pip install playwright && tools/qa/run_qa.sh qa_report/latest
+# → qa_report/latest/report.md (+ report.json, shots/)
+```
+
+Any console error, uncaught exception, or HTTP 4xx a page triggers fails
+its suite. Reviewer-panel feedback lives in `docs/QA-REVIEWS.md`.
 
 ## Deploy
 

@@ -69,6 +69,8 @@ HORN_BONUS = 2                     # extra STRIKE damage from a War Horn
 PLANKS_HEAL = 3                    # Health restored by Pitch & Planks
 HEAVY_EVERY = 3                    # bosses telegraph a heavy every Nth exchange
 HEAVY_MULT = 2                     # ...that lands for double damage
+DODGE_SECS = 3.0                   # window to time the dodge before it lands
+ATTACK_RUN_CAP = 2                 # an enemy may strike at most twice in a row
 ITEM_CAP = 2                       # max carried of each consumable charm
 KRAKEN_CHANCE = 0.10               # hub crossings: odds the kraken blocks you
 KRAKEN_RIDDLES = 3                 # ...and how many mind-riddles it poses
@@ -191,6 +193,7 @@ class Game:
         self.qctx: dict | None = None      # kind: shrine|battle|puzzle
         self.question: dict | None = None
         self.question_deadline: float | None = None
+        self.dodge_deadline: float | None = None
         self.side_answers: dict[str, int] = {}
         self.reveal: dict | None = None
         self.battle: dict | None = None    # {node, stance, used_items, first_hit_taken}
@@ -470,6 +473,7 @@ class Game:
             self.battle = {"node": nid, "stance": None, "round": 0,
                            "charging": False,
                            "used_items": [], "first_hit_taken": False}
+            self._arm_battle()
             self._say(f"👑 {node['monster']['name']} rises — {p.name}'s trial begins!")
             self._bump("battle")
             return
@@ -529,6 +533,7 @@ class Game:
             self.battle = {"node": nid, "stance": None, "round": 0,
                            "charging": False, "ambush": ambush,
                            "used_items": [], "first_hit_taken": False}
+            self._arm_battle()
             if not node.get("encounter") and not ambush and ntype != "sea":
                 self._say(f"{monster['name']} bars {p.name}'s way!")
             self._bump("battle")
@@ -619,6 +624,7 @@ class Game:
         self.battle = {"node": nid, "stance": None, "round": 0,
                        "charging": False,
                        "used_items": [], "first_hit_taken": False}
+        self._arm_battle()
         self._say(f"🌑 The Pharos door yawns wide — the Dark Presence rises to meet {p.name}.")
         self._bump("battle")
 
@@ -774,21 +780,136 @@ class Game:
             return 0, True
         return dmg, False
 
+    # ── enemy attack order ────────────────────────────────────────────────
+    # Foes take turns striking back. The upcoming order is a visible queue
+    # (the battle screen's turn rail); every living foe gets its licks in,
+    # and none may strike more than ATTACK_RUN_CAP times in a row.
+    def _attack_queue(self, enemies) -> list[int]:
+        b = self.battle
+        q = [i for i in b.get("order", []) if enemies[i]["hp"] > 0]
+        alive = [i for i, e in enumerate(enemies) if e["hp"] > 0]
+        while alive and len(q) < 4:
+            hist = (b.get("hist", []) + q)
+            run = hist[-ATTACK_RUN_CAP:]
+            cands = alive
+            if (len(run) == ATTACK_RUN_CAP and len(set(run)) == 1
+                    and len(alive) > 1):
+                cands = [i for i in alive if i != run[0]]
+            # lean toward foes that haven't struck lately, so the whole pack
+            # stays in the fight — but let a foe press the attack sometimes
+            recent = set(hist[-len(alive):]) if alive else set()
+            fresh = [i for i in cands if i not in recent]
+            if fresh and self.rng.random() < 0.65:
+                q.append(self.rng.choice(fresh))
+            else:
+                q.append(self.rng.choice(cands))
+        b["order"] = q
+        return q
+
+    def _arm_battle(self) -> None:
+        """Seed the attack rail the moment a fight begins, so the turn
+        order is visible before the first stance is picked."""
+        m = self.board.nodes[self.battle["node"]].get("monster")
+        if m:
+            self._attack_queue(m["enemies"])
+
+    def _advance_attacker(self, enemies) -> None:
+        q = self._attack_queue(enemies)
+        if not q:
+            return
+        i = q.pop(0)
+        h = self.battle.setdefault("hist", [])
+        h.append(i)
+        del h[:-ATTACK_RUN_CAP]
+        self._attack_queue(enemies)          # keep the rail topped up
+
+    # ── the dodge (Paper-Mario action command) ────────────────────────────
+    # There is no guard stance: when a foe strikes back, the captain gets a
+    # DODGE_SECS beat to time a dodge. Read it right and half the blow is
+    # nulled; the timing window itself lives client-side and is TIGHT.
+    def dodge(self, pid: str, hit) -> None:
+        self._require_turn(pid, "dodge")
+        self._finish_dodge(bool(hit))
+
+    def dodge_timeout(self) -> None:
+        if self.phase == "dodge":
+            self._finish_dodge(False)
+
+    def _finish_dodge(self, dodged: bool) -> None:
+        p = self.current
+        inc = (self.battle or {}).get("incoming") or {}
+        ctx = inc.get("ctx", {})
+        note = ctx.get("note", "")
+        enemy_phase = ctx.get("enemy_phase", {})
+        self.battle["incoming"] = None
+        self.dodge_deadline = None
+        m = self.board.nodes[self.battle["node"]]["monster"]
+        boss = bool(m.get("boss"))
+        attacker = inc.get("attacker", "the foe")
+        heavy = bool(inc.get("heavy"))
+        power = int(inc.get("power", 1))
+
+        base = power // 2 if dodged else power   # a read blow is half nulled
+        hit_dmg, blocked = self._absorb(p, base)
+        pre = ""
+        if blocked:
+            pre = "🛡 The aegis charm turns the blow. "
+        elif p.has("aegis") and hit_dmg > 0 and not self.battle["first_hit_taken"]:
+            hit_dmg = max(1, hit_dmg // 2)
+            self.battle["first_hit_taken"] = True
+            pre = "Your Aegis shard flares — "
+        enemy_phase["attacker"] = attacker
+        enemy_phase["heavy"] = heavy
+        enemy_phase["dodged"] = dodged
+        enemy_phase["dmg"] = hit_dmg
+        if not blocked:
+            blow = "HEAVY blow" if heavy else "blow"
+            if dodged and hit_dmg <= 0:
+                pre += f"🌀 You read {attacker}'s {blow} and slip clear!"
+            elif dodged:
+                pre += (f"🌀 You twist aside — {attacker}'s {blow} "
+                        f"only grazes for {hit_dmg}!")
+            else:
+                pre += (f"💥 {attacker} lands a HEAVY blow for {hit_dmg}!"
+                        if heavy else f"💥 {attacker} strikes for {hit_dmg}!")
+        note = (note + " " + pre).strip()
+        p.hull -= hit_dmg
+
+        battle_over = False
+        player_dead = False
+        if p.hull <= 0:
+            battle_over = True
+            player_dead = True
+            node = self.board.nodes[self.battle["node"]]
+            if node["type"] == "pharos":
+                self.board.reset_warden()   # a fresh Warden per challenger
+            self._shipwreck(p)
+        elif boss:
+            # the exchange count drives the telegraphed heavy blows
+            self.battle["round"] += 1
+            self.battle["charging"] = (
+                self.battle["round"] % HEAVY_EVERY == HEAVY_EVERY - 1)
+            if self.battle["charging"]:
+                note += f" ⚠ {m['name']} rears back, gathering a heavy blow…"
+
+        self._emit_battle_reveal(
+            ctx.get("correct", False), ctx.get("idx", -2),
+            ctx.get("correct_idx"), ctx.get("side") or {},
+            ctx.get("challenge", "trivia"), note, ctx.get("gained", 0),
+            battle_over, player_dead, enemy_phase)
+
     # ── battle (Paper-Mario turns: your move, then the enemies') ─────────────
     def stance(self, pid: str, stance: str, target: int = 0):
         self._require_turn(pid, "battle")
-        if stance not in ("attack", "magic", "guard"):
-            raise GameError("Choose STRIKE, MAGIC, or GUARD.")
+        if stance not in ("attack", "magic"):
+            raise GameError("Choose STRIKE or MAGIC.")
         m = self.board.alive_monster(self.battle["node"])
         enemies = m["enemies"]
         if not (0 <= target < len(enemies)) or enemies[target]["hp"] <= 0:
             target = next(i for i, e in enumerate(enemies) if e["hp"] > 0)
         node = self.board.nodes[self.battle["node"]]
         boss = bool(m.get("boss")) or any(e["max_hp"] >= 5 for e in enemies)
-        if stance == "guard":
-            tier = 1                       # reading the blow to turn it back
-        else:
-            tier = (2 if boss else 1) if stance == "attack" else 3
+        tier = (2 if boss else 1) if stance == "attack" else 3
         self.battle["stance"] = stance
         self.battle["target"] = target
 
@@ -1085,22 +1206,6 @@ class Game:
             elif correct and stance == "magic":
                 dmg = MAGIC_DMG + (1 if p.has("trident") else 0)
                 note = f"✨ Arcane fire sears {tgt['name']} for {dmg}!"
-            elif correct and stance == "guard":
-                # riposte: read the incoming blow and drive it back on the
-                # attacker — doubled if it was a telegraphed heavy. Reading a
-                # heavy is your single biggest hit, so guard the right round.
-                fi = next((i for i, e in enumerate(enemies) if e["hp"] > 0),
-                          self.battle.get("target", 0))
-                victim = enemies[fi]
-                dmg = victim["power"] * (HEAVY_MULT if heavy else 1)
-                enemy_phase["blocked"] = True
-                enemy_phase["riposte"] = True
-                enemy_phase["attacker"] = victim["name"]
-                enemy_phase["heavy"] = heavy
-                enemy_phase["target_idx"] = fi
-                note = ("🛡 You read " + victim["name"] + "'s "
-                        + ("HEAVY blow" if heavy else "attack")
-                        + f" and turn it back for {dmg}!")
             if dmg:
                 victim["hp"] -= dmg
                 enemy_phase["dealt"] = dmg
@@ -1139,10 +1244,11 @@ class Game:
 
                 # ── the enemies' move ────────────────────────────────────────
                 # Packs only punish a miss; a boss answers EVERY exchange.
-                front = alive[0]
-                if stance == "guard" and correct:
-                    pass          # the blow was read and turned back in your-move
-                elif not correct and stance == "magic" and not boss:
+                # The attacker comes off the visible turn rail, and its blow
+                # doesn't land yet — the DODGE beat gets the last word.
+                front_idx = self._attack_queue(enemies)[0]
+                front = enemies[front_idx]
+                if not correct and stance == "magic" and not boss:
                     hit, blocked = self._absorb(p, MAGIC_BACKFIRE)
                     enemy_phase["backfire"] = True
                     enemy_phase["dmg"] = hit
@@ -1150,44 +1256,40 @@ class Game:
                             if blocked else f"🔥 The spell backfires — {hit} damage!")
                     p.hull -= hit
                 elif boss or not correct:
+                    self._advance_attacker(enemies)
                     power = front["power"] * (HEAVY_MULT if heavy else 1)
-                    hit, blocked = self._absorb(p, power)
-                    pre = ""
-                    if blocked:
-                        pre = "🛡 The aegis charm turns the blow. "
-                    elif p.has("aegis") and not self.battle["first_hit_taken"]:
-                        hit = max(1, hit // 2)
-                        self.battle["first_hit_taken"] = True
-                        pre = "Your Aegis shard flares — "
-                    enemy_phase["attacker"] = front["name"]
-                    enemy_phase["dmg"] = hit
-                    enemy_phase["heavy"] = heavy
-                    if not blocked:
-                        pre += (f"💥 {front['name']} lands a HEAVY blow for {hit}!"
-                                if heavy else f"💥 {front['name']} strikes for {hit}!")
-                    note = (note + " " + pre).strip()
-                    p.hull -= hit
+                    self.battle["incoming"] = {
+                        "attacker_idx": front_idx, "attacker": front["name"],
+                        "power": power, "heavy": heavy,
+                        "ctx": {"correct": correct, "idx": idx,
+                                "correct_idx": correct_idx,
+                                "side": side or {}, "challenge": challenge,
+                                "note": note, "gained": gained,
+                                "enemy_phase": enemy_phase},
+                    }
+                    self._bump("dodge")
+                    return
                 else:
                     # your successful move carries you clear of the counter
                     enemy_phase["evaded"] = True
                     enemy_phase["attacker"] = front["name"]
 
-                if p.hull <= 0:
+                if p.hull <= 0:               # only the backfire bites here
                     battle_over = True
                     player_dead = True
                     node = self.board.nodes[self.battle["node"]]
                     if node["type"] == "pharos":
                         self.board.reset_warden()   # a fresh Warden per challenger
                     self._shipwreck(p)
-                elif boss:
-                    # the exchange count drives the telegraphed heavy blows
-                    self.battle["round"] += 1
-                    self.battle["charging"] = (
-                        self.battle["round"] % HEAVY_EVERY == HEAVY_EVERY - 1)
-                    if self.battle["charging"]:
-                        note += f" ⚠ {m['name']} rears back, gathering a heavy blow…"
-            self._last_enemy_phase = enemy_phase
 
+        self._emit_battle_reveal(correct, idx, correct_idx, side or {},
+                                 challenge, note, gained,
+                                 battle_over, player_dead, enemy_phase)
+
+    def _emit_battle_reveal(self, correct, idx, correct_idx, side, challenge,
+                            note, gained, battle_over, player_dead,
+                            enemy_phase):
+        self._last_enemy_phase = enemy_phase
         self.reveal = {
             "correct": correct_idx, "chosen": idx,
             "was_correct": correct, "note": note, "gained": gained,
@@ -1479,6 +1581,8 @@ class Game:
             p.reset()
         self._grow_vale()                  # fresh private labyrinths too
         self.winner = None
+        self.battle = None
+        self.dodge_deadline = None
         self.pharos_open = False
         self.kraken = None
         self.used_puzzles = set()
@@ -1507,6 +1611,10 @@ class Game:
                              "model": e.get("model")}
                             for e in m["enemies"]],
                 "strike_tier": 2 if boss else 1,
+                # the visible turn rail: which foes strike back next (indices
+                # into `enemies`; dead foes are filtered without re-rolling)
+                "order": [i for i in self.battle.get("order", [])
+                          if m["enemies"][i]["hp"] > 0][:4],
                 "node": self.battle["node"], "is_lair": node["type"] == "lair",
                 "is_pharos": node["type"] == "pharos",
                 "region": node.get("region"),
@@ -1631,6 +1739,14 @@ class Game:
             "reachable": self.reachable if (self.players and self.phase != "lobby"
                           and self.current.pid == viewer_pid) else {},
             "question": q,
+            # the incoming blow awaiting its dodge (Paper-Mario action beat)
+            "dodge": ({"attacker": self.battle["incoming"]["attacker"],
+                       "attacker_idx": self.battle["incoming"]["attacker_idx"],
+                       "power": self.battle["incoming"]["power"],
+                       "heavy": self.battle["incoming"]["heavy"],
+                       "deadline": self.dodge_deadline}
+                      if self.phase == "dodge" and self.battle
+                      and self.battle.get("incoming") else None),
             "side_answered": list(self.side_answers.keys()),
             "reveal": reveal,
             "battle": battle,

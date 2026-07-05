@@ -286,6 +286,7 @@ function connect() {
   ws = new WebSocket(`${proto}://${location.host}/ws`);
   ws.onopen = () => {
     reconnectN = 0;
+    setConnVeil(false);
     send({ type: 'hello', token, name });
   };
   ws.onmessage = (ev) => handle(JSON.parse(ev.data));
@@ -300,11 +301,26 @@ function scheduleReconnect() {
   if (room && room.phase === 'finished') return;
   const delay = Math.min(15000, 900 * Math.pow(2, reconnectN++));
   if (reconnectN === 1) toast('Connection lost — reconnecting…', true);
+  setConnVeil(true);        // the board must not look alive while taps go nowhere
   clearTimeout(reconnectTimer);
   reconnectTimer = setTimeout(() => {
     resetTransient();       // stale timers/targets must not survive the gap
     connect();
   }, delay);
+}
+
+/* a persistent veil while the socket is down: one transient toast wasn't
+   enough — during a long outage the board looked live and taps died silently */
+let connVeilEl = null;
+function setConnVeil(on) {
+  if (!on) { connVeilEl?.remove(); connVeilEl = null; return; }
+  if (connVeilEl) return;
+  const d = document.createElement('div');
+  connVeilEl = d;
+  d.id = 'connVeil';
+  d.innerHTML = '<div class="plaque" style="padding:12px 22px">' +
+    'Connection lost — reconnecting…</div>';
+  document.body.appendChild(d);
 }
 
 function send(obj) { if (ws?.readyState === 1) ws.send(JSON.stringify(obj)); }
@@ -353,16 +369,9 @@ let lastStage = null;
 const REALM_MUSIC = new Set(['hub', 'ice', 'desert', 'jungle', 'autumn']);
 let curRealm = 'hub';
 
-/* The Bleached Reach carries TWO overworld themes (desert.mp3 / desert2.mp3);
-   a fresh one is chosen on every entry to the dunes so it never repeats. The
-   other realms play their single named track. A missing desert2.mp3 degrades
-   to desert.mp3 (see audio.setScene's base-name fallback). */
-let inDesert = false;
-let desertAlt = 0;         // flips 0↔1 each time you re-enter the desert
+/* every realm plays its single named track (static/music/<realm>.mp3) */
 function realmMusic(realm) {
-  if (realm !== 'desert') { inDesert = false; return realm; }
-  if (!inDesert) { inDesert = true; desertAlt ^= 1; }   // new visit → switch themes
-  return desertAlt ? 'desert2' : 'desert';
+  return realm;
 }
 
 function applyStage(stageId) {
@@ -393,11 +402,15 @@ function showRealmBanner(info) {
   bannerEl = d;
   d.style.cssText =
     'position:fixed;left:50%;top:26%;transform:translateX(-50%);z-index:18;' +
-    'pointer-events:none;text-align:center;opacity:0';
+    'pointer-events:none;text-align:center;opacity:0;' +
+    // a translucent dark scrim so the accent stays readable on ANY stage —
+    // gold on sand and ice-blue on sun glare both failed without it
+    'padding:10px 26px;border-radius:12px;background:rgba(6,10,16,.42);' +
+    '-webkit-backdrop-filter:blur(2.5px);backdrop-filter:blur(2.5px)';
   d.innerHTML =
     `<div style="font-family:var(--disp,serif);font-weight:800;font-size:clamp(22px,4.6vw,42px);` +
     `letter-spacing:.24em;text-transform:uppercase;color:${info.accent};` +
-    `text-shadow:0 2px 14px rgba(3,6,10,.9),0 0 34px ${info.accent}55;white-space:nowrap">${esc(info.name)}</div>` +
+    `text-shadow:0 2px 14px rgba(3,6,10,.95),0 0 34px ${info.accent}55;white-space:nowrap">${esc(info.name)}</div>` +
     `<div style="margin:6px auto 0;width:180px;height:1px;` +
     `background:linear-gradient(90deg,transparent,${info.accent},transparent)"></div>`;
   document.body.appendChild(d);
@@ -747,36 +760,18 @@ function playBattleBeats(rv) {
   const idx = ep.target_idx ?? 0;
   const stance = (room?.turn === you && myStance)
     ? myStance
-    : (ep.blocked ? 'guard' : (ep.dealt >= 3 ? 'magic' : 'attack'));
+    : (ep.dealt >= 3 ? 'magic' : 'attack');
   const foe = esc(ep.attacker || 'the beast');
+  // the dodge verdict colours the enemy's beat
+  const blowText = ep.dodged
+    ? `${foe} ${ep.heavy ? 'swings a <strong>HEAVY BLOW</strong>' : 'strikes'} — <strong>you twist aside!</strong> `
+      + (ep.dmg > 0 ? `Only <strong>${ep.dmg}</strong> gets through`
+                    : '<strong>Nothing</strong> gets through!')
+    : `${foe} ${ep.heavy ? 'lands a <strong>HEAVY BLOW</strong>' : 'strikes'} for <strong>${ep.dmg}</strong>!`;
   let chargeAt = 2600;
 
   if (rv.was_correct) {
-    if (ep.blocked) {
-      /* GUARD riposte: read the blow, turn it aside, drive it back */
-      setBTurn(`${icon('guard', 16)} YOUR MOVE — you read ${foe}'s ${ep.heavy ? '<strong>HEAVY</strong> ' : ''}blow…`);
-      beat(900, () => {
-        world.battlePlay('guard_block', { heavy: ep.heavy });
-        audio.sfx.hit();
-        setBTurn(`${icon('guard', 16)} …and <strong>turn it aside!</strong>`);
-      });
-      beat(1600, () => {
-        bEnemyFrozen = false;                 // the riposte lands NOW
-        world.battlePlay('player_hit', { idx, dmg: ep.dealt, stance: 'attack' });
-        audio.sfx.hit();
-        flashScreen('gold');
-        renderBattle();
-        setBTurn(`${icon('guard', 16)} You drive the blow back on ${foe} for <strong>${ep.dealt}</strong>!`);
-        if (ep.killed) beat(500, () => world.battlePlay('enemy_die', { idx }));
-      });
-      if (rv.battle_over) {
-        beat(2100, () => audio.sfx.laurel());
-        beat(2500, () => { world.battlePlay('victory'); showBattleEnd('win'); });
-        beat(3100, () => setBTurn(`${icon('laurel', 18)} <strong>VICTORY!</strong>`));
-        return;
-      }
-      chargeAt = 2900;
-    } else {
+    {
       /* STRIKE / MAGIC lands */
       bEnemyFrozen = false;                   // your blow lands NOW
       audio.sfx.hit();
@@ -813,17 +808,21 @@ function playBattleBeats(rv) {
           audio.sfx.sail();
         });
         chargeAt = 2400;
-      } else if (ep.dmg > 0) {
+      } else if (ep.dmg > 0 || ep.dodged) {
         /* a boss answers every exchange */
         beat(1400, () => {
-          setBTurn(`ENEMY MOVE — ${foe} ${ep.heavy ? 'lands a <strong>HEAVY BLOW</strong>' : 'strikes'} for <strong>${ep.dmg}</strong>!`);
+          setBTurn(`ENEMY MOVE — ${blowText}`);
           world.battlePlay('enemy_attack', { dmg: ep.dmg, heavy: ep.heavy });
         });
         beat(1750, () => {
-          audio.sfx.hurt();
-          if (ep.heavy) audio.sfx.roar();
-          flashScreen('red');
-          shake(ep.heavy);
+          if (ep.dmg > 0) {
+            audio.sfx.hurt();
+            if (ep.heavy) audio.sfx.roar();
+            flashScreen('red');
+            shake(ep.heavy);
+          } else {
+            audio.sfx.sail();           // a perfect read — the blow whiffs
+          }
           landHit();
         });
         chargeAt = 2400;
@@ -841,18 +840,22 @@ function playBattleBeats(rv) {
       landHit();
     });
     chargeAt = 2200;
-  } else if (ep.dmg > 0) {
+  } else if (ep.dmg > 0 || (ep.dodged && !rv.was_correct)) {
     bEnemyFrozen = false;
     setBTurn('YOUR MOVE — the answer escapes you…');
     beat(1300, () => {
-      setBTurn(`ENEMY MOVE — ${foe} ${ep.heavy ? 'lands a <strong>HEAVY BLOW</strong>' : 'strikes'} for <strong>${ep.dmg}</strong>!`);
+      setBTurn(`ENEMY MOVE — ${blowText}`);
       world.battlePlay('enemy_attack', { dmg: ep.dmg, heavy: ep.heavy });
     });
     beat(1650, () => {
-      audio.sfx.hurt();
-      if (ep.heavy) audio.sfx.roar();
-      flashScreen('red');
-      shake(ep.heavy);
+      if (ep.dmg > 0) {
+        audio.sfx.hurt();
+        if (ep.heavy) audio.sfx.roar();
+        flashScreen('red');
+        shake(ep.heavy);
+      } else {
+        audio.sfx.sail();               // a perfect read — the blow whiffs
+      }
       landHit();
     });
     if (rv.battle_over) {
@@ -864,8 +867,16 @@ function playBattleBeats(rv) {
       return;
     }
     chargeAt = 2400;
+  } else if (ep.dodged) {
+    /* a perfect read: the whole blow slips past */
+    bEnemyFrozen = false;
+    beat(900, () => {
+      setBTurn(`ENEMY MOVE — ${foe} lunges… <strong>you read it and slip clear!</strong>`);
+      world.battlePlay('enemy_miss');
+      audio.sfx.sail();
+    });
   } else {
-    /* a whiffed guard-read or blocked-by-aegis round: nothing lands */
+    /* a blocked-by-aegis round: nothing lands */
     bEnemyFrozen = false;
     setBTurn('YOUR MOVE — the moment slips past…');
   }
@@ -876,6 +887,102 @@ function playBattleBeats(rv) {
       audio.sfx.roar();
     });
   }
+}
+
+/* ── the DODGE action beat (Paper-Mario style) ──────────────────────────────
+ * When a foe strikes back, the server holds the blow in the 'dodge' phase.
+ * A ring collapses onto a target; tap (or hit space) EXACTLY as they meet
+ * and half the blow is nulled. One attempt, tight window, no second chances
+ * — miss the beat or freeze up and it lands full. */
+let dodgeState = null;   // {raf, t0, done, key}
+
+function renderDodge() {
+  const el = $('dodgeQte');
+  const d = room?.dodge;
+  const active = room.phase === 'dodge' && d;
+  if (!active) {
+    if (dodgeState) {
+      cancelAnimationFrame(dodgeState.raf);
+      removeEventListener('keydown', dodgeState.key);
+      dodgeState = null;
+    }
+    el.classList.add('hidden');
+    el.innerHTML = '';
+    return;
+  }
+  const mine = room.turn === you;
+  const key = `${d.deadline || d.attacker}`;       // one beat per incoming blow
+  if (dodgeState?.id === key) return;              // already running this beat
+  if (dodgeState) { cancelAnimationFrame(dodgeState.raf); removeEventListener('keydown', dodgeState.key); }
+  el.classList.remove('hidden');
+
+  if (!mine) {
+    const fighter = room.players.find((p) => p.pid === room.turn);
+    el.innerHTML = `<div class="dodgecap">${esc(d.attacker)} strikes — ` +
+      `${esc(fighter?.name || 'the captain')} reads the blow…</div>`;
+    dodgeState = { id: key, raf: 0, key: () => {} };
+    return;
+  }
+
+  // the timing wheel: a white clock hand sweeps the circle; a gold arc is
+  // shaded onto the ring at a random position each beat. Tap while the hand
+  // is inside the gold and the dodge lands. The arc is narrow and the hand
+  // is quick — not easy, and never in the same place twice.
+  const ARC = 34;                       // gold window, degrees (~110ms of hand)
+  const PERIOD = 1150;                  // ms per revolution
+  const WINDUP = 450;                   // arc shown, hand held at 12 o'clock
+  const REVS = 2;                       // two laps, then the blow lands
+  const arcStart = 100 + Math.random() * 200;   // degrees clockwise from 12
+
+  el.innerHTML =
+    `<div class="dodgecap">${d.heavy ? '<strong>HEAVY BLOW</strong> — ' : ''}` +
+    `${esc(d.attacker)} strikes! <strong>DODGE!</strong></div>` +
+    '<div class="dodgewheel">' +
+    `<div class="dq-arc" style="background:conic-gradient(from ${arcStart}deg,` +
+    'rgba(240,208,96,.95) 0deg, rgba(240,208,96,.75) ' + ARC + 'deg,' +
+    `transparent ${ARC}deg)"></div>` +
+    '<div class="dq-hand"></div><div class="dq-verdict"></div></div>' +
+    '<div class="dodgehint">tap when the hand crosses the gold</div>';
+  const hand = el.querySelector('.dq-hand');
+  const verdict = el.querySelector('.dq-verdict');
+
+  const t0 = performance.now();
+  const angleAt = (t) =>                // degrees clockwise from 12 o'clock
+    Math.max(0, (t - t0 - WINDUP)) / PERIOD * 360;
+  const inGold = (a) => {
+    const rel = ((a - arcStart) % 360 + 360) % 360;
+    return rel <= ARC;
+  };
+  const st = { id: key, done: false, raf: 0, key: null };
+  const finish = (hit, label) => {
+    if (st.done) return;
+    st.done = true;
+    send({ type: 'dodge', hit });
+    verdict.textContent = label;
+    verdict.className = 'dq-verdict ' + (hit ? 'hit' : 'miss');
+    if (hit) audio.sfx.sail(); else audio.sfx.hurt();
+    el.classList.add(hit ? 'dodged' : 'flubbed');
+  };
+  const tick = (now) => {
+    if (st.done) return;
+    const a = angleAt(now);
+    hand.style.transform = `rotate(${(a % 360).toFixed(2)}deg)`;
+    hand.style.opacity = now - t0 < WINDUP ? '0.45' : '1';
+    if (a >= REVS * 360) { finish(false, 'TOO LATE'); return; }
+    st.raf = requestAnimationFrame(tick);
+  };
+  const attempt = () => {
+    if (st.done) return;
+    const t = performance.now();
+    if (t - t0 < WINDUP) return;                   // hand not moving yet
+    const hit = inGold(angleAt(t));
+    finish(hit, hit ? 'DODGED!' : 'MISSED');
+  };
+  el.onpointerdown = (e) => { e.preventDefault(); attempt(); };
+  st.key = (e) => { if (e.code === 'Space') { e.preventDefault(); attempt(); } };
+  addEventListener('keydown', st.key);
+  st.raf = requestAnimationFrame(tick);
+  dodgeState = st;
 }
 
 /* ── rendering ──────────────────────────────────────────────────────────── */
@@ -909,6 +1016,7 @@ function render() {
   renderShop();
   renderItembelt();
   renderBattle();
+  renderDodge();
   renderQuestion();
   renderMinigame();
   renderModal();
@@ -1486,7 +1594,7 @@ function renderBattle() {
   const hud = $('battleHud');
   const b = battleView();
   // hold the whole battle screen until the boat has sailed up to the island
-  const show = b && (['battle', 'question', 'reveal'].includes(room.phase) ||
+  const show = b && (['battle', 'question', 'reveal', 'dodge'].includes(room.phase) ||
       (room.phase === 'minigame' && room.minigame?.battle)) &&
     (room.phase !== 'reveal' || room.reveal?.kind === 'battle') &&
     !world.arriving();
@@ -1523,7 +1631,7 @@ function renderBattle() {
       ? `<div class="chargewarn">${icon('guard', 13)} CHARGING — a heavy blow comes. Guard it.</div>`
       : '');
 
-  /* enemy cards */
+  /* enemy cards — fat HP cells only; the count reads from the cells */
   const cards = b.enemies.map((e, i) => `
     <div class="ecard ${e.hp <= 0 ? 'dead' : ''} ${pendingMove && e.hp > 0 ? 'targetable' : ''}" data-idx="${i}">
       <div class="ename">${esc(e.name)}</div>
@@ -1531,6 +1639,16 @@ function renderBattle() {
       <div class="epow">power <span class="powpips">${'<i></i>'.repeat(Math.max(1, Math.min(6, e.power)))}</span></div>
     </div>`).join('');
   $('bmon').innerHTML = `<div class="erow">${cards}</div>`;
+
+  /* the turn rail — who strikes back, in what order (max two in a row) */
+  const order = (b.order || []).filter((i) => b.enemies[i] && b.enemies[i].hp > 0);
+  $('brail').innerHTML = order.length ? (
+    '<div class="railtitle">TURN ORDER</div>' +
+    `<div class="railentry you">${icon('strike', 13)} YOU</div>` +
+    order.slice(0, 3).map((oi, k) =>
+      `<div class="railentry ${k === 0 ? 'next' : ''}">` +
+      `<span class="railn">${k + 1}</span>${esc(b.enemies[oi].name)}</div>`).join('')
+  ) : '';
   $('bmon').querySelectorAll('.ecard.targetable').forEach((el) => {
     const i = parseInt(el.dataset.idx, 10);
     el.onclick = () => sendMove(pendingMove, i);
@@ -1584,13 +1702,12 @@ function renderBattle() {
   mk(`${icon('magic', 18)} MAGIC<span class="tierchip">III</span>`,
      'battlebtn magic', () => move('magic'),
      'Tier III question · 3 damage · a miss backfires for 1');
-  mk(`${icon('guard', 18)} GUARD<span class="tierchip">I</span>`,
-     'battlebtn guard', () => move('guard'),
-     'Riposte — turn the blow aside and drive it back for its power (2× a heavy)');
   if (!b.boss) {
     const fleeCost = room.config?.flee_cost ?? 2;
-    mk(`${icon('flee', 16)} FLEE`, 'battlebtn ghost', () => send({ type: 'flee' }),
-       `${fleeCost} scrolls · 50/50 escape — fail and the front enemy strikes free`,
+    // .flee carries a spacer gap: butted against GUARD it was the #1
+    // fat-finger complaint — an accidental flee costs scrolls AND a free hit
+    mk(`${icon('flee', 16)} FLEE`, 'battlebtn ghost flee', () => send({ type: 'flee' }),
+       `${fleeCost} scroll${fleeCost === 1 ? '' : 's'} · 50/50 escape — fail and the front enemy strikes free`,
        (me?.scrolls ?? 0) < fleeCost);
   }
   if ((me?.items?.horn || 0) > 0 && !b.horn) {
@@ -1800,6 +1917,9 @@ function startTimerBar(deadline, barSel) {
     const pct = Math.max(0, Math.min(1, left / total));
     bar.style.width = (pct * 100) + '%';
     bar.style.background = pct < 0.25 ? '#e4572e' : '';
+    // numeric readout beside the bar — a shrinking 7px strip alone is a lot
+    // to parse mid-question, and its red shift is invisible to protans
+    bar.parentElement.dataset.secs = Math.max(0, Math.ceil(left));
     if (pct > 0 && (room.phase === 'question' || room.phase === 'minigame')) {
       timerRAF = requestAnimationFrame(tick);
     }
