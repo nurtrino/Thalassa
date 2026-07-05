@@ -1948,6 +1948,20 @@ export function createWorld(container, handlers = {}) {
     }
   }
 
+  /* shadows travel with the view. The sun's shadow frustum is a tight box
+     (that's what keeps the shadows crisp), but it used to sit pinned on the
+     stage CENTRE — beyond ~120 wu from the Pharos every island rendered
+     shadowless and flat. Follow the camera target instead, snapped to a
+     coarse grid so the shadow edges don't crawl as the boat glides. */
+  const _sunAnchor = new THREE.Vector3();
+  function tickSunShadow(st) {
+    const q = 1.0;                              // snap step, world units
+    _sunAnchor.set(Math.round(controls.target.x / q) * q, 0,
+                   Math.round(controls.target.z / q) * q);
+    st.sun.position.copy(_sunAnchor).addScaledVector(st.sunDir, 380);
+    st.sun.target.position.copy(_sunAnchor);
+  }
+
   const clock = new THREE.Clock();
   let tPrev = 0;
   renderer.setAnimationLoop(() => {
@@ -1977,6 +1991,7 @@ export function createWorld(container, handlers = {}) {
     if (tour) tickTour(performance.now());
     else if (mapMode) tickMapView(dt);
     else tickCamera(st, t, dt);
+    tickSunShadow(st);
     renderer.render(st.scene, camera);
   });
 
