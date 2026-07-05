@@ -160,12 +160,13 @@ def test_vale_is_a_loopy_maze_with_paying_dead_ends():
             # LOOPS, NOT DEAD ENDS: several independent cycles...
             edges = [(a, c) for a, c in b.edges if a in allowed and c in allowed]
             assert len(edges) - len(allowed) + 1 >= 2
-            # ...and the few true dead ends all PAY
+            # ...and the few true dead ends all PAY (a 3-scroll hoard or a
+            # real POI — never loose flotsam that a trail stop matches)
             for nid in mine:
                 nbrs = [x for x in b.neighbors[nid] if x in allowed]
                 if len(nbrs) == 1:
                     n = b.nodes[nid]
-                    assert (n.get("flotsam") or
+                    assert (n.get("cache") or
                             n["type"] in ("shrine", "haven", "monster"))
             # the full kit: barrow, checkpoint, oracle, a couple of packs
             types = collections.Counter(b.nodes[nid]["type"] for nid in mine)
@@ -248,6 +249,137 @@ def test_vale_battle_is_veiled_for_spectators():
     assert spec["battle"]["node"] == g.board.vale_gate      # veiled
     assert g.to_dict(p0)["battle"]["node"] == door          # the owner sees true
     assert spec["battle"]["enemies"]                        # the show goes on
+
+
+def test_vale_hunting_grounds_halt_the_trek():
+    # the elite DOOR GUARD actually guards: no roll may pass THROUGH a
+    # Vale hunting ground — reaching one ends the move on it
+    g, (p0, p1) = make_game()
+    p = g.player_by_pid(p0)
+    door = next(nid for nid, n in g.board.nodes.items()
+                if n.get("owner") == p0 and n["type"] == "monster"
+                and n.get("elite"))
+    # stand one step before the door, on the arc stop it hangs off
+    arc = next(nid for nid in g.board.neighbors[door]
+               if g.board.nodes[nid]["type"] != "lair")
+    other = next(x for x in g.board.neighbors[arc] if x != door)
+    p.node = arc
+    p.prev_node = other
+    g.phase = "roll"
+    g.roll(p0, 3)
+    # the door is a legal LANDFALL...
+    assert door in g.reachable
+    # ...but nothing beyond it is reached through it: any reachable stop
+    # past the door must have another road that avoids it
+    import collections
+    def bfs_avoiding(src, avoid):
+        seen = {src, avoid}
+        q = collections.deque([(src, 0)])
+        dist = {src: 0}
+        while q:
+            cur, d = q.popleft()
+            for nb in g.board.neighbors[cur]:
+                if nb in seen or g.board.nodes[nb].get("owner") not in (None, p0):
+                    continue
+                seen.add(nb)
+                dist[nb] = d + 1
+                q.append((nb, d + 1))
+        return dist
+    reach_no_door = bfs_avoiding(arc, door)
+    lair = g.board.vale_lairs[p0]
+    for nid in g.reachable:
+        if nid in (door, lair):
+            continue
+        assert nid in reach_no_door, f"{nid} reached only THROUGH the guard"
+
+
+def test_vale_guarded_door_is_the_short_way():
+    # the fast door hangs off the arc stop CLOSEST to the pass by hops;
+    # the quiet door off the farthest — race the guard, or plod around
+    import collections
+    for seed in range(6):
+        g = Game("T", seed=seed)
+        pids = [g.add_player(f"tok{i}", f"P{i}").pid for i in range(2)]
+        g.start(pids[0])
+        b = g.board
+        for pid in pids:
+            allowed = _own_vale(g, pid) | {b.vale_gate}
+            hops = {b.vale_gate: 0}
+            q = collections.deque([b.vale_gate])
+            while q:
+                cur = q.popleft()
+                for nb in b.neighbors[cur]:
+                    if nb in allowed and nb not in hops:
+                        hops[nb] = hops[cur] + 1
+                        q.append(nb)
+            pi = pids.index(pid)
+            fast_arc = next(x for x in b.neighbors[f"av{pi}_d0"]
+                            if b.nodes[x]["type"] != "lair")
+            slow_arc = next(x for x in b.neighbors[f"av{pi}_d1"]
+                            if b.nodes[x]["type"] != "lair")
+            assert hops[fast_arc] <= hops[slow_arc]
+
+
+def test_vale_hoard_pays_three_scrolls_once():
+    g, (p0, p1) = make_game()
+    p = g.player_by_pid(p0)
+    cache = next(nid for nid, n in g.board.nodes.items()
+                 if n.get("owner") == p0 and n.get("cache"))
+    before = p.scrolls
+    force_land(g, p0, cache)
+    assert p.scrolls == before + 3
+    g.phase = "roll"
+    force_land(g, p0, cache)                 # a second visit pays nothing
+    assert p.scrolls == before + 3
+
+
+def test_vale_boosted_roll_reveals_the_trails_between():
+    # a gale outruns the lantern: the stops AND the lanes to them must all
+    # be in the snapshot, or the client draws landing rings floating in fog
+    g, (p0, p1) = make_game()
+    p = g.player_by_pid(p0)
+    p.node = g.board.vale_gate
+    p.prev_node = "home"
+    p.next_roll_bonus = 2
+    g.phase = "roll"
+    g.roll(p0, 3)                            # 5 steps deep
+    snap = g.to_dict(p0)
+    shown = {n["id"] for n in snap["board"]["nodes"]}
+    linked = set()
+    for a, b in snap["board"]["edges"]:
+        linked.add(a)
+        linked.add(b)
+    for nid in g.reachable:
+        assert nid in shown
+        assert nid in linked, f"{nid} shown but floats with no visible lane"
+
+
+def test_vale_dev_teleport_cannot_enter_a_rivals_maze():
+    # the dev hook (code 783) must not pierce ownership: an explicit rival
+    # node id — trivially guessable like 'av1_L' — is refused
+    import asyncio
+    import server as S
+    S.table.reset()
+    g = S.table.game
+    a = g.add_player("tokA", "A")
+    b = g.add_player("tokB", "B")
+    g.start(a.pid)
+    rival_lair = g.board.vale_lairs[b.pid]
+
+    async def run():
+        return await S.dispatch(a.pid, "dev",
+                                {"code": "783", "node": rival_lair, "land": 1})
+    asyncio.get_event_loop().run_until_complete(run())
+    assert a.node != rival_lair                       # never moved in
+    assert not g.board.nodes[rival_lair]["defeated"]  # nothing looted
+    own = g.board.vale_lairs[a.pid]
+
+    async def run2():
+        return await S.dispatch(a.pid, "dev",
+                                {"code": "783", "node": own, "land": 0})
+    asyncio.get_event_loop().run_until_complete(run2())
+    assert a.node == own                              # your own maze still works
+    S.table.reset()
 
 
 def test_vale_hidden_from_anonymous_spectators():

@@ -289,6 +289,13 @@ class Game:
                     if ntype == "gate":
                         stops.add(nb)              # the pass halts the voyage
                         continue
+                    if ntype == "monster" and self.board.nodes[nb].get("owner"):
+                        # a hunting ground on the Vale's narrow trails HALTS
+                        # the trek — the guarded door to the barrow is only
+                        # passed by facing what holds it (open-water hunting
+                        # grounds elsewhere never wall passage)
+                        stops.add(nb)
+                        continue
                     if ntype == "lair":
                         stops.add(nb)              # the altar takes ANY roll
                     nxt.add((nb, node))
@@ -380,8 +387,11 @@ class Game:
             self._say(f"🌬 A gale fills {p.name}'s sails — +{p.next_roll_bonus}.")
             p.next_roll_bonus = 0
         self.reachable = self._reachable_for(p, steps)
-        # in the Vale, every stop this roll can land on is ALWAYS shown — you
-        # never have to click into blind fog, whatever the die (or a gale) says
+        # in the Vale, every stop this roll can land on is ALWAYS shown — and
+        # so are the trails BETWEEN here and there, or a gale-boosted roll
+        # would paint landing rings floating in the fog with no lane to them
+        if steps > VALE_LANTERN:
+            self._reveal_vale(p, radius=steps)
         p.seen.update(nid for nid in self.reachable
                       if self.board.nodes[nid].get("owner"))
         if not self.reachable:
@@ -401,8 +411,8 @@ class Game:
         self._land(p, node)
 
     # ── the Amber Vale's fog: vision, never movement ─────────────────────────
-    def _reveal_vale(self, p: Player):
-        """The captain's lantern: everything within VALE_LANTERN hops of
+    def _reveal_vale(self, p: Player, radius: int = VALE_LANTERN):
+        """The captain's lantern: everything within ``radius`` hops of
         where they stand joins their personal map of the Vale — monotonic,
         the woods never go dark again. Covers a d3 from a standstill, so
         the maze is read a clearing at a time, not solved from above."""
@@ -414,7 +424,7 @@ class Game:
         frontier = [nid]
         while frontier:
             cur = frontier.pop(0)
-            if depth[cur] >= VALE_LANTERN:
+            if depth[cur] >= radius:
                 continue
             for nb in self.board.neighbors[cur]:
                 if nb in depth or self._blocked(p, nb):
@@ -432,6 +442,12 @@ class Game:
                 and self.board.nodes.get(p.prev_node, {}).get("type") == "gate"):
             self._say(f"🍂 {p.name} passes beneath the amber boughs — "
                       f"the woods close behind.")
+        # the Vale's HOARD: the dead-end cache pays like a real detour —
+        # a hidden trove, once per voyage, worth steering a whole turn for
+        if node.get("cache"):
+            node["cache"] = False
+            p.scrolls += 3
+            self._say(f"⚱ {p.name} unearths a hoard beneath the leaves — +3 scrolls.")
         # a lost cache is picked up the moment you arrive — even if something is
         # about to rise up after it. On foot it's a dropped satchel in the dust;
         # at sea, flotsam hauled aboard.
@@ -1516,8 +1532,8 @@ class Game:
             base["gate_angle"] = node["gate_angle"]
         if node["type"] == "sea":
             base["look"] = node.get("look", "buoy")
-            if node.get("flotsam"):
-                base["flotsam"] = True
+            if node.get("flotsam") or node.get("cache"):
+                base["flotsam"] = True     # the Vale's hoard wears the same marker
         elif node["type"] == "shrine":
             base["domain"] = node["domain"]
             base["charges"] = node["charges"]

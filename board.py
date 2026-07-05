@@ -548,38 +548,15 @@ class Board:
                     mid_of(a_row[ak], b_row[bk], f"av{pi}_r{gap}_{li}",
                            gap + 2, bow=rng.uniform(-0.04, 0.04))
 
-            # ── the barrow, behind TWO doors: a short elite-guarded march
-            #    from the nearest arc stop, or the long quiet way from the
-            #    arc's far end ──
-            lair_id = f"av{pi}_L"
-            lair = put(lair_id, R0 + 345, ang + rng.uniform(-0.05, 0.05), 4)
-            lair.pop("flotsam", None)
-            lair.pop("look", None)
-            lair["type"] = "lair"
-            lair["name"] = info["name"]
-            lair["boss_spec"] = list(info["boss"])
-            lair["monster"] = None
-            lair["defeated"] = []
-            lair["stash"] = []
-            by_gap = sorted(arcs[2], key=lambda n: self._dist(n, lair_id))
-            fast = mid_of(by_gap[0], lair_id, f"av{pi}_d0", 5)
-            fast["type"] = "monster"
-            fast["monster"] = None
-            fast["encounter"] = True
-            fast["elite"] = True
-            fast["name"] = names.pop()
-            fast.pop("flotsam", None)
-            fast.pop("look", None)
-            mid_of(by_gap[-1], lair_id, f"av{pi}_d1", 4,
-                   bow=rng.uniform(0.05, 0.09))
-
-            # ── the paying dead ends: a lost cache and a hidden shrine ──
+            # ── the paying dead ends: a hidden HOARD and a hidden shrine.
+            #    A dead end costs an exact roll in and a full turn back out,
+            #    so its pay is a real trove (3 scrolls), not loose flotsam ──
             cache_host = rng.choice(arcs[1])
             hn = self.nodes[cache_host]
             ha = math.atan2(hn["z"], hn["x"])
             side = rng.choice([-1, 1])
             cache = put(f"av{pi}_c", math.hypot(hn["x"], hn["z"]) + rng.uniform(18, 26),
-                        ha + side * 0.11, 2, flotsam=True)
+                        ha + side * 0.11, 2, cache=True, flotsam=False)
             self._link(cache_host, cache["id"])
             shrine_host = rng.choice(arcs[0] + arcs[2])
             sn = self.nodes[shrine_host]
@@ -606,8 +583,7 @@ class Board:
 
             # a couple of avoidable weak packs on the way through
             for host, depth in ((rng.choice(arcs[0]), 2),
-                                (rng.choice([n for n in arcs[2]
-                                             if n != by_gap[0]]), 3)):
+                                (rng.choice(arcs[2]), 3)):
                 node = self.nodes[host]
                 if node["type"] != "sea":
                     continue
@@ -648,6 +624,46 @@ class Board:
                                key=lambda o: self._dist(nid, o))
                     self._link(nid, near)
                     reach.add(nid)
+
+            # ── the barrow LAST, behind TWO doors: a SHORT elite-guarded
+            #    march from the arc stop closest (by hops) to the pass, or
+            #    the LONG quiet way from the farthest — measured on the
+            #    FINISHED trail graph (safety links included), so the
+            #    "race the guard or plod around" tradeoff is real ──
+            lair_id = f"av{pi}_L"
+            lair = put(lair_id, R0 + 345, ang + rng.uniform(-0.05, 0.05), 4)
+            lair.pop("flotsam", None)
+            lair.pop("look", None)
+            lair["type"] = "lair"
+            lair["name"] = info["name"]
+            lair["boss_spec"] = list(info["boss"])
+            lair["monster"] = None
+            lair["defeated"] = []
+            lair["stash"] = []
+            self._build_neighbors()
+            hops = {gate_id: 0}
+            frontier = [gate_id]
+            while frontier:
+                cur = frontier.pop(0)
+                for nb in self.neighbors[cur]:
+                    if nb not in hops and self.nodes[nb].get("owner") == pid:
+                        hops[nb] = hops[cur] + 1
+                        frontier.append(nb)
+            # doors prefer QUIET hosts: hanging the guarded door off a
+            # hunting-ground stop would stack two fights on one road
+            hosts = ([n for n in arcs[2] if self.nodes[n]["type"] == "sea"]
+                     or arcs[2])
+            by_hops = sorted(hosts, key=lambda n: hops.get(n, 99))
+            fast = mid_of(by_hops[0], lair_id, f"av{pi}_d0", 5)
+            fast["type"] = "monster"
+            fast["monster"] = None
+            fast["encounter"] = True
+            fast["elite"] = True
+            fast["name"] = names.pop()
+            fast.pop("flotsam", None)
+            fast.pop("look", None)
+            mid_of(by_hops[-1], lair_id, f"av{pi}_d1", 4,
+                   bow=rng.uniform(0.05, 0.09))
             lairs[pid] = lair_id
         self._build_neighbors()
         self.vale_lairs = lairs

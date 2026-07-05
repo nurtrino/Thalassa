@@ -1091,7 +1091,8 @@ export function makeRealmField(theme, nodes, segs, rng, heightAt = null) {
     while (placed < count && tries++ < count * 16) {
       const x = minX + rng() * (maxX - minX);
       const z = minZ + rng() * (maxZ - minZ);
-      const sd = segDist(x, z);
+      // no lanes at all (the Vale before its trails reveal): fill freely
+      const sd = segs.length ? segDist(x, z) : laneClear + 1;
       if (sd < laneClear || sd > reach || nodeDist(x, z) < isleClear) continue;
       const o = make();
       o.position.set(x, groundY(x, z) + yOff, z);
@@ -1112,7 +1113,9 @@ export function makeRealmField(theme, nodes, segs, rng, heightAt = null) {
   // a worn dirt path laid over the trail: crisp ribbon quads down each lane
   // segment, riding the ground height so it never floats or sinks. The route
   // reads at a glance and the tree band stands well clear of it either side.
-  if (foot && segs.length) {
+  // NOT in the Vale: its trails reveal over time (live flagstones do that
+  // job), and a ribbon baked from the few build-time edges would lie.
+  if (foot && theme.id !== 'autumn' && segs.length) {
     const HW = 2.6;                                 // path half-width
     const pathCol = theme.id === 'autumn' ? 0x8a6a3e : 0xc7a468;
     const verts = [];

@@ -90,9 +90,10 @@ const THEMES = {
     ground: 'sand',
     sky: { zenith: 0x3c4e88, mid: 0xd88c50, horizon: 0xf8ce74 },
     // the Vale is a fog-of-war maze: amber murk swallows the middle distance,
-    // but your own clearing stays gorgeous and the barrow beacon (fog-free)
-    // burns through from anywhere
-    fog: { color: 0xe3b184, near: 22, far: 130 },
+    // but the NEXT stop must always read (maze hops run ~78-190 units, so the
+    // far plane sits past the longest adjacent hop); the barrow beacon
+    // (fog-free) burns through from anywhere
+    fog: { color: 0xe3b184, near: 24, far: 210 },
     sun: { color: 0xffc274, intensity: 1.65, position: [250, 85, 150] },
     hemi: { sky: 0xf3d2a0, ground: 0x6e4a2e, intensity: 0.7 },
     ambient: 0x362619,

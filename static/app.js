@@ -269,7 +269,9 @@ $('addBotBtn').onclick = () => send({ type: 'add_bot' });
 $('mapBtn').onclick = () => toggleMap(true);
 document.addEventListener('keydown', (e) => {
   if (e.key === 'Escape' && world.tourActive?.()) world.endTour();
-  else if (e.key === 'Escape' && mapOpen) toggleMap(false);
+  else if (e.key === 'Escape' && document.getElementById('valeChart')) {
+    document.getElementById('valeChart').remove();   // the '?' card obeys Esc too
+  } else if (e.key === 'Escape' && mapOpen) toggleMap(false);
   else if ((e.key === 'm' || e.key === 'M') && room && room.phase !== 'lobby'
            && !/^(INPUT|TEXTAREA)$/.test(document.activeElement?.tagName || '')) toggleMap();
 });

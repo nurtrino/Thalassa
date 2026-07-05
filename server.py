@@ -288,7 +288,11 @@ async def dispatch(pid: str | None, kind: str, msg: dict) -> str | None:
                         or [nid for nid in pool if g.board.nodes[nid]["type"] == "gate"]
                         or pool)
                 node = pick[0] if pick else node
-            if p and node in g.board.nodes:
+            if (p and node in g.board.nodes
+                    # never into a RIVAL's private labyrinth — the dev hook
+                    # must not pierce the ownership model (a guessed node id
+                    # like 'av1_L' would otherwise loot a rival's barrow)
+                    and g.board.nodes[node].get("owner") in (None, p.pid)):
                 p.prev_node = p.node
                 p.node = node
                 g._reveal_vale(p)          # a Vale drop still lights its ground

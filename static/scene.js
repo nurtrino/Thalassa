@@ -453,16 +453,21 @@ export function createWorld(container, handlers = {}) {
       const gateN = members.find((n) => n.type === 'gate');
       if (stageId === 'autumn' && gateN) {
         // The Vale's fog reveals its stops over time, but the FOREST must
-        // stand from the first frame and cover the whole wedge — so the
-        // field is grown over a virtual spine running from the pass into
-        // the depths, independent of what the lantern has found so far.
-        const r = Math.hypot(gateN.x, gateN.z) || 1;
-        const ux = gateN.x / r, uz = gateN.z / r;
+        // stand from the first frame and cover the WHOLE wedge the maze
+        // lives in (its arcs swing ~±0.31 rad off the gate line) — so the
+        // field's bounds come from virtual fill points fanned across the
+        // wedge, never from however few stops the lantern has found.
+        // Points only, no virtual seg: a seg would paint a worn dirt road
+        // down a trail that does not exist.
+        const gAng = Math.atan2(gateN.z, gateN.x);
+        const gR = Math.hypot(gateN.x, gateN.z) || 1;
         for (let d = 60; d <= 380; d += 64) {
-          members.push({ id: 'fill' + d, type: 'sea',
-                         x: gateN.x + ux * d, z: gateN.z + uz * d });
+          for (const off of [-0.36, 0, 0.36]) {
+            const a = gAng + off;
+            members.push({ id: `fill${d}_${off}`, type: 'sea',
+                           x: Math.cos(a) * (gR + d), z: Math.sin(a) * (gR + d) });
+          }
         }
-        segs.push([gateN.x, gateN.z, gateN.x + ux * 380, gateN.z + uz * 380]);
       }
       field = makeRealmField(theme, members, segs, rng, surf.heightAt);
       scene.add(field);
