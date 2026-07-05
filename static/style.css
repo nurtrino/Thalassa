@@ -1859,3 +1859,10 @@ body.touring #mapBtn, body.touring #dice, body.touring #shopPanel { display: non
 }
 #devBar .dev-btn:hover { background: #24405c; }
 #devBar .dev-hint { color: #8aa0b4; font-size: 11px; margin-top: 3px; max-width: 160px; }
+
+/* dev teleport: when unlocked, the aerial-chart isles become jump targets */
+body.dev .mapchip { cursor: pointer; }
+body.dev .mapchip:hover {
+  border-color: #7fe0a0;
+  box-shadow: 0 0 0 2px rgba(127, 224, 160, .55), 0 2px 8px rgba(4, 8, 12, .55);
+}
