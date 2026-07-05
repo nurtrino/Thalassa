@@ -108,10 +108,17 @@ function resetTransient() {
 /* ── boot ───────────────────────────────────────────────────────────────── */
 let devUnlocked = false;
 world = createWorld($('world'), {
-  onNodeClick(nodeId) {
+  onNodeClick(nodeId, walkArrow) {
     if (devUnlocked) { devTeleport(nodeId, false); return; }   // dev: click to jump
-    if (room && room.phase === 'sail' && room.turn === you &&
-        nodeId in (room.reachable || {})) {
+    if (!room || room.phase !== 'sail' || room.turn !== you) return;
+    // a golden Vale arrow: take that trail — the roll glides down it,
+    // pausing at the next fork for another arrow
+    if (walkArrow && (room.walk?.options || []).includes(nodeId)) {
+      audio.sfx.sail();
+      send({ type: 'walk', node: nodeId });
+      return;
+    }
+    if (nodeId in (room.reachable || {})) {
       audio.sfx.sail();
       send({ type: 'sail', node: nodeId });
     }
@@ -1247,9 +1254,19 @@ function renderTray() {
     trayBtn(tray, `${icon('market', 14)} TRADER`, 'build',
             () => { shopRemote = !shopRemote; shopClosed = false; renderShop(); });
     trayBtn(tray, 'END TURN', 'gold big', () => send({ type: 'pass' }));
+  } else if (room.phase === 'sail' && room.walk
+             && !Object.keys(room.reachable || {}).length) {
+    // mid arrow-walk: committed to the trail, steering fork by fork
+    if (room.walk.options && room.walk.options.length) {
+      trayHint(tray, `${icon('anchor', 14)} The trail forks — <strong>tap a golden arrow</strong> · ${room.walk.steps} step${room.walk.steps === 1 ? '' : 's'} left.`);
+    } else {
+      trayHint(tray, `${icon('anchor', 14)} You press on through the trees…`);
+    }
   } else if (room.phase === 'sail') {
     const bonus = me?.upgrades?.includes('sandals') ? ' <small>(+1 sandals)</small>' : '';
-    trayHint(tray, `Rolled <strong>${room.die ?? '?'}</strong>${bonus} — ${foot ? 'walk' : 'sail'} exactly that far. Tap a glowing stop.`);
+    trayHint(tray, room.walk
+      ? `Rolled <strong>${room.die ?? '?'}</strong>${bonus} — <strong>tap a golden arrow</strong> to walk a trail, or tap a lit stop.`
+      : `Rolled <strong>${room.die ?? '?'}</strong>${bonus} — ${foot ? 'walk' : 'sail'} exactly that far. Tap a glowing stop.`);
   } else if (world.arriving()) {
     // my own avatar is still moving up to this stop — hold the menu
     // (shrine wager / haven repair / trader's stall) until it arrives

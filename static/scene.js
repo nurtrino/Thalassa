@@ -296,6 +296,9 @@ export function createWorld(container, handlers = {}) {
   const ARROW_MAT = new THREE.MeshBasicMaterial({
     color: 0xffd061, transparent: true, opacity: 0.92,
     depthWrite: false, fog: false, side: THREE.DoubleSide });
+  const STRIP_GEO = new THREE.BoxGeometry(1, 1, 1);   // invisible click-ribbons
+  const STRIP_MAT = new THREE.MeshBasicMaterial({
+    transparent: true, opacity: 0, depthWrite: false });
   const fx = new THREE.Group();           // wake sprites live here
 
   /* wake pool: fixed sprites, zero allocation during play */
@@ -935,8 +938,12 @@ export function createWorld(container, handlers = {}) {
       const rec = ensureShip(p, idx);
       rec.idx = idx;
 
-      const moved = rec.node !== p.node;
-      if (moved) { rec.prevNode = rec.node; rec.node = p.node; }
+      // mid arrow-walk the server holds your true node until the roll
+      // resolves, but hands YOU the walk's head — drive the captain there
+      // so he strides up to each fork, then its arrows appear
+      const nodeNow = (p.pid === myPid && room.walk?.node) ? room.walk.node : p.node;
+      const moved = rec.node !== nodeNow;
+      if (moved) { rec.prevNode = rec.node; rec.node = nodeNow; }
 
       // which stage does this ship live in now? (gates belong to two)
       const targetStage = stageHasNode(activeBoardId, rec.node) ? activeBoardId : null;
@@ -1029,44 +1036,46 @@ export function createWorld(container, handlers = {}) {
     for (const nid of ids) addBeacon(nid, nodeById[nid], st.islands[nid]?.R ?? 5);
   }
 
-  /* the Vale's WAYFINDER: pave every trail your roll can walk with flat
-     golden arrows on the ground, marching toward each landing. Tapping an
-     arrow takes that road (it carries the destination like a beacon does). */
+  /* the Vale's WAYFINDER: the server hands the walker their open trails
+     (room.walk.options) — lay a run of flat golden arrows down each one.
+     Tap an arrow and the roll walks that road, pausing at the next fork
+     (fresh options arrive and the arrows re-lay). */
   function syncValeArrows(room, you) {
-    const want = activeBoardId === 'autumn' && !battleOn
-      && room?.phase === 'sail' && room.turn === you;
-    const me = room?.players?.find((p) => p.pid === you);
-    const ids = want && me
-      ? Object.keys(room.reachable || {})
-          .filter((id) => stageHasNode('autumn', id)).sort()
-      : [];
-    const key = ids.length ? me.node + '>' + ids.join(',') : '';
+    const w = room?.walk;
+    const want = activeBoardId === 'autumn' && !battleOn && !fading
+      && room?.phase === 'sail' && room.turn === you
+      && w && w.options && w.options.length && !animatingPid();
+    const key = want ? w.node + '>' + w.options.join(',') : '';
     if (key === arrowKey) return;
     arrowKey = key;
     valeArrows.clear();                      // shared geometry/material: no dispose
-    if (!ids.length) return;
-    const taken = new Set();                 // shared trail prefixes: one arrow
-    for (const dest of ids) {
-      const route = sailPath(me.node, dest);
-      if (!route || route.length < 2) continue;
-      for (let i = 1; i < route.length; i++) {
-        const a = nodeById[route[i - 1]], b = nodeById[route[i]];
-        if (!a || !b) continue;
-        const dx = b.x - a.x, dz = b.z - a.z;
-        const len = Math.hypot(dx, dz) || 1e-6;
-        const ux = dx / len, uz = dz / len;
-        for (let d = 6; d <= len - 5; d += 8.5) {
-          const x = a.x + ux * d, z = a.z + uz * d;
-          const spot = Math.round(x / 3) + ':' + Math.round(z / 3);
-          if (taken.has(spot)) continue;
-          taken.add(spot);
-          const arrow = new THREE.Mesh(ARROW_GEO, ARROW_MAT);
-          arrow.position.set(x, 0.24, z);
-          arrow.rotation.y = Math.atan2(-ux, -uz);   // tip is -Z pre-yaw
-          arrow.renderOrder = 5;
-          arrow.userData.node = dest;
-          valeArrows.add(arrow);
-        }
+    if (!want) return;
+    const head = nodeById[w.node];
+    if (!head) return;
+    for (const dest of w.options) {
+      const d = nodeById[dest];
+      if (!d) continue;
+      const dx = d.x - head.x, dz = d.z - head.z;
+      const len = Math.hypot(dx, dz) || 1e-6;
+      const ux = dx / len, uz = dz / len;
+      // a fat invisible ribbon so you can tap the TRAIL, not just an arrow
+      const L = Math.max(8, Math.min(len - 4, 32));
+      const strip = new THREE.Mesh(STRIP_GEO, STRIP_MAT);
+      strip.scale.set(9, 1, L);
+      strip.position.set(head.x + ux * (L / 2 + 3), 0.5, head.z + uz * (L / 2 + 3));
+      strip.rotation.y = Math.atan2(ux, uz);
+      strip.userData = { node: dest, walkArrow: true };
+      valeArrows.add(strip);
+      // three golden arrows marching down the branch mouth
+      for (let k = 0; k < 3; k++) {
+        const dd = 7 + k * 7.5;
+        if (dd > len - 3) break;
+        const arrow = new THREE.Mesh(ARROW_GEO, ARROW_MAT);
+        arrow.position.set(head.x + ux * dd, 0.24, head.z + uz * dd);
+        arrow.rotation.y = Math.atan2(-ux, -uz);   // tip is -Z pre-yaw
+        arrow.renderOrder = 5;
+        arrow.userData = { node: dest, walkArrow: true };
+        valeArrows.add(arrow);
       }
     }
   }
@@ -1379,7 +1388,8 @@ export function createWorld(container, handlers = {}) {
     const hit = ray.intersectObjects(
       [...st.proxyList, ...highlights.children, ...valeArrows.children], false)
       .find((h) => h.object.userData.node);
-    if (hit) handlers.onNodeClick?.(hit.object.userData.node);
+    if (hit) handlers.onNodeClick?.(hit.object.userData.node,
+                                    !!hit.object.userData.walkArrow);
   });
 
   /* ── resize ─────────────────────────────────────────────────────────── */
@@ -2019,6 +2029,7 @@ export function createWorld(container, handlers = {}) {
     tickShips(st, t, now);
     tickWake(now);
     tickHighlights(t);
+    syncValeArrows(lastRoom, myPid);   // keyed: re-lays when a stride ends
     syncKraken(lastRoom);
     if (tour) tickTour(performance.now());
     else if (mapMode) tickMapView(dt);

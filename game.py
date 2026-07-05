@@ -188,6 +188,7 @@ class Game:
         self.turn_idx = 0
         self.die: int | None = None
         self.reachable: dict[str, int] = {}
+        self.walk: dict | None = None      # Vale arrow-walk: {pid,node,came,steps,path,options}
         self.qctx: dict | None = None      # kind: shrine|battle|puzzle
         self.question: dict | None = None
         self.question_deadline: float | None = None
@@ -368,6 +369,7 @@ class Game:
     def _start_turn(self):
         self.die = None
         self.reachable = {}
+        self.walk = None
         self.qctx = None
         self.question = None
         self.side_answers = {}
@@ -398,6 +400,12 @@ class Game:
             self._say(f"{p.name} is boxed in and waits out the tide.")
             self._end_turn()
             return
+        # in the Vale the roll can also be STEERED: golden arrows offer each
+        # trail out of your stop; tap one and the walk carries you that far,
+        # pausing at every fork for the next arrow. (Landing beacons still
+        # work as a direct pick until the first arrow commits you.)
+        if self.board.nodes[p.node].get("region") == "autumn":
+            self._begin_walk(p, steps)
         self._bump("sail")
 
     def sail(self, pid: str, node: str):
@@ -405,18 +413,96 @@ class Game:
         if node not in self.reachable:
             raise GameError("Your ship cannot reach those waters.")
         p = self.current
+        self.walk = None                     # a direct pick waives the arrows
         p.prev_node = p.node
         p.node = node
         self.reachable = {}
         self._land(p, node)
 
+    # ── the Amber Vale's arrow-walk: steer the roll, fork by fork ────────────
+    def _walk_ways(self, p: Player, node: str, came: str | None) -> list[str]:
+        """Trails that open from a stop: your own maze (plus the pass home),
+        never straight back the way you came — unless that is all there is."""
+        nbrs = [nb for nb in self.board.neighbors.get(node, [])
+                if not self._blocked(p, nb)
+                and (self.board.nodes[nb].get("owner") == p.pid
+                     or self.board.nodes[nb]["type"] == "gate")]
+        return [nb for nb in nbrs if nb != came] or nbrs
+
+    def _walk_halts(self, nid: str) -> bool:
+        """Stops a walk the moment you step onto them: the pass, the barrow,
+        camps, markets, oracles, unsolved spires and hunting grounds —
+        plain trail stops are glided through."""
+        n = self.board.nodes[nid]
+        t = n["type"]
+        if t in ("lair", "gate", "haven", "shop", "shrine", "monster"):
+            return True
+        if t == "puzzle" and not n.get("solved"):
+            return True
+        return bool(self.board.alive_monster(nid))
+
+    def _begin_walk(self, p: Player, steps: int):
+        ways = self._walk_ways(p, p.node, p.prev_node)
+        if not ways:
+            return                           # nothing to steer: beacons only
+        self.walk = {"pid": p.pid, "node": p.node, "came": p.prev_node,
+                     "steps": steps, "path": [p.node], "options": sorted(ways)}
+
+    def walk_step(self, pid: str, node: str):
+        """Take the golden arrow down a branch: the remaining roll glides
+        along it, pausing at the next fork, halting at any real stop."""
+        self._require_turn(pid, "sail")
+        w = self.walk
+        if not w or not w.get("options"):
+            raise GameError("There is no trail to take here.")
+        if node not in w["options"]:
+            raise GameError("That trail does not open from here.")
+        p = self.current
+        self.reachable = {}                  # committed: steer by arrows now
+        w["options"] = None
+        self._walk_take(p, node)
+        self._walk_advance(p)
+
+    def _walk_take(self, p: Player, nxt: str):
+        w = self.walk
+        w["came"] = w["node"]
+        w["node"] = nxt
+        w["steps"] -= 1
+        w["path"].append(nxt)
+        self._reveal_vale(p, nid=nxt)        # the lantern walks with you
+
+    def _walk_advance(self, p: Player):
+        """Glide down corridors; pause at forks for the next arrow; halt at
+        real stops, at trail's end, or when the roll runs out."""
+        w = self.walk
+        while w["steps"] > 0 and not self._walk_halts(w["node"]):
+            fwd = [nb for nb in self._walk_ways(p, w["node"], w["came"])
+                   if nb != w["came"]]
+            if not fwd:
+                break                        # the trail simply ends: make camp
+            if len(fwd) > 1:
+                w["options"] = sorted(fwd)   # a fork: wait for the next arrow
+                self.nonce += 1
+                return
+            self._walk_take(p, fwd[0])
+        self._walk_finish(p)
+
+    def _walk_finish(self, p: Player):
+        w = self.walk
+        self.walk = None
+        p.prev_node = w["path"][-2] if len(w["path"]) >= 2 else p.prev_node
+        p.node = w["node"]
+        self.reachable = {}
+        self._land(p, w["node"])
+
     # ── the Amber Vale's fog: vision, never movement ─────────────────────────
-    def _reveal_vale(self, p: Player, radius: int = VALE_LANTERN):
+    def _reveal_vale(self, p: Player, radius: int = VALE_LANTERN,
+                     nid: str | None = None):
         """The captain's lantern: everything within ``radius`` hops of
         where they stand joins their personal map of the Vale — monotonic,
         the woods never go dark again. Covers a d3 from a standstill, so
         the maze is read a clearing at a time, not solved from above."""
-        nid = p.node
+        nid = nid or p.node
         node = self.board.nodes.get(nid)
         if not node or node.get("region") != "autumn":
             return
@@ -1609,6 +1695,11 @@ class Game:
                     if self.phase == "minigame" and self.minigame else None)
         if minigame and gate and not shown(minigame.get("island", "home")):
             minigame = {**minigame, "island": gate}
+        # the arrow-walk is the walker's own business: only they get it
+        walk = None
+        if self.walk and viewer_pid == self.walk["pid"]:
+            walk = {"node": self.walk["node"], "steps": self.walk["steps"],
+                    "options": self.walk["options"]}
         q = None
         if self.question is not None:
             q = {"text": self.question["text"], "options": self.question["options"],
@@ -1630,6 +1721,7 @@ class Game:
             "die": self.die,
             "reachable": self.reachable if (self.players and self.phase != "lobby"
                           and self.current.pid == viewer_pid) else {},
+            "walk": walk,
             "question": q,
             "side_answered": list(self.side_answers.keys()),
             "reveal": reveal,

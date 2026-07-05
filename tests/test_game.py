@@ -382,6 +382,60 @@ def test_vale_dev_teleport_cannot_enter_a_rivals_maze():
     S.table.reset()
 
 
+def test_vale_roll_offers_an_arrow_walk():
+    # rolling in the Vale offers a golden arrow per open trail; tapping one
+    # walks the roll down it, pausing at forks, and waives the beacons
+    g, (p0, p1) = make_game()
+    p = g.player_by_pid(p0)
+    force_land(g, p0, g.board.vale_gate)
+    g.phase = "roll"
+    g.turn_idx = 0
+    g.roll(p0, 3)
+    assert g.walk and g.walk["options"]
+    assert all(g.board.nodes[o].get("owner") == p0 for o in g.walk["options"])
+    assert g.reachable                              # beacons still up pre-commit
+    with pytest.raises(GameError):
+        g.walk_step(p0, "not_a_trail")
+    g.walk_step(p0, g.walk["options"][0])
+    assert g.reachable == {}                        # committed: arrows only
+    taps = 1
+    while g.walk and g.walk.get("options"):
+        g.walk_step(p0, g.walk["options"][0])
+        taps += 1
+        assert taps < 12
+    assert g.walk is None                           # the roll always resolves
+    assert p.node != g.board.vale_gate
+    # only the walker ever sees the walk
+    g2, (q0, q1) = make_game()
+    force_land(g2, q0, g2.board.vale_gate)
+    g2.phase = "roll"
+    g2.turn_idx = 0
+    g2.roll(q0, 2)
+    assert g2.to_dict(q0)["walk"]["options"]
+    assert g2.to_dict(q1)["walk"] is None
+
+
+def test_vale_walk_halts_on_a_hunting_ground():
+    g, (p0, p1) = make_game()
+    p = g.player_by_pid(p0)
+    door = next(nid for nid, n in g.board.nodes.items()
+                if n.get("owner") == p0 and n["type"] == "monster"
+                and n.get("elite"))
+    host = next(nid for nid in g.board.neighbors[door]
+                if g.board.nodes[nid]["type"] != "lair")
+    other = next(x for x in g.board.neighbors[host] if x != door)
+    p.node = host
+    p.prev_node = other
+    p.seen.update({host, other})
+    g.phase = "roll"
+    g.turn_idx = 0
+    g.roll(p0, 3)
+    assert g.walk and door in g.walk["options"]
+    g.walk_step(p0, door)
+    assert g.walk is None                     # the guard HALTS the walk
+    assert p.node == door
+
+
 def test_vale_hidden_from_anonymous_spectators():
     # an unjoined watcher socket (or a lost token) is NOT a debug backdoor:
     # no private ground, no reachable set, rivals veiled at the pass

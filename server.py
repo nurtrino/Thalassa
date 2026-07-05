@@ -216,6 +216,8 @@ async def dispatch(pid: str | None, kind: str, msg: dict) -> str | None:
             await broadcast_event({"type": "dice", "pid": pid, "value": die})
         elif kind == "sail":
             g.sail(pid, str(msg.get("node", "")))
+        elif kind == "walk":
+            g.walk_step(pid, str(msg.get("node", "")))
         elif kind == "wager":
             g.wager(pid, int(msg.get("tier", 0)))
         elif kind == "pass":
