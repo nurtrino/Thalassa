@@ -1060,7 +1060,8 @@ function renderJboard() {
   const active = room.phase === 'jchoose' && b && !world.arriving();
   if (!active) {
     cancelAnimationFrame(jbTimerRAF); jbTimerRAF = 0;
-    el.classList.add('hidden'); el.innerHTML = ''; el.dataset.key = '';
+    el.classList.add('hidden'); el.classList.remove('picked');
+    el.innerHTML = ''; el.dataset.key = '';
     return;
   }
   const mine = room.turn === you;
@@ -1068,7 +1069,9 @@ function renderJboard() {
   const key = 'jb#' + b.cells.map((c) => c.category + c.value).join('|') + (mine ? '#me' : '');
   if (el.dataset.key !== key) {
     el.dataset.key = key;
-    el.classList.remove('hidden');
+    // a NEW board is live again: clear the lock from the previous pick, or
+    // #jboard.picked { pointer-events:none } leaves every later board dead
+    el.classList.remove('hidden', 'picked');
     const title = b.band === 'high' ? 'MAGIC · $800 / $1000' : 'STRIKE · $200 / $400';
     el.innerHTML =
       `<div class="jbhead">${icon('scroll', 18)} JEOPARDY! — ` +

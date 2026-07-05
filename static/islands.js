@@ -1655,7 +1655,10 @@ export function buildIsland(node, theme, domains) {
         f.position.set(Math.cos(a) * r, -0.3, Math.sin(a) * r);
         g.add(f);
       }
-      g.add(shallowDisc(16, theme.water.shallow));
+      // NO shallow-water disc here: it paints a big pale-teal shoal on open
+      // sea with no land beneath it, and the ship visibly plows straight
+      // through the middle of it. A thin foam ring marks the berth instead.
+      g.add(foamRing(5.5));
       g.position.set(node.x, 0, node.z);
       return { group: g, R: 4.4, plateauY: 0 };
     }
