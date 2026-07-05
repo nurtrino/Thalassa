@@ -104,6 +104,23 @@ regenerates the Blender creature models (`pip install bpy`).
 .venv/bin/pip install pytest && .venv/bin/python -m pytest tests/ -q
 ```
 
+## QA pipeline
+
+One command runs the whole quality gate — unit tests, JS syntax, a
+multi-seed board-geometry audit (clipping lanes, hop lengths, clumping —
+see `docs/QA-TRAVEL.md`), then headless-Chromium suites against a fresh
+server each: smoke, a full play loop, realm stage routing, all three
+battle decks, a sail monitor that samples the moving ship against every
+island footprint, and the reviewer screenshot set:
+
+```bash
+.venv/bin/pip install playwright && tools/qa/run_qa.sh qa_report/latest
+# → qa_report/latest/report.md (+ report.json, shots/)
+```
+
+Any console error, uncaught exception, or HTTP 4xx a page triggers fails
+its suite. Reviewer-panel feedback lives in `docs/QA-REVIEWS.md`.
+
 ## Deploy
 
 `render.yaml` is a ready Render Blueprint (single instance — the game lives
