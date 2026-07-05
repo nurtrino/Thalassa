@@ -89,11 +89,11 @@ const THEMES = {
     water: { deep: 0x4e3c1e, shallow: 0xd0913c, sparkle: 1.5, chop: 0.85 },
     ground: 'sand',
     sky: { zenith: 0x3c4e88, mid: 0xd88c50, horizon: 0xf8ce74 },
-    // the Vale is a fog-of-war maze: amber murk swallows the middle distance,
-    // but the NEXT stop must always read (maze hops run ~78-190 units, so the
-    // far plane sits past the longest adjacent hop); the barrow beacon
-    // (fog-free) burns through from anywhere
-    fog: { color: 0xe3b184, near: 24, far: 210 },
+    // the Vale is a fog-of-war maze: thick amber murk swallows the middle
+    // distance — the flat golden trail arrows, landing beacons and barrow
+    // beam are all fog-free, so the WAY always reads even when the woods
+    // beyond it don't
+    fog: { color: 0xe3b184, near: 20, far: 170 },
     sun: { color: 0xffc274, intensity: 1.65, position: [250, 85, 150] },
     hemi: { sky: 0xf3d2a0, ground: 0x6e4a2e, intensity: 0.7 },
     ambient: 0x362619,

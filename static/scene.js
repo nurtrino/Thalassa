@@ -274,6 +274,28 @@ export function createWorld(container, handlers = {}) {
   /* shared groups that ride along into whichever stage is active */
   const highlights = new THREE.Group();   // reachable rings
   let hiKey = '';
+  /* the Vale's WAYFINDER: flat golden arrows laid on the ground along every
+     trail your roll can walk — tap any arrow to take that road */
+  const valeArrows = new THREE.Group();
+  let arrowKey = '';
+  const ARROW_GEO = (() => {
+    const s = new THREE.Shape();            // an arrow pointing +Y (pre-rotate)
+    s.moveTo(0, 1.35);                      // tip
+    s.lineTo(0.85, -0.1);
+    s.lineTo(0.34, -0.1);
+    s.lineTo(0.34, -1.2);                   // shaft
+    s.lineTo(-0.34, -1.2);
+    s.lineTo(-0.34, -0.1);
+    s.lineTo(-0.85, -0.1);
+    s.closePath();
+    const g = new THREE.ShapeGeometry(s);
+    g.rotateX(-Math.PI / 2);                // lay it FLAT; tip now points -Z
+    g.scale(1.6, 1, 1.6);
+    return g;
+  })();
+  const ARROW_MAT = new THREE.MeshBasicMaterial({
+    color: 0xffd061, transparent: true, opacity: 0.92,
+    depthWrite: false, fog: false, side: THREE.DoubleSide });
   const fx = new THREE.Group();           // wake sprites live here
 
   /* wake pool: fixed sprites, zero allocation during play */
@@ -716,6 +738,12 @@ export function createWorld(container, handlers = {}) {
   function slotFor(nodeId, slotIdx, st) {
     const n = nodeById[nodeId];
     if (n && n.type === 'gate') return gateBerth(n, st, slotIdx);
+    // in the Vale you WALK the trail: the captain stands ON the stop itself
+    // (stepping stone, camp, barrow door) — never at a ship's berth off it
+    if (st?.id === 'autumn' && n?.region === 'autumn') {
+      const a = (slotIdx / 6) * Math.PI * 2 + 0.8;
+      return new THREE.Vector3(n.x + Math.cos(a) * 0.9, 0, n.z + Math.sin(a) * 0.9);
+    }
     const isle = st && st.islands[nodeId];
     const R = isle?.R ?? 4;
     const a = (slotIdx / 6) * Math.PI * 2 + 0.8;
@@ -856,11 +884,17 @@ export function createWorld(container, handlers = {}) {
   }
 
   function startTravel(rec, toNode, st) {
+    // in the Vale the captain follows the FLAGSTONES: stop centre to stop
+    // centre, no berth offsets, no island-avoidance arcs, no corner smoothing
+    const vale = st?.id === 'autumn';
     const route = sailPath(rec.prevNode, toNode);
     const raw = [rec.root.position.clone()];
     if (route && route.length > 2) {
       for (const nid of route.slice(1, -1)) {
-        if (nodeById[nid]) raw.push(lanePoint(nid, raw[raw.length - 1], st));
+        const n = nodeById[nid];
+        if (!n) continue;
+        raw.push(vale ? new THREE.Vector3(n.x, 0, n.z)
+                      : lanePoint(nid, raw[raw.length - 1], st));
       }
     }
     const dest = nodeById[toNode];
@@ -871,7 +905,7 @@ export function createWorld(container, handlers = {}) {
       raw.push(new THREE.Vector3(dest.x - rad.x * 46, 0, dest.z - rad.z * 46));
     }
     raw.push(slotFor(toNode, rec.idx, st));
-    const pts = avoidIslands(raw, st);
+    const pts = vale ? raw : avoidIslands(raw, st);
     rec.arrivalPending = true;
     let total = 0;
     const legs = [];
@@ -995,6 +1029,48 @@ export function createWorld(container, handlers = {}) {
     for (const nid of ids) addBeacon(nid, nodeById[nid], st.islands[nid]?.R ?? 5);
   }
 
+  /* the Vale's WAYFINDER: pave every trail your roll can walk with flat
+     golden arrows on the ground, marching toward each landing. Tapping an
+     arrow takes that road (it carries the destination like a beacon does). */
+  function syncValeArrows(room, you) {
+    const want = activeBoardId === 'autumn' && !battleOn
+      && room?.phase === 'sail' && room.turn === you;
+    const me = room?.players?.find((p) => p.pid === you);
+    const ids = want && me
+      ? Object.keys(room.reachable || {})
+          .filter((id) => stageHasNode('autumn', id)).sort()
+      : [];
+    const key = ids.length ? me.node + '>' + ids.join(',') : '';
+    if (key === arrowKey) return;
+    arrowKey = key;
+    valeArrows.clear();                      // shared geometry/material: no dispose
+    if (!ids.length) return;
+    const taken = new Set();                 // shared trail prefixes: one arrow
+    for (const dest of ids) {
+      const route = sailPath(me.node, dest);
+      if (!route || route.length < 2) continue;
+      for (let i = 1; i < route.length; i++) {
+        const a = nodeById[route[i - 1]], b = nodeById[route[i]];
+        if (!a || !b) continue;
+        const dx = b.x - a.x, dz = b.z - a.z;
+        const len = Math.hypot(dx, dz) || 1e-6;
+        const ux = dx / len, uz = dz / len;
+        for (let d = 6; d <= len - 5; d += 8.5) {
+          const x = a.x + ux * d, z = a.z + uz * d;
+          const spot = Math.round(x / 3) + ':' + Math.round(z / 3);
+          if (taken.has(spot)) continue;
+          taken.add(spot);
+          const arrow = new THREE.Mesh(ARROW_GEO, ARROW_MAT);
+          arrow.position.set(x, 0.24, z);
+          arrow.rotation.y = Math.atan2(-ux, -uz);   // tip is -Z pre-yaw
+          arrow.renderOrder = 5;
+          arrow.userData.node = dest;
+          valeArrows.add(arrow);
+        }
+      }
+    }
+  }
+
   /* A bold "you can land here" beacon: a bright ring on the water, a shaft of
    * gold light, and a big downward chevron hovering over the spot. Unmistakable
    * from the low chase camera, and steady (gentle bob, no harsh flicker).
@@ -1067,12 +1143,14 @@ export function createWorld(container, handlers = {}) {
     activeBoardId = stageId;
     if (lastRoom) syncStage(st, lastRoom);
     /* move the ride-along groups into this scene */
-    st.scene.add(highlights, fx);
+    st.scene.add(highlights, fx, valeArrows);
     hiKey = '';
+    arrowKey = '';
     for (const sp of wakePool) sp.visible = false;
     if (lastRoom) {
       syncShips(lastRoom, myPid);
       syncHighlights(lastRoom, myPid);
+      syncValeArrows(lastRoom, myPid);
     }
     if (prevId !== stageId) {
       const mine = ships[myPid];
@@ -1243,6 +1321,7 @@ export function createWorld(container, handlers = {}) {
       syncStage(stages[activeBoardId], room);
       syncShips(room, you);
       syncHighlights(room, you);
+      syncValeArrows(room, you);
     }
 
     /* now pick the stage — stays glued to whoever is mid-sail, and only hands
@@ -1298,7 +1377,7 @@ export function createWorld(container, handlers = {}) {
     pointer.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
     ray.setFromCamera(pointer, camera);
     const hit = ray.intersectObjects(
-      [...st.proxyList, ...highlights.children], false)
+      [...st.proxyList, ...highlights.children, ...valeArrows.children], false)
       .find((h) => h.object.userData.node);
     if (hit) handlers.onNodeClick?.(hit.object.userData.node);
   });
