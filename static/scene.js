@@ -942,9 +942,11 @@ export function createWorld(container, handlers = {}) {
     const myTurn = room.turn === you && room.phase === 'sail' && !room.battle;
     // standing on a pass, destinations straddle the wall — show them ALL
     // (rings past the pass mouth read as "through there"); everywhere else,
-    // only this stage's waters light up.
+    // only this stage's waters light up. The Amber Vale shows NO beacons at
+    // all: the golden trail arrows are its one wayfinder, and light shafts
+    // over fogged stops both spoiled the maze and doubled the signage.
     const onGate = nodeById[room.players?.find((p) => p.pid === you)?.node]?.type === 'gate';
-    const ids = myTurn
+    const ids = myTurn && activeBoardId !== 'autumn'
       ? Object.keys(room.reachable || {})
           .filter((id) => onGate || stageHasNode(activeBoardId, id)).sort()
       : [];
@@ -979,11 +981,13 @@ export function createWorld(container, handlers = {}) {
       const dx = d.x - head.x, dz = d.z - head.z;
       const len = Math.hypot(dx, dz) || 1e-6;
       const ux = dx / len, uz = dz / len;
-      // a fat invisible ribbon so a tap ANYWHERE along the branch takes it
-      const L = Math.max(10, Math.min(len - 3, 36));
+      // a fat invisible ribbon so a tap ANYWHERE along the branch takes it —
+      // wide and tall (fingers aim at the ARROWS, which sit proud of the
+      // ground) and starting right at the captain's feet
+      const L = Math.max(12, Math.min(len - 2, 40));
       const strip = new THREE.Mesh(STRIP_GEO, STRIP_MAT);
-      strip.scale.set(13, 2.5, L);
-      strip.position.set(head.x + ux * (L / 2 + 3), 1.2, head.z + uz * (L / 2 + 3));
+      strip.scale.set(18, 5, L);
+      strip.position.set(head.x + ux * (L / 2 + 1.5), 1.6, head.z + uz * (L / 2 + 1.5));
       strip.rotation.y = Math.atan2(ux, uz);
       strip.userData = { node: dest, walkArrow: true };
       valeArrows.add(strip);
@@ -1003,6 +1007,7 @@ export function createWorld(container, handlers = {}) {
         if (dd > len - 3) break;
         const arrow = new THREE.Mesh(ARROW_GEO, ARROW_MAT);
         arrow.position.set(x, 0.3, z);
+        arrow.scale.setScalar(1.35);               // bigger read, bigger target
         arrow.rotation.y = Math.atan2(-ux, -uz);   // tip is -Z pre-yaw
         arrow.renderOrder = 30;                    // over stones, trees, smoke
         arrow.userData = { node: dest, walkArrow: true };
@@ -1315,9 +1320,16 @@ export function createWorld(container, handlers = {}) {
     if (!downAt) return;
     const moved = Math.hypot(e.clientX - downAt[0], e.clientY - downAt[1]);
     downAt = null;
-    if (moved > 6 || battleOn || fading || mapMode) return;  // the chart is view-only
+    // fingers drift: a real-world tap easily wanders past 6px, and every
+    // one of those used to be discarded as a camera drag — the #1 "my tap
+    // did nothing" report on the Vale arrows
+    const slop = e.pointerType === 'touch' ? 18 : 9;
+    if (moved > slop || battleOn || fading || mapMode) return;  // view-only drag
     const st = stages[activeBoardId];
-    if (!st || !st.proxyList.length) return;
+    // NOT gated on proxyList: the fogged Vale can have ZERO built islands,
+    // and this early-out was killing every tap before the trail arrows even
+    // got raycast — the arrows read as simply broken
+    if (!st) return;
     const rect = renderer.domElement.getBoundingClientRect();
     pointer.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
     pointer.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
@@ -1341,8 +1353,8 @@ export function createWorld(container, handlers = {}) {
       if (head && pt) {
         const px = pt.x - head.x, pz = pt.z - head.z;
         const pd = Math.hypot(px, pz);
-        if (pd > 3 && pd < 110) {
-          let best = null, bestDot = 0.55;       // within a ~56° cone
+        if (pd > 2 && pd < 150) {
+          let best = null, bestDot = 0.42;       // within a ~65° cone
           for (const dest of w.options) {
             const dn = nodeById[dest];
             if (!dn) continue;
