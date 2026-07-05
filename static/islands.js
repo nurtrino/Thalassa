@@ -1127,11 +1127,6 @@ export function makeRealmField(theme, nodes, segs, rng, heightAt = null) {
   }
   const M = 55;                                   // the wilds spill past the road
   minX -= M; maxX += M; minZ -= M; maxZ += M;
-  const nodeDist = (x, z) => {
-    let d = 1e9;
-    for (const n of nodes) d = Math.min(d, Math.hypot(n.x - x, n.z - z));
-    return d;
-  };
   const segDist = (x, z) => {
     let d = 1e9;
     for (const s of segs) {
@@ -1142,14 +1137,41 @@ export function makeRealmField(theme, nodes, segs, rng, heightAt = null) {
     }
     return d;
   };
-  const scatter = (count, laneClear, isleClear, reach, make, yOff = 0) => {
+  // POIs carve a proper CLEARING out of the wilds — a shrine, camp, barrow
+  // or hunting ground stands in the open, nothing clipping through it
+  const poiClear = (n) => {
+    if (!n.type || n.type === 'sea') return 0;
+    if (n.type === 'gate') return 17;
+    if (n.type === 'lair') return 13;
+    return 11;
+  };
+  const placedPts = [];                 // props with a personal-space bubble
+  const scatter = (count, laneClear, isleClear, reach, make, yOff = 0, minGap = 0) => {
     let placed = 0, tries = 0;
     while (placed < count && tries++ < count * 16) {
       const x = minX + rng() * (maxX - minX);
       const z = minZ + rng() * (maxZ - minZ);
       // no lanes at all (the Vale before its trails reveal): fill freely
       const sd = segs.length ? segDist(x, z) : laneClear + 1;
-      if (sd < laneClear || sd > reach || nodeDist(x, z) < isleClear) continue;
+      if (sd < laneClear || sd > reach) continue;
+      let blocked = false;
+      for (const n of nodes) {
+        if (Math.hypot(n.x - x, n.z - z) < isleClear + poiClear(n)) {
+          blocked = true;
+          break;
+        }
+      }
+      if (!blocked && minGap > 0) {
+        for (const p of placedPts) {
+          if (Math.abs(p.x - x) < minGap && Math.abs(p.z - z) < minGap
+              && Math.hypot(p.x - x, p.z - z) < minGap) {
+            blocked = true;
+            break;
+          }
+        }
+      }
+      if (blocked) continue;
+      if (minGap > 0) placedPts.push({ x, z });
       const o = make();
       o.position.set(x, groundY(x, z) + yOff, z);
       o.rotation.y = rng() * 6.28;
@@ -1220,13 +1242,14 @@ export function makeRealmField(theme, nodes, segs, rng, heightAt = null) {
     scatter(20, 12, 16, 240, () => propGroup('dead_scrub', 0.8 + rng() * 0.6));
     scatter(9, 22, 24, 240, () => propGroup('cairn', 1.0 + rng() * 0.6));
   } else if (theme.id === 'autumn') {
-    // the Vale is a THICK wood on a FLAT floor: the maze's stops reveal over
-    // time, so the trees fill the WHOLE wedge (huge reach — not hugging the
-    // known lanes) and the fog does the hiding. No rocky bumps, boulders or
-    // cairns — just soft litter (fallen trunks, mushrooms) and the odd camp.
-    scatter(3200, 4.5, 5, 9999, () => floraFor(theme, rng, 1.1 + rng() * 0.9));
-    scatter(46, 5, 7, 9999, prop(['dead_tree', 'mushroom_cluster'], 0.7, 1.4));
-    scatter(26, 5, 7, 9999, prop(['autumn_tree', 'campfire', 'stone_well', 'barrel', 'waymarker_stone'], 0.8, 1.5));
+    // the Vale is a wood of GIANTS on a FLAT floor: trees tower well over
+    // the captain's head, each with a personal-space bubble so canopies
+    // never interpenetrate, standing clear of the trails and of every POI's
+    // clearing. The maze's stops reveal over time, so the wood fills the
+    // WHOLE wedge and the fog (and woodsmoke) does the hiding.
+    scatter(2400, 7.5, 6, 9999, () => floraFor(theme, rng, 2.6 + rng() * 1.8), 0, 8);
+    scatter(46, 6, 7, 9999, prop(['dead_tree', 'mushroom_cluster'], 0.9, 1.6), 0, 3);
+    scatter(26, 6, 7, 9999, prop(['campfire', 'stone_well', 'barrel', 'waymarker_stone'], 0.8, 1.5), 0, 4);
   } else {
     // hub / aegean open water: flotsam only — the good stuff is ashore
     scatter(8, 12, 17, 120, prop(['driftwood', 'fishing_net', 'buoy'], 0.7, 1.1));
@@ -1778,9 +1801,10 @@ export function buildIsland(node, theme, domains) {
       t.position.y = terrain.heightAt(0.2);
       g.add(t);
       for (let i = 0; i < 3; i++) {
-        const tree = floraFor(theme, rng0, 0.9 + rng0() * 0.4);
+        // the camp's own trees: taller than tents, still shy of the giants
+        const tree = floraFor(theme, rng0, 1.7 + rng0() * 0.6);
         const a = rng0() * 6.28;
-        const tx = Math.cos(a) * R * 0.55, tz = Math.sin(a) * R * 0.55;
+        const tx = Math.cos(a) * R * 0.62, tz = Math.sin(a) * R * 0.62;
         tree.position.set(tx, terrain.surfaceY(tx, tz), tz);
         g.add(tree);
       }

@@ -112,9 +112,10 @@ world = createWorld($('world'), {
   onNodeClick(nodeId, walkArrow) {
     if (devUnlocked) { devTeleport(nodeId, false); return; }   // dev: click to jump
     if (!room || room.phase !== 'sail' || room.turn !== you) return;
-    // a golden Vale arrow: take that trail — the roll glides down it,
-    // pausing at the next fork for another arrow
-    if (walkArrow && (room.walk?.options || []).includes(nodeId)) {
+    const trails = room.walk?.options || [];
+    // a golden Vale arrow (or a ground tap resolved to a branch): walk it —
+    // the roll glides down that trail, pausing at the next fork
+    if (walkArrow && trails.includes(nodeId)) {
       audio.sfx.sail();
       send({ type: 'walk', node: nodeId });
       return;
@@ -122,6 +123,13 @@ world = createWorld($('world'), {
     if (nodeId in (room.reachable || {})) {
       audio.sfx.sail();
       send({ type: 'sail', node: nodeId });
+      return;
+    }
+    // tapping a branch's first STOP (its stone, its clearing) also takes it —
+    // people tap where they want to go, not only the skinny arrows
+    if (trails.includes(nodeId)) {
+      audio.sfx.sail();
+      send({ type: 'walk', node: nodeId });
     }
   },
   onStageChange(stageId) {

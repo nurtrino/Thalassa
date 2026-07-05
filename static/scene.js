@@ -35,35 +35,9 @@ const _vA = new THREE.Vector3();
 const _vB = new THREE.Vector3();
 const _vC = new THREE.Vector3();
 const _vD = new THREE.Vector3();
+const _ground = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
 
-/* ── little canvas textures (clouds, sun glow, wake foam) ───────────────── */
-
-function puffTexture(r, g, b) {
-  const c = document.createElement('canvas');
-  c.width = c.height = 256;
-  const ctx = c.getContext('2d');
-  const blob = (x, y, rad, a) => {
-    const gr = ctx.createRadialGradient(x, y, rad * 0.12, x, y, rad);
-    gr.addColorStop(0, `rgba(${r},${g},${b},${a})`);
-    gr.addColorStop(0.6, `rgba(${r},${g},${b},${a * 0.45})`);
-    gr.addColorStop(1, `rgba(${r},${g},${b},0)`);
-    ctx.fillStyle = gr;
-    ctx.fillRect(0, 0, 256, 256);
-  };
-  blob(128, 148, 96, 0.9);
-  blob(84, 128, 66, 0.85);
-  blob(174, 124, 70, 0.85);
-  blob(126, 102, 56, 0.8);
-  ctx.globalCompositeOperation = 'source-atop';
-  const sh = ctx.createLinearGradient(0, 90, 0, 240);
-  sh.addColorStop(0, 'rgba(255,255,255,0)');
-  sh.addColorStop(1, 'rgba(120,130,150,0.34)');
-  ctx.fillStyle = sh;
-  ctx.fillRect(0, 0, 256, 256);
-  const tex = new THREE.CanvasTexture(c);
-  tex.colorSpace = THREE.SRGBColorSpace;
-  return tex;
-}
+/* ── little canvas textures (sun glow, wake foam) ───────────────────────── */
 
 function radialTexture(stops) {
   const c = document.createElement('canvas');
@@ -78,10 +52,9 @@ function radialTexture(stops) {
   return tex;
 }
 
-let TEX_CLOUD = null, TEX_GLOW = null, TEX_WAKE = null;
+let TEX_GLOW = null, TEX_WAKE = null;
 function ensureTextures() {
-  if (TEX_CLOUD) return;
-  TEX_CLOUD = puffTexture(255, 255, 255);
+  if (TEX_GLOW) return;
   TEX_GLOW = radialTexture([
     [0, 'rgba(255,250,225,1)'], [0.18, 'rgba(255,240,190,0.9)'],
     [0.5, 'rgba(255,225,150,0.25)'], [1, 'rgba(255,220,140,0)'],
@@ -126,72 +99,7 @@ function makeSunGlow(colorHex) {
   return sp;
 }
 
-function makeCloud(rng, big, tint) {
-  const cl = new THREE.Group();
-  const n = 5 + Math.floor(rng() * 4);
-  for (let j = 0; j < n; j++) {
-    const sp = new THREE.Sprite(new THREE.SpriteMaterial({
-      map: TEX_CLOUD, transparent: true, opacity: 0.82, depthWrite: false,
-      color: tint,
-      // clouds live against the SKY, above the weather — never inside the
-      // stage fog. Fogged sprites orbiting the stage kept swimming in and
-      // out of the murk, popping into and out of existence every lap.
-      fog: false,
-    }));
-    const s = (16 + rng() * 18) * big;
-    sp.scale.set(s, s * 0.62, 1);
-    sp.position.set((j - n / 2) * 9 * big + (rng() - 0.5) * 6,
-                    rng() * 5 * big, (rng() - 0.5) * 8 * big);
-    cl.add(sp);
-  }
-  return cl;
-}
-
-/* gulls: two flapping wing planes on a slow circle (hub ambience) */
-function makeGulls(rng, count) {
-  const gulls = [];
-  for (let i = 0; i < count; i++) {
-    const bird = new THREE.Group();
-    for (const s of [-1, 1]) {
-      const wing = new THREE.Mesh(new THREE.PlaneGeometry(0.9, 0.28),
-        flat(0xffffff, { side: THREE.DoubleSide }));
-      wing.position.x = s * 0.45;
-      wing.userData.side = s;
-      bird.add(wing);
-    }
-    bird.userData = {
-      r: 50 + rng() * 170, h: 22 + rng() * 22,
-      speed: 0.05 + rng() * 0.08, phase: rng() * 6.28, flap: 4 + rng() * 3,
-    };
-    gulls.push(bird);
-  }
-  return gulls;
-}
-
-/* dolphin pods porpoising through open water (hub only) */
-function makeDolphins(rng, count) {
-  const pods = [];
-  for (let i = 0; i < count; i++) {
-    const pod = new THREE.Group();
-    const n = 2 + Math.floor(rng() * 2);
-    for (let j = 0; j < n; j++) {
-      const d = new THREE.Group();
-      const body = new THREE.Mesh(new THREE.CapsuleGeometry(0.24, 1.0, 3, 6), flat(0x3d6b7d));
-      body.rotation.x = Math.PI / 2;
-      const fin = new THREE.Mesh(new THREE.ConeGeometry(0.13, 0.32, 4), flat(0x2f4e5c));
-      fin.position.y = 0.3;
-      d.add(body, fin);
-      d.userData = { off: j * 1.9 };
-      pod.add(d);
-    }
-    pod.userData = {
-      cx: -200 + rng() * 400, cz: -200 + rng() * 400,
-      r: 16 + rng() * 26, speed: 0.09 + rng() * 0.07, ph: rng() * 6.28,
-    };
-    pods.push(pod);
-  }
-  return pods;
-}
+/* clouds, gulls and dolphins are gone — the sea keeps its own company */
 
 /* ── view keys: island groups rebuild only when this changes ────────────── */
 function viewKey(node) {
@@ -295,12 +203,13 @@ export function createWorld(container, handlers = {}) {
     s.closePath();
     const g = new THREE.ShapeGeometry(s);
     g.rotateX(-Math.PI / 2);                // lay it FLAT; tip now points -Z
-    g.scale(1.6, 1, 1.6);
+    g.scale(2.2, 1, 2.2);                   // big enough to read among GIANT trees
     return g;
   })();
   const ARROW_MAT = new THREE.MeshBasicMaterial({
-    color: 0xffd061, transparent: true, opacity: 0.92,
-    depthWrite: false, fog: false, side: THREE.DoubleSide });
+    color: 0xffd061, transparent: true, opacity: 0.94,
+    // depthTest off: an arrow is UI — the towering trees must never bury it
+    depthWrite: false, depthTest: false, fog: false, side: THREE.DoubleSide });
   const STRIP_GEO = new THREE.BoxGeometry(1, 1, 1);   // invisible click-ribbons
   const STRIP_MAT = new THREE.MeshBasicMaterial({
     transparent: true, opacity: 0, depthWrite: false });
@@ -503,20 +412,6 @@ export function createWorld(container, handlers = {}) {
       scene.add(field);
     }
 
-    /* drifting clouds: BIG, high, tinted toward each theme's horizon so
-       they belong to its sky — and fog-free, so a lap around the stage
-       never makes one appear or disappear */
-    const cloudTint = new THREE.Color(0xffffff).lerp(new THREE.Color(theme.sky.horizon), 0.3);
-    const clouds = [];
-    for (let i = 0; i < 12; i++) {
-      const cl = makeCloud(rng, 2.1 + rng() * 2.1, cloudTint);
-      cl.userData = { a: (i / 12) * Math.PI * 2 + rng() * 0.5,
-                      r: 170 + rng() * 330 };
-      cl.position.y = 78 + rng() * 66;     // in the sky band a chase camera sees
-      clouds.push(cl);
-      scene.add(cl);
-    }
-
     /* themed particles (snow / leaves / motes / dust); follow the camera */
     let particles = null;
     if (theme.particles) {
@@ -524,21 +419,12 @@ export function createWorld(container, handlers = {}) {
       scene.add(particles.points);
     }
 
-    /* hub-only fauna */
-    let gulls = null, dolphins = null;
-    if (stageId === 'hub') {
-      gulls = makeGulls(rng, 6);
-      for (const b of gulls) scene.add(b);
-      dolphins = makeDolphins(rng, 4);
-      for (const p of dolphins) scene.add(p);
-    }
-
     const laneGroup = new THREE.Group();
     scene.add(laneGroup);
 
     return {
       id: stageId, theme, scene, center, rng,
-      sun, sunDir, glow, surf, wall, clouds, particles, gulls, dolphins, field,
+      sun, sunDir, glow, surf, wall, particles, field,
       islands: {},           // nodeId → {key, group, proxy, R, plateauY, fxBits}
       proxyList: [],
       laneGroup, laneKey: '',
@@ -641,13 +527,17 @@ export function createWorld(container, handlers = {}) {
           .map(([a, b]) => [a.x, a.z, b.x, b.z]);
         const onTrail = (x, z) => {
           for (const n of nodes) {
-            if (Math.hypot(n.x - x, n.z - z) < 5) return true;
+            // POIs get a proper CLEARING in the wood; plain trail stops just
+            // enough for the stepping stone; the pass a wide open mouth
+            const clear = n.type === 'gate' ? 22
+              : n.type !== 'sea' ? 17 : 6.5;
+            if (Math.hypot(n.x - x, n.z - z) < clear) return true;
           }
           for (const s of segs) {
             const dx = s[2] - s[0], dz = s[3] - s[1];
             const L2 = dx * dx + dz * dz || 1;
             const t = Math.max(0, Math.min(1, ((x - s[0]) * dx + (z - s[1]) * dz) / L2));
-            if (Math.hypot(s[0] + dx * t - x, s[1] + dz * t - z) < 4.2) return true;
+            if (Math.hypot(s[0] + dx * t - x, s[1] + dz * t - z) < 7.5) return true;
           }
           return false;
         };
@@ -828,12 +718,16 @@ export function createWorld(container, handlers = {}) {
     const foot = rec.mode === 'foot';
     rec.galley.visible = !foot || !rec.captain;
     if (rec.captain) rec.captain.visible = foot;
+    // the name tag rides just over whichever form is showing
+    rec.tag.position.y = foot && rec.captain ? 4.0 : 5.2;
     if (foot && !rec.captain && !rec.captainReq) {
       rec.captainReq = true;
       getMonster('captain', { tint: rec.color }).then((g) => {
         if (!ships[rec.pid]) return;               // player left meanwhile
         g.name = 'captain';
-        g.scale.setScalar(1.8);
+        // a MAN among the Vale's towering trees — smaller than before, still
+        // planted exactly on the node's math (scale is around his feet)
+        g.scale.setScalar(1.4);
         rec.captain = g;
         rec.root.add(g);
         applyMode(rec);
@@ -1062,30 +956,42 @@ export function createWorld(container, handlers = {}) {
     if (!want) return;
     const head = nodeById[w.node];
     if (!head) return;
+    const laid = [];                         // arrows already on the ground
     for (const dest of w.options) {
       const d = nodeById[dest];
       if (!d) continue;
       const dx = d.x - head.x, dz = d.z - head.z;
       const len = Math.hypot(dx, dz) || 1e-6;
       const ux = dx / len, uz = dz / len;
-      // a fat invisible ribbon so you can tap the TRAIL, not just an arrow
-      const L = Math.max(8, Math.min(len - 4, 32));
+      // a fat invisible ribbon so a tap ANYWHERE along the branch takes it
+      const L = Math.max(10, Math.min(len - 3, 36));
       const strip = new THREE.Mesh(STRIP_GEO, STRIP_MAT);
-      strip.scale.set(9, 1, L);
-      strip.position.set(head.x + ux * (L / 2 + 3), 0.5, head.z + uz * (L / 2 + 3));
+      strip.scale.set(13, 2.5, L);
+      strip.position.set(head.x + ux * (L / 2 + 3), 1.2, head.z + uz * (L / 2 + 3));
       strip.rotation.y = Math.atan2(ux, uz);
       strip.userData = { node: dest, walkArrow: true };
       valeArrows.add(strip);
-      // three golden arrows marching down the branch mouth
-      for (let k = 0; k < 3; k++) {
-        const dd = 7 + k * 7.5;
+      // golden arrows marching down the branch — pushed further along their
+      // own trail whenever they'd crowd another branch's arrows, so two
+      // roads never read as one
+      let dd = 10;
+      for (let k = 0; k < 3 && dd <= len - 3; k++, dd += 9) {
+        let x = head.x + ux * dd, z = head.z + uz * dd;
+        let guard = 0;
+        while (guard++ < 6 && laid.some((p) => Math.hypot(p.x - x, p.z - z) < 7)) {
+          dd += 4.5;
+          if (dd > len - 3) break;
+          x = head.x + ux * dd;
+          z = head.z + uz * dd;
+        }
         if (dd > len - 3) break;
         const arrow = new THREE.Mesh(ARROW_GEO, ARROW_MAT);
-        arrow.position.set(head.x + ux * dd, 0.24, head.z + uz * dd);
+        arrow.position.set(x, 0.3, z);
         arrow.rotation.y = Math.atan2(-ux, -uz);   // tip is -Z pre-yaw
-        arrow.renderOrder = 5;
+        arrow.renderOrder = 30;                    // over stones, trees, smoke
         arrow.userData = { node: dest, walkArrow: true };
         valeArrows.add(arrow);
+        laid.push({ x, z });
       }
     }
   }
@@ -1403,8 +1309,36 @@ export function createWorld(container, handlers = {}) {
     const hit = ray.intersectObjects(
       [...st.proxyList, ...highlights.children, ...valeArrows.children], false)
       .find((h) => h.object.userData.node);
-    if (hit) handlers.onNodeClick?.(hit.object.userData.node,
-                                    !!hit.object.userData.walkArrow);
+    if (hit) {
+      handlers.onNodeClick?.(hit.object.userData.node,
+                             !!hit.object.userData.walkArrow);
+      return;
+    }
+    // FAT-FINGER fallback for the Vale walk: the arrows are markers, not
+    // precision targets. Any tap on the GROUND picks the branch whose
+    // direction best matches it — one tap, anywhere along the road you mean.
+    const w = lastRoom?.walk;
+    if (w && w.options && w.options.length && lastRoom.turn === myPid
+        && lastRoom.phase === 'sail' && activeBoardId === 'autumn') {
+      const head = nodeById[w.node];
+      const pt = ray.ray.intersectPlane(_ground, _vD);
+      if (head && pt) {
+        const px = pt.x - head.x, pz = pt.z - head.z;
+        const pd = Math.hypot(px, pz);
+        if (pd > 3 && pd < 110) {
+          let best = null, bestDot = 0.55;       // within a ~56° cone
+          for (const dest of w.options) {
+            const dn = nodeById[dest];
+            if (!dn) continue;
+            const dx = dn.x - head.x, dz = dn.z - head.z;
+            const L = Math.hypot(dx, dz) || 1e-6;
+            const dot = (px * dx + pz * dz) / (pd * L);
+            if (dot > bestDot) { bestDot = dot; best = dest; }
+          }
+          if (best) handlers.onNodeClick?.(best, true);
+        }
+      }
+    }
   });
 
   /* ── resize ─────────────────────────────────────────────────────────── */
@@ -1426,37 +1360,6 @@ export function createWorld(container, handlers = {}) {
       st.particles.points.position.x = controls.target.x;
       st.particles.points.position.z = controls.target.z;
       st.particles.update(t);
-    }
-    for (let i = 0; i < st.clouds.length; i++) {
-      const cl = st.clouds[i];
-      cl.userData.a += 0.00022;
-      cl.position.x = st.center.x + Math.cos(cl.userData.a) * cl.userData.r;
-      cl.position.z = st.center.z + Math.sin(cl.userData.a) * cl.userData.r;
-    }
-    if (st.gulls) {
-      for (const bird of st.gulls) {
-        const u = bird.userData;
-        const a = t * u.speed + u.phase;
-        bird.position.set(Math.cos(a) * u.r, u.h + Math.sin(t * 0.7 + u.phase) * 1.2, Math.sin(a) * u.r);
-        bird.rotation.y = -a - Math.PI / 2;
-        for (const wing of bird.children) {
-          wing.rotation.x = Math.sin(t * u.flap) * 0.55 * wing.userData.side;
-        }
-      }
-    }
-    if (st.dolphins) {
-      for (const pod of st.dolphins) {
-        const u = pod.userData;
-        const a = t * u.speed + u.ph;
-        for (const d of pod.children) {
-          const off = d.userData.off;
-          const aa = a - off * 0.045;
-          const hop = Math.sin(t * 1.9 + u.ph + off);
-          d.position.set(u.cx + Math.cos(aa) * u.r, hop * 1.0 - 0.4, u.cz + Math.sin(aa) * u.r);
-          d.rotation.y = -aa;
-          d.rotation.x = -Math.cos(t * 1.9 + u.ph + off) * 0.55;
-        }
-      }
     }
     /* island bits cached at build: foam pulse, buoy bob, beacon spin, fires */
     for (const id in st.islands) {
