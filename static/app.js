@@ -930,22 +930,34 @@ function renderDodge() {
     return;
   }
 
+  // the timing wheel: a white clock hand sweeps the circle; a gold arc is
+  // shaded onto the ring at a random position each beat. Tap while the hand
+  // is inside the gold and the dodge lands. The arc is narrow and the hand
+  // is quick — not easy, and never in the same place twice.
+  const ARC = 34;                       // gold window, degrees (~110ms of hand)
+  const PERIOD = 1150;                  // ms per revolution
+  const WINDUP = 450;                   // arc shown, hand held at 12 o'clock
+  const REVS = 2;                       // two laps, then the blow lands
+  const arcStart = 100 + Math.random() * 200;   // degrees clockwise from 12
+
   el.innerHTML =
     `<div class="dodgecap">${d.heavy ? '<strong>HEAVY BLOW</strong> — ' : ''}` +
     `${esc(d.attacker)} strikes! <strong>DODGE!</strong></div>` +
-    '<div class="dodgering"><div class="dq-target"></div>' +
-    '<div class="dq-sweep"></div><div class="dq-verdict"></div></div>' +
-    '<div class="dodgehint">tap when the rings meet</div>';
-  const sweep = el.querySelector('.dq-sweep');
+    '<div class="dodgewheel">' +
+    `<div class="dq-arc" style="background:conic-gradient(from ${arcStart}deg,` +
+    'rgba(240,208,96,.95) 0deg, rgba(240,208,96,.75) ' + ARC + 'deg,' +
+    `transparent ${ARC}deg)"></div>` +
+    '<div class="dq-hand"></div><div class="dq-verdict"></div></div>' +
+    '<div class="dodgehint">tap when the hand crosses the gold</div>';
+  const hand = el.querySelector('.dq-hand');
   const verdict = el.querySelector('.dq-verdict');
 
-  // the sweep: 500ms windup, then a 1300ms collapse from 2.6× to 0.55×.
-  // The target sits at 1.0×; the hit window is ±0.11× ≈ ±70ms. Not easy.
-  const WINDUP = 500, SWEEP = 1300, FROM = 2.6, TO = 0.55, TOL = 0.11;
   const t0 = performance.now();
-  const scaleAt = (t) => {
-    const k = Math.min(1, Math.max(0, (t - t0 - WINDUP) / SWEEP));
-    return FROM + (TO - FROM) * k;
+  const angleAt = (t) =>                // degrees clockwise from 12 o'clock
+    Math.max(0, (t - t0 - WINDUP)) / PERIOD * 360;
+  const inGold = (a) => {
+    const rel = ((a - arcStart) % 360 + 360) % 360;
+    return rel <= ARC;
   };
   const st = { id: key, done: false, raf: 0, key: null };
   const finish = (hit, label) => {
@@ -959,17 +971,18 @@ function renderDodge() {
   };
   const tick = (now) => {
     if (st.done) return;
-    const s = scaleAt(now);
-    sweep.style.transform = `scale(${s.toFixed(3)})`;
-    sweep.style.opacity = now - t0 < WINDUP ? '0.35' : '1';
-    if (s <= TO + 0.001) { finish(false, 'TOO LATE'); return; }
+    const a = angleAt(now);
+    hand.style.transform = `rotate(${(a % 360).toFixed(2)}deg)`;
+    hand.style.opacity = now - t0 < WINDUP ? '0.45' : '1';
+    if (a >= REVS * 360) { finish(false, 'TOO LATE'); return; }
     st.raf = requestAnimationFrame(tick);
   };
   const attempt = () => {
     if (st.done) return;
-    const s = scaleAt(performance.now());
-    if (s > FROM - 0.01) return;                   // still winding up — ignore
-    finish(Math.abs(s - 1.0) <= TOL, Math.abs(s - 1.0) <= TOL ? 'DODGED!' : (s > 1 ? 'TOO SOON' : 'TOO LATE'));
+    const t = performance.now();
+    if (t - t0 < WINDUP) return;                   // hand not moving yet
+    const hit = inGold(angleAt(t));
+    finish(hit, hit ? 'DODGED!' : 'MISSED');
   };
   el.onpointerdown = (e) => { e.preventDefault(); attempt(); };
   st.key = (e) => { if (e.code === 'Space') { e.preventDefault(); attempt(); } };
@@ -1609,13 +1622,11 @@ function renderBattle() {
       ? `<div class="chargewarn">${icon('guard', 13)} CHARGING — a heavy blow comes. Guard it.</div>`
       : '');
 
-  /* enemy cards — the HP readout carries a number as well as the cells so
-     the fight can be read at a glance (and at phone size) */
+  /* enemy cards — fat HP cells only; the count reads from the cells */
   const cards = b.enemies.map((e, i) => `
     <div class="ecard ${e.hp <= 0 ? 'dead' : ''} ${pendingMove && e.hp > 0 ? 'targetable' : ''}" data-idx="${i}">
       <div class="ename">${esc(e.name)}</div>
-      <div class="ehprow">${hpBar(e.hp, e.max_hp, 'foe')}
-        <span class="ehpnum">${e.hp}/${e.max_hp}</span></div>
+      ${hpBar(e.hp, e.max_hp, 'foe')}
       <div class="epow">power <span class="powpips">${'<i></i>'.repeat(Math.max(1, Math.min(6, e.power)))}</span></div>
     </div>`).join('');
   $('bmon').innerHTML = `<div class="erow">${cards}</div>`;
