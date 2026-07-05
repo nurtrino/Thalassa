@@ -112,23 +112,32 @@ def schedule(coro):
 
 async def fetch_question(nonce: int):
     g = table.game
-    if g.qctx is None:
+    ctx = g.qctx
+    if ctx is None:
         return
-    pending = g.needs_puzzle()
-    mode = g.qctx.get("mode")
-    if pending is not None:
-        limit = pending.get("limit", 60)
-        q = pending
-    elif mode == "jeopardy":                 # typed clue, 15s on the clock
-        limit = JEOPARDY_SECS
-        q = questions.jeopardy_pick(g.rng)
-    elif mode == "mc":                        # battle MC — live Trivia API (buffered)
-        limit = QUESTION_SECS
-        q = trivia_bank.get()
-    else:                                     # temples: themed by domain
-        limit = QUESTION_SECS
-        q = await bank.get(g.qctx["domain"], g.qctx["tier"])
-    if g.nonce == nonce and g.phase == "question" and g.question is None:
+    try:
+        pending = g.needs_puzzle()
+        mode = ctx.get("mode")
+        if pending is not None:
+            limit = pending.get("limit", 60)
+            q = pending
+        elif mode == "jeopardy":             # typed clue, 15s on the clock
+            limit = JEOPARDY_SECS
+            q = questions.jeopardy_pick(g.rng)
+        elif mode == "mc":                    # battle MC — live Trivia API (buffered)
+            limit = QUESTION_SECS
+            q = trivia_bank.get()
+        else:                                 # temples: themed by domain
+            limit = QUESTION_SECS
+            q = await bank.get(ctx["domain"], ctx["tier"])
+    except Exception:
+        return                # the phase watchdog re-summons the herald
+    # Deliver iff THIS question round is still waiting. The guard is the
+    # IDENTITY of the qctx — never the nonce: an unrelated nonce bump while
+    # the herald ran used to strand the table on "A herald fetches the
+    # question…" forever, because a one-shot task never retried.
+    g = table.game
+    if g.qctx is ctx and g.phase == "question" and g.question is None:
         g.set_question(q, deadline=time.time() + limit)
         schedule(question_timer(g.nonce, limit))
         await broadcast()
@@ -521,6 +530,9 @@ async def ws_endpoint(ws: WebSocket):
                         await _send(ws, {"type": "error", "msg": str(e)})
                         pid = None
                 table.sockets[ws] = pid
+                # a (re)join re-kicks any pending fetch/timer for the current
+                # phase — a refresh must heal a stuck card, never inherit it
+                after_phase_change()
                 await broadcast()
                 continue
 
@@ -538,6 +550,60 @@ async def ws_endpoint(ws: WebSocket):
 
 
 # ── background upkeep ────────────────────────────────────────────────────────
+def heal_stuck_phase(g, stuck: float) -> str | None:
+    """One healing step for a phase that has overstayed what its timers
+    allow. Returns what was done ('refetch' needs no broadcast bump —
+    fetch_question broadcasts itself when the question lands)."""
+    now = time.time()
+    if g.phase == "question" and g.question is None and stuck > 2.5:
+        schedule(fetch_question(g.nonce))     # re-summon the herald
+        return "refetch"
+    if (g.phase == "question" and g.question is not None
+            and g.question_deadline and now > g.question_deadline + 3):
+        g.timeout_question()                  # the question timer was lost
+        return "timeout"
+    if (g.phase == "minigame" and g.minigame
+            and g.minigame.get("deadline")
+            and now > g.minigame["deadline"] + 3):
+        g.minigame_timeout()
+        return "timeout"
+    if (g.phase == "dodge" and g.dodge_deadline
+            and now > g.dodge_deadline + 2):
+        g.dodge_timeout()
+        return "timeout"
+    if g.phase == "reveal" and stuck > 15:
+        g.advance_after_reveal()              # the reveal timer was lost
+        return "advance"
+    return None
+
+
+async def phase_watchdog():
+    """The engine is driven by ONE-SHOT asyncio tasks (fetch the question,
+    time the answer window, advance the reveal…). If any of them is lost —
+    an exception, a raced guard, an event-loop hiccup — the table softlocks
+    on a card forever. This loop notices any phase that has sat still past
+    what its timers allow and heals it. Cheap, idempotent, always on."""
+    last = (None, None)
+    since = time.monotonic()
+    while True:
+        await asyncio.sleep(2)
+        try:
+            g = table.game
+            cur = (g.phase, g.nonce)
+            if cur != last:
+                last = cur
+                since = time.monotonic()
+                continue
+            action = heal_stuck_phase(g, time.monotonic() - since)
+            if action == "refetch":
+                since = time.monotonic()      # give the herald a fresh window
+            elif action:
+                after_phase_change()
+                await broadcast()
+        except Exception:
+            pass                              # the watchdog itself never dies
+
+
 async def abandoned_game_reset():
     while True:
         await asyncio.sleep(30)
@@ -557,3 +623,4 @@ async def startup():
     schedule(trivia_bank.refill_loop())
     schedule(bot_driver())
     schedule(abandoned_game_reset())
+    schedule(phase_watchdog())

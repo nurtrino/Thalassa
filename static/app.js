@@ -68,6 +68,7 @@ let lastFlashSeq = 0;
 let world = null;
 let joined = false;             // the player pressed JOIN at least once
 let reconnectN = 0;
+let lastHeard = 0;        // last time ANYTHING arrived on the socket
 let reconnectTimer = null;
 let pingInterval = null;
 
@@ -296,12 +297,33 @@ function connect() {
     setConnVeil(false);
     send({ type: 'hello', token, name });
   };
-  ws.onmessage = (ev) => handle(JSON.parse(ev.data));
+  lastHeard = Date.now();
+  ws.onmessage = (ev) => { lastHeard = Date.now(); handle(JSON.parse(ev.data)); };
   ws.onclose = () => scheduleReconnect();
   ws.onerror = () => { /* onclose follows */ };
   clearInterval(pingInterval);
-  pingInterval = setInterval(() => { if (ws?.readyState === 1) send({ type: 'ping' }); }, 25000);
+  pingInterval = setInterval(() => {
+    if (ws?.readyState !== 1) return;
+    // a HALF-DEAD socket (phone lock, network hop) never fires onclose: the
+    // board freezes live-looking — "A herald fetches…" forever. Ping often,
+    // and if NOTHING has come back for 30s, kill the socket ourselves so the
+    // reconnect path takes over and pulls a fresh snapshot.
+    if (Date.now() - lastHeard > 30000) {
+      try { ws.close(); } catch (e) { /* reconnect follows */ }
+      scheduleReconnect();
+      return;
+    }
+    send({ type: 'ping' });
+  }, 10000);
 }
+
+/* waking the tab (phone unlock, app switch-back) checks the line at once —
+   never sit on a frozen board waiting for the next ping cycle */
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState !== 'visible' || !joined) return;
+  if (!ws || ws.readyState > 1) connect();
+  else if (ws.readyState === 1) send({ type: 'ping' });
+});
 
 function scheduleReconnect() {
   if (!joined) return;

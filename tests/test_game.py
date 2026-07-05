@@ -443,6 +443,61 @@ def test_vale_walk_halts_on_a_hunting_ground():
     assert p.node == door
 
 
+# ── "A herald fetches the question…" must ALWAYS resolve ────────────────────
+def _stuck_question_game(S):
+    """A real shrine question round with the fetch never scheduled — the
+    exact 'herald' softlock state."""
+    S.table.reset()
+    g = S.table.game
+    a = g.add_player("hA", "A")
+    g.add_player("hB", "B")
+    g.start(a.pid)
+    shrine = find_node(g, "shrine")
+    force_land(g, a.pid, shrine)
+    assert g.phase == "shrine"
+    g.wager(a.pid, 2)
+    assert g.phase == "question" and g.question is None
+    return g, a
+
+
+def test_herald_delivers_despite_nonce_bumps():
+    # the fetch keys on the question ROUND's identity, never the nonce — an
+    # unrelated bump while the herald ran used to strand the table forever
+    import asyncio
+    import server as S
+    g, a = _stuck_question_game(S)
+    scheduled = g.nonce
+    g.nonce += 3                                  # unrelated bumps
+    asyncio.get_event_loop().run_until_complete(S.fetch_question(scheduled))
+    assert g.question is not None                 # the herald still arrives
+    assert g.question_deadline is not None
+    S.table.reset()
+
+
+def test_watchdog_heals_a_stuck_table():
+    import asyncio
+    import time as T
+    import server as S
+    g, a = _stuck_question_game(S)
+
+    async def run():
+        # a question phase with NO question → the watchdog re-summons
+        assert S.heal_stuck_phase(g, 5.0) == "refetch"
+        await asyncio.sleep(0.05)                 # let the fetch task land
+    asyncio.get_event_loop().run_until_complete(run())
+    assert g.question is not None
+    # a question whose answer timer was lost → timed out and advanced
+    g.question_deadline = T.time() - 10
+    assert S.heal_stuck_phase(g, 5.0) == "timeout"
+    assert g.phase == "reveal"
+    # a reveal whose timer was lost → advanced off the card
+    assert S.heal_stuck_phase(g, 20.0) == "advance"
+    assert g.phase != "reveal"
+    # a healthy table is left alone
+    assert S.heal_stuck_phase(g, 1.0) is None
+    S.table.reset()
+
+
 def test_vale_hidden_from_anonymous_spectators():
     # an unjoined watcher socket (or a lost token) is NOT a debug backdoor:
     # no private ground, no reachable set, rivals veiled at the pass
