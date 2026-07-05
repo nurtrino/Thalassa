@@ -482,7 +482,8 @@ def check(kind: str, data: dict, payload) -> bool:
 # and the tetromino sigil-fill are TOO SLOW for a fight and never appear here
 # (they still turn up on the puzzle isles). Riddles belong to the Sphinx.
 BATTLE_TIERS = {
-    1: ("memory", "lights_out"),          # quick: a 2×2 memory, a small board
+    # quick STRIKE fare — memory leads; the Gorgon's Gaze only 1 deal in 4
+    1: ("memory", "memory", "memory", "lights_out"),
     2: ("simon", "sliding", "sequence"),  # a beat longer to think
     3: ("nonogram", "ravens"),            # picross + Raven's matrix — the hard set
 }

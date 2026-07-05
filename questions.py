@@ -8,7 +8,8 @@ Question service.
   · BATTLE multiple-choice questions come from the LIVE The Trivia API
     (TriviaAPIBank), pulled into a background buffer so the request path is
     instant; if the API is slow or unreachable it falls back to the bundle.
-  · Typed JEOPARDY! clues come from data/jeopardy.json (offline).
+  · Typed clues are drawn from the same offline bundle — history, science,
+    pop culture and wordplay only; nothing musical or literary.
   · FALLBACK (bottom of file) is a tiny hand-written safety net.
 
 The battle bank NEVER blocks the request path — get() returns from the buffer
@@ -175,28 +176,56 @@ class OpenTDBBank:
         return          # offline bundle — nothing to fetch
 
 
-# ── BATTLE questions: Jeopardy clues (typed answers) ─────────────────────────
-# A bundled, filtered slice of the jwolle1/jeopardy_clue_dataset — music &
-# literature categories, non-media clues only. These are answered by TYPING
-# (15 seconds on the clock), not by picking. Fully offline.
-_JEOPARDY_PATH = pathlib.Path(__file__).with_name("data") / "jeopardy.json"
-try:
-    JEOPARDY: list[dict] = json.loads(_JEOPARDY_PATH.read_text(encoding="utf-8"))
-except Exception:
-    JEOPARDY = []
+# ── BATTLE questions: typed clues ────────────────────────────────────────────
+# The old data/jeopardy.json bundle was music & literature top to bottom —
+# retired wholesale. Typed clues are now built from the game's OWN offline
+# trivia bundle: history & places, science & nature, culture & sport (pop
+# culture), plus Arts & Letters' word/language questions — and nothing
+# musical, literary or theatrical survives the filter. Only questions with
+# short, cleanly typeable answers make the deck.
+_TYPED_BANNED = ("music", "song", "singer", "album", "opera", "composer",
+                 "musical", "literature", "novel", "author", "poet", " book",
+                 "shakespeare", "writer", "lyric", "symphony", "orchestra",
+                 "guitar", "piano", "broadway", "playwright")
+_TYPED_CATEGORY = {"clio": "HISTORY & PLACES", "athena": "SCIENCE & NATURE",
+                   "dionysos": "CULTURE & SPORT", "apollo": "WORDS & LANGUAGE"}
+# Arts & Letters contributes ONLY its wordplay/language questions
+_TYPED_WORDY = ("word", "meaning", "latin", "greek", "term", "phrase",
+                "letter", "language", "prefix", "suffix", "plural",
+                "translat", "spell", "synonym", "definition")
+_TYPED_ANSWER_RE = re.compile(r"[A-Za-z0-9 .'\-]{2,26}$")
+
+
+def _typedable(it: dict) -> bool:
+    a = it["a"]
+    if not _TYPED_ANSWER_RE.fullmatch(a) or len(a.split()) > 4:
+        return False
+    text = (it["q"] + " " + a).lower()
+    return not any(b in text for b in _TYPED_BANNED)
+
+
+TYPED_CLUES: list[dict] = []
+for _dom in ("clio", "athena", "dionysos", "apollo"):
+    for _it in TRIVIA.get(_dom, []):
+        if not _typedable(_it):
+            continue
+        if _dom == "apollo" and not any(w in _it["q"].lower()
+                                        for w in _TYPED_WORDY):
+            continue
+        TYPED_CLUES.append({"q": _it["q"], "a": _it["a"],
+                            "c": _TYPED_CATEGORY[_dom], "t": _dom})
 
 
 def jeopardy_pick(rng: random.Random) -> dict:
-    """One typed Jeopardy clue: {text, answer, typed, kind, category, theme}."""
-    if JEOPARDY:
-        it = rng.choice(JEOPARDY)
+    """One typed clue: {text, answer, typed, kind, category, theme}."""
+    if TYPED_CLUES:
+        it = rng.choice(TYPED_CLUES)
         return {"text": it["q"], "answer": it["a"], "typed": True,
-                "kind": "jeopardy", "category": it.get("c", ""),
-                "theme": it.get("t", "")}
+                "kind": "jeopardy", "category": it["c"], "theme": it["t"]}
     # never stall a battle if the bundle is missing — a typed fallback
-    raw = rng.choice(FALLBACK["apollo"]["hard"] + FALLBACK["dionysos"]["hard"])
+    raw = rng.choice(FALLBACK["clio"]["hard"] + FALLBACK["athena"]["hard"])
     return {"text": raw[0], "answer": raw[1], "typed": True,
-            "kind": "jeopardy", "category": "", "theme": "lit"}
+            "kind": "jeopardy", "category": "", "theme": "clio"}
 
 
 # ── typed-answer matching ────────────────────────────────────────────────────
