@@ -11,8 +11,8 @@ Five interactive/generated kinds (client never receives fields in "secret"):
   · nonogram   5×5 picross against a 30s clock: paint cells to satisfy
                row/column clues. Just TWO cells come pre-filled ("given"
                cells, locked in the client). Any grid matching the clues counts.
-  · simon      memory: watch a flashed sequence (starts at 6 tones) on a
-               3×3 pad, then reproduce it.
+  · simon      memory: watch a flashed sequence on a 3×3 pad, then reproduce
+               it (4 tones in a STRIKE-vs-pack fight, 6 elsewhere).
   · visual_memory  Human-Benchmark recall: a 7×7 board flashes a set of tiles;
                memorise them, then click them all back. Three misses (lives)
                ends it. The flashed set is public (the client lights it), like
@@ -47,9 +47,9 @@ import tetromino6
 # Simon has NO clock: one wrong tap is the failure, not the seconds.
 # 20s across the board — nonogram (picross) gets 30 for its fiddlier grid;
 # simon stays untimed (a wrong note, not the clock, is its failure).
-TIME_LIMITS = {"riddle": 27.5, "tetromino": 40, "nonogram": 59.375,
+TIME_LIMITS = {"riddle": 27.5, "tetromino": 15, "nonogram": 59.375,
                "simon": None, "anagram": 27.5, "ravens": 22.5,
-               "sequence": 27.5, "lights_out": 27.5, "sliding": 60,
+               "sequence": 27.5, "lights_out": 27.5, "sliding": 70,
                "memory": None,           # memory (like simon) has no clock
                "visual_memory": 30}      # a clock backstop; 3 misses is the real end
 
@@ -511,14 +511,18 @@ def check(kind: str, data: dict, payload) -> bool:
 # STRIKE → II, MAGIC → III), so a harder stance draws a harder trial. Anagrams
 # and the tetromino sigil-fill are TOO SLOW for a fight and never appear here
 # (they still turn up on the puzzle isles). Riddles belong to the Sphinx.
+# Pool entries are TOKENS: bare kinds ("nonogram", "sliding"…) or sized tokens
+# — vm5/vm6/vm7 (visual-memory board size), simon4/simon6 (echo length),
+# tet4/tet6 (sigil board) — resolved in deal_battle. Same kind on the wire.
 BATTLE_TIERS = {
-    # quick STRIKE fare — the memory trials lead: echo the 6-tone sequence
-    # (simon) or click back the flashed 5×5 board (visual_memory); a small 4×4
-    # sigil-fill (tetromino); else the Gorgon's Gaze or a riddle
-    1: ("simon", "visual_memory", "tetromino", "lights_out", "riddle"),
-    2: ("simon", "visual_memory", "sliding", "sequence", "riddle"),  # a beat longer
-    # MAGIC: the hard set — picross, the matrix, the full 6×6 sigil-fill, a riddle
-    3: ("nonogram", "ravens", "tetromino", "riddle"),
+    # STRIKE vs pack: the 4-tone echo (simon), the 5×5 board, a quick 4×4 sigil,
+    # the Gorgon's Gaze, the Fates' Thread, a riddle
+    1: ("simon4", "vm5", "tet4", "lights_out", "sequence", "riddle"),
+    # STRIKE vs boss: the 6-tone echo, the 5×5 board, the Shifting Mosaic, a riddle
+    2: ("simon6", "vm5", "sliding", "riddle"),
+    # MAGIC: picross, the matrix, the full 6×6 sigil, the Shifting Mosaic, and
+    # the big 6×6 and 7×7 memory boards
+    3: ("nonogram", "ravens", "tet6", "sliding", "vm6", "vm7"),
 }
 BATTLE_KINDS = tuple(dict.fromkeys(k for ks in BATTLE_TIERS.values() for k in ks))
 
@@ -547,26 +551,29 @@ def answer_text(kind: str, data: dict | None) -> str:
 def deal_battle(rng: random.Random, tier: int = 1,
                 used_riddles: set[int] | None = None) -> dict:
     """A combat puzzle drawn from the pool for this battle tier (see
-    BATTLE_TIERS). A couple of kinds are SIZED to the tier: the visual-memory
-    board (5×5 STRIKE → 7×7 MAGIC) and the sigil-fill (a quick 4×4 for STRIKE,
-    the full 6×6 for MAGIC). Riddles come from the shared used-riddle set so a
-    fight never repeats one; the slow anagram is still out of combat."""
+    BATTLE_TIERS). Sized tokens resolve here: vm<n> → an n×n memory board,
+    simon<n> → an n-tone echo, tet<n> → an n×n sigil (4 procedural, 6 from the
+    bank). Riddles come from the shared used-riddle set so a fight never repeats
+    one; the slow anagram is still out of combat."""
     pool = BATTLE_TIERS.get(tier) or BATTLE_TIERS[2]
-    kind = rng.choice(pool)
-    if kind == "riddle":
+    tok = rng.choice(pool)
+    if tok == "riddle":
         return deal_riddle(rng, set() if used_riddles is None else used_riddles)
-    if kind == "visual_memory":
-        n = {1: 5, 2: 6, 3: 7}.get(tier, 6)
-        data = gen_visual_memory(rng, n=n)
+    if tok.startswith("vm"):                        # vm5 / vm6 / vm7
+        data = gen_visual_memory(rng, n=int(tok[2:]))
         data.update({"kind": "visual_memory", "limit": TIME_LIMITS["visual_memory"]})
         return data
-    if kind == "tetromino":
-        # STRIKE gets a quick 4×4 sigil; MAGIC the full 6×6 board (9 pieces)
-        data = (dict(rng.choice(tetromino6.BANK)["public"]) if tier >= 3
-                else gen_tetromino(rng, 4, 4))
+    if tok.startswith("simon"):                     # simon4 / simon6
+        data = gen_simon(rng, length=int(tok[5:]))
+        data.update({"kind": "simon", "limit": TIME_LIMITS["simon"]})
+        return data
+    if tok.startswith("tet"):                       # tet4 / tet6
+        n = int(tok[3:])
+        data = (dict(rng.choice(tetromino6.BANK)["public"]) if n >= 6
+                else gen_tetromino(rng, n, n))
         data.update({"kind": "tetromino", "limit": TIME_LIMITS["tetromino"]})
         return data
-    return deal_kind(rng, kind)
+    return deal_kind(rng, tok)
 
 
 def deal_riddle(rng: random.Random, used_riddles: set[int]) -> dict:

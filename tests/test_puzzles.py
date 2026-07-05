@@ -26,24 +26,32 @@ def test_battle_puzzles_are_tiered_and_exclude_slow_kinds():
     rng = random.Random(11)
     seen = {1: set(), 2: set(), 3: set()}
     sizes = {1: {}, 2: {}, 3: {}}
+    vm_sizes = {1: set(), 2: set(), 3: set()}
+    simon_lens = {1: set(), 2: set(), 3: set()}
     for tier in (1, 2, 3):
-        for _ in range(80):
+        for _ in range(120):
             d = puzzles.deal_battle(rng, tier)
             seen[tier].add(d["kind"])
             sizes[tier][d["kind"]] = d.get("n") or (d.get("w"), d.get("h"))
+            if d["kind"] == "visual_memory":
+                vm_sizes[tier].add(d["n"])
+            if d["kind"] == "simon":
+                simon_lens[tier].add(len(d["seq"]))
             assert d["limit"] == puzzles.TIME_LIMITS[d["kind"]]
     allkinds = seen[1] | seen[2] | seen[3]
     assert "anagram" not in allkinds             # the slow unscramble stays out
-    # the memory trials lead the quick STRIKE tier: the 6-tone echo (simon) and
-    # the flashed-board recall (visual_memory), plus a small sigil-fill
-    assert "simon" in seen[1] and "visual_memory" in seen[1]
-    assert "nonogram" in seen[3]                  # picross is tier III
-    assert "nonogram" not in seen[1]
-    # the sigil-fill (tetromino) is a small 4×4 in STRIKE, the full 6×6 in MAGIC
+    # STRIKE-vs-pack: a memorize-4 echo, the 5×5 board, a 4×4 sigil, the Fates'
+    # Thread; STRIKE-vs-boss: a memorize-6 echo, the 5×5 board, the Mosaic
+    assert simon_lens[1] == {4} and simon_lens[2] == {6}
+    assert vm_sizes[1] == {5} and vm_sizes[2] == {5}
     assert sizes[1]["tetromino"] == (4, 4)
+    assert "sequence" in seen[1] and "sequence" not in seen[2]   # Fates' Thread moved
+    # MAGIC: picross, matrix, the full 6×6 sigil, the Mosaic, and the big
+    # 6×6 + 7×7 memory boards — and NO riddle
+    assert "nonogram" in seen[3] and "nonogram" not in seen[1]
     assert sizes[3]["tetromino"] == (6, 6)
-    # visual-memory scales: 5×5 STRIKE → 7×7 the deepest trial
-    assert sizes[1]["visual_memory"] == 5
+    assert "sliding" in seen[3] and vm_sizes[3] == {6, 7}
+    assert "riddle" not in seen[3]
 
 
 def test_memory_puzzle_generate_and_check():
