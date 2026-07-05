@@ -515,11 +515,13 @@ class Board:
                 self._link(k, b_id)
                 return node
 
-            # ── three arc-roads across the wedge, offset counts so the way
-            #    through zigzags; every arc is a chain you can run along ──
-            counts = [3, 4, 3]
-            radii = [R0 + 88, R0 + 178, R0 + 268]
-            span = 0.62
+            # ── FOUR arc-roads across the wedge, offset counts so the way
+            #    through zigzags the deep way; every arc is a chain you can
+            #    run along. A long labyrinth: the barrow sits far out past the
+            #    last road, so even the short way is a real trek. ──
+            counts = [4, 5, 5, 4]
+            radii = [R0 + 80, R0 + 172, R0 + 264, R0 + 356]
+            span = 0.66
             arcs: list[list[str]] = []
             for ai, (cnt, rad) in enumerate(zip(counts, radii)):
                 row = []
@@ -539,9 +541,10 @@ class Board:
                 mid_of(gate_id, m, f"av{pi}_g{mi}", 1,
                        bow=rng.uniform(0.03, 0.06) * (1 if mi == 0 else -1))
 
-            # staggered radial links between the arcs (each carries one
-            # waypoint) — offset indices so no straight shot lines up
-            for gap in (0, 1):
+            # staggered radial links between every pair of arcs (each carries
+            # one waypoint) — offset indices so no straight shot lines up, and
+            # only two crossings per gap so a wrong turn is the long way round
+            for gap in range(len(arcs) - 1):
                 a_row, b_row = arcs[gap], arcs[gap + 1]
                 picks = rng.sample(range(len(a_row)), 2)
                 for li, ak in enumerate(picks):
@@ -560,7 +563,7 @@ class Board:
             cache = put(f"av{pi}_c", math.hypot(hn["x"], hn["z"]) + rng.uniform(18, 26),
                         ha + side * 0.11, 2, cache=True, flotsam=False)
             self._link(cache_host, cache["id"])
-            shrine_host = rng.choice(arcs[0] + arcs[2])
+            shrine_host = rng.choice(arcs[0] + arcs[-1])
             sn = self.nodes[shrine_host]
             sa = math.atan2(sn["z"], sn["x"])
             shrine = put(f"av{pi}_s", math.hypot(sn["x"], sn["z"]) + rng.uniform(-24, -16),
@@ -574,18 +577,19 @@ class Board:
             shrine["tier"] = 2
             self._link(shrine_host, shrine["id"])
 
-            # a haven ON the middle road — the checkpoint sits on a loop, so
+            # a haven ON a middle road — the checkpoint sits on a loop, so
             # an exact roll can always be tuned to land there
-            haven_id = rng.choice(arcs[1])
+            haven_id = rng.choice(arcs[len(arcs) // 2])
             hv = self.nodes[haven_id]
             hv["type"] = "haven"
             hv["name"] = names.pop()
             hv.pop("flotsam", None)
             hv.pop("look", None)
 
-            # a couple of avoidable weak packs on the way through
-            for host, depth in ((rng.choice(arcs[0]), 2),
-                                (rng.choice(arcs[2]), 3)):
+            # a few avoidable weak packs strung along the way through
+            for host, depth in ((rng.choice(arcs[1]), 2),
+                                (rng.choice(arcs[2]), 3),
+                                (rng.choice(arcs[3]), 4)):
                 node = self.nodes[host]
                 if node["type"] != "sea":
                     continue
@@ -633,7 +637,7 @@ class Board:
             #    FINISHED trail graph (safety links included), so the
             #    "race the guard or plod around" tradeoff is real ──
             lair_id = f"av{pi}_L"
-            lair = put(lair_id, R0 + 345, ang + rng.uniform(-0.05, 0.05), 4)
+            lair = put(lair_id, R0 + 438, ang + rng.uniform(-0.05, 0.05), 6)
             lair.pop("flotsam", None)
             lair.pop("look", None)
             lair["type"] = "lair"
@@ -651,12 +655,13 @@ class Board:
                     if nb not in hops and self.nodes[nb].get("owner") == pid:
                         hops[nb] = hops[cur] + 1
                         frontier.append(nb)
-            # doors prefer QUIET hosts: hanging the guarded door off a
-            # hunting-ground stop would stack two fights on one road
-            hosts = ([n for n in arcs[2] if self.nodes[n]["type"] == "sea"]
-                     or arcs[2])
+            # doors hang off the OUTERMOST arc and prefer QUIET hosts: pinning
+            # the guarded door to a hunting-ground stop would stack two fights
+            # on one road
+            hosts = ([n for n in arcs[-1] if self.nodes[n]["type"] == "sea"]
+                     or arcs[-1])
             by_hops = sorted(hosts, key=lambda n: hops.get(n, 99))
-            fast = mid_of(by_hops[0], lair_id, f"av{pi}_d0", 5,
+            fast = mid_of(by_hops[0], lair_id, f"av{pi}_d0", 7,
                           bow=rng.uniform(0.05, 0.09))   # never dead-straight
             fast["type"] = "monster"
             fast["monster"] = None
@@ -665,7 +670,7 @@ class Board:
             fast["name"] = names.pop()
             fast.pop("flotsam", None)
             fast.pop("look", None)
-            mid_of(by_hops[-1], lair_id, f"av{pi}_d1", 4,
+            mid_of(by_hops[-1], lair_id, f"av{pi}_d1", 6,
                    bow=rng.uniform(0.05, 0.09))
             self._spread_vale_forks(pid)
             lairs[pid] = lair_id

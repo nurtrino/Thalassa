@@ -409,8 +409,11 @@ export function createWorld(container, handlers = {}) {
         // down a trail that does not exist.
         const gAng = Math.atan2(gateN.z, gateN.x);
         const gR = Math.hypot(gateN.x, gateN.z) || 1;
-        for (let d = 60; d <= 380; d += 64) {
-          for (const off of [-0.36, 0, 0.36]) {
+        // the maze now runs four arcs deep with the barrow far past the last
+        // one — fan the fill wider (±0.42 rad) and out to the barrow so the
+        // whole long wedge is walled with trees from the first frame.
+        for (let d = 56; d <= 540; d += 58) {
+          for (const off of [-0.42, -0.14, 0.14, 0.42]) {
             const a = gAng + off;
             members.push({ id: `fill${d}_${off}`, type: 'sea',
                            x: Math.cos(a) * (gR + d), z: Math.sin(a) * (gR + d) });
@@ -1127,6 +1130,10 @@ export function createWorld(container, handlers = {}) {
     if (!st) return;
     const prevId = activeBoardId;
     activeBoardId = stageId;
+    // the Vale is a wall of giant trees that swallows the horizon — let the
+    // eye crane further up here to look past the canopy to the barrow beacon
+    // poking through it; other realms keep the flatter cap (just the skyline).
+    controls.maxPolarAngle = stageId === 'autumn' ? 1.52 : 1.34;
     if (lastRoom) syncStage(st, lastRoom);
     /* move the ride-along groups into this scene */
     st.scene.add(highlights, fx, valeArrows);
