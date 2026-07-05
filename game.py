@@ -1326,7 +1326,14 @@ class Game:
                         node["defeated"].append(p.pid)
                         node["monster"] = None      # your trial is done, forever
                         p.cargo.append(node["region"])
-                        note += " The sigil fragment is aboard — sail it home."
+                        # victory carries you home: no long haul back through
+                        # the realm — the tide bears you to Home Port and the
+                        # seal goes straight into the vault (hull patched, as
+                        # any homecoming does)
+                        p.prev_node = p.node
+                        p.node = "home"
+                        self._bank(p)
+                        note += " ⚓ The tide bears you HOME — the seal is banked."
                     # spoils: one scroll per basic foe, ten for a boss-tier one
                     loot = sum(10 if e["max_hp"] >= 5 else 1 for e in enemies)
                     p.scrolls += loot

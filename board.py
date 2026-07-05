@@ -656,7 +656,8 @@ class Board:
             hosts = ([n for n in arcs[2] if self.nodes[n]["type"] == "sea"]
                      or arcs[2])
             by_hops = sorted(hosts, key=lambda n: hops.get(n, 99))
-            fast = mid_of(by_hops[0], lair_id, f"av{pi}_d0", 5)
+            fast = mid_of(by_hops[0], lair_id, f"av{pi}_d0", 5,
+                          bow=rng.uniform(0.05, 0.09))   # never dead-straight
             fast["type"] = "monster"
             fast["monster"] = None
             fast["encounter"] = True
@@ -666,10 +667,108 @@ class Board:
             fast.pop("look", None)
             mid_of(by_hops[-1], lair_id, f"av{pi}_d1", 4,
                    bow=rng.uniform(0.05, 0.09))
+            self._spread_vale_forks(pid)
             lairs[pid] = lair_id
         self._build_neighbors()
         self.vale_lairs = lairs
         return lairs
+
+    # trails leaving one stop must be readable as SEPARATE roads: with the
+    # one-arrow wayfinder, two branches under ~30° apart draw overlapping
+    # arrows and make every tap ambiguous. Rotate the flexible endpoint
+    # (link waypoints and spur tips — never the structural arc stops) away
+    # around the fork until every pair of outgoing trails clears MIN_SEP.
+    _VALE_MIN_SEP = 0.55            # rad ≈ 31°
+
+    def _spread_vale_forks(self, pid: str) -> None:
+        self._build_neighbors()
+
+        def adelta(a, b):
+            return math.atan2(math.sin(a - b), math.cos(a - b))
+
+        def movable(nid):
+            # anything that isn't structural may bend: mouth/radial waypoints,
+            # doors, the cache and shrine spurs. Arc stops and the lair are
+            # the maze's skeleton and stay put.
+            n = self.nodes[nid]
+            if n.get("owner") != pid:
+                return False
+            tag = nid.split("_", 1)[1] if "_" in nid else ""
+            return not tag.startswith("a") and not tag.startswith("L")
+
+        def rotate(fork, nid, by):
+            t = self.nodes[nid]
+            a = math.atan2(t["z"] - fork["z"], t["x"] - fork["x"]) + by
+            r = math.hypot(t["x"] - fork["x"], t["z"] - fork["z"])
+            t["x"] = round(fork["x"] + math.cos(a) * r, 2)
+            t["z"] = round(fork["z"] + math.sin(a) * r, 2)
+
+        def bow_out(nid, away_from, fork, need):
+            """A two-link waypoint caught lying along another trail: push it
+            PERPENDICULAR to its own chord — widening its angle at BOTH
+            endpoints at once, where rotating around one fork just
+            ping-pongs it between the two. Always DEEPEN the bow it already
+            has (monotone → the relaxation can't oscillate); only a
+            dead-flat waypoint picks its side by fleeing the offender."""
+            w = self.nodes[nid]
+            ea, eb = self.neighbors[nid][:2]
+            pa, pb = self.nodes[ea], self.nodes[eb]
+            cx, cz = pb["x"] - pa["x"], pb["z"] - pa["z"]
+            cl = math.hypot(cx, cz) or 1e-6
+            px, pz = -cz / cl, cx / cl
+            off = (w["x"] - pa["x"]) * px + (w["z"] - pa["z"]) * pz
+            if abs(off) > 0.5:
+                s = 1.0 if off > 0 else -1.0      # deepen the existing bow
+            else:
+                o = self.nodes[away_from]
+                oside = (o["x"] - w["x"]) * px + (o["z"] - w["z"]) * pz
+                s = -1.0 if oside > 0 else 1.0
+            # step sized to the deficit AT THIS DISTANCE: a long mouth trail
+            # needs a far bigger sideways push for the same angular gain
+            df = math.hypot(w["x"] - fork["x"], w["z"] - fork["z"])
+            step = min(48.0, max(9.0, need * df * 1.1))
+            w["x"] = round(w["x"] + px * s * step, 2)
+            w["z"] = round(w["z"] + pz * s * step, 2)
+
+        # Deterministic, terminating: every movable trail is placed at most
+        # ONCE (then frozen), fork by fork — the gate's mouth fork first,
+        # since that's the first fork every captain meets. A violating pair
+        # rotates its unfrozen movable member to exactly MIN_SEP × 1.08 from
+        # its twin. No iteration on moved nodes → no oscillation, and a
+        # single bounded rotation can never fold a trail into a hairpin.
+        frozen: set[str] = set()          # each node is placed at most once
+        forks = [self.vale_gate] + sorted(
+            nid for nid, n in self.nodes.items() if n.get("owner") == pid)
+        for _round in range(3):
+            acted = False
+            for nid in forks:
+                nbrs = self.neighbors.get(nid, [])
+                if len(nbrs) < 2:
+                    continue
+                n = self.nodes[nid]
+                ranked = sorted(
+                    (math.atan2(self.nodes[b]["z"] - n["z"],
+                                self.nodes[b]["x"] - n["x"]), b)
+                    for b in nbrs)
+                for k in range(len(ranked)):
+                    a1, n1 = ranked[k]
+                    a2, n2 = ranked[(k + 1) % len(ranked)]
+                    gap = (a2 - a1) % (2 * math.pi)
+                    if gap >= self._VALE_MIN_SEP:
+                        continue
+                    pick = [(x, ax, ox) for x, ax, ox in
+                            ((n2, a2, a1), (n1, a1, a2))
+                            if movable(x) and x not in frozen]
+                    if not pick:
+                        continue
+                    tgt, ta, oa = pick[0]
+                    s = 1.0 if adelta(ta, oa) >= 0 else -1.0
+                    want = oa + s * self._VALE_MIN_SEP * 1.08
+                    rotate(n, tgt, adelta(want, ta))
+                    frozen.add(tgt)
+                    acted = True
+            if not acted:
+                break
 
     def _insert_waypoints(self, rng):
         """Split every island-to-island edge into a chain of open-sea nodes,

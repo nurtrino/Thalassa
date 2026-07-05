@@ -193,19 +193,24 @@ export function createWorld(container, handlers = {}) {
      trail your roll can walk — tap any arrow to take that road */
   const valeArrows = new THREE.Group();
   let arrowKey = '';
-  const ARROW_GEO = (() => {
-    const s = new THREE.Shape();            // an arrow pointing +Y (pre-rotate)
-    s.moveTo(0, 1.35);                      // tip
-    s.lineTo(0.85, -0.1);
-    s.lineTo(0.34, -0.1);
-    s.lineTo(0.34, -1.2);                   // shaft
-    s.lineTo(-0.34, -1.2);
-    s.lineTo(-0.34, -0.1);
-    s.lineTo(-0.85, -0.1);
+  // ONE long arrow per branch: a stretchable shaft plus a fixed head, so the
+  // shaft can run the trail without distorting the arrowhead. Both lie flat;
+  // pre-yaw the head's tip points -Z (yaw = atan2(-ux,-uz) aims it down-trail).
+  const ARROW_SHAFT_GEO = (() => {
+    const g = new THREE.PlaneGeometry(1.7, 1);   // x = width, z = length (post-rotate)
+    g.rotateX(-Math.PI / 2);
+    return g;
+  })();
+  const ARROW_HEAD_LEN = 3.4;
+  const ARROW_HEAD_GEO = (() => {
+    const s = new THREE.Shape();            // triangle pointing +Y (pre-rotate)
+    s.moveTo(0, ARROW_HEAD_LEN);
+    s.lineTo(2.1, 0);
+    s.lineTo(-2.1, 0);
     s.closePath();
     const g = new THREE.ShapeGeometry(s);
-    g.rotateX(-Math.PI / 2);                // lay it FLAT; tip now points -Z
-    g.scale(2.2, 1, 2.2);                   // big enough to read among GIANT trees
+    g.rotateX(-Math.PI / 2);                // flat; tip now points -Z
+    g.translate(0, 0, 0);                   // base at z=0, tip at z=-HEAD_LEN
     return g;
   })();
   const ARROW_MAT = new THREE.MeshBasicMaterial({
@@ -976,45 +981,79 @@ export function createWorld(container, handlers = {}) {
     if (!want) return;
     const head = nodeById[w.node];
     if (!head) return;
-    const laid = [];                         // arrows already on the ground
+
+    // FAN the branches apart on screen: whatever the maze generated, two
+    // roads leaving this stop never DRAW (or hit-test) closer than ~29° —
+    // the arrows stay distinct and every tap is unambiguous. The fanned
+    // angle is presentation only; the tap still walks to the true stop.
+    const MIN_FAN = 0.5;
+    const dirs = [];
     for (const dest of w.options) {
       const d = nodeById[dest];
       if (!d) continue;
-      const dx = d.x - head.x, dz = d.z - head.z;
-      const len = Math.hypot(dx, dz) || 1e-6;
-      const ux = dx / len, uz = dz / len;
-      // a fat invisible ribbon so a tap ANYWHERE along the branch takes it —
-      // wide and tall (fingers aim at the ARROWS, which sit proud of the
-      // ground) and starting right at the captain's feet
-      const L = Math.max(12, Math.min(len - 2, 40));
+      dirs.push({ dest,
+                  len: Math.hypot(d.x - head.x, d.z - head.z) || 1e-6,
+                  ang: Math.atan2(d.z - head.z, d.x - head.x) });
+    }
+    dirs.sort((a, b) => a.ang - b.ang);
+    for (let it = 0; it < 8; it++) {
+      let moved = false;
+      for (let k = 0; k + 1 < dirs.length; k++) {
+        const gap = dirs[k + 1].ang - dirs[k].ang;
+        if (gap < MIN_FAN) {
+          const push = (MIN_FAN - gap) / 2 + 0.005;
+          dirs[k].ang -= push;
+          dirs[k + 1].ang += push;
+          moved = true;
+        }
+      }
+      if (dirs.length > 2) {                       // the wraparound pair
+        const wrap = dirs[0].ang + 2 * Math.PI - dirs[dirs.length - 1].ang;
+        if (wrap < MIN_FAN) {
+          const push = (MIN_FAN - wrap) / 2 + 0.005;
+          dirs[0].ang += push;
+          dirs[dirs.length - 1].ang -= push;
+          moved = true;
+        }
+      }
+      if (!moved) break;
+    }
+    valeArrows.userData.fan = {};                  // ground-tap fallback reads this
+    for (const f of dirs) valeArrows.userData.fan[f.dest] = f.ang;
+
+    for (const { dest, len, ang } of dirs) {
+      const ux = Math.cos(ang), uz = Math.sin(ang);
+      const yaw = Math.atan2(-ux, -uz);            // -Z pre-yaw → down-trail
+
+      // ONE long arrow per branch: shaft from the captain's feet, head at
+      // the far end — a single unmistakable pointer per road
+      const start = 3.5;
+      const tip = Math.max(start + 7, Math.min(len - 2, 26));
+      const shaftLen = tip - ARROW_HEAD_LEN - start;
+      const shaft = new THREE.Mesh(ARROW_SHAFT_GEO, ARROW_MAT);
+      shaft.scale.set(1, 1, shaftLen);
+      shaft.position.set(head.x + ux * (start + shaftLen / 2), 0.3,
+                         head.z + uz * (start + shaftLen / 2));
+      shaft.rotation.y = yaw;
+      shaft.renderOrder = 30;                      // over stones, trees, smoke
+      shaft.userData = { node: dest, walkArrow: true };
+      const ahead = new THREE.Mesh(ARROW_HEAD_GEO, ARROW_MAT);
+      ahead.position.set(head.x + ux * (tip - ARROW_HEAD_LEN), 0.3,
+                         head.z + uz * (tip - ARROW_HEAD_LEN));
+      ahead.rotation.y = yaw;
+      ahead.renderOrder = 30;
+      ahead.userData = { node: dest, walkArrow: true };
+      valeArrows.add(shaft, ahead);
+
+      // a fat invisible ribbon so a tap ANYWHERE along the branch — shaft,
+      // TIP, or a stretch past the tip — takes that road
+      const L = Math.max(12, Math.min(len - 2, tip + 8));
       const strip = new THREE.Mesh(STRIP_GEO, STRIP_MAT);
       strip.scale.set(18, 5, L);
       strip.position.set(head.x + ux * (L / 2 + 1.5), 1.6, head.z + uz * (L / 2 + 1.5));
       strip.rotation.y = Math.atan2(ux, uz);
       strip.userData = { node: dest, walkArrow: true };
       valeArrows.add(strip);
-      // golden arrows marching down the branch — pushed further along their
-      // own trail whenever they'd crowd another branch's arrows, so two
-      // roads never read as one
-      let dd = 10;
-      for (let k = 0; k < 3 && dd <= len - 3; k++, dd += 9) {
-        let x = head.x + ux * dd, z = head.z + uz * dd;
-        let guard = 0;
-        while (guard++ < 6 && laid.some((p) => Math.hypot(p.x - x, p.z - z) < 7)) {
-          dd += 4.5;
-          if (dd > len - 3) break;
-          x = head.x + ux * dd;
-          z = head.z + uz * dd;
-        }
-        if (dd > len - 3) break;
-        const arrow = new THREE.Mesh(ARROW_GEO, ARROW_MAT);
-        arrow.position.set(x, 0.3, z);
-        arrow.rotation.y = Math.atan2(-ux, -uz);   // tip is -Z pre-yaw
-        arrow.renderOrder = 30;                    // over stones, trees, smoke
-        arrow.userData = { node: dest, walkArrow: true };
-        valeArrows.add(arrow);
-        laid.push({ x, z });
-      }
     }
   }
 
@@ -1356,11 +1395,19 @@ export function createWorld(container, handlers = {}) {
         const pd = Math.hypot(px, pz);
         if (pd > 2 && pd < 150) {
           let best = null, bestDot = 0.42;       // within a ~65° cone
+          const fan = valeArrows.userData.fan || {};
           for (const dest of w.options) {
-            const dn = nodeById[dest];
-            if (!dn) continue;
-            const dx = dn.x - head.x, dz = dn.z - head.z;
-            const L = Math.hypot(dx, dz) || 1e-6;
+            // judge against the FANNED direction the arrows actually draw
+            // at — what the player aims for — not the raw node bearing
+            let dx, dz, L = 1;
+            if (fan[dest] != null) {
+              dx = Math.cos(fan[dest]); dz = Math.sin(fan[dest]);
+            } else {
+              const dn = nodeById[dest];
+              if (!dn) continue;
+              dx = dn.x - head.x; dz = dn.z - head.z;
+              L = Math.hypot(dx, dz) || 1e-6;
+            }
             const dot = (px * dx + pz * dz) / (pd * L);
             if (dot > bestDot) { bestDot = dot; best = dest; }
           }

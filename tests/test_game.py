@@ -727,7 +727,9 @@ def test_boss_trial_is_personal_and_yields_fragment():
     put_question(g)
     g.answer(p0, 0)
     p = g.player_by_pid(p0)
-    assert g.reveal["battle_over"] and p.cargo == [node["region"]]
+    # victory carries you straight home and the seal banks itself
+    assert g.reveal["battle_over"]
+    assert p.node == "home" and p.cargo == [] and p.banked == 1
     assert p0 in node["defeated"]
     assert g.board.alive_monster(lair) is None   # calm again
     g.advance_after_reveal()
