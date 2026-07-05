@@ -144,6 +144,29 @@ ENCOUNTERS_HEAVY = [
     ("Bronze Sentinels", "Bronze Sentinel", 4, 2, "warden"),
 ]
 
+def region_model_ids(region: str | None) -> list[str]:
+    """Every monster GLB id that CAN rise in a region — the pack units across
+    all three depth tiers plus its boss — so the client can preload the whole
+    set the moment it enters the realm and never stall spawning a fresh beast.
+    A None/unknown region is the open sea: the hub's random-encounter pool."""
+    ids: set[str] = set()
+    info = REGION_POOL.get(region) if region else None
+    if info:
+        for tier in info["tiers"]:
+            for row in tier:
+                ids.add(row[4])            # (name, unit, hp, power, MODEL)
+        ids.add(info["boss_model"])
+    else:
+        for row in ENCOUNTERS_LIGHT + ENCOUNTERS_HEAVY:
+            ids.add(row[4])
+    return sorted(ids)
+
+
+# region key → model ids, precomputed once. "hub" is the open-water encounter
+# pool; the Pharos Warden guards the endgame everywhere.
+REGION_MODELS = {**{r: region_model_ids(r) for r in REGION_POOL},
+                 "hub": sorted(set(region_model_ids(None)) | {"warden"})}
+
 REGIONS_PER_GAME = 4       # passes through the mountains, one realm beyond each
 RELICS_TO_WIN = 3          # sigil fragments needed to open the Pharos
 SHRINE_CHARGES = 2

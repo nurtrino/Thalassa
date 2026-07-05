@@ -173,6 +173,7 @@ export function createWorld(container, handlers = {}) {
   let lobbyMode = false;
   let cameraAnchored = false;
   let preloadedCaptain = false;
+  let preloadedRegion = null;   // last realm whose bestiary we streamed in
   let wasLobby = true;        // to catch the lobby → voyage transition
   let cine = null;            // active establishing pan-over, or null
   const seenStages = new Set();
@@ -1340,6 +1341,20 @@ export function createWorld(container, handlers = {}) {
     if (!preloadedCaptain && nodes.some((n) => n.mode === 'foot')) {
       preloadedCaptain = true;
       preloadMonsters(['captain']);
+    }
+
+    /* Preload the WHOLE bestiary of the realm the local captain now stands in
+     * (or the open-sea ambush pool in the hub) the instant we cross into it —
+     * every model a hunting ground could roll, plus the boss — so a fight never
+     * stalls streaming a cold GLB. Keyed on the region so it fires once per
+     * crossing, and covers any entry path (sailing in, or landing straight into
+     * an ambush) that the stage-activation preload might skip. */
+    const meNode = nodeById[room.players?.find((p) => p.pid === you)?.node];
+    const myRegion = meNode ? (meNode.region || 'hub') : null;
+    const rmodels = room.config?.region_models;
+    if (myRegion && myRegion !== preloadedRegion && rmodels) {
+      preloadedRegion = myRegion;
+      preloadMonsters(rmodels[myRegion] || rmodels.hub || []);
     }
 
     /* bootstrap the very first board so ships have a stage to sync into */

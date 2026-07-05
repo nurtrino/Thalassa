@@ -49,7 +49,8 @@ import random
 
 import puzzles
 import questions
-from board import Board, DOMAIN_INFO, DOMAINS, REGION_POOL, RELICS_TO_WIN
+from board import (Board, DOMAIN_INFO, DOMAINS, REGION_POOL, REGION_MODELS,
+                   RELICS_TO_WIN)
 
 # ── tunables ─────────────────────────────────────────────────────────────────
 MIN_PLAYERS = 1                    # solo runs are allowed for testing
@@ -1952,5 +1953,8 @@ class Game:
                        "flee_cost": FLEE_COST, "shop_items": SHOP_ITEMS,
                        "relics": RELICS, "item_cap": ITEM_CAP,
                        "die_sides": 3, "heavy_every": HEAVY_EVERY,
-                       "heavy_mult": HEAVY_MULT, "planks_heal": PLANKS_HEAL},
+                       "heavy_mult": HEAVY_MULT, "planks_heal": PLANKS_HEAL,
+                       # every monster model a realm can field, so the client
+                       # preloads a region's whole bestiary on arrival
+                       "region_models": REGION_MODELS},
         }
