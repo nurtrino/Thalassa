@@ -620,17 +620,17 @@ function makeRock(rng, r, color = COL.rock) {
 
 /* dispatch a tree/plant for the theme's flora set — Meshy flora now, at
    the same call-site scales (natural heights come from props.js) */
-function floraFor(theme, rng, s = 1) {
+function floraFor(theme, rng, s = 1, castShadow = true) {
   const kind = theme.flora;
-  if (kind === 'pine') return propGroup(rng() < 0.3 ? 'pine_tree' : 'pine_snow', s);
-  if (kind === 'cactus') return propGroup(rng() < 0.5 ? 'cactus' : 'dead_scrub', s);
-  if (kind === 'jungle') return propGroup(rng() < 0.72 ? 'jungle_tree' : 'palm_tree', s);
-  if (kind === 'autumn') return propGroup('autumn_tree', s);
+  if (kind === 'pine') return propGroup(rng() < 0.3 ? 'pine_tree' : 'pine_snow', s, castShadow);
+  if (kind === 'cactus') return propGroup(rng() < 0.5 ? 'cactus' : 'dead_scrub', s, castShadow);
+  if (kind === 'jungle') return propGroup(rng() < 0.72 ? 'jungle_tree' : 'palm_tree', s, castShadow);
+  if (kind === 'autumn') return propGroup('autumn_tree', s, castShadow);
   // aegean
   const r = rng();
-  if (r < 0.5) return propGroup('palm_tree', s);
-  if (r < 0.8) return propGroup('cypress_tree', s);
-  return propGroup('olive_tree', s);
+  if (r < 0.5) return propGroup('palm_tree', s, castShadow);
+  if (r < 0.8) return propGroup('cypress_tree', s, castShadow);
+  return propGroup('olive_tree', s, castShadow);
 }
 
 /* ── buildings & props ──────────────────────────────────────────────────── */
@@ -1248,7 +1248,10 @@ export function makeRealmField(theme, nodes, segs, rng, heightAt = null) {
     // personal-space bubble so crowns never interpenetrate, standing clear of
     // the trails and of every POI's clearing. The maze's stops reveal over
     // time, so the wood fills the WHOLE wedge and the fog does the hiding.
-    scatter(3000, 8.5, 6, 9999, () => floraFor(theme, rng, 5.8 + rng() * 4.0), 0, 12);
+    // castShadow OFF: at titan scale their sun shadows sprawl across the flat
+    // floor as big soft patches that read as drifting cloud shadows. They keep
+    // receiving shadow, so they still sit in the wood — they just don't throw one.
+    scatter(3000, 8.5, 6, 9999, () => floraFor(theme, rng, 5.8 + rng() * 4.0, false), 0, 12);
     scatter(46, 6, 7, 9999, prop(['dead_tree', 'mushroom_cluster'], 1.4, 2.4), 0, 3);
     scatter(26, 6, 7, 9999, prop(['campfire', 'stone_well', 'barrel', 'waymarker_stone'], 0.8, 1.5), 0, 4);
   } else {

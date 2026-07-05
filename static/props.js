@@ -85,13 +85,17 @@ export function preloadProps(ids = PROP_IDS) {
   return ids.map((id) => ensure(id));
 }
 
-/* An Object3D placed on the map NOW; the model appears inside it once loaded. */
-export function propGroup(id, scale = 1) {
+/* An Object3D placed on the map NOW; the model appears inside it once loaded.
+   Pass castShadow=false for dense filler (e.g. the Vale's titan trees) whose
+   big soft ground shadows would sprawl across the floor like drifting cloud
+   shadows — they still RECEIVE shadow, they just don't throw one. */
+export function propGroup(id, scale = 1, castShadow = true) {
   const g = new THREE.Group();
   ensure(id).then((t) => {
     if (!t) return;
     const c = t.clone(true);
     c.scale.multiplyScalar(scale);
+    if (!castShadow) c.traverse((o) => { if (o.isMesh) o.castShadow = false; });
     g.add(c);
   });
   return g;

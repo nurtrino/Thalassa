@@ -1108,6 +1108,26 @@ def test_minigame_sequence_typed_flow(monkeypatch):
     assert g.board.nodes[pz]["solved"]
 
 
+def test_minigame_ravens_wrong_pick_ends_it(monkeypatch):
+    # the multiple-choice obelisk (the Pattern of Fate): you pick a tile. A
+    # WRONG pick fails the isle outright — no reward, and no picking again at
+    # the same obelisk this turn (unlike the constructive puzzles you retry).
+    g, (p0, p1) = make_game(seed=17)
+    pz = land_on_puzzle(g, p0, monkeypatch, force_kind="ravens")
+    assert g.phase == "minigame" and g.minigame["kind"] == "ravens"
+    correct = g.minigame["data"]["secret"]["correct"]
+    wrong = (correct + 1) % len(g.minigame["data"]["options"])
+    g.minigame_submit(p0, wrong)                           # one wrong pick — done
+    assert not g.board.nodes[pz]["solved"]                 # no reward, no upgrade
+    assert g.phase == "roll" and g.current.pid == p1       # turn passes, no retry
+
+    # …and a RIGHT pick still yields the prize
+    g2, (q0, q1) = make_game(seed=17)
+    pz2 = land_on_puzzle(g2, q0, monkeypatch, force_kind="ravens")
+    g2.minigame_submit(q0, g2.minigame["data"]["secret"]["correct"])
+    assert g2.phase == "upgrade_pick" and g2.board.nodes[pz2]["solved"]
+
+
 def _lights_out_solution(board, n):
     """GF(2) solve: taps that clear the board (see test_puzzles for the twin)."""
     rows = []
@@ -1845,22 +1865,30 @@ def test_boss_heavy_hits_double_when_not_dodged():
     assert hull_before - p.hull == power * G.HEAVY_MULT
 
 
-def test_boss_enrages_at_half_strength():
+def test_boss_blows_stay_in_the_two_to_four_band():
+    # bosses no longer enrage; every counter lands in 2–4 (a telegraphed heavy
+    # sits at the top of the band, never above it)
     g, (p0, p1), lair = boss_battle()
     p = g.player_by_pid(p0)
-    p.max_hull = 30
-    p.hull = 30
-    m = g.board.alive_monster(lair)
-    e = m["enemies"][0]
-    power_before = e["power"]
-    e["hp"] = (e["max_hp"] // 2) + 1              # one magic tips it under half
-    g.stance(p0, "magic")
-    put_question(g)
-    g.answer(p0, 0)
-    # the enrage fires with YOUR move, so it reads in the your-move reveal
-    assert m["enraged"] and e["power"] == power_before + 1
-    assert "ENRAGES" in g.reveal["note"]
-    land_blow(g)                                  # boss counter → dodge beat
+    p.max_hull = 60
+    p.hull = 60
+    e = g.board.alive_monster(lair)["enemies"][0]
+    e["power"] = 4                                # a stout boss + heavy would be 8…
+    e["hp"] = 99                                  # keep it standing through the run
+    seen = []
+    for _ in range(6):
+        if g.phase != "battle":
+            break
+        g._force_mode = "mc"                      # trivia every round for the harness
+        g.stance(p0, "attack")
+        put_question(g, correct=0)
+        g.answer(p0, 1)                           # miss → the counter comes
+        before = p.hull
+        land_blow(g)                              # no dodge → the full blow lands
+        seen.append(before - p.hull)
+        g.advance_after_reveal()
+    assert seen and all(2 <= d <= 4 for d in seen)   # …but it's capped at 4
+    assert "enraged" not in g.to_dict(p0).get("battle", {})
 
 
 def test_boss_battle_state_is_published():
@@ -1868,7 +1896,7 @@ def test_boss_battle_state_is_published():
     snap = g.to_dict(p0)
     b = snap["battle"]
     assert b["boss"] and b["model"] and b["round"] == 0
-    assert b["charging"] is False and b["enraged"] is False
+    assert b["charging"] is False and "enraged" not in b
     assert all(e["model"] for e in b["enemies"])
 
 
