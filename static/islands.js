@@ -1732,8 +1732,12 @@ export function buildIsland(node, theme, domains) {
     };
     const portal = makeGatePortal(accent, seed, theme?.wall?.rock ?? 0x8a8f98);
     // the pass sits way out at the mountain wall — render it fog-free like the
-    // wall itself so the gateway reads clearly instead of washing into haze
-    portal.traverse(fogFree);
+    // wall itself so the gateway reads clearly instead of washing into haze.
+    // NOT in the Amber Vale, though: its thick fog is meant to SWALLOW the pass
+    // like every trunk around it, so the same gate seen from the WOODS must
+    // fog normally (else its stone shines through the haze). The hub-side copy
+    // of the gate still builds fog-free, keeping it a clear landmark from sea.
+    if (theme?.id !== 'autumn') portal.traverse(fogFree);
     g.add(portal);
     // The pass stands ON its node (radius ~500). You BERTH on the isles-facing
     // side of it (see gateBerth), so the arch is always AHEAD of you and you
