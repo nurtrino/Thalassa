@@ -2004,7 +2004,7 @@ function renderQuestion() {
   }
 }
 
-/* a typed JEOPARDY! clue — 5s to read, then 15s to type the answer.
+/* a typed JEOPARDY! clue — 20 seconds to type the answer (no reading lock).
    Rebuild only when the clue changes, so live re-renders never wipe typing. */
 let readTimer = 0;
 function renderTypedQuestion(q, mine) {
@@ -2034,7 +2034,7 @@ function renderTypedQuestion(q, mine) {
   btn.className = 'opt typedgo';
   btn.textContent = 'Answer';
   const submit = () => {
-    if (input.disabled) return;                    // still in the reading beat
+    if (input.disabled) return;                    // already sent
     const t = input.value.trim();
     if (!t) return;
     input.disabled = true;
@@ -2046,33 +2046,12 @@ function renderTypedQuestion(q, mine) {
   wrap.append(input, btn);
   opts.appendChild(wrap);
 
-  // 5 seconds to READ the clue, then 15 to TYPE: lock the box during the read
-  // beat (the server window is 20s = 5 + 15; typing opens at deadline − 15).
+  // no reading lock — the whole 20-second window is for typing, open from the
+  // first frame (the shrinking timer line is the countdown).
   clearTimeout(readTimer);
-  const TYPE_SECS = 15;
-  const openTyping = () => {
-    input.disabled = false; btn.disabled = false;
-    $('qnote').textContent = 'Type the answer and press Enter — 15 seconds.';
-    try { input.focus(); } catch (e) {}
-  };
-  const readUntil = (q.deadline || (Date.now() / 1000 + 20)) - TYPE_SECS;
-  if (Date.now() / 1000 < readUntil) {
-    input.disabled = true; btn.disabled = true;
-    input.placeholder = 'read the clue…';
-    const tickRead = () => {
-      if (room.phase !== 'question') return;       // question gone — do nothing
-      const left = Math.ceil(readUntil - Date.now() / 1000);
-      if (left > 0) {
-        $('qnote').textContent = `Read the clue — you may answer in ${left}s`;
-        readTimer = setTimeout(tickRead, 250);
-      } else {
-        openTyping();
-      }
-    };
-    tickRead();
-  } else {
-    openTyping();
-  }
+  input.disabled = false; btn.disabled = false;
+  $('qnote').textContent = 'Type the answer and press Enter — 20 seconds.';
+  try { input.focus(); } catch (e) {}
 }
 
 function startTimerBar(deadline, barSel) {

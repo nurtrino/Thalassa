@@ -658,6 +658,14 @@ export function createWorld(container, handlers = {}) {
       const a = (slotIdx / 6) * Math.PI * 2 + 0.8;
       return new THREE.Vector3(n.x + Math.cos(a) * 0.9, 0, n.z + Math.sin(a) * 0.9);
     }
+    // an OPEN-WATER sea mooring (a shoal, no land under it): the ship settles in
+    // the MIDDLE of the shoal, not off at its rim. The first captain sits dead
+    // centre; extra ships fan out just enough to not overlap.
+    if (n?.type === 'sea' && !seaSolid(n)) {
+      if (slotIdx === 0) return new THREE.Vector3(n.x, 0, n.z);
+      const a = (slotIdx / 6) * Math.PI * 2 + 0.8;
+      return new THREE.Vector3(n.x + Math.cos(a) * 3.2, 0, n.z + Math.sin(a) * 3.2);
+    }
     const isle = st && st.islands[nodeId];
     const R = isle?.R ?? 4;
     const a = (slotIdx / 6) * Math.PI * 2 + 0.8;
