@@ -202,12 +202,20 @@ function buildDevBar() {
   document.body.appendChild(bar);
 }
 (function devUnlockInit() {
-  const t = document.getElementById('devT');
-  if (!t) return;
-  t.addEventListener('dblclick', (e) => {
-    e.preventDefault();
-    if (devUnlocked) { buildDevBar(); return; }        // toggle the bar
-    if (prompt('Dev code:') === '783') { devUnlocked = true; buildDevBar(); }
+  // triple-click the "You" chip in the turn banner, then enter the code
+  const bar = document.getElementById('turnBanner');
+  if (!bar) return;
+  let clicks = 0, timer = null;
+  bar.addEventListener('click', (e) => {
+    if (!e.target.closest('.tocap.me')) return;        // only the local player's chip
+    clicks += 1;
+    clearTimeout(timer);
+    timer = setTimeout(() => { clicks = 0; }, 1600);
+    if (clicks >= 3) {
+      clicks = 0;
+      if (devUnlocked) { buildDevBar(); return; }       // toggle the bar
+      if (prompt('Dev code:') === '783') { devUnlocked = true; buildDevBar(); }
+    }
   });
 })();
 
