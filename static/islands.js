@@ -317,7 +317,11 @@ export function makeTerrain({ seed, R, H, mode = 'hill', palette = {}, lobes = 0
     bumpScale: 0.55,
   }));
   mesh.receiveShadow = true;
-  mesh.castShadow = true;
+  // the island cone must NOT cast — its own shadow used to fall on its
+  // submerged sandy shelf and bleed through the translucent shallow-water ring
+  // as a dark stain in the shallows. Props on the isle (lighthouse, trees) still
+  // cast onto the beach, since the terrain keeps RECEIVING shadows.
+  mesh.castShadow = false;
 
   // exact surface samplers so props sit ON the sculpted ground, not on the
   // smooth radial profile (which ignores the noise relief and the ex/ez /
