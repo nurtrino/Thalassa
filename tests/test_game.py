@@ -2146,6 +2146,24 @@ def test_boss_rotates_all_three_challenge_decks():
     assert "jeopardy" in modes and modes <= {"mc", "puzzle", "jeopardy"}
 
 
+def test_typed_question_snapshot_never_crashes():
+    """REGRESSION: a dealt typed clue has no 'options' — building the
+    snapshot used to KeyError, killing every broadcast and freezing the
+    whole table on 'A herald fetches the question…'."""
+    g, (p0, p1) = make_game()
+    mon = find_node(g, "monster")
+    set_pack(g, mon, [3])
+    battle_at(g, p0, mon)
+    _typed_battle(g, p0, mon)
+    for viewer in (p0, p1, None):
+        snap = g.to_dict(viewer)              # must not raise
+        q = snap["question"]
+        assert q["typed"] is True
+        assert q["options"] == []
+        assert q["text"]
+        assert "answer" not in q              # the secret stays server-side
+
+
 def test_typed_jeopardy_correct_answer():
     g, (p0, p1) = make_game()
     mon = find_node(g, "monster")

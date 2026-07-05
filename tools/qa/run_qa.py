@@ -282,6 +282,17 @@ def battle(outdir):
                     if deck == "mc":
                         await c.send({"type": "answer", "idx": 0})
                     elif deck == "jeopardy":
+                        # the clue must actually RENDER (typed input on
+                        # screen), not just reach the question phase — a
+                        # snapshot crash once froze exactly here while the
+                        # engine looked healthy
+                        try:
+                            await c.page.wait_for_selector(
+                                "#qtypedInput", timeout=8000)
+                        except Exception:
+                            notes.append(f"{stance}/{deck}: typed input "
+                                         "never rendered — snapshot broken?")
+                            bad = True
                         await c.send({"type": "answer_text", "text": "alpha"})
                     else:
                         # most puzzle kinds reject wrong submissions and only
