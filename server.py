@@ -210,6 +210,7 @@ async def gate_walk_task(pid: str, gate: str, dest: str):
     if p and p.node == gate:              # still standing in the arch
         p.prev_node = p.node
         p.node = dest
+        g._reveal_vale(p)                 # the lantern lights the new ground
         g.nonce += 1
         await broadcast()
 

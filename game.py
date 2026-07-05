@@ -662,10 +662,10 @@ class Game:
 
         if ntype == "gate":
             # the pass CARRIES YOU THROUGH: a beat after landfall the server
-            # walks you on to the far side's first waypoint, so you spawn
-            # inside the region proper, never standing in the arch. Only
-            # when the far side has ONE obvious first stop — a forked mouth
-            # (the Amber Vale's) still offers its choice.
+            # walks you on to the far side's NEAREST first waypoint, so you
+            # spawn inside the region proper — never left standing in the
+            # arch. Even a forked mouth (the Amber Vale's) advances to its
+            # closest stop; the fork choice then happens from there.
             region = node.get("region")
             from_realm = (self.board.nodes.get(p.prev_node, {})
                           .get("region") == region)
@@ -673,8 +673,11 @@ class Game:
                      if ((self.board.nodes[nb].get("region") == region)
                          != from_realm)
                      and self.board.nodes[nb].get("owner") in (None, p.pid)]
-            if len(cands) == 1:
-                self.gate_walk = {"pid": p.pid, "gate": nid, "to": cands[0]}
+            if cands:
+                gx, gz = node["x"], node["z"]
+                dest = min(cands, key=lambda c: (self.board.nodes[c]["x"] - gx) ** 2
+                           + (self.board.nodes[c]["z"] - gz) ** 2)
+                self.gate_walk = {"pid": p.pid, "gate": nid, "to": dest}
             self._end_turn()
         elif ntype == "sea":
             self._end_turn()

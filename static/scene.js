@@ -1374,17 +1374,13 @@ export function createWorld(container, handlers = {}) {
     pointer.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
     pointer.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
     ray.setFromCamera(pointer, camera);
-    const hit = ray.intersectObjects(
-      [...st.proxyList, ...highlights.children, ...valeArrows.children], false)
-      .find((h) => h.object.userData.node);
-    if (hit) {
-      handlers.onNodeClick?.(hit.object.userData.node,
-                             !!hit.object.userData.walkArrow);
-      return;
-    }
-    // FAT-FINGER fallback for the Vale walk: the arrows are markers, not
-    // precision targets. Any tap on the GROUND picks the branch whose
-    // direction best matches it — one tap, anywhere along the road you mean.
+
+    // THE AMBER VALE WALK: the arrows are DIRECTIONAL, not precise hitboxes.
+    // The fanned trails overlap heavily near the captain, so raycasting the
+    // ribbons grabbed the wrong branch (or missed). Instead: any tap picks
+    // the branch whose fanned arrow points nearest it — deterministic, and
+    // the road you tapped is always the road you get. This runs FIRST and
+    // owns every tap on a Vale walk turn, so the overlap can never mislead.
     const w = lastRoom?.walk;
     if (w && w.options && w.options.length && lastRoom.turn === myPid
         && lastRoom.phase === 'sail' && activeBoardId === 'autumn') {
@@ -1393,27 +1389,35 @@ export function createWorld(container, handlers = {}) {
       if (head && pt) {
         const px = pt.x - head.x, pz = pt.z - head.z;
         const pd = Math.hypot(px, pz);
-        if (pd > 2 && pd < 150) {
-          let best = null, bestDot = 0.42;       // within a ~65° cone
+        if (pd > 1.5) {
+          let best = null, bestDot = -2;         // ALWAYS take the nearest arrow
           const fan = valeArrows.userData.fan || {};
           for (const dest of w.options) {
-            // judge against the FANNED direction the arrows actually draw
-            // at — what the player aims for — not the raw node bearing
-            let dx, dz, L = 1;
+            // judge against the FANNED direction the arrows actually draw at
+            let dx, dz;
             if (fan[dest] != null) {
               dx = Math.cos(fan[dest]); dz = Math.sin(fan[dest]);
             } else {
               const dn = nodeById[dest];
               if (!dn) continue;
               dx = dn.x - head.x; dz = dn.z - head.z;
-              L = Math.hypot(dx, dz) || 1e-6;
+              const L = Math.hypot(dx, dz) || 1e-6; dx /= L; dz /= L;
             }
-            const dot = (px * dx + pz * dz) / (pd * L);
+            const dot = (px * dx + pz * dz) / pd;
             if (dot > bestDot) { bestDot = dot; best = dest; }
           }
           if (best) handlers.onNodeClick?.(best, true);
         }
       }
+      return;                                    // Vale-walk taps are ours
+    }
+
+    const hit = ray.intersectObjects(
+      [...st.proxyList, ...highlights.children, ...valeArrows.children], false)
+      .find((h) => h.object.userData.node);
+    if (hit) {
+      handlers.onNodeClick?.(hit.object.userData.node,
+                             !!hit.object.userData.walkArrow);
     }
   });
 
