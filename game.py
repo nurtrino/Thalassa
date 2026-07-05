@@ -265,7 +265,13 @@ class Game:
                 if not last and all(self._wall(p, nb) for nb in fwd):
                     fwd = list(nbrs)               # walled in: allowed to turn back
                 for nb in fwd:
-                    if self._wall(p, nb) and (not last or not self._can_land(p, nb)):
+                    # A WALL is never sailed THROUGH. But a wall you may land on
+                    # — the open Pharos door — is a valid finish on ANY roll that
+                    # reaches it, just like a lair altar: no circling out front
+                    # to line up an exact count.
+                    if self._wall(p, nb):
+                        if self._can_land(p, nb):
+                            stops.add(nb)
                         continue
                     ntype = self.board.nodes[nb]["type"]
                     if ntype == "gate":
@@ -398,6 +404,14 @@ class Game:
             self._say(f"👑 {node['monster']['name']} rises — {p.name}'s trial begins!")
             self._bump("battle")
             return
+        if ntype == "pharos":
+            # The final door. You only reach it with the seals already banked;
+            # the CEREMONY plays first (set the seals, the leaves grind open,
+            # darkness spills out) — the Warden battle begins only when the
+            # captain steps THROUGH, via enter_pharos().
+            self._say(f"🕯 {p.name} stands before the Pharos door — set the seals and enter.")
+            self._bump("pharos")
+            return
         monster = self.board.alive_monster(nid)
 
         # ── the KRAKEN: hub crossings only. One in ten sailings, it rises and
@@ -516,6 +530,22 @@ class Game:
         if p.banked >= RELICS_TO_WIN and not self.pharos_open:
             self.pharos_open = True
             self._say(f"⚡ Three seals banked — the Pharos opens for {p.name}.")
+
+    def enter_pharos(self, pid: str):
+        """Step THROUGH the open Pharos door. The seal-setting ceremony plays
+        client-side; this begins the final trial against the Dark Presence."""
+        self._require_turn(pid, "pharos")
+        p = self.current
+        nid = p.node
+        if self.board.nodes[nid]["type"] != "pharos":
+            raise GameError("There is no tower here.")
+        if not self.board.alive_monster(nid):
+            self.board.reset_warden()          # a fresh Warden for this challenger
+        self.battle = {"node": nid, "stance": None, "round": 0,
+                       "charging": False,
+                       "used_items": [], "first_hit_taken": False}
+        self._say(f"🌑 The Pharos door yawns wide — the Dark Presence rises to meet {p.name}.")
+        self._bump("battle")
 
     # ── shrine wagers ────────────────────────────────────────────────────────
     def wager(self, pid: str, tier: int):

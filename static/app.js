@@ -469,34 +469,53 @@ function clearBattleEnd() {
     .onfinish = () => d.remove();
 }
 
-/* The Pharos cutscene: the three earned seals are set into the door, the
-   bronze leaves grind open, and only then does the Dark Lord stir. Runs once,
-   over the battle scene, before the fight UI takes over. */
-function playPharosCutscene() {
+/* The Pharos ceremony — triggered by the ENTER button once you stand at the
+   tower door. The captain sets each earned seal into the door (a chime rings
+   as it seats), the bronze leaves grind open with a rumble, and darkness pours
+   out of the tower; then `onDone` fires and the Dark Presence battle takes
+   over. Runs entirely as a 2D overlay — NO 3D door object is placed in scene. */
+let pharosCeremonyRunning = false;
+function playPharosCeremony(seals, onDone) {
+  if (pharosCeremonyRunning) return;
+  pharosCeremonyRunning = true;
   document.getElementById('pharosCine')?.remove();
+  seals = Math.max(1, Math.min(3, (seals | 0) || 3));
+  const slots = Array.from({ length: seals },
+    (_, i) => `<span class="pcsig" style="--i:${i}"></span>`).join('');
   const d = document.createElement('div');
   d.id = 'pharosCine';
   d.innerHTML =
     `<div class="pcine-in">` +
-      `<div class="pcine-kicker">The seals answer</div>` +
+      `<div class="pcine-kicker">Set the seals</div>` +
       `<div class="pcine-door"><i class="leaf l"></i><i class="leaf r"></i>` +
-        `<span class="pcine-glow"></span>` +
-        `<span class="pcsig" style="--i:0"></span>` +
-        `<span class="pcsig" style="--i:1"></span>` +
-        `<span class="pcsig" style="--i:2"></span>` +
+        `<span class="pcine-glow"></span><span class="pcine-dark"></span>` +
+        slots +
       `</div>` +
-      `<div class="pcine-title">The Pharos Opens</div>` +
+      `<div class="pcine-title">Darkness Spills Forth</div>` +
     `</div>`;
   document.body.appendChild(d);
+  const door = d.querySelector('.pcine-door');
   const sigs = d.querySelectorAll('.pcsig');
-  sigs.forEach((s, i) => setTimeout(() => s.classList.add('lit'), 500 + i * 500));
-  setTimeout(() => d.querySelector('.pcine-door').classList.add('open'), 2100);
-  setTimeout(() => d.querySelector('.pcine-title').classList.add('show'), 2500);
+  // set each seal in turn — a mystical chime rings as it seats into the door
+  sigs.forEach((s, i) => setTimeout(() => {
+    s.classList.add('lit');
+    audio.sfx?.oracle?.();
+  }, 500 + i * 650));
+  const doorAt = 500 + seals * 650 + 300;
+  // the bronze leaves grind open with a rumble and darkness pours out
+  setTimeout(() => {
+    door.classList.add('open', 'rumble');
+    audio.sfx?.roar?.();
+  }, doorAt);
+  setTimeout(() => d.querySelector('.pcine-title').classList.add('show'), doorAt + 750);
   setTimeout(() => {
     d.classList.add('done');
     setTimeout(() => d.remove(), 900);
-  }, 3900);
+    pharosCeremonyRunning = false;
+    onDone?.();
+  }, doorAt + 2000);
 }
+function playPharosCutscene() { playPharosCeremony(3, null); }   // preview only
 
 /* ── the opening tour's caption card (bottom center, cinematic) ─────────── */
 let tourCapEl = null;
@@ -562,8 +581,9 @@ function showVerdictBanner(ok, text) {
 function announceBattle(b) {
   if (!b) return;
   if (b.is_pharos) {
-    playPharosCutscene();
-    setTimeout(() => showAnnounce('The Dark Lord', 'The final trial', '#a36cff'), 4200);
+    // the ceremony (seals + door + darkness) already played on ENTER — the
+    // door is open, so go straight to naming the foe waiting within
+    showAnnounce('The Dark Presence', 'The final trial', '#a36cff');
   } else if (b.is_lair) {
     const sub = b.escalation > 0 ? `Risen ×${b.escalation} — a rival came before you` : 'Your trial';
     showAnnounce(b.name, sub, '#ffb454');
@@ -1070,8 +1090,9 @@ function mapChipLabel(p) {
 }
 
 function renderMapBtn() {
-  // no chart in the Amber Vale — it's a maze, you navigate by canopy and luck
-  const inVale = world.currentStage?.() === 'autumn';
+  // no chart in the Amber Vale — it's a maze, you navigate by canopy and luck.
+  // DEV mode overrides this: the chart is always available for teleporting.
+  const inVale = world.currentStage?.() === 'autumn' && !devUnlocked;
   $('mapBtn').classList.toggle('hidden', !room || room.phase === 'lobby' || inVale);
   // modal phases and battles reclaim the screen — the chart rolls itself up
   if (mapOpen && (['question', 'minigame', 'reveal', 'upgrade_pick', 'finished', 'battle']
@@ -1084,7 +1105,7 @@ function toggleMap(open) {
   const want = open ?? !mapOpen;
   if (want === mapOpen) return;
   if (want) {
-    if (!world.enterMapView()) {
+    if (!world.enterMapView(devUnlocked)) {
       if (world.currentStage?.() === 'autumn') {
         toast('The Vale’s canopy hides the sky — no chart can help you here.');
       }
@@ -1227,6 +1248,15 @@ function renderTray() {
     trayHint(tray, 'A market isle — the trader spreads his wares.');
     if (shopClosed) trayBtn(tray, 'BROWSE THE STALL', 'build', () => { shopClosed = false; renderShop(); });
     trayBtn(tray, 'set sail on', 'ghost', () => send({ type: 'pass' }));
+  } else if (room.phase === 'pharos') {
+    // the tower door: ENTER plays the seal ceremony, then steps you through
+    // into the final trial against the Dark Presence
+    const seals = Math.min(me?.banked ?? 3, room.config?.relics_to_win ?? 3);
+    trayHint(tray, `${icon('crown', 15)} The Pharos looms — set your ${seals} seal${seals === 1 ? '' : 's'} and enter the tower.`);
+    trayBtn(tray, `${icon('crown', 14)} ENTER THE PHAROS`, 'gold big', () => {
+      if (pharosCeremonyRunning) return;
+      playPharosCeremony(seals, () => send({ type: 'pharos_enter' }));
+    });
   }
 }
 

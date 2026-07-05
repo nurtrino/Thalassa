@@ -220,6 +220,8 @@ async def dispatch(pid: str | None, kind: str, msg: dict) -> str | None:
             g.wager(pid, int(msg.get("tier", 0)))
         elif kind == "pass":
             g.pass_turn(pid)
+        elif kind == "pharos_enter":
+            g.enter_pharos(pid)
         elif kind == "repair":
             g.repair(pid)
         elif kind == "shop_buy":
@@ -327,6 +329,8 @@ async def bot_move(nonce: int, tag: str, pid: str):
         err = await dispatch(pid, "repair", {})
         if err:
             err = await dispatch(pid, "pass", {})
+    elif phase == "pharos":
+        err = await dispatch(pid, "pharos_enter", {})
     elif phase == "shop":
         buy = bots.decide_shop(g, pid)
         if buy:
@@ -393,7 +397,7 @@ async def bot_driver():
         if not g.players or g.current.pid not in table.bots:
             continue
         if g.phase in ("roll", "sail", "shrine", "haven", "shop", "battle",
-                       "question", "minigame", "upgrade_pick", "trade"):
+                       "question", "minigame", "upgrade_pick", "trade", "pharos"):
             if g.phase == "question" and g.question is None:
                 continue
             key = (g.nonce, g.phase)

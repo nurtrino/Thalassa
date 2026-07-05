@@ -1081,7 +1081,7 @@ export function makeRealmField(theme, nodes, segs, rng, heightAt = null) {
   // a worn dirt path laid over the trail: crisp ribbon quads down each lane
   // segment, riding the ground height so it never floats or sinks. The route
   // reads at a glance and the tree band stands well clear of it either side.
-  if (foot && segs.length) {
+  if (foot && theme.id !== 'autumn' && segs.length) {
     const HW = 2.6;                                 // path half-width
     const pathCol = theme.id === 'autumn' ? 0x8a6a3e : 0xc7a468;
     const verts = [];
@@ -1821,7 +1821,9 @@ export function buildIsland(node, theme, domains) {
   // the home port is hand-composed (dock, tower, palms) — no random set pieces
   if (node.type !== 'pharos' && node.type !== 'home') dressIsland(g, rng0, theme, R, terrain);
 
-  g.add(terrain.mesh);
+  // In the Amber Vale the POIs stand DIRECTLY on the shared forest floor — no
+  // raised pad at all, so nothing floats and nothing z-fights the ground.
+  if (!flatFoot) g.add(terrain.mesh);
   if (!flatFoot) addSkirt(R);          // no beach/leaf skirt around a flush pad
   g.position.set(node.x, 0, node.z);
   return { group: g, R, plateauY: terrain.heightAt(0) };

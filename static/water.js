@@ -102,6 +102,7 @@ export function makeGround(theme, size = 3000, opts = {}) {
   const cx = opts.center?.x ?? 0, cz = opts.center?.z ?? 0;
   const segs = opts.segs || [];                    // world-space [x0,z0,x1,z1]
   const isDesert = theme.id === 'desert';
+  const isFlat = theme.id === 'autumn';            // the Vale floor is dead flat
   const DUNE = isDesert ? 0.9 : 0;                 // subtle, broad desert swells
   const segDist = (wx, wz) => {
     if (!segs.length) return 1e9;
@@ -136,6 +137,10 @@ export function makeGround(theme, size = 3000, opts = {}) {
   // sand instead of floating above / sinking into the dunes). Only a NARROW
   // corridor along each road is flattened — the dune sea rolls right up to it.
   const heightAt = (wx, wz) => {
+    // the Amber Vale is a walked-through FOREST FLOOR, not a dune sea: keep it
+    // perfectly flat so every stepping stone, camp and barrow sits flush with
+    // the trees on one continuous plane — no floating pads, no z-fighting.
+    if (isFlat) return 0;
     const lx = wx - cx, lz = wz - cz;
     const r = Math.hypot(lx, lz);
     const bgAmp = 0.35 + smooth(110, 420, r) * 4.2;
@@ -166,7 +171,8 @@ export function makeGround(theme, size = 3000, opts = {}) {
     c.copy(sandDeep).lerp(sand, 0.45 + stripe * 0.55);
     if (y > 1.6) c.lerp(sandHot, Math.min(1, (y - 1.6) * 0.22)); // sunlit crests
     // paint the path: full dirt down the centre, feathering into a scuffed edge
-    const pd = segDist(x + cx, z + cz);
+    // (the Vale has NO worn trail — it's a maze, you find your own way)
+    const pd = isFlat ? 1e9 : segDist(x + cx, z + cz);
     if (pd < PATH_W + 2.2) {
       const core = 1 - smooth(PATH_W - 1.5, PATH_W + 2.2, pd);
       c.lerp(pd < PATH_W - 1 ? pathCol : pathEdge, core * (0.6 + stripe * 0.25));
@@ -176,7 +182,7 @@ export function makeGround(theme, size = 3000, opts = {}) {
   geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
   geo.computeVertexNormals();
 
-  const GY = -0.35;
+  const GY = isFlat ? 0 : -0.35;
   const mesh = new THREE.Mesh(geo,
     new THREE.MeshStandardMaterial({ vertexColors: true, flatShading: true, roughness: 1 }));
   mesh.position.y = GY;

@@ -597,8 +597,10 @@ export function createWorld(container, handlers = {}) {
         const gapA = (st.islands[a]?.R ?? 5) * 1.3, gapB = (st.islands[b]?.R ?? 5) * 1.3;
         if (len < gapA + gapB + 2) continue;
         if (na.mode === 'foot' || nb.mode === 'foot') {
-          // ON LAND the route is a real TRAIL: worn flagstones through the
-          // sand or the leaf-litter, not a ghost line on the ground
+          // The Amber Vale is a MAZE — no trail is drawn between stops at all;
+          // you read the forest and the glowing waypoints and find your own way.
+          if (st.theme.id === 'autumn') continue;
+          // The desert trail is a real line of worn flagstones through the sand.
           const stoneHex = st.theme.id === 'autumn' ? 0x8d7c60 : 0xe6d7ae;
           const trailRng = mulberry32(hashStr('trail:' + a + '~' + b));
           const run = len - gapA - gapB;
@@ -1779,10 +1781,12 @@ export function createWorld(container, handlers = {}) {
     return { minX: minX - 45, maxX: maxX + 45, minZ: minZ - 45, maxZ: maxZ + 45 };
   }
 
-  function enterMapView() {
+  function enterMapView(dev) {
     const st = stages[activeBoardId];
     if (!st || battleOn || mapMode || tour) return false;
-    if (st.theme.id === 'autumn') return false;  // the maze allows no chart
+    // the maze allows no chart in normal play — but DEV mode overrides it so
+    // you can see the whole Vale un-fogged and teleport anywhere in it
+    if (st.theme.id === 'autumn' && !dev) return false;
     const b = stageBounds(st);
     const extent = Math.max(b.maxX - b.minX, b.maxZ - b.minZ, 140);
     mapMode = {

@@ -483,6 +483,8 @@ def test_bank_and_pharos_open_and_win():
     p.prev_node = "home"
     set_pack(g, "pharos", [1])
     g._land(p, "pharos")
+    assert g.phase == "pharos"                 # the door ceremony beat first
+    g.enter_pharos(p.pid)                       # step THROUGH into the trial
     assert g.phase == "battle"
     g.stance(p.pid, "attack")
     put_question(g)
@@ -501,6 +503,28 @@ def test_pharos_locked_without_seals():
     p.node = nb
     g.roll(p0, 6)
     assert "pharos" not in g.reachable
+
+
+def test_pharos_takes_any_roll_and_gates_on_ceremony():
+    # With the seals banked the tower door admits ANY roll that reaches it —
+    # like a lair altar, no circling out front to line up an exact count — and
+    # landing there opens the CEREMONY beat, not the fight directly.
+    g, (p0, p1) = make_game()
+    g.pharos_open = True
+    p = g.player_by_pid(p0)
+    p.banked = RELICS_TO_WIN
+    nb = g.board.neighbors["pharos"][0]
+    p.node = nb
+    p.prev_node = nb
+    g.roll(p0, 3)                                  # far more than the 1 step needed
+    assert "pharos" in g.reachable
+    g.sail(p0, "pharos")
+    assert g.phase == "pharos"                     # the door ceremony, not battle
+    with pytest.raises(GameError):
+        g.enter_pharos(p1)                         # only the challenger may enter
+    g.enter_pharos(p0)
+    assert g.phase == "battle"
+    assert g.board.nodes["pharos"]["type"] == "pharos"
 
 
 # ── puzzles & upgrades ───────────────────────────────────────────────────────
@@ -1408,6 +1432,7 @@ def test_warden_resets_between_challengers():
     p.prev_node = p.node
     p.node = "pharos"
     g._land(p, "pharos")
+    g.enter_pharos(p0)                            # through the door into the trial
     warden = g.board.nodes["pharos"]["monster"]["enemies"][0]
     warden["hp"] = 2                              # nearly slain...
     g.stance(p0, "attack")
@@ -1685,6 +1710,7 @@ def test_boss_rotates_all_three_challenge_decks():
     p.prev_node = p.node
     p.node = "pharos"
     g._land(p, "pharos")
+    g.enter_pharos(p0)                            # through the door into the trial
     assert g.phase == "battle"
     modes = set()
     for rnd in range(6):

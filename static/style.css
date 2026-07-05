@@ -954,6 +954,32 @@ input:focus-visible, select:focus-visible {
   transition: opacity 1.2s ease-out;
 }
 .pcine-door.open .pcine-glow { opacity: 1; }
+/* the darkness that pours OUT of the open door: a black well that blooms from
+   the threshold and swells past the frame, tendrils of shadow spilling forth */
+.pcine-dark {
+  position: absolute; left: 50%; top: 54%; z-index: 3;
+  width: 10px; height: 10px; transform: translate(-50%, -50%) scale(0);
+  border-radius: 50%; pointer-events: none;
+  background: radial-gradient(circle at 50% 50%,
+    #000 0%, #05040a 42%, rgba(20, 8, 40, .82) 66%, rgba(30, 12, 54, 0) 82%);
+  box-shadow: 0 0 60px 30px rgba(4, 2, 12, .8);
+}
+.pcine-door.open .pcine-dark {
+  animation: pcdark 1.8s .55s cubic-bezier(.5, .1, .4, 1) forwards;
+}
+@keyframes pcdark {
+  0%   { transform: translate(-50%, -50%) scale(0); opacity: 0; }
+  30%  { opacity: 1; }
+  100% { transform: translate(-50%, -50%) scale(46); opacity: 1; }
+}
+.pcine-door.rumble { animation: pcrumble .6s .1s ease-in-out 3; }
+@keyframes pcrumble {
+  0%, 100% { transform: translate(0, 0); }
+  20% { transform: translate(-3px, 2px); }
+  40% { transform: translate(3px, -2px); }
+  60% { transform: translate(-2px, -3px); }
+  80% { transform: translate(2px, 3px); }
+}
 .pcine-sigils { display: none; }               /* sigils live on the door lintel */
 .pcsig {
   position: absolute; top: 8%; z-index: 2;
