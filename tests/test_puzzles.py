@@ -32,9 +32,11 @@ def test_battle_puzzles_are_tiered_and_exclude_slow_kinds():
             assert d["limit"] == puzzles.TIME_LIMITS[d["kind"]]
     allkinds = seen[1] | seen[2] | seen[3]
     assert "anagram" not in allkinds and "tetromino" not in allkinds
-    assert "memory" in seen[1]                    # the 4-item memory is tier I
+    # the memory trials lead the quick STRIKE tier: the 6-tone echo (simon) and
+    # the flashed-board recall (visual_memory)
+    assert "simon" in seen[1] and "visual_memory" in seen[1]
     assert "nonogram" in seen[3]                  # picross is tier III
-    assert "memory" not in seen[3] and "nonogram" not in seen[1]
+    assert "nonogram" not in seen[1]
 
 
 def test_memory_puzzle_generate_and_check():
@@ -45,6 +47,21 @@ def test_memory_puzzle_generate_and_check():
     assert all(d["seq"][i] != d["seq"][i - 1] for i in range(1, 4))   # no repeats
     assert puzzles.check("memory", d, d["seq"])
     assert not puzzles.check("memory", d, [0, 0, 0, 0])   # repeats can't be the seq
+
+
+def test_visual_memory_generate_and_check():
+    rng = random.Random(4)
+    d = puzzles.gen_visual_memory(rng)
+    assert d["n"] == 7 and d["lives"] == 3
+    assert len(d["flash"]) == 6 and len(set(d["flash"])) == 6
+    assert all(0 <= c < 49 for c in d["flash"])
+    assert puzzles.check("visual_memory", d, d["flash"])          # all found → win
+    assert puzzles.check("visual_memory", d, list(reversed(d["flash"])))  # order-free
+    assert not puzzles.check("visual_memory", d, d["flash"][:-1])  # one missed → fail
+    assert not puzzles.check("visual_memory", d, d["flash"] + [48])  # a stray → fail
+    dealt = puzzles.deal_kind(rng, "visual_memory")
+    assert dealt["kind"] == "visual_memory"
+    assert dealt["limit"] == puzzles.TIME_LIMITS["visual_memory"]
 
 
 # ── riddle (typed answer) ────────────────────────────────────────────────────

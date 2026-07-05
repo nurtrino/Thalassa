@@ -1518,9 +1518,10 @@ class Game:
             if ok:
                 self.minigame = None
                 self._resolve_battle(True, -2, None, challenge="puzzle")
-            elif mg["kind"] in ("simon", "memory", "ravens"):
-                # a SINGLE-PICK trial (echo, or the one missing pattern tile):
-                # the guess stands whether right or wrong — a miss is a botched
+            elif mg["kind"] in ("simon", "memory", "ravens", "visual_memory"):
+                # a ONE-ATTEMPT trial (echo the tones, the one missing pattern
+                # tile, or the flashed board recalled until the lives run out):
+                # the result stands whether right or wrong — a miss is a botched
                 # round, not a free retry. (Without ravens here a wrong tile
                 # only raised "not solved" and let you keep clicking, so the
                 # fight seemed to accept ONLY the correct tile.)
@@ -1545,9 +1546,9 @@ class Game:
             return
         if ok:
             self._puzzle_success(mg["island"])
-        elif mg["kind"] in ("simon", "memory", "ravens"):
-            # a single-pick challenge (the echo, the pattern tile): one wrong
-            # answer ENDS it — no reward, no picking again at the same obelisk
+        elif mg["kind"] in ("simon", "memory", "ravens", "visual_memory"):
+            # a one-attempt challenge (the echo, the pattern tile, the flashed
+            # board): one failed run ENDS it — no reward, no retry at the obelisk
             self._puzzle_fail(mg["island"])
         else:
             raise GameError("Not solved yet — the isle waits.")

@@ -32,6 +32,7 @@ const MG_LABEL = {
   ravens: 'The Pattern of Fate', riddle: 'Riddle of the Isle',
   sequence: 'The Fates’ Thread', lights_out: 'The Gorgon’s Gaze',
   sliding: 'The Shifting Mosaic', memory: 'The Muses’ Whisper',
+  visual_memory: 'The Mnemosyne Board',
 };
 const MG_PROMPT = {
   tetromino: 'Drag each piece onto the grid. No rotating — they fit as given.',
@@ -44,6 +45,7 @@ const MG_PROMPT = {
   lights_out: 'Tap to toggle a stone and its neighbours. Darken them all.',
   sliding: 'Slide the tiles into order, 1 to 8, blank last.',
   memory: 'Watch the four, then echo them back. One wrong note fails it.',
+  visual_memory: 'Memorise the lit tiles, then click them all back. Three misses and it fails.',
 };
 const TIER_ROMAN = { 1: 'I', 2: 'II', 3: 'III' };
 const UP_ICON = {
@@ -2117,6 +2119,7 @@ function renderMinigame() {
   if (m.kind === 'tetromino') renderTetromino(board, m, mine, fresh);
   else if (m.kind === 'nonogram') renderNonogram(board, m, mine, fresh);
   else if (m.kind === 'simon' || m.kind === 'memory') renderSimon(board, m, mine, fresh);
+  else if (m.kind === 'visual_memory') renderVisualMemory(board, m, mine, fresh);
   else if (m.kind === 'anagram') renderAnagram(board, m, mine, fresh);
   else if (m.kind === 'ravens') renderRavens(board, m, mine, fresh);
   else if (m.kind === 'riddle') renderRiddle(board, m, mine, fresh);
@@ -2368,6 +2371,65 @@ function renderSimon(board, m, mine, fresh) {
       }
     }, 800 + k * 700);
   });
+}
+
+/* visual memory (Human Benchmark): a 7×7 board flashes a set of tiles; memorise
+   them, then click them all back. Three misses (lives) ends it. The lit set is
+   public (the client has to flash it) — the server just checks the picks. */
+function renderVisualMemory(board, m, mine, fresh) {
+  if (!fresh) return;
+  board.innerHTML = '';
+  const N = m.n || 7;
+  const flashSet = new Set(m.flash || []);
+  const hearts = (n) => '♥'.repeat(Math.max(0, n)) + '♡'.repeat(Math.max(0, (m.lives || 3) - n));
+  mg.found = [];
+  mg.lives = m.lives || 3;
+  mg.watched = false;
+  const grid = document.createElement('div');
+  grid.className = 'vmgrid';
+  grid.style.setProperty('--vmn', N);
+  const tiles = [];
+  const finish = (won) => {
+    mg.watched = false;
+    tiles.forEach((t) => { t.disabled = true; });
+    // send the set we uncovered; a complete set wins, a partial (out of lives)
+    // is a botched round — the server resolves it either way
+    send({ type: 'solve', payload: mg.found.slice() });
+    $('mgnote').textContent = won ? 'The pattern holds!' : 'The pattern slips away…';
+  };
+  for (let i = 0; i < N * N; i++) {
+    const t = document.createElement('button');
+    t.className = 'vmcell';
+    t.disabled = true;
+    t.onclick = () => {
+      if (!mine || !mg.watched || t.classList.contains('found')) return;
+      if (flashSet.has(i)) {
+        t.classList.add('found');
+        mg.found.push(i);
+        if (mg.found.length === flashSet.size) { finish(true); return; }
+        $('mgnote').textContent = `Lives ${hearts(mg.lives)} · ${mg.found.length}/${flashSet.size} found`;
+      } else {
+        t.classList.add('miss');
+        setTimeout(() => t.classList.remove('miss'), 420);
+        mg.lives -= 1;
+        if (mg.lives <= 0) { finish(false); return; }
+        $('mgnote').textContent = `Lives ${hearts(mg.lives)} · ${mg.found.length}/${flashSet.size} found`;
+      }
+    };
+    tiles.push(t);
+    grid.appendChild(t);
+  }
+  board.appendChild(grid);
+  // the flash: light every tile in the set at once, hold, then hide & unlock
+  $('mgnote').textContent = 'Memorise the lit tiles…';
+  for (const i of flashSet) tiles[i]?.classList.add('lit');
+  setTimeout(() => {
+    for (const i of flashSet) tiles[i]?.classList.remove('lit');
+    if (!mine) { $('mgnote').textContent = ''; return; }
+    mg.watched = true;
+    tiles.forEach((t) => { t.disabled = false; });
+    $('mgnote').textContent = `Lives ${hearts(mg.lives)} · click the tiles you saw`;
+  }, 2400);
 }
 
 /* anagram */

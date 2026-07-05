@@ -1343,6 +1343,44 @@ body.shake #world { animation: shake .45s; }
 }
 .mgpad:not(:disabled):active { transform: scale(.94); }
 
+/* visual memory — the Mnemosyne Board (Human-Benchmark style flash-and-recall) */
+.vmgrid {
+  display: grid;
+  grid-template-columns: repeat(var(--vmn, 7), 1fr);
+  gap: 6px;
+  width: min(80vw, 360px);
+  margin: 0 auto;
+}
+.vmcell {
+  aspect-ratio: 1;
+  border-radius: 8px;
+  border: 1px solid rgba(10, 16, 22, .5);
+  background: #38618f;
+  box-shadow: inset 0 2px 0 rgba(255, 255, 255, .12), inset 0 -3px 5px rgba(0, 0, 0, .28);
+  transition: background .12s, transform .1s, box-shadow .15s;
+  padding: 0;
+}
+.vmcell:not(:disabled) { cursor: pointer; }
+.vmcell:not(:disabled):hover { background: #43719f; }
+.vmcell.lit {
+  background: #fbf6e9;
+  box-shadow: 0 0 16px rgba(251, 246, 233, .85), inset 0 2px 0 rgba(255, 255, 255, .4);
+  transform: scale(1.04);
+}
+.vmcell.found {
+  background: linear-gradient(180deg, #fff4cf, #e9c46a);
+  box-shadow: 0 0 14px rgba(233, 196, 106, .7), inset 0 1px 0 rgba(255, 255, 255, .6);
+}
+.vmcell.miss {
+  background: var(--blood, #b23a2e);
+  animation: vmshake .22s;
+}
+@keyframes vmshake {
+  0%, 100% { transform: translateX(0); }
+  25% { transform: translateX(-3px); }
+  75% { transform: translateX(3px); }
+}
+
 .agletters { display: flex; gap: 6px; flex-wrap: wrap; justify-content: center; }
 .agtile {
   width: 42px; height: 48px;
