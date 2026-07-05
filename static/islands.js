@@ -1105,9 +1105,11 @@ export function makeRealmField(theme, nodes, segs, rng, heightAt = null) {
     pathMesh.renderOrder = 1;
     g.add(pathMesh);
   }
-  if (foot) {
+  if (foot && theme.id !== 'autumn') {
+    // ruins + boulders belong to the open desert; the Vale floor stays clear of
+    // rocky bumps — just trees, litter and the odd camp
     scatter(7, 11, 16, 120, prop(['boulder', 'ruined_column', 'broken_statue', 'cairn', 'ruined_arch'], 0.7, 1.3));
-  } else {
+  } else if (!foot) {
     scatter(6, 12, 17, 120, prop(['boulder'], 0.7, 1.2));   // sea stacks
   }
   if (theme.id === 'ice') {
@@ -1128,12 +1130,12 @@ export function makeRealmField(theme, nodes, segs, rng, heightAt = null) {
     scatter(20, 12, 16, 240, () => propGroup('dead_scrub', 0.8 + rng() * 0.6));
     scatter(9, 22, 24, 240, () => propGroup('cairn', 1.0 + rng() * 0.6));
   } else if (theme.id === 'autumn') {
-    // the Vale is a THICK wood: trees crowd right up to the very edge of the
-    // path (laneClear 4.5 — just clear of the stones) and pack deep into the
-    // wilds, so the winding trail is a corridor cut through dense forest.
+    // the Vale is a THICK wood on a FLAT floor: trees crowd right up to the
+    // corridors and pack deep into the wilds — but no rocky bumps, boulders or
+    // cairns, just soft forest-floor litter (fallen trunks, mushrooms) and the
+    // occasional woodland camp.
     scatter(1600, 4.5, 5, 110, () => floraFor(theme, rng, 1.1 + rng() * 0.9));
-    scatter(80, 5, 6, 110, () => makeRock(rng, 0.4 + rng() * 0.7, theme.palette.rock));
-    scatter(30, 5, 7, 110, prop(['dead_tree', 'mushroom_cluster', 'boulder', 'cairn'], 0.7, 1.4));
+    scatter(30, 5, 7, 110, prop(['dead_tree', 'mushroom_cluster'], 0.7, 1.4));
     scatter(20, 5, 7, 110, prop(['autumn_tree', 'campfire', 'stone_well', 'barrel', 'waymarker_stone'], 0.8, 1.5));
   } else {
     // hub / aegean open water: flotsam only — the good stuff is ashore

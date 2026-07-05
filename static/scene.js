@@ -437,13 +437,15 @@ export function createWorld(container, handlers = {}) {
           realm: n.region,
         }));
       wall = buildMountainWall({ radius: 560, gates, theme });
-    } else {
+    } else if (theme.id !== 'autumn') {
+      // The Amber Vale has NO mountain backdrop — it's a flat wood that just
+      // fades into fog at the edges. Every other realm gets its crescent ridge.
       wall = buildRealmBackdrop(theme, { radius: 520 });
       wall.position.set(center.x, 0, center.z);
       const gate = memberNodes(stageId, room).find((n) => n.type === 'gate');
       if (gate) wall.rotation.y = Math.atan2(gate.x - center.x, gate.z - center.z) + Math.PI;
     }
-    scene.add(wall);
+    if (wall) scene.add(wall);
 
     /* the wilds between the stops: berg fields, dune seas, vine channels,
        or the Vale's unbroken forest — every realm is FULL, no empty water */
