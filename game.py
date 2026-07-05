@@ -195,6 +195,7 @@ class Game:
         self.question: dict | None = None
         self.question_deadline: float | None = None
         self.dodge_deadline: float | None = None
+        self.gate_walk: dict | None = None   # pending carry-through at a pass
         self.side_answers: dict[str, int] = {}
         self.reveal: dict | None = None
         self.battle: dict | None = None    # {node, stance, used_items, first_hit_taken}
@@ -659,7 +660,23 @@ class Game:
             self._bump("minigame")
             return
 
-        if ntype == "sea":
+        if ntype == "gate":
+            # the pass CARRIES YOU THROUGH: a beat after landfall the server
+            # walks you on to the far side's first waypoint, so you spawn
+            # inside the region proper, never standing in the arch. Only
+            # when the far side has ONE obvious first stop — a forked mouth
+            # (the Amber Vale's) still offers its choice.
+            region = node.get("region")
+            from_realm = (self.board.nodes.get(p.prev_node, {})
+                          .get("region") == region)
+            cands = [nb for nb in self.board.neighbors.get(nid, [])
+                     if ((self.board.nodes[nb].get("region") == region)
+                         != from_realm)
+                     and self.board.nodes[nb].get("owner") in (None, p.pid)]
+            if len(cands) == 1:
+                self.gate_walk = {"pid": p.pid, "gate": nid, "to": cands[0]}
+            self._end_turn()
+        elif ntype == "sea":
             self._end_turn()
         elif ntype == "home":
             self._bank(p)
@@ -1690,6 +1707,7 @@ class Game:
         self.winner = None
         self.battle = None
         self.dodge_deadline = None
+        self.gate_walk = None
         self.pharos_open = False
         self.kraken = None
         self.used_puzzles = set()

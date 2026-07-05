@@ -200,9 +200,26 @@ async def dodge_timer(nonce: int, limit: float):
         await broadcast()
 
 
+async def gate_walk_task(pid: str, gate: str, dest: str):
+    """The pass carries you through: a beat after landfall, walk the captain
+    on to the far side's first waypoint (they spawn IN the region, never
+    standing in the arch). Positional only — no landing effects fire."""
+    await asyncio.sleep(1.8)
+    g = table.game
+    p = g.player_by_pid(pid)
+    if p and p.node == gate:              # still standing in the arch
+        p.prev_node = p.node
+        p.node = dest
+        g.nonce += 1
+        await broadcast()
+
+
 def after_phase_change():
     """Kick off whatever the new phase demands (fetches, timers)."""
     g = table.game
+    if getattr(g, "gate_walk", None):
+        gw, g.gate_walk = g.gate_walk, None
+        schedule(gate_walk_task(gw["pid"], gw["gate"], gw["to"]))
     if g.phase == "question" and g.question is None:
         schedule(fetch_question(g.nonce))
     elif g.phase == "minigame" and g.minigame and g.minigame["deadline"] is None:
