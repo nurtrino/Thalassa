@@ -68,7 +68,11 @@ export function makeWater(theme, size = 3000) {
         N.z += (sin(vW.z*2.27 - t*1.8) + sin((vW.x-vW.z)*0.83 + t*1.1)
               + sin(vW.z*0.41 - vW.x*1.13 - t*1.2)) * 0.014 * chop;
         N = normalize(N);
-        float lift = clamp(0.62 + N.x*1.4 + N.z*0.9, 0.0, 1.0);
+        // wave-normal shading, but with a raised FLOOR and a gentler swing so
+        // troughs don't sink to the dark deep-colour — that trough darkening,
+        // sweeping past as the camera/boat moves, read as drifting "cloud
+        // shadows" on the open sea (nothing actually casts a shadow there).
+        float lift = clamp(0.70 + N.x*0.9 + N.z*0.58, 0.4, 1.0);
         vec3 c = mix(deep, shallow, lift * 0.75);
         float fres = pow(1.0 - max(dot(N, V), 0.0), 3.0);
         c = mix(c, sky, fres * 0.60);

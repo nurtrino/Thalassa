@@ -1780,7 +1780,7 @@ function renderBattle() {
     (b.boss ? roundPips : '') +
     (b.escalation > 0 ? ` <span class="escalated" title="A rival already felled this guardian — it rises harder for you. Reach the trial first to face its weakest form.">Risen ×${b.escalation}</span>` : '') +
     (b.charging
-      ? `<div class="chargewarn">${icon('guard', 13)} CHARGING — a heavy blow comes. Guard it.</div>`
+      ? `<div class="chargewarn">${icon('guard', 13)} CHARGING — a heavy blow comes. Dodge it.</div>`
       : '');
 
   /* enemy cards — fat HP cells only; the count reads from the cells */
@@ -2597,10 +2597,10 @@ function renderModal() {
           Isles of Peace. Beyond each lies a realm, and the deeper you press, the
           harder its packs bite.</li>
         <li><strong>Fight</strong> — answer to STRIKE (tier I–II) or cast
-          MAGIC (III). Tyrants telegraph <strong>heavy blows</strong> — GUARD
-          (I) reads the blow and <strong>drives it back on the attacker</strong>
-          (doubled on a heavy). Pitch &amp; planks patch the hull, even
-          mid-battle.</li>
+          MAGIC (III). When a foe strikes back, time your <strong>DODGE</strong>
+          on the beat — read it right and the blow is <strong>halved</strong>
+          (tyrants telegraph a heavier one). Pitch &amp; planks patch the hull,
+          even mid-battle.</li>
         <li><strong>Haul it home</strong> — slay a realm's tyrant to take its
           sigil seal. Shipwreck drops it back at the lair; sail home and bank
           it to make it safe.</li>
