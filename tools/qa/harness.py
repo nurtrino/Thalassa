@@ -190,7 +190,9 @@ class Client:
     async def shot(self, path, delay=400):
         await self.page.wait_for_timeout(delay)
         os.makedirs(os.path.dirname(path), exist_ok=True)
-        await self.page.screenshot(path=path)
+        # the tree-dense Vale can take >30s to snapshot under swiftshader —
+        # a slow frame must not crash the suite
+        await self.page.screenshot(path=path, timeout=90000)
 
 
 @contextlib.asynccontextmanager

@@ -96,6 +96,19 @@ export function propGroup(id, scale = 1, castShadow = true) {
     const c = t.clone(true);
     c.scale.multiplyScalar(scale);
     if (!castShadow) c.traverse((o) => { if (o.isMesh) o.castShadow = false; });
+    // RE-GROUND at the final scale. The template's ground offset was baked
+    // for scale 1, but many Meshy models pivot near their VERTICAL CENTRE —
+    // so scaling up (the Vale's ×5–10 titan trees) dragged the base metres
+    // below the floor and the trunks clipped into the ground. Clear that
+    // offset and seat the SCALED base on y≈0, with a small sink (capped, so
+    // giants don't bury) to hide any base slab.
+    c.position.set(0, 0, 0);
+    c.updateMatrixWorld(true);
+    const bb = new THREE.Box3().setFromObject(c);
+    if (isFinite(bb.min.y)) {
+      const sink = Math.min(0.4, 0.08 * (bb.max.y - bb.min.y));
+      c.position.y = -bb.min.y - sink;
+    }
     g.add(c);
   });
   return g;
