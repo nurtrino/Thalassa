@@ -1599,9 +1599,17 @@ class Game:
         if crossing and self.vale_barrow_seen:
             return None                                  # the finale reveals all
         viewer = self.player_by_pid(viewer_pid)
-        if crossing and (viewer is None or viewer.pid != walker.pid):
-            return set()                                 # spectators: thick fog
-        return viewer.discovered if viewer else set()
+        if viewer is None:
+            return set()
+        # you ALWAYS see the stop you are standing on and the forks off it — you
+        # never lose sight of your own ground (this also covers a dev teleport
+        # that dropped you in before you had discovered anything).
+        here = set()
+        if self._in_vale(viewer.node):
+            here = {viewer.node} | set(self.board.neighbors.get(viewer.node, []))
+        if crossing and viewer.pid != walker.pid:
+            return here                                  # spectators: only their own spot
+        return viewer.discovered | here
 
     def to_dict(self, viewer_pid: str | None = None) -> dict:
         vale_vis = self._vale_visible(viewer_pid)

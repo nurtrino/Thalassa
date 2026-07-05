@@ -289,6 +289,8 @@ async def dispatch(pid: str | None, kind: str, msg: dict) -> str | None:
             if p and node in g.board.nodes:
                 p.prev_node = p.node
                 p.node = node
+                if g.board.nodes[node].get("region") == "autumn":
+                    g._reveal(p, node)         # dropping into the Vale lights it
                 if msg.get("land"):
                     g._land(p, node)
                 else:
