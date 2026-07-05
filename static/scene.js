@@ -652,10 +652,16 @@ export function createWorld(container, handlers = {}) {
     return new THREE.Vector3((n?.x ?? 0) + Math.cos(a) * r, 0, (n?.z ?? 0) + Math.sin(a) * r);
   }
 
+  /* an open-sea waypoint can still be SOLID GROUND — an islet or a rock
+     stack — and the hull must treat it like any other island */
+  function seaSolid(n) {
+    return n?.type === 'sea' && (n.look === 'islet' || n.look === 'rocks');
+  }
+
   function lanePoint(nid, fromPos, st) {
     const n = nodeById[nid];
     const p = new THREE.Vector3(n.x, 0, n.z);
-    if (n.type !== 'sea') {
+    if (n.type !== 'sea' || seaSolid(n)) {
       const r = (st?.islands[nid]?.R ?? 8) * 1.25 + 3.5;
       _vD.subVectors(p, fromPos).normalize();
       p.x += -_vD.z * r;
@@ -747,7 +753,15 @@ export function createWorld(container, handlers = {}) {
     const solids = [];
     for (const [nid, isle] of Object.entries(st.islands)) {
       const n = nodeById[nid];
-      if (!n || n.type === 'sea' || n.type === 'gate') continue;
+      if (!n || n.type === 'gate') continue;
+      if (n.type === 'sea') {
+        // bare islets and rock stacks on the lanes are land too — the hull
+        // arcs around them instead of ploughing through (slightly tighter
+        // clearance so the berth beside them stays reachable)
+        if (!seaSolid(n)) continue;
+        solids.push({ x: n.x, z: n.z, r: (isle.R ?? 4) * 1.2 + 2.8 });
+        continue;
+      }
       solids.push({ x: n.x, z: n.z, r: (isle.R ?? 8) * 1.2 + HULL_CLEAR });
     }
     const pts = [];
