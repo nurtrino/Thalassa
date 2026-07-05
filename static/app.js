@@ -106,8 +106,10 @@ function resetTransient() {
 }
 
 /* ── boot ───────────────────────────────────────────────────────────────── */
+let devUnlocked = false;
 world = createWorld($('world'), {
   onNodeClick(nodeId) {
+    if (devUnlocked) { devTeleport(nodeId, false); return; }   // dev: click to jump
     if (room && room.phase === 'sail' && room.turn === you &&
         nodeId in (room.reachable || {})) {
       audio.sfx.sail();
@@ -156,6 +158,58 @@ world = createWorld($('world'), {
     }
   },
 });
+
+/* ── dev teleport panel — double-tap the T in THALASSA, enter code 783 ─────
+ * Unlocks a floating bar to jump between regions, and turns every node click
+ * into a teleport (server accepts the dev message when the 783 code rides
+ * along). Meant for the game's owner to hop around while testing. */
+const DEV_REGIONS = [
+  ['hub', 'Isles of Peace'], ['ice', 'Frostfang Reach'],
+  ['desert', 'Bleached Reach'], ['jungle', 'Verdigris Deep'],
+  ['autumn', 'Amber Vale'], ['pharos', 'The Pharos'],
+];
+function devRegionNode(region) {
+  const nodes = room?.board?.nodes || [];
+  const pick = (pred) => nodes.find(pred)?.id;
+  if (region === 'hub') return pick((n) => n.type === 'home') || pick((n) => !n.region);
+  if (region === 'pharos') return pick((n) => n.type === 'pharos');
+  for (const t of ['haven', 'shrine', 'home', 'sea', 'gate']) {
+    const id = pick((n) => n.region === region && n.type === t);
+    if (id) return id;
+  }
+  return pick((n) => n.region === region);
+}
+function devTeleport(node, land) {
+  if (!node || !ws || ws.readyState !== 1) return;
+  send({ type: 'dev', node, land: !!land, code: '783' });
+}
+function buildDevBar() {
+  if (document.getElementById('devBar')) { document.getElementById('devBar').remove(); return; }
+  const bar = document.createElement('div');
+  bar.id = 'devBar';
+  bar.innerHTML = '<div class="dev-title">DEV · teleport</div>';
+  for (const [reg, label] of DEV_REGIONS) {
+    const b = document.createElement('button');
+    b.className = 'dev-btn';
+    b.textContent = label;
+    b.onclick = () => devTeleport(devRegionNode(reg), false);
+    bar.appendChild(b);
+  }
+  const hint = document.createElement('div');
+  hint.className = 'dev-hint';
+  hint.textContent = 'Click any stop on the map to jump there.';
+  bar.appendChild(hint);
+  document.body.appendChild(bar);
+}
+(function devUnlockInit() {
+  const t = document.getElementById('devT');
+  if (!t) return;
+  t.addEventListener('dblclick', (e) => {
+    e.preventDefault();
+    if (devUnlocked) { buildDevBar(); return; }        // toggle the bar
+    if (prompt('Dev code:') === '783') { devUnlocked = true; buildDevBar(); }
+  });
+})();
 
 $('nameInput').value = localStorage.getItem('thalassa_name') || '';
 

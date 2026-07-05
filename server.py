@@ -254,9 +254,10 @@ async def dispatch(pid: str | None, kind: str, msg: dict) -> str | None:
                           if g.player_by_pid(b) is not None}
         elif kind == "rematch":
             g.rematch(pid)
-        elif kind == "dev" and os.environ.get("DEV_CHEATS") == "1":
-            # test harness only (never set DEV_CHEATS in production):
-            # teleport-and-land for driving the client into specific states
+        elif kind == "dev" and (os.environ.get("DEV_CHEATS") == "1"
+                                or str(msg.get("code")) == "783"):
+            # dev teleport — the test harness (DEV_CHEATS) or the in-game dev
+            # panel (unlocked with code 783): teleport-and-(maybe)-land
             p = g.player_by_pid(pid)
             if p and msg.get("win"):           # force the curtain call
                 g.winner = p.pid

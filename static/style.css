@@ -1843,3 +1843,19 @@ body.touring #mapBtn, body.touring #dice, body.touring #shopPanel { display: non
   padding: 11px 18px; border-radius: 9px; cursor: pointer; letter-spacing: .08em;
 }
 #victoryOv .vwait { color: #8d97ab; font-style: italic; font-size: 13px; }
+
+/* ── dev teleport panel (unlocked by double-tapping the T, code 783) ─────── */
+#devBar {
+  position: fixed; right: 12px; bottom: 12px; z-index: 9999;
+  background: rgba(12, 16, 22, 0.93); border: 1px solid #2a3341; border-radius: 10px;
+  padding: 8px; display: flex; flex-direction: column; gap: 5px;
+  font: 12px/1.2 system-ui, sans-serif; color: #cfe0f0;
+  box-shadow: 0 4px 18px rgba(0, 0, 0, 0.5);
+}
+#devBar .dev-title { color: #7fe0a0; font-weight: 700; letter-spacing: 1px; margin-bottom: 2px; }
+#devBar .dev-btn {
+  background: #1b2531; color: #e6eef7; border: 1px solid #33465a; border-radius: 6px;
+  padding: 5px 9px; cursor: pointer; text-align: left;
+}
+#devBar .dev-btn:hover { background: #24405c; }
+#devBar .dev-hint { color: #8aa0b4; font-size: 11px; margin-top: 3px; max-width: 160px; }
