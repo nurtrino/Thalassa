@@ -24,7 +24,11 @@ export const REALM_INFO = {
 const THEMES = {
   hub: {
     id: 'hub',
-    water: { deep: 0x1272a8, shallow: 0x3fd0cf, sparkle: 1.0, chop: 1.0 },
+    // deep lifted toward the shallow tone so a steep, looking-down view no
+    // longer reads as soft dark ovals drifting on the sea (the water shows
+    // less sky the more square-on you look at it — the old deep was dark
+    // enough that those patches looked like cloud shadows)
+    water: { deep: 0x1f8fbf, shallow: 0x3fd0cf, sparkle: 1.0, chop: 1.0 },
     ground: 'water',
     sky: { zenith: 0x2c86d8, mid: 0x8fd0ee, horizon: 0xfdeed3 },
     fog: { color: 0xcfe9f3, near: 90, far: 520 },
