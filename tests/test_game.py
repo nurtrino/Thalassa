@@ -37,9 +37,20 @@ def put_question(g, correct=0):
     g.set_question({"text": "Q?", "options": ["a", "b", "c", "d"], "correct": correct})
 
 
+def advance_to_dodge(g):
+    """A counter no longer interrupts the instant you answer: first the
+    YOUR-move reveal shows the verdict, THEN the foe winds up into the DODGE
+    beat. Advance the pending reveal so the dodge phase is reached."""
+    if g.phase == "reveal" and g.battle and g.battle.get("incoming"):
+        g.advance_after_reveal()
+    return g.phase
+
+
 def land_blow(g, hit=False):
-    """An enemy's counter now waits on the DODGE beat: resolve it. hit=True
-    is a read dodge (half the blow nulled); False lets it land full."""
+    """An enemy's counter waits on the DODGE beat, which itself follows the
+    your-move reveal. Advance through both to resolve it. hit=True is a read
+    dodge (half the blow nulled); False lets it land full."""
+    advance_to_dodge(g)
     if g.phase == "dodge":
         g.dodge(g.current.pid, hit)
 
@@ -1715,7 +1726,8 @@ def test_boss_counters_even_when_you_hit():
     g.stance(p0, "attack")
     put_question(g)
     g.answer(p0, 0)                               # correct strike
-    assert g.phase == "dodge"                     # the counter still comes
+    assert g.phase == "reveal"                    # your move is shown first…
+    assert advance_to_dodge(g) == "dodge"         # …THEN the counter winds up
     land_blow(g)
     assert g.reveal["enemy_phase"]["dealt"] >= 1  # you drew blood
     assert p.hull < G.MAX_HULL                    # ...and still got hit back
@@ -1766,7 +1778,7 @@ def test_boss_heavy_telegraph_cycle_and_dodge():
     g.stance(p0, "attack")
     put_question(g, correct=2)
     g.answer(p0, 2)
-    assert g.phase == "dodge"
+    assert advance_to_dodge(g) == "dodge"
     land_blow(g, hit=True)
     ep = g.reveal["enemy_phase"]
     assert ep["heavy"] and ep["dodged"]
@@ -1784,7 +1796,7 @@ def test_dodge_halves_the_blow():
     g.stance(p0, "attack")
     put_question(g, correct=0)
     g.answer(p0, 1)                               # miss → the blow comes
-    assert g.phase == "dodge"
+    assert advance_to_dodge(g) == "dodge"
     land_blow(g, hit=True)                        # read it → half nulled
     ep = g.reveal["enemy_phase"]
     assert ep["dodged"] and ep["dmg"] == power // 2
@@ -1800,7 +1812,7 @@ def test_dodge_timeout_lands_the_full_blow():
     g.stance(p0, "attack")
     put_question(g, correct=0)
     g.answer(p0, 1)
-    assert g.phase == "dodge"
+    assert advance_to_dodge(g) == "dodge"
     g.dodge_timeout()                             # asleep at the tiller
     ep = g.reveal["enemy_phase"]
     assert not ep.get("dodged") and ep["dmg"] == power
@@ -1843,9 +1855,10 @@ def test_boss_enrages_at_half_strength():
     g.stance(p0, "magic")
     put_question(g)
     g.answer(p0, 0)
-    land_blow(g)                                  # boss counter → dodge beat
+    # the enrage fires with YOUR move, so it reads in the your-move reveal
     assert m["enraged"] and e["power"] == power_before + 1
     assert "ENRAGES" in g.reveal["note"]
+    land_blow(g)                                  # boss counter → dodge beat
 
 
 def test_boss_battle_state_is_published():
@@ -2128,9 +2141,9 @@ def test_battle_puzzle_failure_gets_you_hit():
     g.stance(p0, "attack")
     assert g.phase == "minigame"
     g.resolve_minigame(False)
-    land_blow(g)                                        # the punishment lands
-    assert g.reveal["challenge"] == "puzzle"
+    assert g.reveal["challenge"] == "puzzle"            # your-move reveal first
     assert not g.reveal["was_correct"]
+    land_blow(g)                                        # the punishment lands
     assert p.hull < G.MAX_HULL                          # the pack punished the miss
 
 

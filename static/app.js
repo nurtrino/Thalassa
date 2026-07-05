@@ -693,16 +693,25 @@ function reactAudio(prev, next) {
     const rv = next.reveal;
     revealCardDropped = false;
     if (rv.kind === 'battle') {
-      // 1) the VERDICT: right or wrong, shown plainly on its own…
-      if (rv.was_correct) audio.sfx.correct(); else audio.sfx.wrong();
-      if (rv.challenge === 'puzzle') {
-        revealCardDropped = true;             // puzzle rounds have no card
-        setBTurn(rv.was_correct
-          ? `${icon('laurel', 16)} <strong>PUZZLE SOLVED!</strong>`
-          : `${icon('skull', 16)} the puzzle stands — <strong>you falter…</strong>`);
+      const enemyTurn = !!rv.enemy_phase?.enemy_turn;
+      if (enemyTurn) {
+        // the ENEMY-TURN reveal: no card, no verdict chime — the foe has
+        // wound up (the dodge beat just passed) and the blow lands now
+        revealCardDropped = true;
+        renderQuestion(); renderBattle();
+        playBattleBeats(rv);
+      } else {
+        // 1) the VERDICT: right or wrong, shown plainly on its own…
+        if (rv.was_correct) audio.sfx.correct(); else audio.sfx.wrong();
+        if (rv.challenge === 'puzzle') {
+          revealCardDropped = true;           // puzzle rounds have no card
+          setBTurn(rv.was_correct
+            ? `${icon('laurel', 16)} <strong>PUZZLE SOLVED!</strong>`
+            : `${icon('skull', 16)} the puzzle stands — <strong>you falter…</strong>`);
+        }
+        // 2) …then half a beat later the card clears and YOUR move plays
+        beat(500, () => { revealCardDropped = true; renderQuestion(); renderBattle(); playBattleBeats(rv); });
       }
-      // 2) …then half a beat later the card clears and the blows land
-      beat(500, () => { revealCardDropped = true; renderQuestion(); renderBattle(); playBattleBeats(rv); });
     } else if (rv.was_correct) audio.sfx.correct();
     else audio.sfx.wrong();
   }
@@ -802,8 +811,13 @@ function setBTurn(text) {
   if (el) el.innerHTML = text;
 }
 
-/* the two beats of a battle round: YOUR MOVE resolves, then the ENEMY'S.
- * Legacy timing feel preserved (900 / 1500 / 2200 / 2600ms). */
+/* A battle exchange now plays across TWO reveals with the DODGE beat wedged
+ * between them, so it never blurs together:
+ *   1) YOUR MOVE reveal — the verdict (right/wrong) and your strike, shown
+ *      plainly. If a counter is coming, ep.pending is set and we STOP here.
+ *   2) …the foe winds up → the DODGE action command → the ENEMY-TURN reveal
+ *      (ep.enemy_turn), where the blow actually lands.
+ * Backfires and clean evades have no counter, so they still play in one go. */
 function playBattleBeats(rv) {
   const ep = rv.enemy_phase || {};
   // if a blow is about to land on the hero, hold the hearts at the pre-hit
@@ -818,71 +832,73 @@ function playBattleBeats(rv) {
     ? myStance
     : (ep.dealt >= 3 ? 'magic' : 'attack');
   const foe = esc(ep.attacker || 'the beast');
-  // the dodge verdict colours the enemy's beat
-  const blowText = ep.dodged
-    ? `${foe} ${ep.heavy ? 'swings a <strong>HEAVY BLOW</strong>' : 'strikes'} — <strong>you twist aside!</strong> `
-      + (ep.dmg > 0 ? `Only <strong>${ep.dmg}</strong> gets through`
-                    : '<strong>Nothing</strong> gets through!')
-    : `${foe} ${ep.heavy ? 'lands a <strong>HEAVY BLOW</strong>' : 'strikes'} for <strong>${ep.dmg}</strong>!`;
-  let chargeAt = 2600;
+  const blowText = ep.blocked
+    ? `${foe} strikes — <strong>your aegis turns it aside!</strong>`
+    : ep.dodged
+      ? `${foe} ${ep.heavy ? 'swings a <strong>HEAVY BLOW</strong>' : 'strikes'} — <strong>you twist aside!</strong> `
+        + (ep.dmg > 0 ? `Only <strong>${ep.dmg}</strong> gets through`
+                      : '<strong>Nothing</strong> gets through!')
+      : `${foe} ${ep.heavy ? 'lands a <strong>HEAVY BLOW</strong>' : 'strikes'} for <strong>${ep.dmg}</strong>!`;
 
+  /* ── the ENEMY-TURN reveal: the wound-up blow lands (the dodge just passed) ── */
+  if (ep.enemy_turn) {
+    bEnemyFrozen = false;
+    setBTurn(`ENEMY MOVE — ${blowText}`);
+    beat(150, () => {
+      if (ep.dmg > 0) world.battlePlay('enemy_attack', { dmg: ep.dmg, heavy: ep.heavy });
+      else world.battlePlay('enemy_miss');
+    });
+    beat(500, () => {
+      if (ep.dmg > 0) {
+        audio.sfx.hurt();
+        if (ep.heavy) audio.sfx.roar();
+        flashScreen('red');
+        shake(ep.heavy);
+      } else {
+        audio.sfx.sail();               // a perfect read / block — the blow whiffs
+      }
+      landHit();
+    });
+    if (rv.battle_over && rv.player_dead) {
+      beat(1100, () => {
+        world.battlePlay('defeat');
+        setBTurn(`${icon('skull', 16)} <strong>SHIPWRECK…</strong>`);
+        showBattleEnd('death', 'The sea takes you back to your last haven.');
+      });
+      return;
+    }
+    if (room?.battle?.charging) {
+      beat(1300, () => { world.battlePlay('charge_telegraph'); audio.sfx.roar(); });
+    }
+    return;
+  }
+
+  /* ── the YOUR-MOVE reveal ─────────────────────────────────────────────────── */
+  let chargeAt = 2200;
   if (rv.was_correct) {
-    {
-      /* STRIKE / MAGIC lands */
-      bEnemyFrozen = false;                   // your blow lands NOW
-      audio.sfx.hit();
-      flashScreen('gold');
-      world.battlePlay('player_hit', { idx, dmg: ep.dealt, stance });
-      renderBattle();
-      setBTurn(`${icon(stance === 'magic' ? 'magic' : 'strike', 16)} YOUR MOVE — you hit for <strong>${ep.dealt}</strong>!`);
-      if (ep.killed) beat(500, () => world.battlePlay('enemy_die', { idx }));
+    /* STRIKE / MAGIC lands */
+    bEnemyFrozen = false;                   // your blow lands NOW
+    audio.sfx.hit();
+    flashScreen('gold');
+    world.battlePlay('player_hit', { idx, dmg: ep.dealt, stance });
+    renderBattle();
+    setBTurn(`${icon(stance === 'magic' ? 'magic' : 'strike', 16)} YOUR MOVE — you hit for <strong>${ep.dealt}</strong>!`);
+    if (ep.killed) beat(500, () => world.battlePlay('enemy_die', { idx }));
 
-      if (rv.battle_over && !rv.player_dead) {
-        beat(900, () => audio.sfx.laurel());
-        beat(1300, () => { world.battlePlay('victory'); showBattleEnd('win'); });
-        beat(1900, () => setBTurn(`${icon('laurel', 18)} <strong>VICTORY!</strong>`));
-        return;
-      }
-      if (rv.battle_over && rv.player_dead) {
-        /* your blow landed — but the tyrant's counter drops you */
-        beat(1300, () => {
-          setBTurn(`ENEMY MOVE — ${foe} ${ep.heavy ? 'lands a <strong>HEAVY BLOW</strong>' : 'strikes'} for <strong>${ep.dmg}</strong>!`);
-          world.battlePlay('enemy_attack', { dmg: ep.dmg, heavy: ep.heavy });
-        });
-        beat(1700, () => { audio.sfx.hurt(); if (ep.heavy) audio.sfx.roar(); flashScreen('red'); shake(ep.heavy); landHit(); });
-        beat(2300, () => {
-          world.battlePlay('defeat');
-          setBTurn(`${icon('skull', 16)} <strong>SHIPWRECK…</strong>`);
-          showBattleEnd('death', 'The sea takes you back to your last haven.');
-        });
-        return;
-      }
-      if (ep.evaded) {
-        beat(1500, () => {
-          setBTurn(`${icon('flee', 16)} ENEMY MOVE — ${foe} lunges… <strong>you slip clear!</strong>`);
-          world.battlePlay('enemy_miss');
-          audio.sfx.sail();
-        });
-        chargeAt = 2400;
-      } else if (ep.dmg > 0 || ep.dodged) {
-        /* a boss answers every exchange */
-        beat(1400, () => {
-          setBTurn(`ENEMY MOVE — ${blowText}`);
-          world.battlePlay('enemy_attack', { dmg: ep.dmg, heavy: ep.heavy });
-        });
-        beat(1750, () => {
-          if (ep.dmg > 0) {
-            audio.sfx.hurt();
-            if (ep.heavy) audio.sfx.roar();
-            flashScreen('red');
-            shake(ep.heavy);
-          } else {
-            audio.sfx.sail();           // a perfect read — the blow whiffs
-          }
-          landHit();
-        });
-        chargeAt = 2400;
-      }
+    if (rv.battle_over && !rv.player_dead) {
+      beat(900, () => audio.sfx.laurel());
+      beat(1300, () => { world.battlePlay('victory'); showBattleEnd('win'); });
+      beat(1900, () => setBTurn(`${icon('laurel', 18)} <strong>VICTORY!</strong>`));
+      return;
+    }
+    if (ep.pending) return;               // the counter comes after the dodge beat
+    if (ep.evaded) {
+      beat(1500, () => {
+        setBTurn(`${icon('flee', 16)} ENEMY MOVE — ${foe} lunges… <strong>you slip clear!</strong>`);
+        world.battlePlay('enemy_miss');
+        audio.sfx.sail();
+      });
+      chargeAt = 2400;
     }
   } else if (ep.backfire) {
     bEnemyFrozen = false;
@@ -896,43 +912,13 @@ function playBattleBeats(rv) {
       landHit();
     });
     chargeAt = 2200;
-  } else if (ep.dmg > 0 || (ep.dodged && !rv.was_correct)) {
+  } else if (ep.pending) {
+    /* a miss — your move fails; the foe winds up for the dodge beat to come */
     bEnemyFrozen = false;
     setBTurn('YOUR MOVE — the answer escapes you…');
-    beat(1300, () => {
-      setBTurn(`ENEMY MOVE — ${blowText}`);
-      world.battlePlay('enemy_attack', { dmg: ep.dmg, heavy: ep.heavy });
-    });
-    beat(1650, () => {
-      if (ep.dmg > 0) {
-        audio.sfx.hurt();
-        if (ep.heavy) audio.sfx.roar();
-        flashScreen('red');
-        shake(ep.heavy);
-      } else {
-        audio.sfx.sail();               // a perfect read — the blow whiffs
-      }
-      landHit();
-    });
-    if (rv.battle_over) {
-      beat(2100, () => {
-        world.battlePlay('defeat');
-        setBTurn(`${icon('skull', 16)} <strong>SHIPWRECK…</strong>`);
-        showBattleEnd('death', 'The sea takes you back to your last haven.');
-      });
-      return;
-    }
-    chargeAt = 2400;
-  } else if (ep.dodged) {
-    /* a perfect read: the whole blow slips past */
-    bEnemyFrozen = false;
-    beat(900, () => {
-      setBTurn(`ENEMY MOVE — ${foe} lunges… <strong>you read it and slip clear!</strong>`);
-      world.battlePlay('enemy_miss');
-      audio.sfx.sail();
-    });
+    return;
   } else {
-    /* a blocked-by-aegis round: nothing lands */
+    /* a blocked-by-aegis / no-counter round: nothing lands */
     bEnemyFrozen = false;
     setBTurn('YOUR MOVE — the moment slips past…');
   }
@@ -1713,16 +1699,6 @@ function renderBattle() {
       <div class="epow">power <span class="powpips">${'<i></i>'.repeat(Math.max(1, Math.min(6, e.power)))}</span></div>
     </div>`).join('');
   $('bmon').innerHTML = `<div class="erow">${cards}</div>`;
-
-  /* the turn rail — who strikes back, in what order (max two in a row) */
-  const order = (b.order || []).filter((i) => b.enemies[i] && b.enemies[i].hp > 0);
-  $('brail').innerHTML = order.length ? (
-    '<div class="railtitle">TURN ORDER</div>' +
-    `<div class="railentry you">${icon('strike', 13)} YOU</div>` +
-    order.slice(0, 3).map((oi, k) =>
-      `<div class="railentry ${k === 0 ? 'next' : ''}">` +
-      `<span class="railn">${k + 1}</span>${esc(b.enemies[oi].name)}</div>`).join('')
-  ) : '';
   $('bmon').querySelectorAll('.ecard.targetable').forEach((el) => {
     const i = parseInt(el.dataset.idx, 10);
     el.onclick = () => sendMove(pendingMove, i);
