@@ -28,6 +28,7 @@ def test_battle_puzzles_are_tiered_and_exclude_slow_kinds():
     sizes = {1: {}, 2: {}, 3: {}}
     vm_sizes = {1: set(), 2: set(), 3: set()}
     simon_lens = {1: set(), 2: set(), 3: set()}
+    tet_limits = {1: set(), 2: set(), 3: set()}
     for tier in (1, 2, 3):
         for _ in range(120):
             d = puzzles.deal_battle(rng, tier)
@@ -37,7 +38,10 @@ def test_battle_puzzles_are_tiered_and_exclude_slow_kinds():
                 vm_sizes[tier].add(d["n"])
             if d["kind"] == "simon":
                 simon_lens[tier].add(len(d["seq"]))
-            assert d["limit"] == puzzles.TIME_LIMITS[d["kind"]]
+            if d["kind"] == "tetromino":
+                tet_limits[tier].add(d["limit"])
+            else:                                    # tetromino's clock is size-aware
+                assert d["limit"] == puzzles.TIME_LIMITS[d["kind"]]
     allkinds = seen[1] | seen[2] | seen[3]
     assert "anagram" not in allkinds             # the slow unscramble stays out
     # STRIKE-vs-pack: a memorize-4 echo, the 5×5 board, a 4×4 sigil, the Fates'
@@ -52,6 +56,8 @@ def test_battle_puzzles_are_tiered_and_exclude_slow_kinds():
     assert sizes[3]["tetromino"] == (6, 6)
     assert "sliding" in seen[3] and vm_sizes[3] == {6, 7}
     assert "riddle" not in seen[3]
+    # the sigil clock is size-aware: 15s on the quick 4×4, 40s on the full 6×6
+    assert tet_limits[1] == {15} and tet_limits[3] == {40}
 
 
 def test_memory_puzzle_generate_and_check():

@@ -47,7 +47,7 @@ import tetromino6
 # Simon has NO clock: one wrong tap is the failure, not the seconds.
 # 20s across the board — nonogram (picross) gets 30 for its fiddlier grid;
 # simon stays untimed (a wrong note, not the clock, is its failure).
-TIME_LIMITS = {"riddle": 27.5, "tetromino": 15, "nonogram": 59.375,
+TIME_LIMITS = {"riddle": 27.5, "tetromino": 40, "nonogram": 59.375,
                "simon": None, "anagram": 27.5, "ravens": 22.5,
                "sequence": 27.5, "lights_out": 27.5, "sliding": 70,
                "memory": None,           # memory (like simon) has no clock
@@ -569,9 +569,13 @@ def deal_battle(rng: random.Random, tier: int = 1,
         return data
     if tok.startswith("tet"):                       # tet4 / tet6
         n = int(tok[3:])
-        data = (dict(rng.choice(tetromino6.BANK)["public"]) if n >= 6
-                else gen_tetromino(rng, n, n))
-        data.update({"kind": "tetromino", "limit": TIME_LIMITS["tetromino"]})
+        if n >= 6:                                  # the full 6×6 board — 40s
+            data = dict(rng.choice(tetromino6.BANK)["public"])
+            limit = TIME_LIMITS["tetromino"]
+        else:                                       # a quick STRIKE 4×4 — 15s
+            data = gen_tetromino(rng, n, n)
+            limit = 15
+        data.update({"kind": "tetromino", "limit": limit})
         return data
     return deal_kind(rng, tok)
 
