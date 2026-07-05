@@ -1081,7 +1081,7 @@ export function makeRealmField(theme, nodes, segs, rng, heightAt = null) {
   // a worn dirt path laid over the trail: crisp ribbon quads down each lane
   // segment, riding the ground height so it never floats or sinks. The route
   // reads at a glance and the tree band stands well clear of it either side.
-  if (foot && theme.id !== 'autumn' && segs.length) {
+  if (foot && segs.length) {
     const HW = 2.6;                                 // path half-width
     const pathCol = theme.id === 'autumn' ? 0x8a6a3e : 0xc7a468;
     const verts = [];
@@ -1502,8 +1502,8 @@ export function buildIsland(node, theme, domains) {
   if (node.type === 'sea') {
     if (foot) {
       if (theme.id === 'autumn') {
-        // a maze waypoint on the forest track: a single large flat stepping
-        // stone set into the path where it forks — no dirt splotch, no grove.
+        // a waypoint on the forest track: a single large flat stepping
+        // stone set into the path — no dirt splotch, no grove.
         const stone = makeRock(rng0, 1.7, 0x9b938a);
         stone.scale.y = 0.34;                       // a flattened slab, walk-on
         stone.position.y = 0.12;

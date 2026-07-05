@@ -274,20 +274,6 @@ export function createWorld(container, handlers = {}) {
   /* shared groups that ride along into whichever stage is active */
   const highlights = new THREE.Group();   // reachable rings
   let hiKey = '';
-  /* the Vale's WAYFINDER: in the maze you can't see the stops, so the trail
-     itself points the way — gold chevrons along every legal route; tapping
-     one sails you toward its destination */
-  const valeArrows = new THREE.Group();
-  let valeKey = '';
-  const ARROW_GEO = new THREE.ConeGeometry(0.55, 1.6, 4);
-  const ARROW_MAT = new THREE.MeshStandardMaterial({
-    color: 0xffd061, emissive: 0xb9791c, emissiveIntensity: 1.1,
-    flatShading: true });
-  // a wide, invisible-but-clickable ribbon laid along each Vale trail so you can
-  // tap the GROUND you want to walk, not just the little chevrons
-  const VALE_STRIP_GEO = new THREE.BoxGeometry(1, 1, 1);   // shared; scaled per strip
-  const VALE_STRIP_MAT = new THREE.MeshBasicMaterial({
-    transparent: true, opacity: 0, depthWrite: false });
   const fx = new THREE.Group();           // wake sprites live here
 
   /* wake pool: fixed sprites, zero allocation during play */
@@ -374,6 +360,14 @@ export function createWorld(container, handlers = {}) {
     if (!nodes.length) return c;
     for (const n of nodes) { c.x += n.x; c.z += n.z; }
     c.x /= nodes.length; c.z /= nodes.length;
+    // an EMPTY realm — just its pass, like the Vale mid-rebuild — centers its
+    // stage out in the wilds BEYOND the gate, not on the gate itself, so the
+    // backdrop ring and ground still wrap the ground the rebuild will fill
+    if (nodes.every((n) => n.type === 'gate')) {
+      const r = Math.hypot(c.x, c.z) || 1;
+      c.x += (c.x / r) * 210;
+      c.z += (c.z / r) * 210;
+    }
     return c;
   }
 
@@ -437,15 +431,13 @@ export function createWorld(container, handlers = {}) {
           realm: n.region,
         }));
       wall = buildMountainWall({ radius: 560, gates, theme });
-    } else if (theme.id !== 'autumn') {
-      // The Amber Vale has NO mountain backdrop — it's a flat wood that just
-      // fades into fog at the edges. Every other realm gets its crescent ridge.
+    } else {
       wall = buildRealmBackdrop(theme, { radius: 520 });
       wall.position.set(center.x, 0, center.z);
       const gate = memberNodes(stageId, room).find((n) => n.type === 'gate');
       if (gate) wall.rotation.y = Math.atan2(gate.x - center.x, gate.z - center.z) + Math.PI;
     }
-    if (wall) scene.add(wall);
+    scene.add(wall);
 
     /* the wilds between the stops: berg fields, dune seas, vine channels,
        or the Vale's unbroken forest — every realm is FULL, no empty water */
@@ -456,6 +448,19 @@ export function createWorld(container, handlers = {}) {
       for (const [a, b] of room.board?.edges || []) {
         const na = byId.get(a), nb = byId.get(b);
         if (na && nb) segs.push([na.x, na.z, nb.x, nb.z]);
+      }
+      if (members.length && !members.some((n) => n.type !== 'gate')) {
+        // an EMPTY realm (the Vale mid-rebuild): no stops to hang the wilds
+        // on yet, so feed the field a virtual spine running from the pass
+        // into the depths — the forest still fills the empty ground
+        const gate = members[0];
+        const r = Math.hypot(gate.x, gate.z) || 1;
+        const ux = gate.x / r, uz = gate.z / r;
+        for (let d = 60; d <= 380; d += 64) {
+          members.push({ id: 'fill' + d, type: 'sea',
+                         x: gate.x + ux * d, z: gate.z + uz * d });
+        }
+        segs.push([gate.x, gate.z, gate.x + ux * 380, gate.z + uz * 380]);
       }
       scene.add(makeRealmField(theme, members, segs, rng, surf.heightAt));
     }
@@ -599,10 +604,7 @@ export function createWorld(container, handlers = {}) {
         const gapA = (st.islands[a]?.R ?? 5) * 1.3, gapB = (st.islands[b]?.R ?? 5) * 1.3;
         if (len < gapA + gapB + 2) continue;
         if (na.mode === 'foot' || nb.mode === 'foot') {
-          // The Amber Vale is a MAZE — no trail is drawn between stops at all;
-          // you read the forest and the glowing waypoints and find your own way.
-          if (st.theme.id === 'autumn') continue;
-          // The desert trail is a real line of worn flagstones through the sand.
+          // A foot trail is a real line of worn flagstones through the ground.
           const stoneHex = st.theme.id === 'autumn' ? 0x8d7c60 : 0xe6d7ae;
           const trailRng = mulberry32(hashStr('trail:' + a + '~' + b));
           const run = len - gapA - gapB;
@@ -632,52 +634,6 @@ export function createWorld(container, handlers = {}) {
         const line = new THREE.Line(geo, mat);
         line.computeLineDistances();
         st.laneGroup.add(line);
-      }
-    }
-  }
-
-  /* The Amber Vale is walked, not sailed: the server carries you forward and
-     PAUSES at each fork, handing back walk.options. We plant a glowing arrow
-     (and a fat invisible click-ribbon) down each fork so you tap the way you
-     want to go — no guide line, just the choice in front of you. */
-  function syncValeWalk(room) {
-    const w = room?.walk;
-    const want = activeBoardId === 'autumn' && !battleOn && !fading
-      && room?.phase === 'sail' && room.turn === myPid
-      && w && w.options && w.options.length && !animatingPid();
-    const key = want ? w.node + '|' + w.options.join(',') : '';
-    if (key === valeKey) return;
-    valeKey = key;
-    valeArrows.clear();
-    if (!want) return;
-    const head = nodeById[w.node];
-    if (!head) return;
-    const _dir = new THREE.Vector3();
-    const _up = new THREE.Vector3(0, 1, 0);
-    for (const dest of w.options) {
-      const d = nodeById[dest];
-      if (!d) continue;
-      const dx = d.x - head.x, dz = d.z - head.z;
-      const len = Math.hypot(dx, dz) || 1e-6;
-      const ux = dx / len, uz = dz / len;
-      // a fat invisible click-ribbon down this fork
-      const L = Math.min(len, 22);
-      const strip = new THREE.Mesh(VALE_STRIP_GEO, VALE_STRIP_MAT);
-      strip.scale.set(8, 0.9, L);
-      strip.position.set(head.x + ux * (L / 2 + 2), 0.45, head.z + uz * (L / 2 + 2));
-      strip.rotation.y = Math.atan2(ux, uz);
-      strip.userData.node = dest;                   // no ph → not bobbed
-      valeArrows.add(strip);
-      // two bobbing chevrons pointing the way
-      for (let k = 0; k < 2; k++) {
-        const dd = 5 + k * 5.5;
-        const arrow = new THREE.Mesh(ARROW_GEO, ARROW_MAT);
-        arrow.position.set(head.x + ux * dd, 0.5, head.z + uz * dd);
-        _dir.set(ux, 0, uz);
-        arrow.quaternion.setFromUnitVectors(_up, _dir);
-        arrow.userData.node = dest;
-        arrow.userData.ph = dd;
-        valeArrows.add(arrow);
       }
     }
   }
@@ -911,14 +867,8 @@ export function createWorld(container, handlers = {}) {
       const rec = ensureShip(p, idx);
       rec.idx = idx;
 
-      // In the Amber Vale you walk step-by-step: the server holds your true
-      // node until the walk ends, but hands the LOCAL walker a live walk.node
-      // (the head of the trail so far). Drive the captain to that head so they
-      // stride up to each fork on-screen, then the fork arrows appear.
-      const nodeNow = (p.pid === myPid && room.walk && room.walk.node)
-        ? room.walk.node : p.node;
-      const moved = rec.node !== nodeNow;
-      if (moved) { rec.prevNode = rec.node; rec.node = nodeNow; }
+      const moved = rec.node !== p.node;
+      if (moved) { rec.prevNode = rec.node; rec.node = p.node; }
 
       // which stage does this ship live in now? (gates belong to two)
       const targetStage = stageHasNode(activeBoardId, rec.node) ? activeBoardId : null;
@@ -1083,7 +1033,7 @@ export function createWorld(container, handlers = {}) {
     activeBoardId = stageId;
     if (lastRoom) syncStage(st, lastRoom);
     /* move the ride-along groups into this scene */
-    st.scene.add(highlights, fx, valeArrows);
+    st.scene.add(highlights, fx);
     hiKey = '';
     for (const sp of wakePool) sp.visible = false;
     if (lastRoom) {
@@ -1309,7 +1259,7 @@ export function createWorld(container, handlers = {}) {
     pointer.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
     ray.setFromCamera(pointer, camera);
     const hit = ray.intersectObjects(
-      [...st.proxyList, ...highlights.children, ...valeArrows.children], false)
+      [...st.proxyList, ...highlights.children], false)
       .find((h) => h.object.userData.node);
     if (hit) handlers.onNodeClick?.(hit.object.userData.node);
   });
@@ -1561,12 +1511,6 @@ export function createWorld(container, handlers = {}) {
     controls.autoRotate = lobbyMode && !cine;
     viewFollowPid = focusPid(lastRoom);   // follow the mover, then the next captain
     if (cine) { if (tickCinematic(st, performance.now())) return; }
-    // the Amber Vale is a maze: the eye stays pressed close to the captain,
-    // easing in/out as you cross its passes (fog does the rest)
-    const wantMax = st.theme.id === 'autumn' && !lobbyMode ? 24 : 84;
-    if (Math.abs(controls.maxDistance - wantMax) > 0.5) {
-      controls.maxDistance += (wantMax - controls.maxDistance) * Math.min(1, dt * 2.5);
-    }
     if (!lobbyMode) {
       const rec = viewFollowPid ? ships[viewFollowPid] : null;
       if (rec && rec.stageId === st.id) {
@@ -1702,8 +1646,7 @@ export function createWorld(container, handlers = {}) {
     const b = stageBounds(st);
     const cx = (b.minX + b.maxX) / 2, cz = (b.minZ + b.maxZ) / 2;
     const extent = Math.max(b.maxX - b.minX, b.maxZ - b.minZ, 160);
-    // only the hub legs clear the air. The Vale is a MAZE — its flyover
-    // stays inside the amber murk so nobody gets a peek at the middle
+    // only the hub legs clear the air — realms keep their close moody fog
     if (leg.stage === 'hub') tourFogOpen(st, extent);
     else tourFogClose();
     if (leg.pharos) {
@@ -1724,12 +1667,14 @@ export function createWorld(container, handlers = {}) {
       controls.target.set(cx, 0, cz);
     } else {
       // realms hold their fog close — fly LOW along the road, gate → lair
+      // (a realm with no lair yet — the empty Vale — flies gate → deep wilds)
       if (!leg.path) {
         const gate = Object.values(nodeById).find(
           (n) => n.type === 'gate' && n.region === leg.stage);
         const lair = Object.values(nodeById).find(
           (n) => n.type === 'lair' && n.region === leg.stage);
-        leg.path = (gate && lair) ? { gate, lair }
+        leg.path = gate
+          ? { gate, lair: lair || { x: gate.x * 1.6, z: gate.z * 1.6 } }
           : { gate: { x: cx, z: cz }, lair: { x: cx, z: cz } };
       }
       const { gate, lair } = leg.path;
@@ -1742,10 +1687,7 @@ export function createWorld(container, handlers = {}) {
       let dx = lx - px, dz = lz - pz;
       const dl = Math.hypot(dx, dz) || 1;
       dx /= dl; dz /= dl;
-      // the Vale's leg rides above its own fog ceiling: all you see is the
-      // amber sea of murk — the maze keeps its secrets
-      const hgt2 = leg.stage === 'autumn' ? 150 : 92;
-      camera.position.set(px - dx * 65, hgt2, pz - dz * 65);
+      camera.position.set(px - dx * 65, 92, pz - dz * 65);
       controls.target.set(lx, 0, lz);
     }
     controls.update();
@@ -1779,12 +1721,9 @@ export function createWorld(container, handlers = {}) {
     return { minX: minX - 45, maxX: maxX + 45, minZ: minZ - 45, maxZ: maxZ + 45 };
   }
 
-  function enterMapView(dev) {
+  function enterMapView() {
     const st = stages[activeBoardId];
     if (!st || battleOn || mapMode || tour) return false;
-    // the maze allows no chart in normal play — but DEV mode overrides it so
-    // you can see the whole Vale un-fogged and teleport anywhere in it
-    if (st.theme.id === 'autumn' && !dev) return false;
     const b = stageBounds(st);
     const extent = Math.max(b.maxX - b.minX, b.maxZ - b.minZ, 140);
     mapMode = {
@@ -1959,12 +1898,6 @@ export function createWorld(container, handlers = {}) {
     tickShips(st, t, now);
     tickWake(now);
     tickHighlights(t);
-    syncValeWalk(lastRoom);
-    for (let i = 0; i < valeArrows.children.length; i++) {
-      const a = valeArrows.children[i];
-      if (a.userData.ph == null) continue;          // click-strips don't bob
-      a.position.y = 0.5 + Math.sin(t * 3 + a.userData.ph) * 0.14;
-    }
     syncKraken(lastRoom);
     if (tour) tickTour(performance.now());
     else if (mapMode) tickMapView(dt);

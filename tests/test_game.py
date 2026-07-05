@@ -62,7 +62,8 @@ def test_generation_counts_and_connectivity():
         for n in b.nodes.values():
             types[n["type"]] = types.get(n["type"], 0) + 1
         assert types["home"] == 1 and types["pharos"] == 1
-        assert types["gate"] == 4 and types["lair"] == 4
+        # four passes, but the Amber Vale is mid-rebuild: no lair inside yet
+        assert types["gate"] == 4 and types["lair"] == 3
         assert types["shrine"] >= 8 and types["puzzle"] == 7
         assert types["haven"] >= 6 and types["shop"] == 6
         assert types["monster"] >= 8              # realm gauntlets only
@@ -79,10 +80,11 @@ def test_generation_counts_and_connectivity():
                     seen.add(nb)
                     frontier.append(nb)
         assert seen == set(b.nodes)
-        # all four realms every game, each ending in a boss altar
+        # all four realms every game; every BUILT realm ends in a boss altar
+        # (the Amber Vale is empty ground until its redesign lands)
         assert sorted(b.regions) == ["autumn", "desert", "ice", "jungle"]
         themes = sorted(b.nodes[nid]["region"] for nid in b.lairs())
-        assert themes == sorted(b.regions)
+        assert themes == ["desert", "ice", "jungle"]
         assert all(b.nodes[nid]["boss_spec"] for nid in b.lairs())
 
 
@@ -100,74 +102,25 @@ def test_full_map_visible_from_turn_one():
     g, (p0, p1) = make_game()
     snap = g.to_dict(p0)
     shown = {n["id"] for n in snap["board"]["nodes"]}
-    # the whole sea is open from the start — EXCEPT the Amber Vale, which is a
-    # fog-of-war maze you must personally discover (see the vale-fog tests)
-    outside_vale = {nid for nid, n in g.board.nodes.items()
-                    if n.get("region") != "autumn"}
-    assert shown == outside_vale                       # everything but the fogged Vale
+    assert shown == set(g.board.nodes)                # the whole sea is open
     assert "pharos" in shown
-    assert not any(g.board.nodes[nid].get("region") == "autumn" for nid in shown)
 
 
-def _autumn_gate(g):
-    return next(nid for nid, n in g.board.nodes.items()
-                if n["type"] == "gate" and n.get("region") == "autumn")
-
-
-def test_vale_is_walked_step_by_step_with_forks():
-    # In the Amber Vale a roll WALKS you forward along the trail (it is not a
-    # pick-a-stop sail): corridors glide by, forks pause for a choice, and the
-    # walk stops at a dead end / POI / when the roll runs out.
-    g, (p0, p1) = make_game()
-    p = g.player_by_pid(p0)
-    gate = _autumn_gate(g)
-    # stand at the pass, having stepped in from the hub
-    hub_nb = next(n for n in g.board.neighbors[gate]
-                  if g.board.nodes[n].get("region") != "autumn")
-    p.node = gate
-    p.prev_node = hub_nb
-    g.phase = "roll"
-    g.roll(p0, 3)
-    # either the walk paused at a fork, or it resolved to a landing
-    steps = 0
-    while g.walk and g.walk.get("options"):
-        assert g.phase == "sail"
-        assert len(g.walk["options"]) >= 2            # a genuine fork
-        # a bad fork is rejected; a real one is taken
-        with pytest.raises(GameError):
-            g.walk_choose(p0, "not_a_node")
-        g.walk_choose(p0, g.walk["options"][0])
-        steps += 1
-        assert steps < 20                             # never loops forever
-    assert g.walk is None                             # the walk always resolves
-    assert g.board.nodes[p.node].get("region") == "autumn"
-    assert p.node != gate                             # you actually moved inward
-    assert gate in p.discovered                       # and remember where you were
-
-
-def test_vale_fog_hides_the_maze_from_spectators():
-    g, (p0, p1) = make_game()
-    p = g.player_by_pid(p0)
-    gate = _autumn_gate(g)
-    p.node = gate
-    p.prev_node = "home"
-    g.phase = "roll"
-    g.roll(p0, 2)                                     # p0 is now crossing the Vale
-    autumn = {nid for nid, n in g.board.nodes.items() if n.get("region") == "autumn"}
-    # the walker sees only what they've discovered — never the whole maze
-    walker_shown = {n["id"] for n in g.to_dict(p0)["board"]["nodes"]}
-    walker_vale = walker_shown & autumn
-    assert walker_vale == p.discovered & autumn        # only your own discoveries
-    assert walker_vale and walker_vale != autumn      # partial reveal, not all
-    # a spectator sees NOTHING in the Vale while the crossing is under way
-    spec = g.to_dict(p1)
-    spec_vale = {n["id"] for n in spec["board"]["nodes"]} & autumn
-    assert spec_vale == set()
-    assert spec["vale_shrouded"] is True
-    # ...until the walker reaches the barrow, when it opens to everyone
-    g.vale_barrow_seen = True
-    spec_after = {n["id"] for n in g.to_dict(p1)["board"]["nodes"]} & autumn
-    assert spec_after == autumn
+def test_amber_vale_stands_empty_behind_its_pass():
+    # The Vale is being rebuilt from scratch: its mountain pass stands and
+    # links to the Isles of Peace, but the realm beyond holds NOTHING —
+    # no trail, no packs, no haven, no altar.
+    for seed in range(6):
+        b = Board(seed)
+        autumn = {nid: n for nid, n in b.nodes.items()
+                  if n.get("region") == "autumn"}
+        assert len(autumn) == 1
+        gate = next(iter(autumn.values()))
+        assert gate["type"] == "gate"
+        # the pass still opens onto the isles, so it is sailable ground
+        assert b.neighbors[gate["id"]]
+        # and the voyage is still winnable: enough altars for the seals
+        assert len(b.lairs()) >= RELICS_TO_WIN
 
 
 def test_sea_waypoints_pad_the_routes():
@@ -1118,9 +1071,6 @@ def test_desert_realm_is_crossed_on_foot():
         assert desert
         walkers = [n for n in desert if n["type"] != "gate"]
         assert all(n.get("mode") == "foot" for n in walkers)
-        vale = [n for n in b.nodes.values()
-                if n.get("region") == "autumn" and n["type"] != "gate"]
-        assert vale and all(n.get("mode") == "foot" for n in vale)
         sailing = [n for n in b.nodes.values()
                    if n.get("region") in ("ice", "jungle")
                    and n["type"] != "gate"]
@@ -1148,26 +1098,13 @@ def test_realms_run_one_main_road_with_teeth():
     for seed in range(5):
         b = Board(seed)
         for theme in b.regions:
+            if theme == "autumn":
+                continue                  # the Vale is empty ground mid-rebuild
             realm = {nid: n for nid, n in b.nodes.items()
                      if n.get("region") == theme}
             gate = next(nid for nid, n in b.nodes.items()
                         if n["type"] == "gate" and n.get("region") == theme)
             lair = next(nid for nid in realm if realm[nid]["type"] == "lair")
-
-            if theme == "autumn":
-                # the Amber Vale is a MAZE, not a road: a normal complement of
-                # foes (some guarding dead-end spurs), blind-alley dead-ends, a
-                # shrine and a haven, boss always reachable through the fog.
-                monsters = [n for n in realm.values() if n["type"] == "monster"]
-                assert len(monsters) >= 3
-                assert any(n.get("elite") for n in monsters)   # guarded spurs
-                assert any(n["type"] == "shrine" for n in realm.values())
-                assert any(n["type"] == "haven" for n in realm.values())
-                assert bfs(b, gate, lair) >= 6
-                deadends = [nid for nid in realm
-                            if len(b.neighbors[nid]) == 1 and nid != gate]
-                assert len(deadends) >= 3
-                continue
 
             # the SHORTCUT: elite grounds in deep water (desert keeps it small)
             elites = [n for nid, n in realm.items()
@@ -1204,6 +1141,8 @@ def test_realms_run_one_main_road_with_teeth():
 def test_realm_spines_carry_depth():
     b = Board(3)
     for theme in b.regions:
+        if theme == "autumn":
+            continue                      # the Vale is empty ground mid-rebuild
         depths = [n["depth"] for n in b.nodes.values()
                   if n.get("region") == theme and n.get("depth")]
         assert max(depths) >= 5                   # a real trek to the boss

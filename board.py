@@ -14,7 +14,8 @@ couple of side loops, one haven checkpoint, and a solo BOSS at the far end
 holding that realm's sigil fragment. Bosses are personal trials: every
 captain faces their own. The desert is crossed ON FOOT — you beach your
 ship at the pass. Haul a fragment home to bank it; bank RELICS_TO_WIN and
-the Pharos opens.
+the Pharos opens. (The Amber Vale is mid-rebuild: its pass stands, but the
+realm beyond is EMPTY ground for now — see _grow_region.)
 
 Node types: home · pharos · shrine · puzzle · haven · shop · monster ·
             lair · gate · sea
@@ -287,11 +288,15 @@ class Board:
 
         The desert is just as LONG but much simpler — one near-straight
         trail with a single elite fork and the haven bypass — and it is
-        crossed on foot (as is the Amber Vale's forest track)."""
+        crossed on foot.
+
+        THE AMBER VALE IS BARE GROUND: it is being redesigned from scratch,
+        so only its pass is generated — the realm beyond holds no trail, no
+        packs, no haven, no altar. The stage still renders its amber forest;
+        content returns with the rebuild."""
         info = REGION_POOL[theme]
         mode = info.get("mode", "sail")
-        trail = ("Forest Trail" if theme == "autumn"
-                 else "Dune Trail" if mode == "foot" else "Open Sea")
+        trail = "Dune Trail" if mode == "foot" else "Open Sea"
         R0 = WALL_R + 10
 
         gate_id = f"gate{gi}"
@@ -303,6 +308,9 @@ class Board:
         self.gates.append(gate_id)
         near = min(rings[3], key=lambda p: self._dist(gate_id, p))
         self._link(gate_id, near)
+
+        if theme == "autumn":
+            return                      # the Vale stands empty, awaiting its rebuild
 
         def place(nid, radius, a, depth):
             node = {"id": nid, "name": trail, "type": "sea", "band": 4,
@@ -360,62 +368,6 @@ class Board:
             node.pop("look", None)
 
         side = rng.choice([-1, 1])
-        maze = mode == "foot" and theme == "autumn"
-        if maze:
-            # The Amber Vale is a fog-of-war LABYRINTH. ONE true trail winds from
-            # the pass to the barrow — but it is UNMARKED, and at nearly every
-            # stop a dead-end branch peels off that looks just as much like the
-            # way on. The true trail carries NO forced fights (easy, like the
-            # other realms — the danger is getting lost); the branches hold the
-            # rewards and the avoidable foes, and most simply END IN NOTHING.
-            SPINE = 7                                  # true-path stops before the junc
-            main = [gate_id]
-            for i in range(SPINE):
-                t = (i + 1) / (SPINE + 1)
-                radius = R0 + 80 + t * (330 - 88)
-                # the true trail winds hard to and fro so it never reads as the
-                # obvious straight shot through the trees
-                a = ang + side * 0.5 * math.sin(math.pi * t * 2.2)
-                place(f"r{gi}_c{i}", radius, a, 1 + (i * 3) // SPINE)   # plain trail
-                main.append(f"r{gi}_c{i}")
-            main.append(junc_id)
-            for u, v in zip(main, main[1:]):
-                self._link(u, v)
-            # the blind alleys: a dead-end chain off a mid-trail stop. Lengths
-            # vary so a long one feels like the real way on. Tips cycle through
-            # a shrine, a haven, a couple of (avoidable) fights incl. one elite,
-            # and several empty fog-ends — (spine index, length, tip).
-            branches = [
-                (1, 3, "weak"),  (2, 4, "shrine"), (3, 2, None),
-                (4, 3, "elite"), (5, 4, "haven"),  (6, 2, "weak"),
-                (7, 3, None),    (3, 2, None),
-            ]
-            for bi, (k, length, tip) in enumerate(branches):
-                if k >= len(main) - 1:
-                    continue
-                hn = self.nodes[main[k]]
-                hr = math.hypot(hn["x"], hn["z"])
-                ha = math.atan2(hn["z"], hn["x"])
-                turn = (1 if bi % 2 == 0 else -1) * side
-                off = turn * (0.13 + 0.05 * (bi % 3))
-                prev = main[k]
-                for j in range(length):
-                    nid = f"r{gi}_b{bi}_{j}"
-                    node = place(nid, hr + (j + 1) * 30, ha + off * (j + 1), 2)
-                    if j == length - 1:                # the dead-end tip
-                        if tip == "weak":
-                            make_monster(node, elite=False, depth=2)
-                        elif tip == "elite":
-                            make_monster(node, elite=True, depth=6)
-                        elif tip == "shrine":
-                            make_shrine(node)
-                        elif tip == "haven":
-                            make_haven(node)
-                        # tip None → a plain blind alley that ends in empty fog
-                    self._link(prev, nid)
-                    prev = nid
-            return
-
         simple = mode == "foot" and theme == "desert"
 
         # ── the MAIN ROAD: a LONG arc of stops bowing out to one side ────────
@@ -502,23 +454,15 @@ class Board:
         island_edges = self.edges[:]
         self.edges = []
         wp = 0
-        for ei, (a, b) in enumerate(island_edges):
+        for a, b in island_edges:
             length = self._dist(a, b)
             na, nb = self.nodes[a], self.nodes[b]
-            autumn_lane = (na.get("region") == "autumn"
-                           and nb.get("region") == "autumn")
             desert_lane = (na.get("region") == "desert"
                            and nb.get("region") == "desert")
             # Realm lanes get MORE waypoints so a d3 only nudges you a spot or
             # two through the wilds — the trial is a careful crawl, not a
-            # sprint. The Amber Vale is finer still: long, winding forest lanes.
-            # The Bleached Reach stays SPARSE: cairns spread far apart on the sand.
-            if autumn_lane:
-                # the Amber Vale is WALKED stop-to-stop now (fog-of-war maze):
-                # each placed stop IS a step, so lanes link directly — no
-                # intermediate waypoints padding the trail into a 40-hop slog.
-                n_way = 0
-            elif desert_lane:
+            # sprint. The Bleached Reach stays SPARSE: cairns far apart on the sand.
+            if desert_lane:
                 n_way = 1
             elif na.get("region") and nb.get("region"):
                 n_way = min(_MAX_WAYPOINTS_REALM,
@@ -539,15 +483,9 @@ class Board:
                 # perpendicular jitter so routes curve like real currents
                 px, pz = -(nb["z"] - na["z"]), (nb["x"] - na["x"])
                 plen = max(1e-6, (px * px + pz * pz) ** 0.5)
-                if autumn_lane:
-                    # a smooth serpentine: each lane bows to one side (alternating
-                    # lane to lane), so the trail snakes far through the trees
-                    side_l = 1 if ei % 2 == 0 else -1
-                    jit = math.sin(k / (n_way + 1) * math.pi) * 40 * side_l
-                else:
-                    # tighter lanes wander less — realm roads are packed close now
-                    amp = 6.0 if (na.get("region") and nb.get("region")) else 10.0
-                    jit = rng.uniform(-amp, amp)
+                # tighter lanes wander less — realm roads are packed close now
+                amp = 6.0 if (na.get("region") and nb.get("region")) else 10.0
+                jit = rng.uniform(-amp, amp)
                 nid = f"sea{wp}"
                 wp += 1
                 self.nodes[nid] = {
@@ -566,8 +504,7 @@ class Board:
                     if mode:
                         self.nodes[nid]["mode"] = mode
                         if mode == "foot":
-                            self.nodes[nid]["name"] = ("Forest Trail"
-                                if na.get("region") == "autumn" else "Dune Trail")
+                            self.nodes[nid]["name"] = "Dune Trail"
                     if na.get("depth") or nb.get("depth"):
                         self.nodes[nid]["depth"] = min(na.get("depth") or 99,
                                                        nb.get("depth") or 99)

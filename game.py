@@ -155,10 +155,6 @@ class Player:
         self.streak = 0
         self.puzzles_solved = 0
         self.skip_turns = 0                # turns owed to the kraken
-        # the Amber Vale is a fog-of-war MAZE: each captain remembers only the
-        # stops and branches THEY have personally walked or glimpsed. Persists
-        # for the whole game, so a second crossing is easier than the first.
-        self.discovered: set[str] = set()
 
     def has(self, upgrade: str) -> bool:
         return upgrade in self.upgrades
@@ -187,8 +183,6 @@ class Game:
         self.turn_idx = 0
         self.die: int | None = None
         self.reachable: dict[str, int] = {}
-        self.walk: dict | None = None      # Amber Vale step-walk in progress
-        self.vale_barrow_seen = False      # the current crossing reached the barrow
         self.qctx: dict | None = None      # kind: shrine|battle|puzzle
         self.question: dict | None = None
         self.question_deadline: float | None = None
@@ -346,8 +340,6 @@ class Game:
     def _start_turn(self):
         self.die = None
         self.reachable = {}
-        self.walk = None
-        self.vale_barrow_seen = False
         self.qctx = None
         self.question = None
         self.side_answers = {}
@@ -366,114 +358,12 @@ class Game:
         if p.next_roll_bonus:
             self._say(f"🌬 A gale fills {p.name}'s sails — +{p.next_roll_bonus}.")
             p.next_roll_bonus = 0
-        # the Amber Vale is walked, not sailed: an arrow carries you FORWARD
-        # along the trail up to your roll, pausing at each junction to let you
-        # choose a fork — you find the barrow by exploring, not by the chart.
-        if self._in_vale(p.node):
-            self._begin_walk(p, steps)
-            return
         self.reachable = self._reachable_for(p, steps)
         if not self.reachable:
             self._say(f"{p.name} is boxed in and waits out the tide.")
             self._end_turn()
             return
         self._bump("sail")
-
-    # ── the Amber Vale walk: step-by-step trail movement with fork choices ────
-    def _in_vale(self, nid: str) -> bool:
-        n = self.board.nodes.get(nid, {})
-        return n.get("region") == "autumn"
-
-    def _reveal(self, p: Player, nid: str):
-        """Light up a stop and everything one step off it on this captain's own
-        map — so a junction shows its forks the moment you stand in it."""
-        p.discovered.add(nid)
-        for nb in self.board.neighbors.get(nid, []):
-            p.discovered.add(nb)
-
-    def _walk_forward(self, node: str, came: str | None) -> list[str]:
-        nbrs = list(self.board.neighbors.get(node, []))
-        return [n for n in nbrs if n != came]
-
-    def _walk_halts(self, nid: str) -> bool:
-        """Stops the walk the instant you step onto them: the barrow, the pass
-        home, and any live encounter/checkpoint/market/shrine — junctions and
-        plain trail nodes are glided through."""
-        n = self.board.nodes[nid]
-        t = n["type"]
-        if t in ("lair", "gate", "haven", "shop", "shrine"):
-            return True
-        if t == "puzzle" and not n.get("solved"):
-            return True
-        if self.board.alive_monster(nid):
-            return True
-        return False
-
-    def _begin_walk(self, p: Player, steps: int):
-        self.walk = {"pid": p.pid, "node": p.node, "came": p.prev_node,
-                     "steps": steps, "path": [p.node], "options": None}
-        self._reveal(p, p.node)
-        self._bump("sail")
-        self._walk_advance()
-
-    def _walk_advance(self):
-        """Glide forward through corridors, halting at forks (for a choice), at
-        dead ends, at halting POIs, or when the roll runs out."""
-        w = self.walk
-        p = self.current
-        while w["steps"] > 0:
-            fwd = self._walk_forward(w["node"], w["came"])
-            if not fwd:
-                # a dead end: you arrived and the trail simply stops. If you
-                # BEGAN the roll boxed in here, you may turn back out instead.
-                if len(w["path"]) > 1:
-                    break
-                fwd = list(self.board.neighbors.get(w["node"], []))
-                if not fwd:
-                    break
-            if len(fwd) > 1:
-                w["options"] = sorted(fwd)          # a fork: wait for the choice
-                self.nonce += 1                     # push the new forks to the client
-                return
-            self._walk_take(fwd[0])
-            if self._walk_halts(w["node"]):
-                break
-        self._walk_finish()
-
-    def _walk_take(self, nxt: str):
-        w = self.walk
-        w["came"] = w["node"]
-        w["node"] = nxt
-        w["steps"] -= 1
-        w["path"].append(nxt)
-        self._reveal(self.current, nxt)
-        if self.board.nodes[nxt]["type"] == "lair":
-            self.vale_barrow_seen = True            # the finale reveals to all
-
-    def walk_choose(self, pid: str, node: str):
-        """Pick a fork mid-walk; the remaining steps carry on down it."""
-        self._require_turn(pid, "sail")
-        w = self.walk
-        if not w or not w.get("options"):
-            raise GameError("There is no fork to choose here.")
-        if node not in w["options"]:
-            raise GameError("That trail does not open from here.")
-        w["options"] = None
-        self._walk_take(node)
-        if self._walk_halts(w["node"]):
-            self._walk_finish()
-        else:
-            self._walk_advance()
-
-    def _walk_finish(self):
-        w = self.walk
-        p = self.current
-        dest = w["node"]
-        self.walk = None
-        p.prev_node = w["path"][-2] if len(w["path"]) >= 2 else p.prev_node
-        p.node = dest
-        self.reachable = {}
-        self._land(p, dest)
 
     def sail(self, pid: str, node: str):
         self._require_turn(pid, "sail")
@@ -489,8 +379,6 @@ class Game:
     def _land(self, p: Player, nid: str):
         node = self.board.nodes[nid]
         ntype = node["type"]
-        if node.get("region") == "autumn":
-            self._reveal(p, nid)             # entering the Vale lights your start
         # a lost cache is picked up the moment you arrive — even if something is
         # about to rise up after it. On foot it's a dropped satchel in the dust;
         # at sea, flotsam hauled aboard.
@@ -1585,52 +1473,9 @@ class Game:
                 base["stash"] = node["stash"]
         return base
 
-    def _vale_visible(self, viewer_pid: str | None):
-        """Which Amber Vale node ids a viewer may see. None means 'all' (no
-        fog). The Vale is a private fog-of-war maze:
-          · the captain crossing it sees only what THEY have discovered;
-          · everyone else sees NOTHING while a crossing is under way — thick
-            fog — until the walker reaches the barrow, when it opens to all;
-          · when no one is mid-crossing, each captain sees their own memory."""
-        if viewer_pid is None:
-            return None                                  # host/debug: full sight
-        walker = self.current if (self.players and self.phase != "lobby") else None
-        crossing = walker is not None and self._in_vale(walker.node)
-        if crossing and self.vale_barrow_seen:
-            return None                                  # the finale reveals all
-        viewer = self.player_by_pid(viewer_pid)
-        if viewer is None:
-            return set()
-        # you ALWAYS see the stop you are standing on and the forks off it — you
-        # never lose sight of your own ground (this also covers a dev teleport
-        # that dropped you in before you had discovered anything).
-        here = set()
-        if self._in_vale(viewer.node):
-            here = {viewer.node} | set(self.board.neighbors.get(viewer.node, []))
-        if crossing and viewer.pid != walker.pid:
-            return here                                  # spectators: only their own spot
-        return viewer.discovered | here
-
     def to_dict(self, viewer_pid: str | None = None) -> dict:
-        vale_vis = self._vale_visible(viewer_pid)
-        def _shown(nid):
-            n = self.board.nodes[nid]
-            if n.get("region") != "autumn" or vale_vis is None:
-                return True
-            return nid in vale_vis
-        nodes = [self._node_view(nid) for nid in self.board.nodes if _shown(nid)]
-        edges = [[a, b] for a, b in self.board.edges if _shown(a) and _shown(b)]
-        # tell the client to shroud the Vale when a spectator is locked out, so
-        # it can crank the fog and post the "the canopy hides everything" note
-        vale_shrouded = (vale_vis is not None and len(vale_vis) == 0
-                         and self.players and self.phase != "lobby"
-                         and self._in_vale(self.current.node))
-        walk_view = None
-        if (self.walk and viewer_pid is not None
-                and self.walk["pid"] == viewer_pid):
-            walk_view = {"path": self.walk["path"], "options": self.walk["options"],
-                         "node": self.walk["node"], "steps": self.walk["steps"]}
-
+        nodes = [self._node_view(nid) for nid in self.board.nodes]
+        edges = [[a, b] for a, b in self.board.edges]
         q = None
         if self.question is not None:
             q = {"text": self.question["text"], "options": self.question["options"],
@@ -1653,8 +1498,6 @@ class Game:
             "reachable": self.reachable if viewer_pid is None or
                          (self.players and self.phase != "lobby"
                           and self.current.pid == viewer_pid) else {},
-            "walk": walk_view,
-            "vale_shrouded": vale_shrouded,
             "question": q,
             "side_answered": list(self.side_answers.keys()),
             "reveal": self.reveal if self.phase == "reveal" else None,

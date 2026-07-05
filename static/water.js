@@ -171,8 +171,7 @@ export function makeGround(theme, size = 3000, opts = {}) {
     c.copy(sandDeep).lerp(sand, 0.45 + stripe * 0.55);
     if (y > 1.6) c.lerp(sandHot, Math.min(1, (y - 1.6) * 0.22)); // sunlit crests
     // paint the path: full dirt down the centre, feathering into a scuffed edge
-    // (the Vale has NO worn trail — it's a maze, you find your own way)
-    const pd = isFlat ? 1e9 : segDist(x + cx, z + cz);
+    const pd = segDist(x + cx, z + cz);
     if (pd < PATH_W + 2.2) {
       const core = 1 - smooth(PATH_W - 1.5, PATH_W + 2.2, pd);
       c.lerp(pd < PATH_W - 1 ? pathCol : pathEdge, core * (0.6 + stripe * 0.25));

@@ -5,8 +5,8 @@ around game.py (the Race for the Golden Fleece).
 FastAPI + native WebSockets, one process, ONE game: everyone who opens the
 site lands in the same voyage. The first player to join is the host. The
 engine (game.py) owns the rules; this file owns IO: dice RNG, question
-fetching (questions.py), puzzle/battle timers, bots, and — because the sea
-is fogged per player — PER-VIEWER snapshots.
+fetching (questions.py), puzzle/battle timers, bots, and PER-VIEWER
+snapshots (each captain gets their own reachable-stops view).
 
     GET  /              → the app (static/index.html)
     GET  /healthz       → ok (health check)
@@ -72,7 +72,7 @@ trivia_bank = TriviaAPIBank()  # battles: live The Trivia API, buffered offline-
 app = FastAPI(title="Thalassa")
 
 
-# ── broadcast (per-viewer snapshots — the fog is personal) ───────────────────
+# ── broadcast (per-viewer snapshots — reachable stops are personal) ──────────
 async def _send(ws: WebSocket, payload: dict) -> bool:
     try:
         await ws.send_json(payload)
@@ -216,8 +216,6 @@ async def dispatch(pid: str | None, kind: str, msg: dict) -> str | None:
             await broadcast_event({"type": "dice", "pid": pid, "value": die})
         elif kind == "sail":
             g.sail(pid, str(msg.get("node", "")))
-        elif kind == "vale_step":
-            g.walk_choose(pid, str(msg.get("node", "")))
         elif kind == "wager":
             g.wager(pid, int(msg.get("tier", 0)))
         elif kind == "pass":
@@ -271,9 +269,8 @@ async def dispatch(pid: str | None, kind: str, msg: dict) -> str | None:
             node = str(msg.get("node", ""))
             region = msg.get("region")
             if p and region and node not in g.board.nodes:
-                # the Amber Vale is fogged, so the client can't name its stops —
-                # resolve a landing spot for the region server-side (prefer a
-                # quiet interior stop, else anything in it)
+                # the dev bar names a REGION, not a stop — resolve a landing
+                # spot server-side (prefer a quiet interior stop, else anything)
                 pool = [nid for nid, n in g.board.nodes.items()
                         if n.get("region") == region] if region != "hub" else \
                        [nid for nid, n in g.board.nodes.items() if not n.get("region")]
@@ -292,8 +289,6 @@ async def dispatch(pid: str | None, kind: str, msg: dict) -> str | None:
             if p and node in g.board.nodes:
                 p.prev_node = p.node
                 p.node = node
-                if g.board.nodes[node].get("region") == "autumn":
-                    g._reveal(p, node)         # dropping into the Vale lights it
                 if msg.get("land"):
                     g._land(p, node)
                 else:
@@ -344,13 +339,8 @@ async def bot_move(nonce: int, tag: str, pid: str):
             await dispatch(pid, "shop_buy", {"item": buy})
         err = await dispatch(pid, "pass", {})
     elif phase == "sail":
-        if g.walk and g.walk.get("options"):
-            # the Amber Vale: a bot picks a fork at random and walks on
-            choice = rng.choice(g.walk["options"])
-            err = await dispatch(pid, "vale_step", {"node": choice})
-        else:
-            node = bots.decide_sail(g, pid, rng)
-            err = await dispatch(pid, "sail", {"node": node}) if node else "no move"
+        node = bots.decide_sail(g, pid, rng)
+        err = await dispatch(pid, "sail", {"node": node}) if node else "no move"
     elif phase == "shrine":
         tier = bots.decide_shrine_tier(g, pid, skill, rng)
         err = await dispatch(pid, "wager", {"tier": tier})
