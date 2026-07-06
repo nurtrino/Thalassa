@@ -1563,28 +1563,24 @@ body.shake #world { animation: shake .45s; }
 .stallhead svg { width: 17px; height: 17px; }
 .stallhead em { font-family: var(--body); font-size: 12.5px; letter-spacing: .02em; text-transform: none; color: var(--mist); margin-left: auto; }
 
-/* ── the trader's chart: a scrap of paper wedged in the stall's top corner ── */
+/* ── the trader's chart: a scrap of paper tucked BEHIND the stall's top corner,
+ * only a triangle peeking out. z-index below the panel (10) so the box hides
+ * all but the tip; three tugs work it free (each lifts it further up-right). ── */
 .mapTab {
-  position: fixed; z-index: 11; padding: 0;
-  width: 30px; height: 40px;
+  position: fixed; z-index: 9; padding: 0;
+  width: 34px; height: 44px;
   border: 1px solid #a9884b; border-radius: 3px 6px 6px 3px;
   background: linear-gradient(158deg, #f3e8c6 0%, #e2cd97 60%, #cdb277 100%);
   color: #6b4f22; box-shadow: 2px 3px 8px rgba(0, 0, 0, .5);
   display: flex; align-items: center; justify-content: center; cursor: pointer;
-  /* each tug lifts it further up-and-right, working free of the corner. The
-   * shake keyframes drive `transform`, so pull (translate) + tilt (rotate)
-   * compose with it via the individual transform properties. */
-  translate: calc(var(--pull, 0) * 7px) calc(var(--pull, 0) * -7px);
-  rotate: 12deg;
+  translate: calc(var(--pull, 0) * 9px) calc(var(--pull, 0) * -9px);
+  rotate: 18deg;
   transition: translate .2s cubic-bezier(.3, 1.5, .5, 1), filter .15s ease;
 }
-.mapTab::before {                       /* a dog-eared corner so it reads as paper */
-  content: ''; position: absolute; top: 0; right: 0;
-  border-width: 0 8px 8px 0; border-style: solid;
-  border-color: transparent #c9ad6f transparent transparent;
-}
 .mapTab:hover { filter: brightness(1.06); }
-.mapTab svg { width: 16px; height: 16px; }
+.mapTab svg { width: 15px; height: 15px; opacity: .85; }
+/* once it's clear of the corner (pulled out / bought), lift it above the box */
+.mapTab.got, .mapTab.pulled { z-index: 11; }
 .mapTab.got { background: linear-gradient(158deg, #f4de9a, #d7b256); color: #5a3f12; }
 .mapTab.shake { animation: maptug .34s ease; }
 @keyframes maptug {

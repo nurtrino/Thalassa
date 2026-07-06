@@ -1742,10 +1742,10 @@ function updateMapTab(me, show) {
   tab.title = bought
     ? 'Your chart — open the map (an X marks the islet)'
     : (mapPull > 0 ? 'Nearly free — keep tugging' : 'A scrap of paper pokes from the corner…');
-  // peek over the stall's top-right corner
+  // tuck it BEHIND the stall's top-right corner — only a triangular tip peeks
   const r = panel.getBoundingClientRect();
-  tab.style.left = (r.right - 20) + 'px';
-  tab.style.top = (r.top - 6) + 'px';
+  tab.style.left = (r.right - 27) + 'px';
+  tab.style.top = (r.top - 3) + 'px';
 }
 function onMapTabClick() {
   const me = room?.players?.find((p) => p.pid === you);
