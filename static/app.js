@@ -1815,9 +1815,9 @@ function openTreasureMap() {
     `<svg class="tm-art" viewBox="0 0 300 200" aria-hidden="true">` +
     // faint sea hatching
     `<path class="tm-wave" d="M28 34 q7 -6 14 0 t14 0 M40 168 q7 -6 14 0 t14 0"/>` +
-    // the islet — a rounded landmass with a couple of palm strokes
-    `<path class="tm-isle" d="M176 74 q16 -30 48 -20 q34 8 34 38 q18 14 4 38 q-14 22 -46 15 q-32 8 -48 -16 q-14 -24 6 -40 q10 -18 48 -15 Z"/>` +
-    `<path class="tm-palm" d="M210 92 v-16 M210 76 q-8 -5 -15 -3 M210 76 q8 -5 15 -3 M232 100 v-14 M232 86 q-7 -4 -13 -2 M232 86 q7 -4 13 -2"/>` +
+    // the islet — a smooth rounded landmass, the X ring centred on it
+    `<path class="tm-isle" d="M214 58 C 250 56 271 79 262 104 C 271 133 244 152 212 148 C 179 152 157 130 164 102 C 157 74 182 56 214 58 Z"/>` +
+    `<path class="tm-palm" d="M188 84 v-13 M188 71 q-7 -4 -12 -2 M188 71 q7 -4 12 -2 M242 88 v-12 M242 76 q-6 -3 -11 -1 M242 76 q6 -3 11 -1"/>` +
     // the dashed trail wandering from the landing to the spot
     `<path class="tm-trail" d="M36 168 C 82 142, 66 96, 118 90 S 176 120, 214 104"/>` +
     `<circle class="tm-start" cx="36" cy="168" r="5"/>` +
