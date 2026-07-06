@@ -848,7 +848,10 @@ function reactAudio(prev, next) {
   // shares the common battle track
   else if (battleish) scene = next.battle?.is_pharos ? 'finalbattle' : 'battle';
   else if (puzzleish) scene = 'puzzle';
-  else if (next.phase === 'finished' || next.pharos_open) scene = 'endgame';
+  // the endgame theme is the WINNER'S music — it waits until the Dark Presence
+  // is actually down (phase 'finished'), NOT the moment the Pharos opens. With
+  // the seals banked you keep sailing the hub to its own theme until you win.
+  else if (next.phase === 'finished') scene = 'endgame';
   else {
     // open sea → the realm's own theme (desert alternates). Prefer the LIVE
     // active stage over curRealm so the track can't lag or flip mid-crossing.
