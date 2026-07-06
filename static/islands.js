@@ -2332,22 +2332,36 @@ export function makeBattleBackdrop(theme) {
     palm.position.set(-8, 0, 21);
     g.add(palm);
   } else if (id === 'ice') {
-    // drift ice underfoot, two great bergs on the horizon
-    for (let i = 0; i < 8; i++) {
-      const a = rng() * 6.28, r = 12 + rng() * 18;
+    // a snowfield: plenty of drift ice underfoot and low snow banks on the
+    // horizon — NO towering ice spire (it loomed like a grey pyramid)
+    for (let i = 0; i < 15; i++) {
+      const a = rng() * 6.28, r = 10 + rng() * 20;
       const floe = new THREE.Mesh(
         displace(new THREE.CylinderGeometry(1 + rng() * 2.2, 1.2 + rng() * 2.2, 0.4, 7), 0.3, seedFrom(rng)),
         flat(0xe8f2f8));
       floe.position.set(Math.cos(a) * r, -0.05, Math.sin(a) * r);
       g.add(floe);
     }
-    for (const [x, z, s] of [[26, -8, 1], [20, 14, 0.7]]) {
-      const berg = new THREE.Mesh(
-        displace(new THREE.ConeGeometry(4.5 * s, 11 * s, 6, 2), 1.6 * s, seedFrom(rng)),
-        flat(0xdcecf6, { emissive: 0x7fd4ef, emissiveIntensity: 0.08 }));
-      berg.position.set(x, 3.5 * s, z);
-      berg.castShadow = true;
-      g.add(berg);
+    // low, wide snow banks (flattened mounds) — snow heaped on the shore, not
+    // a spike
+    for (const [x, z, s] of [[26, -8, 1.3], [20, 15, 1.0], [-19, -13, 1.1], [12, 20, 0.9]]) {
+      const bank = new THREE.Mesh(
+        displace(new THREE.SphereGeometry(3.4 * s, 8, 5), 0.55 * s, seedFrom(rng)),
+        flat(0xeef4f8));
+      bank.scale.y = 0.38;
+      bank.position.set(x, -0.4, z);
+      bank.castShadow = true;
+      bank.receiveShadow = true;
+      g.add(bank);
+    }
+    // soft snow patches drifting over the ground
+    for (let i = 0; i < 9; i++) {
+      const patch = new THREE.Mesh(
+        new THREE.CircleGeometry(1.4 + rng() * 2.2, 7), flat(0xf3f8fc));
+      patch.rotation.x = -Math.PI / 2;
+      const a = rng() * 6.28, r = 6 + rng() * 16;
+      patch.position.set(Math.cos(a) * r, 0.01, Math.sin(a) * r);
+      g.add(patch);
     }
     const floePine = makePine(rng, 1.2);
     floePine.position.set(-15, 0, -12);
@@ -2367,15 +2381,16 @@ export function makeBattleBackdrop(theme) {
     g.add(ribs);
     g.add(hazePlane(0xf9e3ae, 80, 12, 0.12, 24, 4, -20));
   } else if (id === 'jungle') {
-    // canopy walls close in on both flanks; light shafts rake the water
+    // canopy walls close in on both flanks; light shafts rake the water. the
+    // Meshy jungle_tree (not the old low-poly puff tree) forms the wall
     for (let i = 0; i < 7; i++) {
       const a = -0.9 + (i / 6) * 1.8;                 // arc behind the foe
-      const t = makeJungleTree(rng, 2.2 + rng() * 1.4);
+      const t = propGroup('jungle_tree', 1.6 + rng() * 0.7);
       t.position.set(Math.cos(a) * 26 + 4, -0.4, Math.sin(a) * 26);
       g.add(t);
     }
-    for (const [x, z, s] of [[-16, -14, 2.4], [-27, 17, 2.0]]) {
-      const t = makeJungleTree(rng, s);
+    for (const [x, z, s] of [[-16, -14, 1.7], [-27, 17, 1.4]]) {
+      const t = propGroup('jungle_tree', s);
       t.position.set(x, -0.3, z);
       g.add(t);
     }
@@ -2389,13 +2404,16 @@ export function makeBattleBackdrop(theme) {
     stone.position.set(14, -0.6, 13);
     g.add(stone);
   } else if (id === 'autumn') {
-    // amber groves on rocky banks, low gold sun, a leaf-strewn bronze mirror
+    // amber groves on rocky banks, low gold sun, a leaf-strewn bronze mirror.
+    // the Meshy autumn_tree everywhere (not the old geometric puff-ball), each
+    // seated on its bank's measured top so none float
     for (const [x, z, s] of [[20, -10, 1.8], [24, 6, 1.4], [16, 14, 1.2], [-16, -12, 1.5], [-27, 17, 1.2]]) {
       const bank = makeRock(rng, 1.8 * s, theme.palette.rock);
       bank.position.set(x, -0.7, z);
       g.add(bank);
-      const tree = makeAutumnTree(rng, 1.6 * s);
-      tree.position.set(x, 0.4 * s, z);
+      const bb = new THREE.Box3().setFromObject(bank);
+      const tree = propGroup('autumn_tree', 0.5 * s + 0.25);
+      tree.position.set(x, bb.max.y - 0.2, z);
       g.add(tree);
     }
     // a few floating leaves caught on the water
@@ -2463,6 +2481,10 @@ export function makeBattleBackdrop(theme) {
     pharos: ['ruined_column', 'broken_statue', 'sarcophagus', 'bone_pile'],
   };
   const FLOATS = new Set(['iceberg', 'ice_shard', 'lily_pads', 'driftwood']);
+  // rocks/boulders/cairns/bones are ground features themselves — never perch
+  // them on ANOTHER rock (that put a mossy boulder up on a spike); sit them
+  // straight on the floor
+  const GROUNDED = new Set(['boulder', 'cairn', 'sand_dune', 'bone_pile']);
   const picks = BATTLE_PROPS[id] || BATTLE_PROPS.hub;
   const n = picks.length + 2;                        // every pick shows at least once
   for (let i = 0; i < n; i++) {
@@ -2473,13 +2495,16 @@ export function makeBattleBackdrop(theme) {
     const pid = picks[i % picks.length];
     const p = propGroup(pid, 0.9 + rng() * 0.5);
     const x = Math.cos(a) * r, z = Math.sin(a) * r;
-    if (id === 'desert' || id === 'pharos' || FLOATS.has(pid)) {
+    if (id === 'desert' || id === 'pharos' || FLOATS.has(pid) || GROUNDED.has(pid)) {
       p.position.set(x, 0, z);
     } else {
+      // seat the prop on the rock's MEASURED top (a fixed offset floated the
+      // small idols and sank the big ones)
       const base = makeRock(rng, 1.3 + rng() * 0.7, theme.palette.rock);
       base.position.set(x, -0.7, z);
       g.add(base);
-      p.position.set(x, 0.55, z);
+      const bb = new THREE.Box3().setFromObject(base);
+      p.position.set(x, bb.max.y - 0.18, z);
     }
     g.add(p);
   }

@@ -59,10 +59,12 @@ function ensure(id) {
         if (!o.isMesh) return;
         o.castShadow = true;
         o.receiveShadow = true;
-        // roughness floor: Meshy bakes glossy PBR that reads as glazed
-        // plastic beside the flat-shaded world — matte it down to belong
+        // kill the glossy PBR sheen: Meshy bakes shiny metal/rough maps that
+        // read as glazed plastic beside the flat-shaded world. Force fully
+        // matte and non-metallic so nothing catches a hot specular highlight.
         if (o.material && 'roughness' in o.material) {
-          o.material.roughness = Math.max(0.85, o.material.roughness);
+          o.material.roughness = Math.max(0.95, o.material.roughness);
+          if ('metalness' in o.material) o.material.metalness = 0;
         }
       });
       // normalize to the prop's NATURAL height and rest it on the ground

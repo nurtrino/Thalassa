@@ -33,7 +33,7 @@ from fastapi.staticfiles import StaticFiles
 
 import bots
 import questions
-from game import DODGE_SECS, Game, GameError
+from game import DODGE_SECS, RELICS_TO_WIN, Game, GameError
 from questions import QuestionBank, TriviaAPIBank
 
 BASE = os.path.dirname(os.path.abspath(__file__))
@@ -336,6 +336,9 @@ async def dispatch(pid: str | None, kind: str, msg: dict) -> str | None:
             if p and msg.get("win"):           # force the curtain call
                 g.winner = p.pid
                 g._bump("finished")
+            if p and msg.get("bank"):          # bank the seals + open the Pharos
+                p.banked = RELICS_TO_WIN
+                g.pharos_open = True
             if msg.get("battle_mode"):         # force the next battle round's deck
                 g._force_mode = str(msg["battle_mode"])
             node = str(msg.get("node", ""))
