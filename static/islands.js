@@ -1515,7 +1515,8 @@ function makeGatePortal(accentHex, seed, rockHex = 0x8a8f98) {
   return g;
 }
 
-/* a pocket oasis: still pool ringed with reeds and palms (foot-mode havens) */
+/* a pocket oasis: still pool ringed with reeds (foot-mode havens). The palms
+   are gone — the desert camp reads cleaner as bare water and reeds. */
 function makeOasis(rng, theme) {
   const g = new THREE.Group();
   const pool = new THREE.Mesh(new THREE.CircleGeometry(2.4, 18),
@@ -1524,12 +1525,6 @@ function makeOasis(rng, theme) {
   pool.rotation.x = -Math.PI / 2;
   pool.position.y = 0.06;
   g.add(pool);
-  for (let i = 0; i < 4; i++) {
-    const a = rng() * 6.28;
-    const palm = makePalm(rng, 0.8 + rng() * 0.5);
-    palm.position.set(Math.cos(a) * (2.7 + rng()), 0, Math.sin(a) * (2.7 + rng()));
-    g.add(palm);
-  }
   for (let i = 0; i < 6; i++) {
     const a = rng() * 6.28;
     const reed = new THREE.Mesh(new THREE.ConeGeometry(0.05, 0.8 + rng() * 0.5, 4), flat(0x6a8a3e));

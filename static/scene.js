@@ -2098,15 +2098,22 @@ export function createWorld(container, handlers = {}) {
         let fx = n.x - (home?.x ?? 0), fz = n.z - (home?.z ?? 0);
         const fl = Math.hypot(fx, fz) || 1; fx /= fl; fz /= fl;
         mon.position.set(n.x + fx * 9, -0.8, n.z + fz * 9);
-        mon.lookAt(n.x, 0, n.z);
-        mon.rotation.y += Math.PI / 2;              // face 90° counter-clockwise
         st.scene.add(mon);
         krakenRec.obj = mon;
       });
     }
     if (krakenRec?.obj) {
-      animateMonster(krakenRec.obj, clock.getElapsedTime(), 'idle');
-      krakenRec.obj.position.y = -0.8 + Math.sin(clock.getElapsedTime() * 1.1) * 0.25;  // heave
+      const mon = krakenRec.obj;
+      // the kraken's FACE is its local +X (the two glowing eyes and the beak) —
+      // aim it straight at the captain's ship every frame so she always glares
+      // at the boat (upright: a plain yaw, never the lookAt pitch that tipped her)
+      const n = nodeById[krakenRec.node];
+      const ship = ships[room?.turn]?.root?.position;
+      const tx = ship ? ship.x : (n ? n.x : mon.position.x);
+      const tz = ship ? ship.z : (n ? n.z : mon.position.z);
+      mon.rotation.set(0, Math.atan2(mon.position.z - tz, tx - mon.position.x), 0);
+      animateMonster(mon, clock.getElapsedTime(), 'idle');
+      mon.position.y = -0.8 + Math.sin(clock.getElapsedTime() * 1.1) * 0.25;  // heave
     }
   }
 
