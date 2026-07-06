@@ -2167,6 +2167,34 @@ function sendMove(stance, target, mode) {
   send({ type: 'stance', stance, target: target ?? 0, ...(mode ? { mode } : {}) });
 }
 
+/* ── battle-action tooltips ───────────────────────────────────────────────
+   The native `title` pops slowly and reads plain; each stance/item/flee button
+   instead shows an IMMEDIATE styled card spelling out its terms on hover. */
+let battleTipEl = null;
+function showBattleTip(anchor, text) {
+  if (!text) return;
+  if (!battleTipEl) {
+    battleTipEl = document.createElement('div');
+    battleTipEl.className = 'btip';
+    document.body.appendChild(battleTipEl);
+  }
+  battleTipEl.textContent = text;
+  battleTipEl.classList.add('show');
+  const r = anchor.getBoundingClientRect();
+  const tw = battleTipEl.offsetWidth;
+  let left = r.left + r.width / 2 - tw / 2;
+  left = Math.max(8, Math.min(window.innerWidth - tw - 8, left));
+  battleTipEl.style.left = left + 'px';
+  battleTipEl.style.top = (r.top - battleTipEl.offsetHeight - 12) + 'px';
+}
+function hideBattleTip() { battleTipEl?.classList.remove('show'); }
+function attachBattleTip(bt, text) {
+  bt.setAttribute('aria-label', text);          // keep it for screen readers…
+  bt.addEventListener('mouseenter', () => showBattleTip(bt, text));
+  bt.addEventListener('mouseleave', hideBattleTip);
+  bt.addEventListener('mousedown', hideBattleTip);
+}
+
 function renderBattle() {
   const hud = $('battleHud');
   const b = battleView();
@@ -2244,6 +2272,7 @@ function renderBattle() {
   /* stance dock */
   const actions = $('bactions');
   actions.innerHTML = '';
+  hideBattleTip();                               // the buttons just rebuilt
   if (room.phase !== 'battle' || !mine) return;
 
   const me = room.players.find((p) => p.pid === you);
@@ -2251,7 +2280,7 @@ function renderBattle() {
     const bt = document.createElement('button');
     bt.className = cls;
     bt.innerHTML = html;
-    bt.title = title;
+    if (title) attachBattleTip(bt, title);       // immediate styled tip, not `title`
     bt.disabled = disabled;
     bt.onclick = fn;
     actions.appendChild(bt);
@@ -2270,56 +2299,62 @@ function renderBattle() {
   if (pendingHeal) {
     const heals = (me?.upgrades || []).includes('ambrosia') ? 3 : 1;
     mk(`${icon('strike', 16)} MULTIPLE CHOICE`, 'battlebtn heal',
-       () => sendMove('heal', 0, 'mc'), `A Tier III trivia question · heal ${heals}`);
+       () => sendMove('heal', 0, 'mc'),
+       `Multiple choice: answer one hard (Tier III) trivia question to mend ${heals} hull. A miss heals nothing.`);
     mk(`${icon('scroll', 16)} JEOPARDY`, 'battlebtn heal',
-       () => sendMove('heal', 0, 'jeopardy'), `Pick a Jeopardy clue · heal ${heals}`);
+       () => sendMove('heal', 0, 'jeopardy'),
+       `Jeopardy: pick a clue and type the answer to mend ${heals} hull. A miss heals nothing.`);
     mk(`${icon('fitting', 16)} PUZZLE`, 'battlebtn heal',
-       () => sendMove('heal', 0, 'puzzle'), `A combat puzzle · heal ${heals}`);
-    mk('cancel', 'battlebtn ghost', () => { pendingHeal = false; renderBattle(); });
+       () => sendMove('heal', 0, 'puzzle'),
+       `Puzzle: solve one combat puzzle to mend ${heals} hull. A miss heals nothing.`);
+    mk('cancel', 'battlebtn ghost', () => { pendingHeal = false; renderBattle(); },
+       'Back to the stance choices.');
     return;
   }
   const st = TIER_ROMAN[b.strike_tier] || 'I';
   const darkLord = !!b.is_pharos;
   mk(`${icon('strike', 18)} STRIKE<span class="tierchip">${st}</span>`,
      'battlebtn strike', () => move('attack'),
-     darkLord ? 'Tier II question · chips the Dark Lord for 1 (no bonuses apply)'
-              : `Tier ${st} question · 1 damage${b.horn ? ' · the horn adds +2' : ''}`);
+     darkLord
+       ? 'STRIKE: answer a Tier II question. A right answer chips the Dark Presence for 1 — bonuses (horn, relics) do not apply here.'
+       : `STRIKE: answer a Tier ${st} question right to deal 1 damage${b.horn ? '; the War Horn adds +2' : ''}. A wrong answer does nothing.`);
   mk(`${icon('magic', 18)} MAGIC<span class="tierchip">III</span>`,
      'battlebtn magic', () => move('magic'),
-     'Tier III question · 3 damage · a miss backfires for 1');
+     'MAGIC: answer a hard Tier III question for 3 damage. Miss and the spell backfires, costing you 1 hull.');
   // HEAL — a mending hymn: pick your field, answer a Tier III question, knit the hull
   mk(`${icon('heart', 18)} HEAL<span class="tierchip">III</span>`,
      'battlebtn heal', () => { pendingHeal = true; renderBattle(); },
-     `Tier III question — you pick the field · heals ${(me?.upgrades || []).includes('ambrosia') ? 3 : 1}`);
+     `HEAL: mend ${(me?.upgrades || []).includes('ambrosia') ? 3 : 1} hull — pick a challenge format, then answer a Tier III question. A miss heals nothing, and you take no swing this turn.`);
   // the Sword of Damocles: a third option, but only against the Dark Presence
   if (b.is_pharos && (me?.upgrades || []).includes('sword_of_damocles')) {
     mk(`${icon('sword', 18)} SWORD<span class="tierchip">III</span>`,
        'battlebtn sword', () => move('sword'),
-       'Sword of Damocles · Tier III question · 5 damage · no backfire');
+       'SWORD of Damocles: answer a Tier III question for 5 damage — no backfire on a miss. Only against the Dark Presence.');
   }
   if (!b.boss) {
     const fleeCost = room.config?.flee_cost ?? 2;
     // .flee carries a spacer gap: butted against GUARD it was the #1
     // fat-finger complaint — an accidental flee costs scrolls AND a free hit
     mk(`${icon('flee', 16)} FLEE`, 'battlebtn ghost flee', () => send({ type: 'flee' }),
-       `${fleeCost} scroll${fleeCost === 1 ? '' : 's'} · 50/50 escape — fail and the front enemy strikes free`,
+       `FLEE: spend ${fleeCost} scroll${fleeCost === 1 ? '' : 's'} for a 50/50 escape. Fail the coin-flip and the front enemy strikes you for free.`,
        (me?.scrolls ?? 0) < fleeCost);
   }
   if ((me?.items?.horn || 0) > 0 && !b.horn) {
     mk(icon('horn') + `<span class="count">${me.items.horn}</span>`, 'itemslot',
-       () => send({ type: 'use', item: 'horn' }), 'War Horn — +2 on your next STRIKE');
+       () => send({ type: 'use', item: 'horn' }),
+       'War Horn: adds +2 damage to your next STRIKE this fight.');
   }
   if ((me?.items?.planks || 0) > 0 && me.hull < me.max_hull) {
     mk(icon('planks') + `<span class="count">${me.items.planks}</span>`, 'itemslot',
        () => send({ type: 'use', item: 'planks' }),
-       `Pitch & Planks — patch ${room.config?.planks_heal ?? 3} hull now`);
+       `Pitch & Planks: patch ${room.config?.planks_heal ?? 3} hull right now — no question needed.`);
   }
   if (pendingMove) {
     mk('cancel', 'battlebtn ghost', () => {
       pendingMove = null;
       world.battlePlay('targeted', { idx: null });
       renderBattle();
-    });
+    }, 'Cancel — back to the stance choices.');
   }
 }
 

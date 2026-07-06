@@ -260,6 +260,28 @@ button.small, .act.small { font-size: 11px; letter-spacing: .1em; padding: 6px 1
 }
 .itembtn { --bz1: #a583cc; --bz2: #7d5ba6; --bz3: #4d3470; }
 
+/* battle-action hover tooltip: spells out each stance/item/flee's terms, held
+   over the dock the instant you hover (see attachBattleTip in app.js) */
+.btip {
+  position: fixed; z-index: 40; pointer-events: none;
+  max-width: 300px; padding: 9px 13px;
+  background: linear-gradient(180deg, rgba(22, 18, 30, .98), rgba(12, 10, 18, .99));
+  border: 1px solid rgba(232, 194, 122, .5); border-radius: 11px;
+  color: #f2ead9; font-family: var(--disp, serif); font-weight: 600;
+  font-size: 13.5px; line-height: 1.42; text-align: center;
+  box-shadow: 0 10px 34px rgba(3, 6, 10, .72), 0 0 22px rgba(232, 194, 122, .12);
+  opacity: 0; transform: translateY(5px);
+  transition: opacity .12s ease, transform .12s ease;
+}
+.btip.show { opacity: 1; transform: translateY(0); }
+.btip::after {
+  content: ''; position: absolute; left: 50%; bottom: -6px; margin-left: -6px;
+  width: 12px; height: 12px; rotate: 45deg;
+  background: rgba(12, 10, 18, .99);
+  border-right: 1px solid rgba(232, 194, 122, .5);
+  border-bottom: 1px solid rgba(232, 194, 122, .5);
+}
+
 /* ── inputs ─────────────────────────────────────────────────────────────── */
 input, select {
   font-family: var(--body);
