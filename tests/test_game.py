@@ -2488,6 +2488,53 @@ def test_desert_has_exactly_three_sphinx_gates():
     assert all(n.get("region") == "desert" for n in gates)
 
 
+def _desert_lair(g):
+    return next(nid for nid, n in g.board.nodes.items()
+                if n["type"] == "lair" and n.get("region") == "desert")
+
+
+def test_every_desert_route_must_face_the_sphinx():
+    # NO path to the desert boss can dodge her: delete the Sphinx gates from the
+    # graph and the lair becomes unreachable from the realm's entrance — proof
+    # that every route (main road, haven detour, elite shortcut) crosses one.
+    g, _ = make_game()
+    b = g.board
+    lair = _desert_lair(g)
+    sphinx = {nid for nid, n in b.nodes.items() if n.get("sphinx")}
+    entry = min((nid for nid, n in b.nodes.items()
+                 if n.get("region") == "desert" and nid not in sphinx
+                 and n["type"] in ("sea", "monster")),
+                key=lambda nid: b.nodes[nid].get("depth", 9))
+    seen, stack = {entry}, [entry]
+    while stack:                                        # flood-fill avoiding gates
+        for nb in b.neighbors[stack.pop()]:
+            if nb not in sphinx and nb not in seen:
+                seen.add(nb)
+                stack.append(nb)
+    assert lair not in seen                             # she cuts off the boss
+
+
+def test_sphinx_gate_bars_the_boss_approach():
+    # an unanswered gate is a wall: you may STOP on her, never sail through. The
+    # junction sits just behind the altar, so it gates the whole approach.
+    g, (p0, p1) = make_game()
+    b = g.board
+    lair = _desert_lair(g)
+    filler = b.neighbors[lair][0]                       # the sea hop into the altar
+    junc = next(x for x in b.neighbors[filler] if x != lair)
+    assert b.nodes[junc].get("sphinx")
+    approach = next(x for x in b.neighbors[junc]
+                    if x != filler and b.nodes[x].get("region") == "desert")
+    p = g.player_by_pid(p0)
+    p.node = approach
+    p.prev_node = None
+    reach = g._reachable_for(p, 3)                      # approach → junc → filler → lair
+    assert junc in reach                                # you can stop at the gate…
+    assert lair not in reach                            # …but not sail past her to the boss
+    b.nodes[junc]["sphinx_done"] = True                 # answered: the way opens
+    assert lair in g._reachable_for(p, 3)
+
+
 def test_sphinx_stops_desert_crossings():
     g, (p0, p1) = make_game()
     road, p = _land_on_sphinx(g, p0)
