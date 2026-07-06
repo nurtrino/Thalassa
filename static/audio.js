@@ -23,6 +23,9 @@ const DORIAN = [
 ];
 const BAR = 3.6;          // seconds per chord
 
+// scenes that swell in slowly instead of the default 1.4s crossfade
+const FADE_IN = { finalbattle: 3.0 };
+
 class ThalassaAudio {
   constructor() {
     this.ctx = null;
@@ -278,6 +281,9 @@ class ThalassaAudio {
     if (this._scene === name) return;
     this._scene = name;
     const FADE = 1.4;
+    // the Dark Presence theme ("The Escape") swells in over its first three
+    // seconds; every other scene uses the quick 1.4s crossfade
+    const fadeIn = FADE_IN[name] ?? FADE;
     for (const [n, t] of Object.entries(this._tracks || {})) {
       if (n !== name && t.started) this._ramp(t.gain.gain, 0, FADE);
     }
@@ -295,7 +301,7 @@ class ThalassaAudio {
     } else if (t.el.paused) {
       t.el.play().catch(() => {});
     }
-    this._ramp(t.gain.gain, 1.0, FADE);
+    this._ramp(t.gain.gain, 1.0, fadeIn);
   }
 
   setSceneForce(name) {

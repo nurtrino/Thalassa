@@ -822,7 +822,9 @@ function reactAudio(prev, next) {
     next.phase === 'upgrade_pick';
   let scene;
   if (next.phase === 'lobby') scene = 'lobby';
-  else if (battleish) scene = 'battle';
+  // the Dark Presence gets its own theme ("The Escape") — every other fight
+  // shares the common battle track
+  else if (battleish) scene = next.battle?.is_pharos ? 'finalbattle' : 'battle';
   else if (puzzleish) scene = 'puzzle';
   else if (next.phase === 'finished' || next.pharos_open) scene = 'endgame';
   else {
