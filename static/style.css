@@ -1582,23 +1582,94 @@ body.shake #world { animation: shake .45s; }
 .mapTab:hover { filter: brightness(1.06); }
 .mapTab svg { width: 15px; height: 15px; opacity: .85; }
 .mapTab.got { background: linear-gradient(158deg, #f4de9a, #d7b256); color: #5a3f12; }
-.mapTab.shake { animation: maptug .34s ease; }
-@keyframes maptug {
-  0%, 100% { transform: translateX(0) rotate(0); }
-  15% { transform: translateX(-2px) rotate(-4deg); }
-  38% { transform: translateX(3px) rotate(4deg); }
-  60% { transform: translateX(-2px) rotate(-2deg); }
-  80% { transform: translateX(2px) rotate(2deg); }
+
+/* the stall slides down out of the way when the board chart takes over */
+body.shop-aside #shopPanel {
+  transform: translate(-50%, 130%) !important;
+  opacity: 0; pointer-events: none;
+  transition: transform .45s ease, opacity .35s ease;
 }
 
-/* the permanent X the chart stamps on the hidden islet, on the board map */
-.mapchip.swordx { --mc: #d84a34; }
+/* the trader's-chart flow: charge prompt + the unfolding treasure map */
+.chartov {
+  position: fixed; inset: 0; z-index: 45;
+  display: flex; align-items: center; justify-content: center;
+  background: rgba(6, 8, 12, .6);
+}
+.chartcard {
+  width: min(400px, 92vw); text-align: center;
+  padding: var(--s3) var(--s4) var(--s4);
+  background: linear-gradient(180deg, rgba(26, 20, 13, .97), rgba(12, 9, 6, .99));
+  border: 1px solid var(--gilt); border-radius: 10px;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, .7); color: var(--bone);
+  animation: sheetup .25s ease-out;
+}
+.cc-kick { display: inline-flex; align-items: center; gap: 6px;
+  font-family: var(--disp); font-size: 11px; letter-spacing: .2em; text-transform: uppercase; color: var(--gilt); }
+.cc-kick svg { width: 15px; height: 15px; }
+.chartcard p { font-size: 14px; line-height: 1.55; margin: 8px 0 14px; }
+.chartcard em { color: var(--gilt); font-style: italic; }
+.cc-btns { display: flex; gap: var(--s2); justify-content: center; }
+.cc-pay, .cc-no {
+  display: inline-flex; align-items: center; gap: 6px; padding: 9px 18px;
+  font-family: var(--disp); font-weight: 700; font-size: 13.5px; letter-spacing: .08em; cursor: pointer;
+  border-radius: 6px;
+}
+.cc-pay { color: #35270a; border: 1px solid #8a6a1c; background: linear-gradient(180deg, #f0d987, #cba53f); }
+.cc-pay:hover:not(:disabled) { filter: brightness(1.07); }
+.cc-pay:disabled { opacity: .5; cursor: not-allowed; }
+.cc-pay svg { width: 13px; height: 13px; }
+.cc-no { color: var(--bone); border: 1px solid rgba(201, 162, 39, .35); background: rgba(30, 40, 52, .8); }
+.cc-note { font-size: 12px; color: #d98a5a; margin-top: 9px; }
+
+.tm-sheet {
+  width: min(440px, 92vw); cursor: pointer;
+  padding: var(--s4) var(--s4) var(--s3); text-align: center;
+  background:
+    radial-gradient(130% 100% at 30% 15%, rgba(255, 250, 232, .55), transparent 55%),
+    linear-gradient(158deg, #e9d6a6 0%, #d3b878 70%, #c6a962 100%);
+  border: 2px solid #9c7a3e; border-radius: 8px;
+  box-shadow: 0 26px 70px rgba(0, 0, 0, .65);
+  color: #4a3617; transform-origin: 80% 0;
+  /* opens up from the corner to centre when the .in class is added next frame */
+  opacity: 0; transform: translate(22vw, -26vh) scale(.14) rotate(-8deg);
+  transition: transform .55s cubic-bezier(.2, 1.15, .35, 1), opacity .4s ease;
+}
+.tm-sheet.in { opacity: 1; transform: none; }
+.tm-art { display: block; width: 100%; height: auto; }
+.tm-isle { fill: #b9a06a; stroke: #7d6636; stroke-width: 1.5; }
+.tm-trail { fill: none; stroke: #7a3b1c; stroke-width: 3; stroke-linecap: round;
+  stroke-dasharray: 3 12; stroke-dashoffset: 260; }
+.tm-sheet.in .tm-trail { animation: tmdash .7s ease-out both .35s; }
+@keyframes tmdash { to { stroke-dashoffset: 0; } }
+.tm-start { fill: #7a3b1c; }
+.tm-x path { stroke: #c0392b; stroke-width: 5; stroke-linecap: round; }
+.tm-x { transform-box: fill-box; transform-origin: center; opacity: 0; }
+.tm-sheet.in .tm-x { animation: tmxin .4s ease-out both 1s; }
+@keyframes tmxin { from { opacity: 0; scale: 0; } to { opacity: 1; scale: 1; } }
+.tm-cap { font-family: var(--disp); font-size: 15px; letter-spacing: .03em; color: #5a3f12; margin: 6px 0 2px; }
+.tm-hint { font-size: 12.5px; font-style: italic; color: #7a5a2a; }
+
+/* the red X the chart stamps on the hidden islet, on the board map (labelled ?) */
 .mapchip.swordx .mapx {
   font-weight: 900; font-size: 17px; line-height: 1;
   color: #e5452c; text-shadow: 0 0 6px rgba(224, 58, 47, .8), 0 1px 2px rgba(0, 0, 0, .8);
   animation: swordxpulse 1.6s ease-in-out infinite;
 }
+.mapchip.swordx .ml { color: #ffcf6a; font-weight: 800; font-size: 15px; }
 @keyframes swordxpulse { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.18); } }
+/* …descending onto the island the first time you chart it. Animate the ✕ span
+ * (not the chip — mapTick owns the chip's positioning transform), so the drop
+ * plays without knocking the marker off the island. */
+.mapchip.swordx.drop .mapx {
+  animation: xdrop .7s cubic-bezier(.3, 1.4, .5, 1) both,
+             swordxpulse 1.6s ease-in-out .7s infinite;
+}
+@keyframes xdrop {
+  0% { transform: translateY(-46px) scale(2.4); opacity: 0; }
+  60% { opacity: 1; }
+  100% { transform: translateY(0) scale(1); opacity: 1; }
+}
 
 /* ── the Sword of Damocles claim cinematic ───────────────────────────────── */
 #swordClaim {

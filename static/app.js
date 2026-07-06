@@ -1417,7 +1417,7 @@ const MAP_POI = {
 
 function mapChipLabel(p) {
   if (p.player) return '';
-  if (p.type === 'sword') return 'The sword in the stone';
+  if (p.type === 'sword') return '?';
   const poi = MAP_POI[p.type] || {};
   let name = p.name || poi.label || p.type;
   if (p.type === 'gate' && p.region) name = `Pass to ${REALM_INFO[p.region]?.name || p.region}`;
@@ -1484,6 +1484,7 @@ function toggleMap(open) {
     $('mapIcons').innerHTML = '';
     $('mapHint').classList.add('hidden');
     $('mapBtn').classList.remove('on');
+    document.body.classList.remove('shop-aside');   // the stall slides back in
   }
 }
 
@@ -1506,10 +1507,10 @@ function mapTick() {
         el.textContent = (pl?.name || '?').slice(0, 1).toUpperCase();
         el.title = pl ? `${pl.name}${p.player === you ? ' (you)' : ''}` : '';
       } else if (p.type === 'sword') {
-        // the trader's mark: a permanent red X over the hidden islet
-        el.className = 'mapchip swordx';
-        el.innerHTML = `<span class="mi mapx">✕</span>` +
-          `<span class="ml">${esc(mapChipLabel(p))}</span>`;
+        // the trader's mark: a red X that descends onto the islet, labelled "?"
+        const drop = !swordDropSeen; swordDropSeen = true;
+        el.className = 'mapchip swordx' + (drop ? ' drop' : '');
+        el.innerHTML = `<span class="mi mapx">✕</span><span class="ml">?</span>`;
       } else {
         const poi = MAP_POI[p.type] || { icon: 'relic', cls: '' };
         el.className = `mapchip ${poi.cls}${p.type === 'lair' && p.defeated ? ' done' : ''}`;
@@ -1723,21 +1724,21 @@ function renderShop() {
   });
 }
 
-/* the trader's chart: a scrap of paper peeking from the stall's top corner.
- * It's wedged in tight — three tugs (each a shake + a little further out) work
- * it free; the third pulls it clear and stamps the X on your map. Body-level so
- * the pull-out survives the panel's frequent re-renders. */
-let mapPull = 0;
+/* the trader's chart: a scrap of paper peeking from UNDER the stall's top-right
+ * corner. Click it → the trader's price (a charge prompt) → the chart unfolds to
+ * screen-centre as a dashed "X marks the spot" map → click that and the stall
+ * slides aside, your board map opens, and the X descends onto the islet.
+ * Body-level + a rAF tracker so it stays glued under the corner through the
+ * panel's slide-in and its frequent re-renders. */
 let mapTabEl = null;
 let mapTabRAF = 0;
+let swordDropSeen = true;                 // set false to arm the X's descend on the next map open
 function positionMapTab() {
   const panel = $('shopPanel');
   if (!mapTabEl || !mapTabEl.parentNode || !panel || panel.classList.contains('hidden')) {
     mapTabRAF = 0;                                   // stop — the tab is gone
     return;
   }
-  // glue the tip to the box's top-right corner every frame, so it stays put
-  // through the panel's slide-in (a one-shot measure mis-timed the animation)
   const r = panel.getBoundingClientRect();
   mapTabEl.style.left = (r.right - 27) + 'px';
   mapTabEl.style.top = (r.top - 4) + 'px';
@@ -1746,7 +1747,6 @@ function positionMapTab() {
 function updateMapTab(me, show) {
   if (!show || !me) {
     if (mapTabEl && mapTabEl.parentNode) mapTabEl.remove();
-    mapPull = 0;
     return;
   }
   if (!mapTabEl) {
@@ -1758,36 +1758,75 @@ function updateMapTab(me, show) {
   if (tab.parentNode !== document.body) document.body.appendChild(tab);
   const bought = !!me.map_bought;
   tab.className = 'mapTab' + (bought ? ' got' : '');
-  tab.style.setProperty('--pull', bought ? 3 : mapPull);
+  tab.style.setProperty('--pull', bought ? 2 : 0);   // bought → nudged out; else tucked under
   tab.innerHTML = icon(bought ? 'compass' : 'scroll', 15);
   tab.title = bought
     ? 'Your chart — open the map (an X marks the islet)'
-    : (mapPull > 0 ? 'Nearly free — keep tugging' : 'A scrap of paper pokes from under the corner…');
-  if (!mapTabRAF) mapTabRAF = requestAnimationFrame(positionMapTab);
+    : 'A scrap of paper pokes from under the corner…';
+  positionMapTab();                                   // place it right away, then keep tracking
 }
 function onMapTabClick() {
   const me = room?.players?.find((p) => p.pid === you);
   if (!me) return;
-  const tab = document.getElementById('mapTab');
-  if (me.map_bought) { toggleMap(true); return; }   // already yours — just open the map
-  if ((me.scrolls ?? 0) < 30) {                      // can't afford — a stubborn wiggle
-    if (tab) { tab.classList.remove('shake'); void tab.offsetWidth; tab.classList.add('shake'); }
-    audio.sfx?.click?.();
-    if (tab) tab.title = 'The trader wants 30 scrolls for this chart.';
-    return;
-  }
-  mapPull += 1;
-  audio.sfx?.click?.();
-  if (tab) {
-    tab.classList.remove('shake'); void tab.offsetWidth; tab.classList.add('shake');
-    tab.style.setProperty('--pull', mapPull);       // slide it further out from under
-  }
-  if (mapPull >= 3) {                                // the third tug works it free
-    mapPull = 0;
+  if (me.map_bought) { openBoardChart(); return; }   // already paid — straight to your map
+  showChartPrompt(me);
+}
+/* the trader names his price */
+function showChartPrompt(me) {
+  if (document.getElementById('chartPrompt')) return;
+  const can = (me.scrolls ?? 0) >= 30;
+  const d = document.createElement('div');
+  d.id = 'chartPrompt'; d.className = 'chartov';
+  d.innerHTML =
+    `<div class="chartcard">` +
+    `<div class="cc-kick">${icon('scroll', 16)} The trader's chart</div>` +
+    `<p>The trader lays a hand on the rolled paper. <em>“Thirty scrolls, captain — ` +
+    `then the mark is yours to read.”</em></p>` +
+    `<div class="cc-btns">` +
+    `<button class="cc-pay" ${can ? '' : 'disabled'}>Pay 30 ${icon('scroll', 13)}</button>` +
+    `<button class="cc-no">Not now</button></div>` +
+    (can ? '' : `<div class="cc-note">You lack the scrolls (you have ${me.scrolls}).</div>`) +
+    `</div>`;
+  document.body.appendChild(d);
+  const close = () => d.remove();
+  d.querySelector('.cc-no').onclick = close;
+  d.addEventListener('pointerdown', (e) => { if (e.target === d) close(); });
+  if (can) d.querySelector('.cc-pay').onclick = () => {
     audio.sfx.build();
     send({ type: 'buy_map' });
-    toggleMap(true);                                 // and unroll it on your map
-  }
+    close();
+    openTreasureMap();
+  };
+}
+/* the chart unfolds to screen-centre: a dashed trail to a red X */
+function openTreasureMap() {
+  if (document.getElementById('treasureMap')) return;
+  const d = document.createElement('div');
+  d.id = 'treasureMap'; d.className = 'chartov';
+  d.innerHTML =
+    `<div class="tm-sheet">` +
+    `<svg class="tm-art" viewBox="0 0 300 190" aria-hidden="true">` +
+    // a lump of land, a dashed trail wandering to it, and the X
+    `<path class="tm-isle" d="M196 96 q10 -20 30 -16 q22 4 26 22 q14 6 10 24 q-4 18 -26 18 q-20 8 -38 -4 q-20 -4 -18 -26 q0 -20 16 -18 Z"/>` +
+    `<path class="tm-trail" d="M30 150 C 70 120, 60 80, 110 78 S 170 120, 210 96"/>` +
+    `<g class="tm-x" transform="translate(214,100)"><path d="M-11 -11 L11 11 M11 -11 L-11 11"/></g>` +
+    `<circle class="tm-start" cx="30" cy="150" r="5"/>` +
+    `</svg>` +
+    `<div class="tm-cap">✕ marks the spot — a lone islet in the Isles of Peace.</div>` +
+    `<div class="tm-hint">click the chart to plot it on your map</div>` +
+    `</div>`;
+  document.body.appendChild(d);
+  audio.sfx?.oracle?.();
+  const sheet = d.querySelector('.tm-sheet');
+  requestAnimationFrame(() => requestAnimationFrame(() => sheet.classList.add('in')));
+  sheet.onclick = () => { d.remove(); openBoardChart(); };
+}
+/* the stall slides aside, your board map opens, the X drops onto the islet */
+function openBoardChart() {
+  const tm = document.getElementById('treasureMap'); if (tm) tm.remove();
+  swordDropSeen = false;                              // let the descend animation play
+  document.body.classList.add('shop-aside');         // move the shop box out of the way
+  toggleMap(true);
 }
 
 /* The WIN cinematic — the Dark Presence falls: darkness pours out of the
