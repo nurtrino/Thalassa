@@ -653,11 +653,13 @@ export function createWorld(container, handlers = {}) {
   function slotFor(nodeId, slotIdx, st) {
     const n = nodeById[nodeId];
     if (n && n.type === 'gate') return gateBerth(n, st, slotIdx);
-    // in the Vale you WALK the trail: the captain stands ON the stop itself
-    // (stepping stone, camp, barrow door) — never at a ship's berth off it
-    if (st?.id === 'autumn' && n?.region === 'autumn') {
+    // on foot (the Vale, the desert) you WALK the trail: the captain stands ON
+    // the stop itself (stepping stone, cairn, camp) — never at a ship's berth
+    // off it. The first captain sits dead centre; extra ones fan out a touch.
+    if (isFootStage(st?.id)) {
+      if (slotIdx === 0) return new THREE.Vector3(n.x, 0, n.z);
       const a = (slotIdx / 6) * Math.PI * 2 + 0.8;
-      return new THREE.Vector3(n.x + Math.cos(a) * 0.9, 0, n.z + Math.sin(a) * 0.9);
+      return new THREE.Vector3(n.x + Math.cos(a) * 1.1, 0, n.z + Math.sin(a) * 1.1);
     }
     // an OPEN-WATER sea mooring (a shoal, no land under it): the ship settles in
     // the MIDDLE of the shoal, not off at its rim. The first captain sits dead
@@ -825,17 +827,18 @@ export function createWorld(container, handlers = {}) {
   }
 
   function startTravel(rec, toNode, st) {
-    // in the Vale the captain follows the FLAGSTONES: stop centre to stop
-    // centre, no berth offsets, no island-avoidance arcs, no corner smoothing
-    const vale = st?.id === 'autumn';
+    // on foot (the Vale AND the desert) the captain follows the FLAGSTONE trail:
+    // stop centre to stop centre, no berth offsets, no island-avoidance arcs, no
+    // corner smoothing — he stays dead on the worn path
+    const onFoot = isFootStage(st?.id);
     const route = sailPath(rec.prevNode, toNode);
     const raw = [rec.root.position.clone()];
     if (route && route.length > 2) {
       for (const nid of route.slice(1, -1)) {
         const n = nodeById[nid];
         if (!n) continue;
-        raw.push(vale ? new THREE.Vector3(n.x, 0, n.z)
-                      : lanePoint(nid, raw[raw.length - 1], st));
+        raw.push(onFoot ? new THREE.Vector3(n.x, 0, n.z)
+                        : lanePoint(nid, raw[raw.length - 1], st));
       }
     }
     const dest = nodeById[toNode];
@@ -846,7 +849,7 @@ export function createWorld(container, handlers = {}) {
       raw.push(new THREE.Vector3(dest.x - rad.x * 46, 0, dest.z - rad.z * 46));
     }
     raw.push(slotFor(toNode, rec.idx, st));
-    const pts = vale ? raw : avoidIslands(raw, st);
+    const pts = onFoot ? raw : avoidIslands(raw, st);
     rec.arrivalPending = true;
     let total = 0;
     const legs = [];
