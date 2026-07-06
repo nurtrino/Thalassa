@@ -354,6 +354,10 @@ async def dispatch(pid: str | None, kind: str, msg: dict) -> str | None:
             if msg.get("scrolls") and p:        # top up the purse (map / relic testing)
                 p.scrolls += int(msg["scrolls"])
                 g.nonce += 1
+            if msg.get("sword") and p:          # unlock the Sword of Damocles quest
+                p.scrolls += 100                # …with coin to spare for the chart + gear
+                p.map_bought = True             # the islet's X is already on your map
+                g.nonce += 1
             if msg.get("fight") and p:         # simulate a fight with anything
                 g.dev_fight(pid, msg["fight"])
             node = str(msg.get("node", ""))

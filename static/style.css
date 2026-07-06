@@ -701,6 +701,8 @@ input:focus-visible, select:focus-visible {
 }
 .hint {
   padding: var(--s2) var(--s4);
+  min-height: 42px;
+  display: flex; align-items: center; justify-content: center;
   font-size: 14px; font-style: italic;
   width: 100%; text-align: center;
   color: var(--bone);
@@ -1561,23 +1563,37 @@ body.shake #world { animation: shake .45s; }
 .stallhead svg { width: 17px; height: 17px; }
 .stallhead em { font-family: var(--body); font-size: 12.5px; letter-spacing: .02em; text-transform: none; color: var(--mist); margin-left: auto; }
 
-/* ── the trader's chart: a little map symbol on the stall ─────────────────── */
+/* ── the trader's chart: a scrap of paper wedged in the stall's top corner ── */
 .mapTab {
-  position: absolute; right: -15px; top: 42%; padding: 0;
+  position: fixed; z-index: 11; padding: 0;
   width: 30px; height: 40px;
-  border: 1px solid #a9884b; border-radius: 5px;
+  border: 1px solid #a9884b; border-radius: 3px 6px 6px 3px;
   background: linear-gradient(158deg, #f3e8c6 0%, #e2cd97 60%, #cdb277 100%);
-  color: #6b4f22; box-shadow: 2px 3px 7px rgba(0, 0, 0, .45);
-  display: flex; align-items: center; justify-content: center;
-  transform: rotate(4deg); cursor: pointer; z-index: 2;
-  transition: transform .16s ease, right .16s ease, filter .16s ease;
-  animation: papernudge 3.4s ease-in-out infinite;
+  color: #6b4f22; box-shadow: 2px 3px 8px rgba(0, 0, 0, .5);
+  display: flex; align-items: center; justify-content: center; cursor: pointer;
+  /* each tug lifts it further up-and-right, working free of the corner. The
+   * shake keyframes drive `transform`, so pull (translate) + tilt (rotate)
+   * compose with it via the individual transform properties. */
+  translate: calc(var(--pull, 0) * 7px) calc(var(--pull, 0) * -7px);
+  rotate: 12deg;
+  transition: translate .2s cubic-bezier(.3, 1.5, .5, 1), filter .15s ease;
 }
-.mapTab:hover:not(:disabled) { right: -21px; transform: rotate(7deg) translateY(-2px); }
-.mapTab:disabled { opacity: .5; cursor: not-allowed; animation: none; }
+.mapTab::before {                       /* a dog-eared corner so it reads as paper */
+  content: ''; position: absolute; top: 0; right: 0;
+  border-width: 0 8px 8px 0; border-style: solid;
+  border-color: transparent #c9ad6f transparent transparent;
+}
+.mapTab:hover { filter: brightness(1.06); }
 .mapTab svg { width: 16px; height: 16px; }
 .mapTab.got { background: linear-gradient(158deg, #f4de9a, #d7b256); color: #5a3f12; }
-@keyframes papernudge { 0%, 100% { transform: rotate(4deg) translateX(0); } 50% { transform: rotate(4deg) translateX(2px); } }
+.mapTab.shake { animation: maptug .34s ease; }
+@keyframes maptug {
+  0%, 100% { transform: translateX(0) rotate(0); }
+  15% { transform: translateX(-2px) rotate(-4deg); }
+  38% { transform: translateX(3px) rotate(4deg); }
+  60% { transform: translateX(-2px) rotate(-2deg); }
+  80% { transform: translateX(2px) rotate(2deg); }
+}
 
 /* the permanent X the chart stamps on the hidden islet, on the board map */
 .mapchip.swordx { --mc: #d84a34; }

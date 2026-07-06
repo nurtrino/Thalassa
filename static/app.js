@@ -246,6 +246,7 @@ function buildDevBar() {
 
   bar.appendChild(devMkBtn('simulate fight…', () => toggleDevFightMenu(bar)));
   bar.appendChild(devMkBtn('give all relics + seals', () => devSend({ relics: true })));
+  bar.appendChild(devMkBtn('unlock sword quest', () => devSend({ sword: true })));
   bar.appendChild(devMkBtn('exit dev mode', () => lockDev()));
 
   document.body.appendChild(bar);
@@ -1657,6 +1658,7 @@ function renderShop() {
   if (room.phase !== 'trade') shopRemote = false;
   if (!mine || shopClosed) {
     panel.classList.add('hidden');
+    updateMapTab(null, false);
     if (room.phase !== 'shop') shopClosed = false;
     return;
   }
@@ -1697,39 +1699,78 @@ function renderShop() {
   }).join('');
   // a little map symbol on the stall — the trader's chart to the Sword of
   // Damocles islet. Ashore only, and only until you bear the sword. Buying it
-  // (30 scrolls) marks the islet with a permanent X on YOUR board map.
-  const bought = !!me.map_bought;
-  const canBuy = (me.scrolls ?? 0) >= 30;
-  const showPaper = !remote && !owns.has('sword_of_damocles');
-  const paperTab = showPaper
-    ? `<button class="mapTab ${bought ? 'got' : ''}" id="mapTab" ${(!bought && !canBuy) ? 'disabled' : ''} ` +
-      `title="${bought ? 'Your chart — an islet is marked with an X. Open the map.'
-        : (canBuy ? 'Buy the trader’s chart — 30 scrolls' : 'The trader’s chart — 30 scrolls (you lack them)')}">` +
-      `${icon(bought ? 'compass' : 'scroll', 16)}</button>`
-    : '';
+  // (30 scrolls) marks the islet with a permanent X on YOUR board map. The tab
+  // itself is a persistent body-level element (see updateMapTab) so its
+  // pull-out state survives the panel re-render.
   panel.innerHTML =
     `<div class="stallhead">${icon('market')} ${remote ? "Ship's Trader" : "Trader's Stall"}` +
     `<em>your scrolls: ${me.scrolls}</em>` +
     `<button class="kick" id="shopClose" title="Close">${icon('kick', 12)}</button></div>` +
     (remote ? `<div class="stallnote">Charms only at sea — the shipwright's fittings and relics are sold ashore.</div>` : '') +
     shopRows +
-    (relicRows ? `<div class="relicsplit">${icon('relic', 12)} Legendary Relics</div>${relicRows}` : '') +
-    paperTab;
-  if (showPaper) $('mapTab').onclick = () => {
-    if (me.map_bought) { toggleMap(true); return; }   // open YOUR map — the X is on it
-    if ((me.scrolls ?? 0) >= 30) {
-      audio.sfx.build();
-      send({ type: 'buy_map' });
-      toggleMap(true);                                // and show them the chart at once
-    }
-  };
+    (relicRows ? `<div class="relicsplit">${icon('relic', 12)} Legendary Relics</div>${relicRows}` : '');
+  updateMapTab(me, !remote && !owns.has('sword_of_damocles'));
   $('shopClose').onclick = () => {
     if (remote) shopRemote = false; else shopClosed = true;
+    updateMapTab(null, false);
     renderShop(); renderTray();
   };
   panel.querySelectorAll('.buy').forEach((b) => {
     b.onclick = () => { audio.sfx.build(); send({ type: 'shop_buy', item: b.dataset.item }); };
   });
+}
+
+/* the trader's chart: a scrap of paper peeking from the stall's top corner.
+ * It's wedged in tight — three tugs (each a shake + a little further out) work
+ * it free; the third pulls it clear and stamps the X on your map. Body-level so
+ * the pull-out survives the panel's frequent re-renders. */
+let mapPull = 0;
+function updateMapTab(me, show) {
+  let tab = document.getElementById('mapTab');
+  if (!show || !me) { if (tab) tab.remove(); mapPull = 0; return; }
+  const panel = $('shopPanel');
+  if (!tab) {
+    tab = document.createElement('button');
+    tab.id = 'mapTab';
+    document.body.appendChild(tab);
+    tab.onclick = onMapTabClick;
+  }
+  const bought = !!me.map_bought;
+  tab.className = 'mapTab' + (bought ? ' got' : '') + (mapPull > 0 ? ' pulled' : '');
+  tab.style.setProperty('--pull', bought ? 3 : mapPull);
+  tab.innerHTML = icon(bought ? 'compass' : 'scroll', 16);
+  tab.title = bought
+    ? 'Your chart — open the map (an X marks the islet)'
+    : (mapPull > 0 ? 'Nearly free — keep tugging' : 'A scrap of paper pokes from the corner…');
+  // peek over the stall's top-right corner
+  const r = panel.getBoundingClientRect();
+  tab.style.left = (r.right - 20) + 'px';
+  tab.style.top = (r.top - 6) + 'px';
+}
+function onMapTabClick() {
+  const me = room?.players?.find((p) => p.pid === you);
+  if (!me) return;
+  const tab = document.getElementById('mapTab');
+  if (me.map_bought) { toggleMap(true); return; }   // already yours — just open the map
+  if ((me.scrolls ?? 0) < 30) {                      // can't afford — a stubborn wiggle
+    if (tab) { tab.classList.remove('shake'); void tab.offsetWidth; tab.classList.add('shake'); }
+    audio.sfx?.click?.();
+    if (tab) tab.title = 'The trader wants 30 scrolls for this chart.';
+    return;
+  }
+  mapPull += 1;
+  audio.sfx?.click?.();
+  if (tab) {
+    tab.classList.add('pulled');
+    tab.classList.remove('shake'); void tab.offsetWidth; tab.classList.add('shake');
+    tab.style.setProperty('--pull', mapPull);
+  }
+  if (mapPull >= 3) {                                // the third tug works it free
+    mapPull = 0;
+    audio.sfx.build();
+    send({ type: 'buy_map' });
+    toggleMap(true);                                 // and unroll it on your map
+  }
 }
 
 /* The WIN cinematic — the Dark Presence falls: darkness pours out of the
