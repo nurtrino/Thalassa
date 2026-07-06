@@ -1768,8 +1768,15 @@ function updateMapTab(me, show) {
 function onMapTabClick() {
   const me = room?.players?.find((p) => p.pid === you);
   if (!me) return;
-  if (me.map_bought) { openBoardChart(); return; }   // already paid — straight to your map
-  showChartPrompt(me);
+  // a little tug first — the paper wiggles free before it opens
+  const tab = document.getElementById('mapTab');
+  if (tab) { tab.classList.remove('wiggle'); void tab.offsetWidth; tab.classList.add('wiggle'); }
+  audio.sfx?.click?.();
+  setTimeout(() => {
+    const m = room?.players?.find((p) => p.pid === you) || me;
+    if (m.map_bought) openBoardChart();              // already paid — straight to your map
+    else showChartPrompt(m);
+  }, 340);
 }
 /* the trader names his price */
 function showChartPrompt(me) {
@@ -1805,12 +1812,23 @@ function openTreasureMap() {
   d.id = 'treasureMap'; d.className = 'chartov';
   d.innerHTML =
     `<div class="tm-sheet">` +
-    `<svg class="tm-art" viewBox="0 0 300 190" aria-hidden="true">` +
-    // a lump of land, a dashed trail wandering to it, and the X
-    `<path class="tm-isle" d="M196 96 q10 -20 30 -16 q22 4 26 22 q14 6 10 24 q-4 18 -26 18 q-20 8 -38 -4 q-20 -4 -18 -26 q0 -20 16 -18 Z"/>` +
-    `<path class="tm-trail" d="M30 150 C 70 120, 60 80, 110 78 S 170 120, 210 96"/>` +
-    `<g class="tm-x" transform="translate(214,100)"><path d="M-11 -11 L11 11 M11 -11 L-11 11"/></g>` +
-    `<circle class="tm-start" cx="30" cy="150" r="5"/>` +
+    `<svg class="tm-art" viewBox="0 0 300 200" aria-hidden="true">` +
+    // faint sea hatching
+    `<path class="tm-wave" d="M28 34 q7 -6 14 0 t14 0 M40 168 q7 -6 14 0 t14 0"/>` +
+    // the islet — a rounded landmass with a couple of palm strokes
+    `<path class="tm-isle" d="M176 74 q16 -30 48 -20 q34 8 34 38 q18 14 4 38 q-14 22 -46 15 q-32 8 -48 -16 q-14 -24 6 -40 q10 -18 48 -15 Z"/>` +
+    `<path class="tm-palm" d="M210 92 v-16 M210 76 q-8 -5 -15 -3 M210 76 q8 -5 15 -3 M232 100 v-14 M232 86 q-7 -4 -13 -2 M232 86 q7 -4 13 -2"/>` +
+    // the dashed trail wandering from the landing to the spot
+    `<path class="tm-trail" d="M36 168 C 82 142, 66 96, 118 90 S 176 120, 214 104"/>` +
+    `<circle class="tm-start" cx="36" cy="168" r="5"/>` +
+    // the spot: a ring with the X centred on it
+    `<circle class="tm-ring" cx="214" cy="104" r="21"/>` +
+    `<g class="tm-x" transform="translate(214 104)"><path d="M-11 -11 L11 11 M11 -11 L-11 11"/></g>` +
+    // a compass rose, top-left
+    `<g class="tm-rose" transform="translate(50 48)">` +
+    `<circle class="tm-rose-o" r="18"/>` +
+    `<path class="tm-rose-a" d="M0 -23 L5 0 L0 23 L-5 0 Z M-23 0 L0 -5 L23 0 L0 5 Z"/>` +
+    `<circle r="2.4" class="tm-rose-c"/></g>` +
     `</svg>` +
     `<div class="tm-cap">✕ marks the spot — a lone islet in the Isles of Peace.</div>` +
     `<div class="tm-hint">click the chart to plot it on your map</div>` +

@@ -1582,6 +1582,16 @@ body.shake #world { animation: shake .45s; }
 .mapTab:hover { filter: brightness(1.06); }
 .mapTab svg { width: 15px; height: 15px; opacity: .85; }
 .mapTab.got { background: linear-gradient(158deg, #f4de9a, #d7b256); color: #5a3f12; }
+/* a little tug when you click it, before it opens (transform composes with the
+ * base translate/rotate individual properties) */
+.mapTab.wiggle { animation: mapwiggle .38s ease; }
+@keyframes mapwiggle {
+  0%, 100% { transform: translate(0, 0) rotate(0); }
+  18% { transform: translate(3px, -3px) rotate(5deg); }
+  42% { transform: translate(1px, -7px) rotate(-4deg); }
+  68% { transform: translate(3px, -3px) rotate(4deg); }
+  86% { transform: translate(1px, -1px) rotate(-2deg); }
+}
 
 /* the stall slides down out of the way when the board chart takes over */
 body.shop-aside #shopPanel {
@@ -1637,16 +1647,27 @@ body.shop-aside #shopPanel {
 }
 .tm-sheet.in { opacity: 1; transform: none; }
 .tm-art { display: block; width: 100%; height: auto; }
-.tm-isle { fill: #b9a06a; stroke: #7d6636; stroke-width: 1.5; }
-.tm-trail { fill: none; stroke: #7a3b1c; stroke-width: 3; stroke-linecap: round;
-  stroke-dasharray: 3 12; stroke-dashoffset: 260; }
-.tm-sheet.in .tm-trail { animation: tmdash .7s ease-out both .35s; }
+.tm-wave { fill: none; stroke: #7a3b1c; stroke-width: 1.4; stroke-linecap: round; opacity: .3; }
+.tm-isle { fill: #c2a86e; stroke: #7d6636; stroke-width: 1.6; }
+.tm-palm { fill: none; stroke: #6b5228; stroke-width: 1.6; stroke-linecap: round; opacity: .65; }
+.tm-trail { fill: none; stroke: #8a3f1c; stroke-width: 3; stroke-linecap: round;
+  stroke-dasharray: 3 12; stroke-dashoffset: 300; }
+.tm-sheet.in .tm-trail { animation: tmdash .8s ease-out both .3s; }
 @keyframes tmdash { to { stroke-dashoffset: 0; } }
-.tm-start { fill: #7a3b1c; }
-.tm-x path { stroke: #c0392b; stroke-width: 5; stroke-linecap: round; }
+.tm-start { fill: #8a3f1c; }
+/* the spot: a dashed ring, and the X centred exactly on it */
+.tm-ring { fill: none; stroke: #c0392b; stroke-width: 2.4; stroke-dasharray: 4 5;
+  transform-box: fill-box; transform-origin: center; opacity: 0; }
+.tm-sheet.in .tm-ring { animation: tmringin .5s ease-out both .95s, tmspin 14s linear 1.4s infinite; }
+@keyframes tmringin { from { opacity: 0; scale: .3; } to { opacity: 1; scale: 1; } }
+@keyframes tmspin { to { transform: rotate(360deg); } }
+.tm-x path { stroke: #c0392b; stroke-width: 5.5; stroke-linecap: round; }
 .tm-x { transform-box: fill-box; transform-origin: center; opacity: 0; }
-.tm-sheet.in .tm-x { animation: tmxin .4s ease-out both 1s; }
-@keyframes tmxin { from { opacity: 0; scale: 0; } to { opacity: 1; scale: 1; } }
+.tm-sheet.in .tm-x { animation: tmxin .4s cubic-bezier(.3, 1.5, .5, 1) both 1.2s; }
+@keyframes tmxin { 0% { opacity: 0; scale: 2.4; } 60% { opacity: 1; } 100% { opacity: 1; scale: 1; } }
+.tm-rose-o { fill: none; stroke: #7d6636; stroke-width: 1.5; opacity: .8; }
+.tm-rose-a { fill: #8a6a3a; opacity: .8; }
+.tm-rose-c { fill: #5a4320; }
 .tm-cap { font-family: var(--disp); font-size: 15px; letter-spacing: .03em; color: #5a3f12; margin: 6px 0 2px; }
 .tm-hint { font-size: 12.5px; font-style: italic; color: #7a5a2a; }
 
