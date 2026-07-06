@@ -2134,9 +2134,9 @@ def test_boss_counters_even_when_you_hit():
 
 
 def test_pack_counters_even_on_a_clean_hit():
-    # a right answer no longer makes a pack whiff — every foe counters like a
-    # boss now, and the DODGE is the only way a blow is turned aside. A read
-    # of a weak (1-power) pack floors to 0, so a clean dodge takes no hit.
+    # a right answer no longer makes a pack whiff — every foe counters, and the
+    # DODGE is the only defence. A GOLD read of a weak (power-1) pack still lets
+    # HALF through: a half-heart chip. Only the bright CORE slips it clean.
     g, (p0, p1) = make_game()
     mon = find_node(g, "monster")
     set_pack(g, mon, [4])                         # set_pack gives power 1
@@ -2146,9 +2146,9 @@ def test_pack_counters_even_on_a_clean_hit():
     g.answer(p0, 0)                               # correct hit
     assert g.reveal["enemy_phase"].get("pending")  # a counter hangs over it
     assert advance_to_dodge(g) == "dodge"          # you must dodge it
-    land_blow(g, hit=True)                          # gold read: 1 // 2 = 0
-    assert g.reveal["enemy_phase"]["dmg"] == 0
-    assert g.player_by_pid(p0).hull == G.MAX_HULL   # no hit taken
+    land_blow(g, hit=True)                          # gold read: 1 / 2 = ½
+    assert g.reveal["enemy_phase"]["dmg"] == 0.5
+    assert g.player_by_pid(p0).hull == G.MAX_HULL - 0.5   # a half-heart chips through
 
 
 def test_guard_stance_is_gone():
@@ -2181,25 +2181,26 @@ def test_boss_heavy_telegraph_cycle_and_dodge():
     g.advance_after_reveal()
     assert g.battle["charging"] is True           # after 2, the heavy telegraphs
     hull_before = p.hull
-    # exchange 3 is the heavy: read the dodge → the doubled blow is nulled clean
-    # (a successful dodge, gold or core, now blocks ALL damage)
+    # exchange 3 is the heavy: a GOLD read halves the doubled blow (only the
+    # bright core would slip it clean) — you still take the chip
     g._force_mode = "mc"
     g.stance(p0, "attack")
     put_question(g, correct=2)
     g.answer(p0, 2)
     assert advance_to_dodge(g) == "dodge"
+    power = g.battle["incoming"]["power"]
     land_blow(g, hit=True)
     ep = g.reveal["enemy_phase"]
     assert ep["heavy"] and ep["dodged"]
-    assert ep["dmg"] == 0
-    assert hull_before - p.hull == 0
+    assert ep["dmg"] == G.round_half(power / 2) > 0
+    assert hull_before - p.hull == ep["dmg"]
     g.advance_after_reveal()
     assert not g.battle["charging"]               # the cycle resets
 
 
-def test_dodge_reads_and_nulls_the_blow():
-    # any successful dodge — gold OR the bright core — now blocks the blow
-    # ENTIRELY; only a freeze/miss takes damage
+def test_gold_dodge_lets_half_through():
+    # a GOLD read (hit, not the bright core) turns HALF the blow aside — you
+    # still take the chip; only nailing the core slips it entirely
     g, (p0, p1), lair = boss_battle()
     p = g.player_by_pid(p0)
     p.max_hull = 30
@@ -2208,10 +2209,11 @@ def test_dodge_reads_and_nulls_the_blow():
     put_question(g, correct=0)
     g.answer(p0, 1)                               # miss → the blow comes
     assert advance_to_dodge(g) == "dodge"
-    land_blow(g, hit=True)                        # read it → fully nulled
+    power = g.battle["incoming"]["power"]
+    land_blow(g, hit=True)                        # gold read → half through
     ep = g.reveal["enemy_phase"]
-    assert ep["dodged"] and ep["dmg"] == 0
-    assert p.hull == 30                            # not a scratch
+    assert ep["dodged"] and ep["dmg"] == G.round_half(power / 2) > 0
+    assert p.hull == 30 - ep["dmg"]               # a real chip, not zero
 
 
 def test_core_dodge_fully_nulls_the_blow():

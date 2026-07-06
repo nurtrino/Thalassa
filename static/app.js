@@ -1000,9 +1000,9 @@ function playBattleBeats(rv) {
     ? `${foe} strikes — <strong>your aegis turns it aside!</strong>`
     : ep.dodged
       ? `${foe} ${ep.heavy ? 'swings a <strong>HEAVY BLOW</strong>' : 'strikes'} — <strong>you twist aside!</strong> `
-        + (ep.dmg > 0 ? `Only <strong>${ep.dmg}</strong> gets through`
+        + (ep.dmg > 0 ? `Only <strong>${fmtHp(ep.dmg)}</strong> gets through`
                       : '<strong>Nothing</strong> gets through!')
-      : `${foe} ${ep.heavy ? 'lands a <strong>HEAVY BLOW</strong>' : 'strikes'} for <strong>${ep.dmg}</strong>!`;
+      : `${foe} ${ep.heavy ? 'lands a <strong>HEAVY BLOW</strong>' : 'strikes'} for <strong>${fmtHp(ep.dmg)}</strong>!`;
 
   /* ── the ENEMY-TURN reveal: the wound-up blow lands (the dodge just passed) ── */
   if (ep.enemy_turn) {
@@ -1362,7 +1362,10 @@ function hullPips(p) {
   // screen — the same freeze the battle hearts use
   const hull = (bHullShown != null && p.pid === room.turn) ? bHullShown : p.hull;
   let s = '<span class="hullpips">';
-  for (let i = 0; i < p.max_hull; i++) s += `<i class="${i < hull ? '' : 'dim'}"></i>`;
+  for (let i = 0; i < p.max_hull; i++) {
+    const cls = i + 1 <= hull ? '' : (i < hull ? 'half' : 'dim');
+    s += `<i class="${cls}"></i>`;
+  }
   return s + '</span>';
 }
 
@@ -1382,7 +1385,7 @@ function renderPlayers() {
     const div = document.createElement('div');
     div.className = 'pchip' + (p.pid === room.turn ? ' turn' : '') +
       (p.connected ? '' : ' gone') + (p.pid === you ? ' me' : '');
-    div.title = `${p.name} — hull ${p.hull}/${p.max_hull}, ${p.scrolls} scrolls, ` +
+    div.title = `${p.name} — hull ${fmtHp(p.hull)}/${p.max_hull}, ${p.scrolls} scrolls, ` +
       `${p.banked}/${room.config.relics_to_win} seals banked. Click to inspect.`;
     div.innerHTML =
       `<span class="dot" style="background:${p.color}"></span>` +
@@ -1421,7 +1424,7 @@ function showInspector(pid) {
   panel.innerHTML =
     `<h3><span class="dot" style="background:${p.color}"></span>${esc(p.name)}'s ship</h3>` +
     `<p class="tag">${esc(where)}${node?.region ? ' · ' + esc(REALM_INFO[node.region]?.name || '') : ''}` +
-    ` · hull ${p.hull}/${p.max_hull} · ${p.scrolls} scrolls · ${p.banked}/${room.config.relics_to_win} seals banked` +
+    ` · hull ${fmtHp(p.hull)}/${p.max_hull} · ${p.scrolls} scrolls · ${p.banked}/${room.config.relics_to_win} seals banked` +
     (p.cargo ? ` · <strong>${p.cargo} seal${p.cargo > 1 ? 's' : ''} aboard</strong>` : '') + '</p>' +
     '<h3>Fittings</h3>' +
     (ups.length
@@ -1691,10 +1694,11 @@ function renderTray() {
     trayBtn(tray, 'pass', 'ghost', () => send({ type: 'pass' }));
   } else if (room.phase === 'haven') {
     const missing = me.max_hull - me.hull;
-    const afford = Math.min(missing, me.scrolls);
+    const cost = Math.min(Math.ceil(missing), me.scrolls);
+    const healed = Math.min(cost, missing);
     trayHint(tray, 'A quiet haven — checkpoint set. Repairs cost 1 scroll per hull.');
-    trayBtn(tray, `REPAIR<small>+${afford} hull · ${afford} scroll${afford === 1 ? '' : 's'}</small>`, 'build',
-            () => send({ type: 'repair' }), afford <= 0);
+    trayBtn(tray, `REPAIR<small>+${fmtHp(healed)} hull · ${cost} scroll${cost === 1 ? '' : 's'}</small>`, 'build',
+            () => send({ type: 'repair' }), cost <= 0 || missing <= 0);
     trayBtn(tray, 'pass', 'ghost', () => send({ type: 'pass' }));
   } else if (room.phase === 'shop') {
     trayHint(tray, 'A market isle — the trader spreads his wares.');
@@ -2018,7 +2022,7 @@ function playerLootHtml(p) {
   return `<div class="vdet-grid">
       ${line('relic', 'Sigils', `${p.banked || 0} banked · ${p.cargo || 0} aboard`)}
       ${line('scroll', 'Scrolls', p.scrolls || 0)}
-      ${line('hull', 'Hull', `${p.hull}/${p.max_hull}`)}
+      ${line('hull', 'Hull', `${fmtHp(p.hull)}/${p.max_hull}`)}
       ${line('fitting', 'Fittings & relics', ups.length ? ups.join(', ') : '—')}
       ${line('market', 'Items', items.length ? items.join(', ') : '—')}
     </div>`;
@@ -2131,10 +2135,21 @@ function hpBar(cur, max, cls) {
   return `<div class="hpbar ${cls}">${cells}</div>`;
 }
 
+/* a tidy half-heart label: 0.5 → '½', 2.5 → '2½', 3 → '3' */
+function fmtHp(x) {
+  const w = Math.floor(x + 1e-6);
+  return (x - w) >= 0.5 - 1e-6 ? (w ? w + '½' : '½') : String(w);
+}
+
 function heartRow(cur, max) {
-  const hearts = Array.from({ length: max }, (_, i) =>
-    `<span class="heart ${i < cur ? '' : 'lost'}">${icon('heart', 20)}</span>`).join('');
-  return `<div class="heartrow" title="Health ${cur}/${max}">${hearts}</div>`;
+  const svg = icon('heart', 20);
+  const hearts = Array.from({ length: max }, (_, i) => {
+    if (i + 1 <= cur) return `<span class="heart">${svg}</span>`;          // full
+    if (i < cur) return `<span class="heart half">${svg}` +                // half
+      `<span class="heart-fill">${svg}</span></span>`;
+    return `<span class="heart lost">${svg}</span>`;                        // spent
+  }).join('');
+  return `<div class="heartrow" title="Health ${fmtHp(cur)}/${max}">${hearts}</div>`;
 }
 
 function battleView() {

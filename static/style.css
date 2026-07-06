@@ -517,6 +517,7 @@ input:focus-visible, select:focus-visible {
   clip-path: polygon(50% 0, 100% 50%, 50% 100%, 0 50%);
 }
 .hullpips i.dim, .hullpip.dim { background: #33404d; }
+.hullpips i.half, .hullpip.half { background: linear-gradient(90deg, #ef6a52 50%, #33404d 50%); }
 .hearts { color: #ef6a52; font-size: 13px; letter-spacing: 1px; }
 .hearts .dim { color: #3d4a57; }
 /* relic pips (four-point stars) */
@@ -1140,6 +1141,14 @@ input:focus-visible, select:focus-visible {
 .heart svg { fill: currentColor; stroke: #7a1d16; stroke-width: 1.2; }
 .heart.lost { color: #2a2f38; opacity: .8; }
 .heart.lost svg { fill: #20242c; stroke: #454c57; }
+/* a half heart: a spent (dark) base with the LEFT half painted red over it */
+.heart.half { color: #2a2f38; opacity: .9; position: relative; }
+.heart.half > svg { fill: #20242c; stroke: #454c57; }
+.heart.half .heart-fill {
+  position: absolute; left: 0; top: 0; height: 100%; width: 50%;
+  overflow: hidden; display: inline-flex; color: #e2493a;
+}
+.heart.half .heart-fill svg { fill: currentColor; stroke: #7a1d16; }
 @media (prefers-reduced-motion: no-preference) {
   .heart:not(.lost) { animation: heartbeat 2.6s ease-in-out infinite; }
 }
