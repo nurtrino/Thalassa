@@ -17,3 +17,4 @@ tools/*.tmp*
 
 # QA pipeline output (regenerated every run)
 qa_report/
+tools/qa/_out/
