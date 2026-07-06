@@ -1769,13 +1769,15 @@ function renderBattle() {
       Array.from({ length: heavyEvery }, (_, i) => `<i class="${i <= step ? 'on' : ''}"></i>`).join('') +
       '</span>';
   }
+  // the subtitle no longer names a question CATEGORY (battles draw general
+  // trivia / Jeopardy now — the domain-themed category is deprecated)
+  const subParts = [];
+  if (b.boss) subParts.push('BOSS');
+  if (b.is_lair) subParts.push('your trial');
+  if (b.region) subParts.push(esc(REALM_INFO[b.region]?.name || ''));
   $('bfoe').innerHTML =
     `<div class="btitle">${icon(mark, 26)} ${esc(b.name)}</div>` +
-    `<div class="bsub" style="color:${dcolor}">` +
-    (b.boss ? 'BOSS · ' : '') + esc(room.board.domains[b.domain]?.field || '') +
-    (b.is_lair ? ' · your trial' : '') +
-    (b.region ? ' · ' + esc(REALM_INFO[b.region]?.name || '') : '') +
-    '</div>' +
+    `<div class="bsub" style="color:${dcolor}">${subParts.join(' · ')}</div>` +
     (b.boss ? roundPips : '') +
     (b.escalation > 0 ? ` <span class="escalated" title="A rival already felled this guardian — it rises harder for you. Reach the trial first to face its weakest form.">Risen ×${b.escalation}</span>` : '') +
     (b.charging
@@ -1785,7 +1787,7 @@ function renderBattle() {
   /* enemy cards — fat HP cells only; the count reads from the cells */
   const cards = b.enemies.map((e, i) => `
     <div class="ecard ${e.hp <= 0 ? 'dead' : ''} ${pendingMove && e.hp > 0 ? 'targetable' : ''}" data-idx="${i}">
-      <div class="ename">${esc(e.name)}</div>
+      ${b.boss ? '' : `<div class="ename">${esc(e.name)}</div>`}
       ${hpBar(e.hp, e.max_hp, 'foe')}
       <div class="epow">power <span class="powpips">${'<i></i>'.repeat(Math.max(1, Math.min(6, e.power)))}</span></div>
     </div>`).join('');

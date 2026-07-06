@@ -2326,6 +2326,7 @@ export function makeBattleBackdrop(theme) {
   const rng = mulberry32(hashStr('battle:' + theme.id));
   const id = theme.id;
   const anims = [];                 // per-frame animators (fire, etc.)
+  let brazierSpots = null;          // keep scattered props clear of the flames
 
   // floor — desert and the Pharos arena stand on solid ground, not water
   g.add(id === 'desert' || id === 'pharos'
@@ -2484,7 +2485,8 @@ export function makeBattleBackdrop(theme) {
     }
     // live braziers ring the crown — real flickering flame, warm light on the
     // Dark Presence (replaces the old static glow-sprite "lamps")
-    for (const [x, z] of [[10, -12], [20, 2], [-12, -12], [6, 16]]) {
+    brazierSpots = [[10, -12], [20, 2], [-12, -12], [6, 16]];
+    for (const [x, z] of brazierSpots) {
       g.add(makeBrazierFire(rng, x, z, anims));
     }
     const beacon = glowSprite(0xff5626, 26);
@@ -2528,7 +2530,15 @@ export function makeBattleBackdrop(theme) {
     const r = 17 + rng() * 10;
     const pid = picks[i % picks.length];
     const p = propGroup(pid, 0.9 + rng() * 0.5);
-    const x = Math.cos(a) * r, z = Math.sin(a) * r;
+    let x = Math.cos(a) * r, z = Math.sin(a) * r;
+    // never drop a prop right against a brazier flame — shove it out along its
+    // radial until it's clear
+    if (brazierSpots) {
+      let guard = 0;
+      while (guard++ < 8 && brazierSpots.some(([bx, bz]) => Math.hypot(bx - x, bz - z) < 6)) {
+        x *= 1.2; z *= 1.2;
+      }
+    }
     if (id === 'desert' || id === 'pharos' || FLOATS.has(pid) || GROUNDED.has(pid)) {
       p.position.set(x, 0, z);
     } else {
