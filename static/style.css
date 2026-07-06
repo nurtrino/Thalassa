@@ -1561,79 +1561,108 @@ body.shake #world { animation: shake .45s; }
 .stallhead svg { width: 17px; height: 17px; }
 .stallhead em { font-family: var(--body); font-size: 12.5px; letter-spacing: .02em; text-transform: none; color: var(--mist); margin-left: auto; }
 
-/* ── the trader's map: a parchment curl on the stall, and the chart modal ── */
+/* ── the trader's chart: a little map symbol on the stall ─────────────────── */
 .mapTab {
   position: absolute; right: -15px; top: 42%; padding: 0;
-  width: 29px; height: 42px;
-  border: 1px solid #a9884b; border-radius: 3px 8px 8px 3px;
+  width: 30px; height: 40px;
+  border: 1px solid #a9884b; border-radius: 5px;
   background: linear-gradient(158deg, #f3e8c6 0%, #e2cd97 60%, #cdb277 100%);
   color: #6b4f22; box-shadow: 2px 3px 7px rgba(0, 0, 0, .45);
   display: flex; align-items: center; justify-content: center;
-  transform: rotate(5deg); cursor: pointer; z-index: 2;
-  transition: transform .16s ease, right .16s ease;
+  transform: rotate(4deg); cursor: pointer; z-index: 2;
+  transition: transform .16s ease, right .16s ease, filter .16s ease;
   animation: papernudge 3.4s ease-in-out infinite;
 }
-.mapTab::before {                       /* a curled corner so it reads as paper */
-  content: ''; position: absolute; top: 0; right: 0;
-  border-width: 0 8px 8px 0; border-style: solid;
-  border-color: transparent #bfa163 transparent transparent;
-}
-.mapTab:hover { right: -22px; transform: rotate(8deg) translateY(-2px); }
-.mapTab svg { width: 15px; height: 15px; }
-@keyframes papernudge { 0%, 100% { transform: rotate(5deg) translateX(0); } 50% { transform: rotate(5deg) translateX(2px); } }
+.mapTab:hover:not(:disabled) { right: -21px; transform: rotate(7deg) translateY(-2px); }
+.mapTab:disabled { opacity: .5; cursor: not-allowed; animation: none; }
+.mapTab svg { width: 16px; height: 16px; }
+.mapTab.got { background: linear-gradient(158deg, #f4de9a, #d7b256); color: #5a3f12; }
+@keyframes papernudge { 0%, 100% { transform: rotate(4deg) translateX(0); } 50% { transform: rotate(4deg) translateX(2px); } }
 
-#tradersMap {
-  position: fixed; inset: 0; z-index: 40;
-  display: flex; align-items: center; justify-content: center;
-  background: rgba(6, 8, 12, .66); animation: mapfade .2s ease-out;
+/* the permanent X the chart stamps on the hidden islet, on the board map */
+.mapchip.swordx { --mc: #d84a34; }
+.mapchip.swordx .mapx {
+  font-weight: 900; font-size: 17px; line-height: 1;
+  color: #e5452c; text-shadow: 0 0 6px rgba(224, 58, 47, .8), 0 1px 2px rgba(0, 0, 0, .8);
+  animation: swordxpulse 1.6s ease-in-out infinite;
+}
+@keyframes swordxpulse { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.18); } }
+
+/* ── the Sword of Damocles claim cinematic ───────────────────────────────── */
+#swordClaim {
+  position: fixed; inset: 0; z-index: 60;
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  background: radial-gradient(120% 90% at 50% 60%, rgba(20, 12, 30, .82), rgba(4, 3, 8, .96));
+  animation: mapfade .35s ease-out;
 }
 @keyframes mapfade { from { opacity: 0; } }
-.mapSheet {
-  position: relative; width: min(420px, 92vw);
-  padding: var(--s4) var(--s4) calc(var(--s4) + 2px);
-  background: linear-gradient(158deg, #efe3bf 0%, #ddc68c 70%, #d0b57e 100%);
-  border: 2px solid #9c7a3e; border-radius: 9px;
-  box-shadow: 0 22px 64px rgba(0, 0, 0, .6);
-  color: #4a3617; animation: sheetup .25s ease-out;
+.sc-scene { position: relative; width: 220px; height: 300px; }
+.sc-stone {
+  position: absolute; left: 50%; bottom: 40px; transform: translateX(-50%);
+  width: 150px; height: 66px; border-radius: 12px 14px 30px 26px / 10px 12px 40px 36px;
+  background: linear-gradient(180deg, #5c5750 0%, #38342f 70%, #24211d 100%);
+  box-shadow: inset 0 6px 10px rgba(255, 255, 255, .08), 0 14px 26px rgba(0, 0, 0, .6);
 }
-.mapClose {
-  position: absolute; top: 8px; right: 8px; padding: 4px;
-  background: rgba(80, 56, 22, .14); border: 1px solid #a9884b; border-radius: 5px;
-  color: #6b4f22; cursor: pointer; line-height: 0;
+.sc-stone::after {                       /* the slot the blade sits in */
+  content: ''; position: absolute; left: 50%; top: 8px; transform: translateX(-50%);
+  width: 30px; height: 14px; border-radius: 50%;
+  background: radial-gradient(circle, #100e0c, #2a2622);
 }
-.mapClose:hover { background: rgba(80, 56, 22, .28); }
-.mapBody h3 {
-  display: flex; align-items: center; gap: 7px;
-  font-family: var(--disp); font-weight: 700; font-size: 16px;
-  letter-spacing: .08em; color: #6b4f22; margin: 0 0 var(--s2);
+.sc-blade {
+  position: absolute; left: 50%; bottom: 42px; width: 66px; height: 250px;
+  transform: translateX(-50%) translateY(78px);       /* buried: only the hilt shows */
+  fill: #d9dee6; stroke: #9aa3ad; stroke-width: .6;
+  filter: drop-shadow(0 2px 3px rgba(0, 0, 0, .6));
+  transition: transform 1s cubic-bezier(.22, 1.2, .36, 1), filter .4s;
 }
-.mapBody h3 svg { width: 18px; height: 18px; }
-.mapRolled { text-align: center; padding: var(--s2) 0 var(--s3); }
-.mapRolled svg { width: 58px; height: 58px; color: #8a6a3a; opacity: .85; }
-.mapRolled p { font-size: 13.5px; line-height: 1.55; margin: var(--s2) 0 0; }
-.mapRolled em { color: #6b4f22; font-style: italic; }
-.mapPay {
-  display: flex; align-items: center; justify-content: center; gap: 6px;
-  margin: 0 auto; padding: 8px 20px;
-  font-family: var(--disp); font-weight: 700; font-size: 14px; letter-spacing: .1em;
-  color: #35270a; border: 1px solid #8a6a1c; border-radius: 6px;
-  background: linear-gradient(180deg, #f0d987, #cba53f);
-  box-shadow: 0 2px 6px rgba(0, 0, 0, .3); cursor: pointer;
+.sc-blade .sc-fuller { stroke: #aeb6c0; stroke-width: 1.4; }
+.sc-blade circle, .sc-blade rect:first-of-type, .sc-blade rect + rect { fill: #cB9a3e; stroke: #8a6a1c; }
+#swordClaim.drawn .sc-blade { transform: translateX(-50%) translateY(-6px); }
+#swordClaim.shine .sc-blade { filter: drop-shadow(0 0 16px rgba(255, 246, 210, 1)) brightness(1.6); }
+/* a lasting glimmer after the flash, so the drawn blade keeps its shine */
+#swordClaim.named .sc-blade { filter: drop-shadow(0 0 9px rgba(255, 244, 205, .85)) brightness(1.18); }
+.sc-flash {
+  position: absolute; left: 50%; top: 44%; width: 10px; height: 10px;
+  transform: translate(-50%, -50%) scale(0); border-radius: 50%;
+  background: radial-gradient(circle, #fff, rgba(255, 244, 200, .7) 40%, transparent 70%);
+  opacity: 0;
 }
-.mapPay:hover:not(:disabled) { filter: brightness(1.07); }
-.mapPay:disabled { opacity: .5; cursor: not-allowed; }
-.mapPay svg { width: 13px; height: 13px; }
-.mapNote { text-align: center; font-size: 12px; color: #9a5a24; margin-top: 7px; }
-.mapHint { text-align: center; font-size: 12.5px; font-style: italic; color: #5a4320; margin-bottom: 8px; }
-.mapCanvas {
-  cursor: pointer; border: 1px solid #9c7a3e; border-radius: 6px; overflow: hidden;
-  background:
-    radial-gradient(120% 120% at 30% 20%, rgba(255, 250, 232, .5), transparent 60%),
-    linear-gradient(160deg, #e9dab0, #d3ba82);
+#swordClaim.shine .sc-flash { animation: scflash .7s ease-out; }
+@keyframes scflash {
+  0% { transform: translate(-50%, -50%) scale(0); opacity: 0; }
+  30% { opacity: 1; }
+  100% { transform: translate(-50%, -50%) scale(34); opacity: 0; }
 }
-.mapCanvas svg { display: block; width: 100%; height: auto; }
-.mapring { stroke-dasharray: 100; stroke-dashoffset: 100; animation: drawring .55s ease-out forwards; }
-@keyframes drawring { to { stroke-dashoffset: 0; } }
+.sc-rays {
+  position: absolute; left: 50%; top: 44%; width: 0; height: 0;
+  opacity: 0; transition: opacity .5s;
+}
+#swordClaim.shine .sc-rays { opacity: .8; animation: scspin 9s linear infinite; }
+@keyframes scspin { to { transform: rotate(360deg); } }
+.sc-ray {
+  position: absolute; left: 0; top: 0; width: 3px; height: 150px;
+  transform-origin: 50% 0; transform: rotate(calc(var(--r) * 30deg));
+  background: linear-gradient(rgba(255, 240, 200, .85), transparent);
+}
+.sc-card {
+  margin-top: 22px; width: min(440px, 92vw); text-align: center;
+  padding: var(--s3) var(--s4) var(--s4);
+  background: linear-gradient(180deg, rgba(26, 20, 13, .97), rgba(12, 9, 6, .99));
+  border: 1px solid var(--gilt); border-radius: 10px;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, .7), inset 0 0 30px rgba(240, 208, 96, .14);
+  opacity: 0; transform: translateY(16px); pointer-events: none;
+}
+#swordClaim.named .sc-card { opacity: 1; transform: none; pointer-events: auto; transition: .5s ease-out; }
+.sc-kicker {
+  display: inline-flex; align-items: center; gap: 6px;
+  font-family: var(--disp); font-size: 11px; letter-spacing: .22em; text-transform: uppercase;
+  color: var(--gilt); opacity: .85;
+}
+.sc-kicker svg { width: 15px; height: 15px; }
+.sc-card h2 { font-family: var(--disp); font-size: 26px; color: var(--gilt); margin: 4px 0 8px; letter-spacing: .04em; }
+.sc-card p { font-size: 14px; line-height: 1.55; color: var(--bone); margin: 0 0 8px; }
+.sc-hint { font-style: italic; color: var(--mist) !important; font-size: 13px !important; }
+.sc-ok { margin-top: 10px; }
 .shoprow {
   display: grid;
   grid-template-columns: auto 1fr auto auto;

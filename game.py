@@ -565,13 +565,6 @@ class Game:
                 self._say(f"⚓ {p.name} finds a lost cache in the dust — +1 scroll.")
             else:
                 self._say(f"⚓ {p.name} hauls drifting flotsam aboard — +1 scroll.")
-        # the hidden islet holds the Sword of Damocles — claimed the moment you
-        # set foot on it (the trader's map is only the way to FIND it)
-        if node.get("sword") and not p.has("sword_of_damocles"):
-            p.upgrades.append("sword_of_damocles")
-            self.nonce += 1
-            self._say(f"🗡 {p.name} lifts the Sword of Damocles from a cairn on the "
-                      f"forgotten islet — it hums against the Dark Presence.")
         if node["type"] == "lair":
             if p.pid in node["defeated"]:
                 if p.pid in node["stash"]:
@@ -653,11 +646,15 @@ class Game:
                 self._say(f"⚔ {monster['name']} waylay {p.name} "
                           f"in the home waters!")
         if monster:
+            guarded = bool(node.get("sword"))
             self.battle = {"node": nid, "stance": None, "round": 0,
-                           "charging": False, "ambush": ambush,
+                           "charging": False, "ambush": ambush or guarded,
                            "used_items": [], "first_hit_taken": False}
             self._arm_battle()
-            if not node.get("encounter") and not ambush and ntype != "sea":
+            if guarded:
+                self._say(f"⚔ {p.name} sets foot on the islet — its four guardians "
+                          f"rise as one to bar the way to the sword in the stone!")
+            elif not node.get("encounter") and not ambush and ntype != "sea":
                 self._say(f"{monster['name']} bars {p.name}'s way!")
             self._bump("battle")
             return
@@ -1515,6 +1512,12 @@ class Game:
                     gained = loot
                     if node.get("encounter") or node["type"] == "sea":
                         node["monster"] = None     # the waters fall quiet — for now
+                    # the islet's guardians are down — the sword is yours to draw
+                    if node.get("sword") and not p.has("sword_of_damocles"):
+                        p.upgrades.append("sword_of_damocles")
+                        self._sword_claimed = True
+                        note += (" 🗡 Beyond the fallen guard a sword juts from a "
+                                 "weathered stone — you set your hand to it.")
             else:
                 # ── the enemies' move ────────────────────────────────────────
                 # EVERY foe answers EVERY exchange now — no more "your right
@@ -1573,7 +1576,11 @@ class Game:
             "player_dead": player_dead,
             "enemy_phase": enemy_phase,
             "monster": self._battle_public(),
+            # the sword-in-the-stone beat: set on the exchange that clears the
+            # islet's guardians, so the client can play the draw + shine + claim
+            "sword_claimed": getattr(self, "_sword_claimed", False),
         }
+        self._sword_claimed = False
         # typed JEOPARDY! rounds have no options to light up — reveal the answer
         # text and flash the verdict so the challenger sees right/wrong at a glance
         q = self.question or {}

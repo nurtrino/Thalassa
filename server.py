@@ -178,6 +178,7 @@ async def reveal_timer(nonce: int):
     rv = g.reveal or {}
     if rv.get("kind") == "battle":
         dur = 5.6 if rv.get("battle_over") else 3.4
+        dur = float(os.environ.get("BATTLE_REVEAL_SECS", dur))   # QA speed hook
     else:
         dur = REVEAL_SECS
     await asyncio.sleep(dur)

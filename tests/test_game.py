@@ -1074,15 +1074,51 @@ def test_buy_map_costs_thirty_and_reveals_the_islet():
     assert p.scrolls == 11
 
 
-def test_landing_on_the_islet_grants_the_sword():
+def test_islet_is_guarded_by_four_regional_beasts():
+    b = Board(7)
+    m = b.nodes[b.sword_node]["monster"]
+    assert m and len(m["enemies"]) == 4          # one hardest beast per region
+    assert not any(e["max_hp"] >= 5 for e in m["enemies"])   # a pack, not a boss
+    assert len({e["model"] for e in m["enemies"]}) == 4      # four distinct guardians
+
+
+def test_clearing_the_guardians_yields_the_sword():
     g, (p0, p1) = make_game()
     p = g.player_by_pid(p0)
-    assert not p.has("sword_of_damocles")
-    force_land(g, p0, g.board.sword_node)
+    p.max_hull = 30
+    p.hull = 30
+    swid = g.board.sword_node
+    force_land(g, p0, swid)
+    assert g.phase == "battle" and not p.has("sword_of_damocles")   # guardians rise
+
+    def resolve():                                # drain reveal → dodge → reveal
+        seen = False
+        for _ in range(6):
+            if g.phase == "reveal":
+                if g.reveal.get("sword_claimed"):
+                    seen = True
+                g.advance_after_reveal()
+            elif g.phase == "dodge":
+                g.dodge(g.current.pid, True, False)   # a clean dodge blocks all
+            else:
+                break
+        return seen
+
+    claimed = False
+    for _ in range(60):
+        m = g.board.alive_monster(swid)
+        if m is None:
+            break
+        idx = next(i for i, e in enumerate(m["enemies"]) if e["hp"] > 0)
+        g._force_mode = "mc"
+        g.stance(p0, "magic", idx)
+        put_question(g, correct=0)
+        g.answer(p0, 0)
+        claimed = resolve() or claimed
+        if p.has("sword_of_damocles"):
+            break
     assert p.has("sword_of_damocles")
-    # the snapshot carries it as an upgrade the client can read
-    me = next(pl for pl in g.to_dict(p0)["players"] if pl["pid"] == p0)
-    assert "sword_of_damocles" in me["upgrades"]
+    assert claimed                                # the reveal flagged the draw beat
 
 
 def test_sword_stance_strikes_the_dark_presence_for_three():

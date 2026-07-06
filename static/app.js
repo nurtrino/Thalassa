@@ -1233,7 +1233,7 @@ function render() {
   renderMapBtn();
   renderTray();
   renderShop();
-  renderTradersMap();
+  maybeSwordClaim();
   renderItembelt();
   renderBattle();
   renderDodge();
@@ -1408,10 +1408,12 @@ const MAP_POI = {
   monster:{ icon: 'skull',   label: 'Hunting Grounds',      cls: 'foe' },
   lair:   { icon: 'skull',   label: 'Boss Lair',            cls: 'lair' },
   pharos: { icon: 'crown',   label: 'The Pharos',           cls: 'pharos' },
+  sword:  { icon: 'sword',   label: 'The sword in the stone', cls: 'swordx' },
 };
 
 function mapChipLabel(p) {
   if (p.player) return '';
+  if (p.type === 'sword') return 'The sword in the stone';
   const poi = MAP_POI[p.type] || {};
   let name = p.name || poi.label || p.type;
   if (p.type === 'gate' && p.region) name = `Pass to ${REALM_INFO[p.region]?.name || p.region}`;
@@ -1499,6 +1501,11 @@ function mapTick() {
         el.style.setProperty('--pc', pl?.color || '#888');
         el.textContent = (pl?.name || '?').slice(0, 1).toUpperCase();
         el.title = pl ? `${pl.name}${p.player === you ? ' (you)' : ''}` : '';
+      } else if (p.type === 'sword') {
+        // the trader's mark: a permanent red X over the hidden islet
+        el.className = 'mapchip swordx';
+        el.innerHTML = `<span class="mi mapx">✕</span>` +
+          `<span class="ml">${esc(mapChipLabel(p))}</span>`;
       } else {
         const poi = MAP_POI[p.type] || { icon: 'relic', cls: '' };
         el.className = `mapchip ${poi.cls}${p.type === 'lair' && p.defeated ? ' done' : ''}`;
@@ -1688,12 +1695,17 @@ function renderShop() {
            <button class="buy" data-item="${id}" ${cant ? 'disabled' : ''}>Buy</button>`}
     </div>`;
   }).join('');
-  // a curl of parchment pokes out from under the counter — the trader's map to
-  // the Sword of Damocles islet. Only ashore, and only until you bear the sword.
+  // a little map symbol on the stall — the trader's chart to the Sword of
+  // Damocles islet. Ashore only, and only until you bear the sword. Buying it
+  // (30 scrolls) marks the islet with a permanent X on YOUR board map.
+  const bought = !!me.map_bought;
+  const canBuy = (me.scrolls ?? 0) >= 30;
   const showPaper = !remote && !owns.has('sword_of_damocles');
   const paperTab = showPaper
-    ? `<button class="mapTab" id="mapTab" title="A curl of old parchment pokes from under the counter…">` +
-      `${icon('scroll', 15)}</button>`
+    ? `<button class="mapTab ${bought ? 'got' : ''}" id="mapTab" ${(!bought && !canBuy) ? 'disabled' : ''} ` +
+      `title="${bought ? 'Your chart — an islet is marked with an X. Open the map.'
+        : (canBuy ? 'Buy the trader’s chart — 30 scrolls' : 'The trader’s chart — 30 scrolls (you lack them)')}">` +
+      `${icon(bought ? 'compass' : 'scroll', 16)}</button>`
     : '';
   panel.innerHTML =
     `<div class="stallhead">${icon('market')} ${remote ? "Ship's Trader" : "Trader's Stall"}` +
@@ -1703,10 +1715,16 @@ function renderShop() {
     shopRows +
     (relicRows ? `<div class="relicsplit">${icon('relic', 12)} Legendary Relics</div>${relicRows}` : '') +
     paperTab;
-  if (showPaper) $('mapTab').onclick = () => openTradersMap();
+  if (showPaper) $('mapTab').onclick = () => {
+    if (me.map_bought) { toggleMap(true); return; }   // open YOUR map — the X is on it
+    if ((me.scrolls ?? 0) >= 30) {
+      audio.sfx.build();
+      send({ type: 'buy_map' });
+      toggleMap(true);                                // and show them the chart at once
+    }
+  };
   $('shopClose').onclick = () => {
     if (remote) shopRemote = false; else shopClosed = true;
-    closeTradersMap();
     renderShop(); renderTray();
   };
   panel.querySelectorAll('.buy').forEach((b) => {
@@ -1739,99 +1757,49 @@ function playVictoryCinematic(onDone) {
   setTimeout(() => d.remove(), 4400);
 }
 
-/* ── the trader's chart: pay 30 scrolls to unroll it, tap to circle the islet
- * where the Sword of Damocles waits ─────────────────────────────────────── */
-let chartOpen = false;
-let chartCircled = false;
-function openTradersMap() { chartOpen = true; chartCircled = false; renderTradersMap(); }
-function closeTradersMap() {
-  chartOpen = false;
-  const el = document.getElementById('tradersMap');
-  if (el) el.remove();
+/* ── the Sword of Damocles claim: guardians down → the blade draws from the
+ * stone, flares, and a card names the prize ─────────────────────────────── */
+let swordClaimShown = false;
+function maybeSwordClaim() {
+  // the reveal is broadcast to everyone — but only the captain who drew the
+  // blade (whose turn the fight is) gets the claim cinematic
+  const claimed = room && room.phase === 'reveal' && room.turn === you
+    && room.reveal?.kind === 'battle' && room.reveal?.sword_claimed;
+  if (!claimed || swordClaimShown) return;
+  swordClaimShown = true;                       // once per game — the sword is unique
+  playSwordClaim();
 }
-function renderTradersMap() {
-  let el = document.getElementById('tradersMap');
-  const me = room?.players?.find((p) => p.pid === you);
-  // the chart lives at the trader's counter — leaving the stall closes it
-  if (!chartOpen || !room || !room.board || !me ||
-      !['shop', 'trade'].includes(room.phase) || room.turn !== you) {
-    if (el) el.remove();
-    return;
-  }
-  const bought = !!me.map_bought;
-  if (!el) {
-    el = document.createElement('div');
-    el.id = 'tradersMap';
-    el.innerHTML = `<div class="mapSheet"><button class="mapClose" title="Roll it back up">` +
-      `${icon('kick', 13)}</button><div class="mapBody"></div></div>`;
-    document.body.appendChild(el);
-    el.querySelector('.mapClose').onclick = closeTradersMap;
-    el.addEventListener('pointerdown', (e) => { if (e.target === el) closeTradersMap(); });
-  }
-  const body = el.querySelector('.mapBody');
-  const key = bought ? (chartCircled ? 'map-ring' : 'map') : `pay${me.scrolls}`;
-  if (el.dataset.key === key) return;
-  el.dataset.key = key;
-  if (!bought) {
-    const cost = 30;
-    const can = (me.scrolls ?? 0) >= cost;
-    body.innerHTML =
-      `<h3>${icon('scroll', 18)} The Trader's Chart</h3>` +
-      `<div class="mapRolled">${icon('scroll', 64)}` +
-      `<p>The trader keeps the parchment rolled tight. <em>"An old chart, captain — ` +
-      `it marks a lonely islet in the safe isles. Thirty scrolls to unroll it."</em></p></div>` +
-      `<button class="mapPay" ${can ? '' : 'disabled'}>Pay ${cost} ${icon('scroll', 13)}</button>` +
-      (can ? '' : `<div class="mapNote">You lack the scrolls (you have ${me.scrolls}).</div>`);
-    body.querySelector('.mapPay').onclick = () => { audio.sfx.build(); send({ type: 'buy_map' }); };
-    return;
-  }
-  body.innerHTML =
-    `<h3>${icon('scroll', 18)} The Trader's Chart</h3>` +
-    `<div class="mapHint">${chartCircled
-      ? 'An islet in the Isles of Peace is circled — sail there to claim the Sword of Damocles.'
-      : 'Tap the chart to read the trader’s mark.'}</div>` +
-    `<div class="mapCanvas">${buildMapSvg(room.sword_node, chartCircled)}</div>`;
-  body.querySelector('.mapCanvas').onclick = () => {
-    if (!chartCircled) { chartCircled = true; audio.sfx.oracle?.(); renderTradersMap(); }
-  };
-}
-function buildMapSvg(swid, circled) {
-  const nodes = room.board.nodes || [];
-  let minX = 1e9, maxX = -1e9, minZ = 1e9, maxZ = -1e9;
-  for (const n of nodes) {
-    minX = Math.min(minX, n.x); maxX = Math.max(maxX, n.x);
-    minZ = Math.min(minZ, n.z); maxZ = Math.max(maxZ, n.z);
-  }
-  const W = 330, H = 330, pad = 22;
-  const s = Math.min((W - 2 * pad) / Math.max(1, maxX - minX),
-                     (H - 2 * pad) / Math.max(1, maxZ - minZ));
-  const ox = (W - (maxX - minX) * s) / 2, oz = (H - (maxZ - minZ) * s) / 2;
-  const px = (x) => (ox + (x - minX) * s).toFixed(1);
-  const py = (z) => (oz + (z - minZ) * s).toFixed(1);
-  const col = (t) => t === 'home' ? '#e0b24a' : t === 'pharos' ? '#b23a2a'
-    : t === 'gate' ? '#8a6a44' : t === 'sea' ? '#8fa9ba' : '#b79a68';
-  let dots = '';
-  for (const n of nodes) {
-    if (n.id === swid) continue;
-    const r = n.type === 'pharos' ? 4.2 : n.type === 'home' ? 3.4
-      : n.type === 'sea' ? 1.1 : 2.1;
-    dots += `<circle cx="${px(n.x)}" cy="${py(n.z)}" r="${r}" fill="${col(n.type)}"` +
-      ` opacity="${n.type === 'sea' ? 0.45 : 0.9}"/>`;
-  }
-  const sw = nodes.find((n) => n.id === swid);
-  let mark = '';
-  if (sw) {
-    const X = +px(sw.x), Y = +py(sw.z);
-    mark = `<circle cx="${X}" cy="${Y}" r="2.6" fill="#e0b24a"/>`;
-    if (circled) {
-      mark += `<circle class="mapring" cx="${X}" cy="${Y}" r="15" fill="none" ` +
-        `stroke="#c0392b" stroke-width="2.6" stroke-linecap="round"/>` +
-        `<path d="M${X - 7} ${Y - 20} L${X} ${Y - 13} L${X + 7} ${Y - 20}" fill="none" ` +
-        `stroke="#c0392b" stroke-width="1.6" opacity="0.85"/>`;
-    }
-  }
-  return `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid meet">` +
-    `<rect x="0" y="0" width="${W}" height="${H}" fill="none"/>${dots}${mark}</svg>`;
+function playSwordClaim() {
+  if (document.getElementById('swordClaim')) return;
+  const d = document.createElement('div');
+  d.id = 'swordClaim';
+  const rays = Array.from({ length: 12 }, (_, i) => `<span class="sc-ray" style="--r:${i}"></span>`).join('');
+  d.innerHTML =
+    `<div class="sc-scene">` +
+    `<div class="sc-rays">${rays}</div>` +
+    `<svg class="sc-blade" viewBox="0 0 40 150" aria-hidden="true">` +
+    // pommel + grip + crossguard + long tapering blade with a fuller line
+    `<circle cx="20" cy="12" r="4.5"/>` +
+    `<rect x="18" y="14" width="4" height="16"/>` +
+    `<rect x="6" y="29" width="28" height="5" rx="2.5"/>` +
+    `<path d="M13 34 H27 L21.5 132 Q20 140 20 140 Q20 140 18.5 132 Z"/>` +
+    `<line class="sc-fuller" x1="20" y1="37" x2="20" y2="126"/></svg>` +
+    `<div class="sc-stone"></div>` +
+    `<div class="sc-flash"></div></div>` +
+    `<div class="sc-card">` +
+    `<div class="sc-kicker">${icon('sword', 18)} A prize claimed</div>` +
+    `<h2>The Sword of Damocles</h2>` +
+    `<p>You wrench it free of the weathered stone — its edge takes the light and holds it.</p>` +
+    `<p class="sc-hint">It hangs by a thread over any who would rule. Keep it for the Dark Presence — a third way to strike in the final fight.</p>` +
+    `<button class="sc-ok act gold">Bear it away</button></div>`;
+  document.body.appendChild(d);
+  audio.sfx?.oracle?.();
+  setTimeout(() => d.classList.add('drawn'), 350);                       // the blade rises
+  setTimeout(() => { d.classList.add('shine'); audio.sfx?.victory?.(); }, 1250);  // it flares
+  setTimeout(() => d.classList.add('named'), 1750);                      // the card slides in
+  const done = () => d.remove();
+  d.querySelector('.sc-ok').onclick = done;
+  d.addEventListener('pointerdown', (e) => { if (e.target === d) done(); });
 }
 
 /* ── the VICTORY screen: a real curtain call, not a cut-away ────────────── */

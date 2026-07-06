@@ -1997,12 +1997,17 @@ export function createWorld(container, handlers = {}) {
     if (!st) return null;
     const w = renderer.domElement.clientWidth, h = renderer.domElement.clientHeight;
     const out = [];
+    const swordId = lastRoom?.sword_node;      // only set once the chart is bought
     for (const id in st.islands) {
       const n = nodeById[id];
-      if (!n || n.type === 'sea') continue;
+      // the sword islet is a plain sea node — but once its X is on the chart,
+      // surface it on the map like a proper landmark
+      const isSword = id === swordId;
+      if (!n || (n.type === 'sea' && !isSword)) continue;
       _vA.set(n.x, (st.islands[id].plateauY ?? 1) + 2, n.z).project(camera);
       if (_vA.z > 1) continue;
-      out.push({ id, type: n.type, name: n.name, region: n.region || null,
+      out.push({ id, type: isSword ? 'sword' : n.type, name: n.name,
+                 region: n.region || null,
                  solved: !!n.solved, boss_name: n.boss_name || null,
                  defeated: (n.defeated || []).length,
                  x: (_vA.x * 0.5 + 0.5) * w, y: (-_vA.y * 0.5 + 0.5) * h });
