@@ -135,14 +135,17 @@ MODELS = [
                    "tentacle, C-shaped floating piece, disconnected part, floating "
                    "object, halo, second creature"),
          prompt=(
-             "The Kraken: a single compact sea-monster, a big teal octopus head "
-             "with exactly EIGHT thick tentacles that ALL grow directly out from "
-             "the bottom of its body and curl downward together in a tight "
-             "cluster. Every tentacle is rooted to the body — none float free, "
-             "none drift off to the side, nothing detached in the air around it. "
-             "A huge teal mantle head with heavy-lidded amber lamp-eyes and a "
-             "hooked bone beak. One solid connected creature. Palette: teal and "
-             "deep sea-green mantle, amber glowing eyes, bone beak.")),
+             "The Kraken: a huge menacing Cthulhu-like sea-monster with a large "
+             "imposing angular faceted teal crystalline mantle head, a fierce "
+             "snarling face and glowing amber eyes, and a mass of thick muscular "
+             "tentacles sweeping and curling outward and down around it — some "
+             "reaching out to the sides, some curling under — with dark-red "
+             "undersides and suction cups. Big, sprawling and threatening. Every "
+             "tentacle is firmly ATTACHED at its base to the body — none float "
+             "free in the air, none detached, no stray tentacle or loop floating "
+             "beside it, one solid connected creature. Palette: teal and sea-"
+             "green faceted body, dark-red tentacle undersides, glowing amber "
+             "eyes.")),
     dict(id="warden", rank=7, tier="boss",
          prompt=(
              "The Warden of the Pharos: a colossal pale-marble sentinel guardian "
