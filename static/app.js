@@ -1815,11 +1815,10 @@ function openTreasureMap() {
     `<svg class="tm-art" viewBox="0 0 300 200" aria-hidden="true">` +
     // faint sea hatching
     `<path class="tm-wave" d="M28 34 q7 -6 14 0 t14 0 M40 168 q7 -6 14 0 t14 0"/>` +
-    // the islet — a smooth rounded landmass, the X ring centred on it
-    `<path class="tm-isle" d="M214 58 C 250 56 271 79 262 104 C 271 133 244 152 212 148 C 179 152 157 130 164 102 C 157 74 182 56 214 58 Z"/>` +
-    `<path class="tm-palm" d="M188 84 v-13 M188 71 q-7 -4 -12 -2 M188 71 q7 -4 12 -2 M242 88 v-12 M242 76 q-6 -3 -11 -1 M242 76 q6 -3 11 -1"/>` +
-    // the dashed trail wandering from the landing to the spot
-    `<path class="tm-trail" d="M36 168 C 82 142, 66 96, 118 90 S 176 120, 214 104"/>` +
+    // the islet — an irregular, hand-drawn coastline (a random island shape)
+    `<path class="tm-isle" d="M214 62 C 238 58 248 76 262 82 C 276 90 270 108 256 110 C 268 124 254 140 238 134 C 230 148 206 148 198 136 C 180 144 162 132 170 116 C 154 110 158 88 176 88 C 184 70 200 64 214 62 Z"/>` +
+    // the dashed trail wandering from the landing to the shore
+    `<path class="tm-trail" d="M36 168 C 82 144, 62 100, 116 96 S 168 116, 190 108"/>` +
     `<circle class="tm-start" cx="36" cy="168" r="5"/>` +
     // the spot: a ring with the X centred on it
     `<circle class="tm-ring" cx="214" cy="104" r="21"/>` +
