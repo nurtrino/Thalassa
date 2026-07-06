@@ -1351,7 +1351,7 @@ def land_on_puzzle(g, pid, monkeypatch=None, force_kind=None):
 
 def test_picross_givens_differ_by_stance():
     # STRIKE (tiers 1-2) picross comes with FIVE cells given; MAGIC (tier 3)
-    # picross comes with NONE — same 5x5 board either way, on the 10s-shorter
+    # picross comes with TWO — same 5x5 board either way, on the 10s-shorter
     # clock. The puzzle isles keep their default toe-hold of two.
     import random
 
@@ -1367,7 +1367,7 @@ def test_picross_givens_differ_by_stance():
         d = first_picross(tier)
         assert d and d["n"] == 5 and len(d["given"]) == 5
     d3 = first_picross(3)
-    assert d3 and d3["n"] == 5 and len(d3["given"]) == 0
+    assert d3 and d3["n"] == 5 and len(d3["given"]) == 2
     # isle picross: still two givens
     assert len(P.gen_nonogram(random.Random(3))["given"]) == 2
 

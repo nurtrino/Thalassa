@@ -523,9 +523,9 @@ BATTLE_TIERS = {
     # STRIKE vs boss: the 6-tone echo, the 5×5 board, the Shifting Mosaic, a
     # riddle, and the same 5-given picross
     2: ("simon6", "vm5", "sliding", "riddle", "nono5"),
-    # MAGIC: the same 5×5 picross but with NO cells given (nono0), the matrix,
-    # the full 6×6 sigil, the Shifting Mosaic, and the big 6×6 memory board
-    3: ("nono0", "ravens", "tet6", "sliding", "vm6"),
+    # MAGIC: the same 5×5 picross but with just TWO cells given (nono2), the
+    # matrix, the full 6×6 sigil, the Shifting Mosaic, and the big 6×6 memory board
+    3: ("nono2", "ravens", "tet6", "sliding", "vm6"),
 }
 BATTLE_KINDS = tuple(dict.fromkeys(k for ks in BATTLE_TIERS.values() for k in ks))
 
