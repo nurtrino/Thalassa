@@ -552,12 +552,6 @@ function makeDeadScrub(rng, s = 1) {
   return g;
 }
 
-/* wind-carved sandstone hoodoo */
-function makeSandSpire(rng, s = 1) {
-  // the Meshy sculpted hoodoo; ~2.6u tall at s=1, randomly spun
-  return glbProp('sand_spire', { h: 2.6 * s, ry: rng() * 6.28 });
-}
-
 /* tall emergent canopy tree with hanging vines */
 function makeJungleTree(rng, s = 1) {
   const g = new THREE.Group();
@@ -2311,29 +2305,30 @@ export function makeBattleBackdrop(theme) {
   g.add(sun);
 
   if (id === 'hub') {
-    // marble ruin shelf behind the foe, olives and cypress framing
+    // a low marble shelf behind the foe with a few broken columns — the Meshy
+    // 'ruined_column' props, NOT the old boxy procedural colonnade + lintel
+    // (which read as a strange white table on a post)
     const shelf = makeRock(rng, 3.4, 0xd8d4c8);
-    shelf.position.set(20, -0.8, -10);
+    shelf.position.set(20, -0.9, -10);
     g.add(shelf);
-    const heights = [1.9, 2.3, 1.4];
-    heights.forEach((h, i) => {
-      const col = makeColumn(h, 0.22);
-      col.position.set(18 + i * 3.2, 1.2, -9 - i * 1.6);
-      col.rotation.z = (rng() - 0.5) * 0.12;
+    for (const [dx, dz, s] of [[-2.4, 1.4, 1.5], [1.2, -1.6, 2.1], [3.6, 1.6, 1.3]]) {
+      const col = propGroup('ruined_column', s);
+      col.position.set(20 + dx, 1.1, -10 + dz);
+      col.rotation.y = rng() * 6.28;
       g.add(col);
-    });
-    const arch = new THREE.Mesh(new THREE.BoxGeometry(3.4, 0.5, 0.7), flat(COL.marbleShade));
-    arch.position.set(19.6, 3.6, -9.8);
-    g.add(arch);
+    }
     for (const [x, z, s] of [[16, 10, 1.2], [24, 4, 1.0], [-16, -14, 1.1]]) {
       const isle = makeRock(rng, 2.2 * s, theme.palette.rock);
       isle.position.set(x, -0.6, z);
       g.add(isle);
-      const fl = rng() < 0.5 ? makeCypress(rng, s) : makeOlive(rng, s);
+      // the Meshy flora (not the old geometric cypress/olive) so the battle
+      // banks match the isles the fight left
+      const fl = rng() < 0.5 ? propGroup('cypress_tree', 0.72 * s)
+                             : propGroup('olive_tree', 0.8 * s);
       fl.position.set(x, 0.7 * s, z);
       g.add(fl);
     }
-    const palm = makePalm(rng, 1.4);
+    const palm = propGroup('palm_tree', 0.95);
     palm.position.set(-8, 0, 21);
     g.add(palm);
   } else if (id === 'ice') {
@@ -2359,14 +2354,10 @@ export function makeBattleBackdrop(theme) {
     g.add(floePine);
     g.add(hazePlane(0xbfe0f0, 70, 16, 0.1, 20, 6, -22));
   } else if (id === 'desert') {
-    // hoodoos and saguaro under a hammering sun; old bones half-buried
-    for (const [x, z, s] of [[22, -10, 1.6], [26, 6, 1.2], [-18, -13, 1.3]]) {
-      const spire = makeSandSpire(rng, s * 2.2);
-      spire.position.set(x, -0.3, z);
-      g.add(spire);
-    }
+    // the ruined aqueduct arches + Meshy saguaro carry the horizon, old bones
+    // half-buried — no sandstone bluffs (they read as out of place here)
     for (const [x, z] of [[15, 12], [-10, 19], [19, 2]]) {
-      const cac = makeCactus(rng, 1.5);
+      const cac = propGroup('cactus', 1.0 + rng() * 0.4);
       cac.position.set(x, 0, z);
       g.add(cac);
     }
@@ -2463,7 +2454,9 @@ export function makeBattleBackdrop(theme) {
   // everything straight on the sand.
   const BATTLE_PROPS = {
     hub: ['ruined_column', 'amphora_pile', 'broken_statue', 'olive_tree', 'cypress_tree'],
-    ice: ['iceberg', 'ice_shard', 'pine_snow', 'crystal_cluster'],
+    // no amethyst 'crystal_cluster' here — its magenta clashed with the icy
+    // cyan/white palette; a frozen cairn keeps the far bank appropriate
+    ice: ['iceberg', 'ice_shard', 'pine_snow', 'cairn'],
     desert: ['ruined_arch', 'bone_pile', 'cactus', 'sarcophagus'],
     jungle: ['jungle_tree', 'mossy_idol', 'fern_cluster', 'mushroom_cluster', 'ruined_arch'],
     autumn: ['autumn_tree', 'dead_tree', 'mushroom_cluster', 'campfire', 'boulder'],
