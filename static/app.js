@@ -1758,7 +1758,7 @@ function updateMapTab(me, show) {
   if (tab.parentNode !== document.body) document.body.appendChild(tab);
   const bought = !!me.map_bought;
   tab.className = 'mapTab' + (bought ? ' got' : '');
-  tab.style.setProperty('--pull', bought ? 2 : 0);   // bought → nudged out; else tucked under
+  tab.style.setProperty('--pull', 0);                // always tucked under the corner
   tab.innerHTML = icon(bought ? 'compass' : 'scroll', 15);
   tab.title = bought
     ? 'Your chart — open the map (an X marks the islet)'
