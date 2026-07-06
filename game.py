@@ -643,7 +643,7 @@ class Game:
 
         # ── the SPHINX: the desert's toll-keeper. She bars your path at each of
         # the three marked gates — one riddle apiece. Answer it or fight the
-        # pack she looses on you. She rises only ONCE per gate.
+        # pack she sends at you. She rises only ONCE per gate.
         if node.get("sphinx") and not node.get("sphinx_done"):
             deal = puzzles.deal_riddle(self.rng, self.used_puzzles)
             # stage the Sphinx in the BATTLE SCREEN — she rises before you like a
@@ -660,7 +660,7 @@ class Game:
                              "sphinx": True,
                              "text": deal["text"], "category": deal["category"]}
             self._say(f"🦁 The Sphinx blocks {p.name}'s path — "
-                      f"answer her riddle, or fight the pack she looses!")
+                      f"answer her riddle, or fight the pack she sends!")
             self._bump("minigame")
             return
 
@@ -1637,14 +1637,14 @@ class Game:
         self._end_turn()
 
     def _sphinx_fail(self):
-        # Miss the riddle and she looses her pack: the diorama swaps from the
+        # Miss the riddle and she sends her pack: the diorama swaps from the
         # riddling Sphinx to a real fight, right here on the gate.
         p = self.current
         nid = self.battle["node"] if self.battle else p.node
         ans = puzzles.answer_text("riddle", self.minigame.get("data")) if self.minigame else ""
         self._clear_sphinx_stage()
         self.minigame = None
-        self._flash(False, f"Wrong — the answer was {ans}" if ans else "The Sphinx looses her guard!")
+        self._flash(False, f"Wrong — the answer was {ans}" if ans else "The Sphinx sends her guard!")
         node = self.board.nodes.get(nid)
         if node is None:                  # safety: nothing to fight, just move on
             self._next_turn()
@@ -1656,7 +1656,7 @@ class Game:
                        "charging": False, "ambush": True,
                        "used_items": [], "first_hit_taken": False}
         self._arm_battle()
-        self._say(f"🦁 Wrong! The Sphinx looses her guard on {p.name} — "
+        self._say(f"🦁 Wrong! The Sphinx sends her guard at {p.name} — "
                   f"{monster['name']} close in!")
         self._bump("battle")
 
