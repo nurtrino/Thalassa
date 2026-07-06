@@ -416,7 +416,7 @@ def test_vale_dev_teleport_cannot_enter_a_rivals_maze():
 
 # ── dev cheats (code 783) ──────────────────────────────────────────────────────
 def test_dev_grant_relics_opens_the_pharos():
-    from game import RELICS as _RELICS
+    from game import RELICS as _RELICS, MAX_HULL as _MAXH
     from board import REGION_POOL as _POOL
     g, (p0, p1) = make_game()
     p = g.player_by_pid(p0)
@@ -425,6 +425,19 @@ def test_dev_grant_relics_opens_the_pharos():
     assert g.pharos_open                              # …and the door is open
     assert all(r in p.upgrades for r in _RELICS)      # every legendary relic aboard
     assert set(p.cargo) == set(_POOL)                 # one of every sigil aboard
+    # the Golden Fleece's instant effect must actually fire (+5 max, full heal)
+    assert p.max_hull == _MAXH + 5
+    assert p.hull == p.max_hull
+
+
+def test_dev_grant_relics_is_idempotent():
+    # pressing the button twice must not re-stack the Fleece's +5 each time
+    g, (p0, p1) = make_game()
+    p = g.player_by_pid(p0)
+    g.dev_grant_relics(p0)
+    mh = p.max_hull
+    g.dev_grant_relics(p0)
+    assert p.max_hull == mh                           # no double-apply
 
 
 def test_dev_fight_spawns_a_boss_and_opens_battle():
