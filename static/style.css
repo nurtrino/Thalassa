@@ -950,12 +950,29 @@ input:focus-visible, select:focus-visible {
   box-shadow: 0 0 60px 30px rgba(4, 2, 12, .8);
 }
 .pcine-door.open .pcine-dark {
-  animation: pcdark 1.8s .55s cubic-bezier(.5, .1, .4, 1) forwards;
+  animation: pcdark 1.9s .5s cubic-bezier(.5, .1, .4, 1) forwards;
 }
 @keyframes pcdark {
   0%   { transform: translate(-50%, -50%) scale(0); opacity: 0; }
-  30%  { opacity: 1; }
-  100% { transform: translate(-50%, -50%) scale(46); opacity: 1; }
+  22%  { opacity: 1; }
+  100% { transform: translate(-50%, -50%) scale(64); opacity: 1; }
+}
+/* streaming shadow wisps that spill out of the threshold ahead of the well —
+   each shoots outward at its own angle, curling and fading */
+.pcine-wisps { position: absolute; left: 50%; top: 54%; z-index: 4; pointer-events: none; }
+.pcine-wisp {
+  position: absolute; left: 0; top: 0; width: 46px; height: 20px;
+  margin: -10px 0 0 -23px; border-radius: 50%;
+  background: radial-gradient(closest-side, rgba(10, 5, 24, .95), rgba(24, 10, 46, .5) 60%, transparent);
+  opacity: 0; transform: rotate(calc(var(--w) * 51deg)) translateX(0) scale(.3);
+}
+.pcine-door.open .pcine-wisp {
+  animation: pcwisp 1.7s calc(.6s + var(--w) * .05s) ease-out forwards;
+}
+@keyframes pcwisp {
+  0%   { opacity: 0; transform: rotate(calc(var(--w) * 51deg)) translateX(0) scale(.3); }
+  25%  { opacity: .95; }
+  100% { opacity: 0; transform: rotate(calc(var(--w) * 51deg)) translateX(240px) scale(2.6); }
 }
 .pcine-door.rumble { animation: pcrumble .6s .1s ease-in-out 3; }
 @keyframes pcrumble {
@@ -1941,6 +1958,74 @@ body.touring #mapBtn, body.touring #dice, body.touring #shopPanel { display: non
   padding: 11px 18px; border-radius: 9px; cursor: pointer; letter-spacing: .08em;
 }
 #victoryOv .vwait { color: #8d97ab; font-style: italic; font-size: 13px; }
+
+/* ── the WIN cinematic: darkness pours from the Pharos, then a flood to white ── */
+/* sits ABOVE the board (z60): the white floods over everything, then clears to
+   reveal the leaderboard already risen beneath it */
+#victoryCine {
+  position: fixed; inset: 0; z-index: 62; pointer-events: none; overflow: hidden;
+}
+#victoryCine .vc-dark {
+  position: absolute; left: 50%; top: 46%; width: 12px; height: 12px;
+  transform: translate(-50%, -50%) scale(0); border-radius: 50%;
+  background: radial-gradient(circle at 50% 50%,
+    #000 0%, #05040a 40%, rgba(22, 8, 44, .82) 66%, rgba(30, 12, 54, 0) 82%);
+  box-shadow: 0 0 80px 40px rgba(4, 2, 12, .8);
+  animation: vcdark 2.2s cubic-bezier(.5, .1, .4, 1) forwards;
+}
+@keyframes vcdark {
+  0%   { transform: translate(-50%, -50%) scale(0); opacity: 0; }
+  18%  { opacity: 1; }
+  100% { transform: translate(-50%, -50%) scale(120); opacity: 1; }
+}
+#victoryCine .vc-wisps { position: absolute; left: 50%; top: 46%; }
+#victoryCine .vc-wisp {
+  position: absolute; left: 0; top: 0; width: 90px; height: 34px;
+  margin: -17px 0 0 -45px; border-radius: 50%;
+  background: radial-gradient(closest-side, rgba(8, 4, 22, .95), rgba(26, 10, 50, .5) 60%, transparent);
+  opacity: 0; transform: rotate(calc(var(--w) * 36deg)) translateX(0) scale(.3);
+  animation: vcwisp 2.1s calc(var(--w) * .04s) ease-out forwards;
+}
+@keyframes vcwisp {
+  0%   { opacity: 0; transform: rotate(calc(var(--w) * 36deg)) translateX(0) scale(.3); }
+  22%  { opacity: .9; }
+  100% { opacity: 0; transform: rotate(calc(var(--w) * 36deg)) translateX(min(70vw, 900px)) scale(3.4); }
+}
+#victoryCine .vc-white {
+  position: absolute; inset: 0; background: #fff; opacity: 0;
+}
+#victoryCine.flash .vc-white { animation: vcflash 1.1s ease-in forwards; }
+@keyframes vcflash { from { opacity: 0; } to { opacity: 1; } }
+#victoryCine.clear .vc-white { animation: vcclear 1.4s ease-out forwards; }
+#victoryCine.clear .vc-dark, #victoryCine.clear .vc-wisps { opacity: 0; transition: opacity .6s; }
+@keyframes vcclear { from { opacity: 1; } to { opacity: 0; } }
+
+/* the board itself now stacks a tappable head over a reveal panel */
+#victoryOv .vhint {
+  color: #96a0b4; font-size: 12px; font-style: italic; margin: -8px 0 14px;
+  letter-spacing: .02em;
+}
+#victoryOv .vrow { flex-direction: column; align-items: stretch; gap: 0;
+  padding: 0; overflow: hidden; cursor: pointer; outline: none; }
+#victoryOv .vrow:focus-visible { box-shadow: 0 0 0 2px rgba(217, 164, 65, .55); }
+#victoryOv .vrow-head {
+  display: flex; align-items: center; gap: 10px; padding: 8px 12px;
+}
+#victoryOv .vrow:hover .vrow-head { background: rgba(255, 255, 255, .04); }
+#victoryOv .vname small { color: #8d97ab; font-weight: 400; }
+#victoryOv .vchev { width: 16px; text-align: center; color: #8d97ab;
+  transition: transform .2s ease; }
+#victoryOv .vrow.open .vchev { transform: rotate(180deg); }
+#victoryOv .vdet {
+  max-height: 0; opacity: 0; transition: max-height .3s ease, opacity .3s ease;
+}
+#victoryOv .vrow.open .vdet { max-height: 240px; opacity: 1; }
+#victoryOv .vdet-grid {
+  display: grid; grid-template-columns: auto 1fr; gap: 5px 14px;
+  padding: 4px 14px 12px 40px; font-size: 12.5px;
+}
+#victoryOv .vdet-grid .vk { color: #9aa4b8; white-space: nowrap; }
+#victoryOv .vdet-grid .vv { color: #dce3ef; text-align: right; }
 
 /* ── dev teleport panel (unlocked by double-tapping the T, code 783) ─────── */
 #devBar {
