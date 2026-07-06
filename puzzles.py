@@ -47,7 +47,7 @@ import tetromino6
 # Simon has NO clock: one wrong tap is the failure, not the seconds.
 # 20s across the board — nonogram (picross) gets 30 for its fiddlier grid;
 # simon stays untimed (a wrong note, not the clock, is its failure).
-TIME_LIMITS = {"riddle": 27.5, "tetromino": 40, "nonogram": 59.375,
+TIME_LIMITS = {"riddle": 27.5, "tetromino": 40, "nonogram": 49.375,
                "simon": None, "anagram": 27.5, "ravens": 22.5,
                "sequence": 27.5, "lights_out": 27.5, "sliding": 70,
                "memory": None,           # memory (like simon) has no clock
@@ -183,7 +183,7 @@ def _clues(line) -> list[int]:
     return out or [0]
 
 
-def gen_nonogram(rng: random.Random, n: int = 5) -> dict:
+def gen_nonogram(rng: random.Random, n: int = 5, givens: int = 2) -> dict:
     while True:
         grid = [1 if rng.random() < 0.55 else 0 for _ in range(n * n)]
         filled = sum(grid)
@@ -191,9 +191,10 @@ def gen_nonogram(rng: random.Random, n: int = 5) -> dict:
             break
     rows = [_clues(grid[r * n:(r + 1) * n]) for r in range(n)]
     cols = [_clues(grid[c::n]) for c in range(n)]
-    # just TWO cells come pre-painted — a toe-hold, not half the answer
+    # `givens` cells come pre-painted — a toe-hold. The puzzle isles and the
+    # MAGIC picross set this differently (STRIKE gets 5, MAGIC gets 0).
     filled_idx = [i for i, v in enumerate(grid) if v]
-    given = sorted(rng.sample(filled_idx, min(2, len(filled_idx))))
+    given = sorted(rng.sample(filled_idx, min(max(0, givens), len(filled_idx))))
     return {"n": n, "rows": rows, "cols": cols, "given": given, "secret": {}}
 
 
@@ -516,13 +517,15 @@ def check(kind: str, data: dict, payload) -> bool:
 # tet4/tet6 (sigil board) — resolved in deal_battle. Same kind on the wire.
 BATTLE_TIERS = {
     # STRIKE vs pack: the 4-tone echo (simon), the 5×5 board, a quick 4×4 sigil,
-    # the Gorgon's Gaze, the Fates' Thread, a riddle
-    1: ("simon4", "vm5", "tet4", "lights_out", "sequence", "riddle"),
-    # STRIKE vs boss: the 6-tone echo, the 5×5 board, the Shifting Mosaic, a riddle
-    2: ("simon6", "vm5", "sliding", "riddle"),
-    # MAGIC: picross, the matrix, the full 6×6 sigil, the Shifting Mosaic, and
-    # the big 6×6 memory board
-    3: ("nonogram", "ravens", "tet6", "sliding", "vm6"),
+    # the Gorgon's Gaze, the Fates' Thread, a riddle, and a 5×5 picross with a
+    # generous FIVE cells given (nono5) — the easy-stance picross
+    1: ("simon4", "vm5", "tet4", "lights_out", "sequence", "riddle", "nono5"),
+    # STRIKE vs boss: the 6-tone echo, the 5×5 board, the Shifting Mosaic, a
+    # riddle, and the same 5-given picross
+    2: ("simon6", "vm5", "sliding", "riddle", "nono5"),
+    # MAGIC: the same 5×5 picross but with NO cells given (nono0), the matrix,
+    # the full 6×6 sigil, the Shifting Mosaic, and the big 6×6 memory board
+    3: ("nono0", "ravens", "tet6", "sliding", "vm6"),
 }
 BATTLE_KINDS = tuple(dict.fromkeys(k for ks in BATTLE_TIERS.values() for k in ks))
 
@@ -576,6 +579,12 @@ def deal_battle(rng: random.Random, tier: int = 1,
             data = gen_tetromino(rng, n, n)
             limit = 15
         data.update({"kind": "tetromino", "limit": limit})
+        return data
+    if tok.startswith("nono"):                      # nono5 (STRIKE) / nono0 (MAGIC)
+        suffix = tok[4:]
+        givens = int(suffix) if suffix.isdigit() else 2
+        data = gen_nonogram(rng, givens=givens)
+        data.update({"kind": "nonogram", "limit": TIME_LIMITS["nonogram"]})
         return data
     return deal_kind(rng, tok)
 
