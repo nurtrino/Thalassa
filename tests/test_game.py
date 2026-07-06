@@ -414,6 +414,68 @@ def test_vale_dev_teleport_cannot_enter_a_rivals_maze():
     S.table.reset()
 
 
+# ── dev cheats (code 783) ──────────────────────────────────────────────────────
+def test_dev_grant_relics_opens_the_pharos():
+    from game import RELICS as _RELICS
+    from board import REGION_POOL as _POOL
+    g, (p0, p1) = make_game()
+    p = g.player_by_pid(p0)
+    g.dev_grant_relics(p0)
+    assert p.banked >= RELICS_TO_WIN                  # a winning set is banked
+    assert g.pharos_open                              # …and the door is open
+    assert all(r in p.upgrades for r in _RELICS)      # every legendary relic aboard
+    assert set(p.cargo) == set(_POOL)                 # one of every sigil aboard
+
+
+def test_dev_fight_spawns_a_boss_and_opens_battle():
+    g, (p0, p1) = make_game()
+    p = g.player_by_pid(p0)
+    g.turn_idx = 1                                    # not even the dev's turn…
+    g.dev_fight(p0, {"kind": "boss", "region": "ice"})
+    assert g.phase == "battle"
+    assert g.turn_idx == 0                            # …the fight is handed to them
+    m = g.board.alive_monster(p.node)
+    assert m and m.get("boss")
+    assert m["enemies"][0]["name"] == "The Boreal Wyrm"
+
+
+def test_dev_fight_spawns_the_warden():
+    g, (p0, p1) = make_game()
+    p = g.player_by_pid(p0)
+    g.dev_fight(p0, {"kind": "boss", "region": "warden"})
+    m = g.board.alive_monster(p.node)
+    assert m and m["enemies"][0]["name"] == "The Dark Presence"
+
+
+def test_dev_fight_spawns_a_named_pack_row():
+    g, (p0, p1) = make_game()
+    p = g.player_by_pid(p0)
+    # desert deep tier, first row → the Tomb Sentinels
+    g.dev_fight(p0, {"kind": "pack", "region": "desert", "tier": 2, "row": 0})
+    m = g.board.alive_monster(p.node)
+    assert m and m["name"] == "Tomb Sentinels"
+    assert m["enemies"][0]["model"] == "golem_tomb"
+
+
+def test_dev_autowalk_off_freezes_the_gate_carry_through():
+    g, (p0, p1) = make_game()
+    p = g.player_by_pid(p0)
+    gate = g.board.gates[0]
+    g.no_autowalk = True
+    g.turn_idx = 0
+    g.phase = "sail"
+    p.prev_node = p.node
+    p.node = gate
+    g._land(p, gate)
+    assert g.gate_walk is None                        # no carry-through queued
+    # and with it ON, the pass DOES queue a walk
+    g.no_autowalk = False
+    p.prev_node = "home"
+    p.node = gate
+    g._land(p, gate)
+    assert g.gate_walk is not None
+
+
 def test_vale_roll_offers_an_arrow_walk():
     # rolling in the Vale offers a golden arrow per open trail; tapping one
     # walks the roll down it, pausing at forks, and waives the beacons
