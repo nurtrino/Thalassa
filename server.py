@@ -177,7 +177,12 @@ async def reveal_timer(nonce: int):
     # before we cut away. Shrine/puzzle reveals get the full reading window.
     rv = g.reveal or {}
     if rv.get("kind") == "battle":
-        dur = 5.6 if rv.get("battle_over") else 3.4
+        if rv.get("battle_over"):
+            dur = 5.6                        # a kill / shipwreck: hold on the ending
+        elif g.battle and g.battle.get("incoming"):
+            dur = 1.4                        # a dodge is coming — snap to the DODGE prompt
+        else:
+            dur = 3.4
         dur = float(os.environ.get("BATTLE_REVEAL_SECS", dur))   # QA speed hook
     else:
         dur = REVEAL_SECS
@@ -303,7 +308,7 @@ async def dispatch(pid: str | None, kind: str, msg: dict) -> str | None:
             g.use_item_charm(pid, str(msg.get("item", "")))
         elif kind == "stance":
             g.stance(pid, str(msg.get("stance", "")), int(msg.get("target", 0)),
-                     msg.get("domain"))
+                     msg.get("mode"))
         elif kind == "dodge":
             g.dodge(pid, bool(msg.get("hit")), bool(msg.get("full")))
         elif kind == "flee":

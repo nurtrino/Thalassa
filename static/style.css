@@ -1131,6 +1131,7 @@ input:focus-visible, select:focus-visible {
 #bactions {
   position: absolute; bottom: 16px; left: 50%; transform: translateX(-50%);
   display: flex; gap: var(--s3); align-items: center;
+  flex-wrap: wrap; justify-content: center; max-width: 96vw;
   pointer-events: auto;
 }
 .battlebtn {

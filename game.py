@@ -1149,7 +1149,7 @@ class Game:
             battle_over, player_dead, enemy_phase)
 
     # ── battle (Paper-Mario turns: your move, then the enemies') ─────────────
-    def stance(self, pid: str, stance: str, target: int = 0, domain: str | None = None):
+    def stance(self, pid: str, stance: str, target: int = 0, mode: str | None = None):
         self._require_turn(pid, "battle")
         if stance not in ("attack", "magic", "sword", "heal"):
             raise GameError("Choose STRIKE, MAGIC, HEAL, or the SWORD.")
@@ -1160,18 +1160,33 @@ class Game:
             if node["type"] != "pharos":
                 raise GameError("The Sword of Damocles answers only the Dark Presence.")
         if stance == "heal":
-            # the mending hymn: YOU pick which lore to answer (no random deck, no
-            # puzzle, no Jeopardy) — a tier-III themed question. Get it right and
-            # the hull knits; get it wrong and the foe still counters.
-            if domain not in DOMAINS:
-                raise GameError("Choose which lore to sing.")
+            # the mending hymn: YOU pick the FORMAT — Multiple Choice, Jeopardy,
+            # or a Puzzle — so it's never a bad-luck deck. A tier-III challenge:
+            # answer it right and the hull knits; miss it and the foe still counters.
+            if mode not in ("mc", "jeopardy", "puzzle"):
+                raise GameError("Choose Multiple Choice, Jeopardy, or a Puzzle.")
             self.battle["stance"] = "heal"
             self.battle["target"] = 0
-            self.qctx = {"kind": "battle", "island": self.battle["node"],
-                         "tier": 3, "domain": domain, "mode": "themed", "heal": True}
-            self.question = None
             self.side_answers = {}
-            self._bump("question")
+            if mode == "puzzle":
+                deal = puzzles.deal_battle(self.rng, 3, self.used_puzzles)
+                self.minigame = {"kind": deal["kind"], "island": self.battle["node"],
+                                 "data": deal, "limit": deal["limit"],
+                                 "deadline": None, "battle": True}
+                self.qctx = None
+                self.question = None
+                self._bump("minigame")
+                return
+            self.qctx = {"kind": "battle", "island": self.battle["node"],
+                         "tier": 3, "domain": None, "mode": mode, "heal": True}
+            self.question = None
+            if mode == "jeopardy":
+                self.jboard = {"band": "high", "node": self.battle["node"],
+                               "cells": questions.jeopardy_board(self.rng, "high")}
+                self.jchoose_deadline = None
+                self._bump("jchoose")
+                return
+            self._bump("question")            # mc → live tier-III trivia
             return
         m = self.board.alive_monster(self.battle["node"])
         enemies = m["enemies"]
@@ -1527,9 +1542,11 @@ class Game:
                 amt = HEAL_BIG if p.has("ambrosia") else HEAL_SMALL
                 healed = min(amt, p.max_hull - p.hull)
                 p.hull += healed
+                enemy_phase["healed"] = healed     # the client plays a mend, not a hit
                 note = (f"✚ A mending hymn knits the hull — +{healed} Health!" if healed
                         else "✚ The hull is already whole — the hymn steadies the crew.")
             elif not correct and stance == "heal":
+                enemy_phase["healed"] = 0
                 note = "✚ The hymn falters — no mending comes."
             if dmg:
                 victim["hp"] -= dmg

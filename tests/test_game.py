@@ -1183,18 +1183,18 @@ def _pharos_battle(g, p0, upgrades=()):
     return p
 
 
-def test_heal_mends_one_and_needs_a_lore():
+def test_heal_mends_one_and_needs_a_format():
     g, (p0, p1) = make_game()
     mon = find_node(g, "monster")
     set_pack(g, mon, [4])
     battle_at(g, p0, mon)
     p = g.player_by_pid(p0)
     p.hull = 3
-    with pytest.raises(G.GameError):        # HEAL must pick a field of lore
+    with pytest.raises(G.GameError):        # HEAL must pick a question format
         g.stance(p0, "heal")
-    g.stance(p0, "heal", domain="clio")
-    assert g.phase == "question"            # a themed tier-III question, YOUR pick
-    assert g.qctx["domain"] == "clio" and g.qctx["tier"] == 3
+    g.stance(p0, "heal", mode="mc")         # Multiple Choice
+    assert g.phase == "question"
+    assert g.qctx["mode"] == "mc" and g.qctx["tier"] == 3 and g.qctx["heal"]
     put_question(g, correct=0)
     g.answer(p0, 0)
     assert p.hull == 4                       # +1, right away
@@ -1208,7 +1208,7 @@ def test_ambrosia_makes_heal_mend_three():
     p = g.player_by_pid(p0)
     p.hull = 1
     p.upgrades.append("ambrosia")
-    g.stance(p0, "heal", domain="athena")
+    g.stance(p0, "heal", mode="mc")
     put_question(g, correct=0)
     g.answer(p0, 0)
     assert p.hull == 4                       # +3
@@ -1221,10 +1221,31 @@ def test_missed_heal_mends_nothing():
     battle_at(g, p0, mon)
     p = g.player_by_pid(p0)
     p.hull = 3
-    g.stance(p0, "heal", domain="apollo")
+    g.stance(p0, "heal", mode="mc")
     put_question(g, correct=0)
     g.answer(p0, 1)                          # wrong
     assert p.hull == 3                       # no mend (the foe's counter still looms)
+
+
+def test_heal_via_puzzle_and_jeopardy_route_and_mend():
+    # PUZZLE format → a combat minigame that heals on solve
+    g, (p0, p1) = make_game()
+    mon = find_node(g, "monster")
+    set_pack(g, mon, [4])
+    battle_at(g, p0, mon)
+    p = g.player_by_pid(p0)
+    p.hull = 2
+    g.stance(p0, "heal", mode="puzzle")
+    assert g.phase == "minigame" and g.minigame.get("battle")
+    g.resolve_minigame(True)
+    assert p.hull == 3                       # +1 on the solve
+    # JEOPARDY format → the category board (high band)
+    g2, (q0, q1) = make_game()
+    mon2 = find_node(g2, "monster")
+    set_pack(g2, mon2, [4])
+    battle_at(g2, q0, mon2)
+    g2.stance(q0, "heal", mode="jeopardy")
+    assert g2.phase == "jchoose" and g2.jboard["band"] == "high"
 
 
 def test_strike_only_chips_the_dark_lord_for_one():

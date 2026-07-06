@@ -977,7 +977,16 @@ function playBattleBeats(rv) {
 
   /* ── the YOUR-MOVE reveal ─────────────────────────────────────────────────── */
   let chargeAt = 2200;
-  if (rv.was_correct) {
+  if (rv.was_correct && ep.healed != null) {
+    /* HEAL — a mending hymn: NO strike/hit animation, just knit the hearts */
+    bEnemyFrozen = false;
+    audio.sfx.correct?.();
+    renderPlayers(); refreshBHearts(); renderBattle();
+    setBTurn(ep.healed > 0
+      ? `${icon('heart', 16)} YOUR MOVE — the hymn mends <strong>${ep.healed}</strong>!`
+      : `${icon('heart', 16)} YOUR MOVE — the hull is already whole`);
+    if (ep.pending) return;
+  } else if (rv.was_correct) {
     /* STRIKE / MAGIC lands */
     bEnemyFrozen = false;                   // your blow lands NOW
     audio.sfx.hit();
@@ -2088,12 +2097,12 @@ function battleView() {
   return null;
 }
 
-function sendMove(stance, target, domain) {
+function sendMove(stance, target, mode) {
   pendingMove = null;
   pendingHeal = false;
   myStance = stance;
   world.battlePlay('targeted', { idx: null });
-  send({ type: 'stance', stance, target: target ?? 0, ...(domain ? { domain } : {}) });
+  send({ type: 'stance', stance, target: target ?? 0, ...(mode ? { mode } : {}) });
 }
 
 function renderBattle() {
@@ -2157,7 +2166,7 @@ function renderBattle() {
     setBTurn(pendingMove
       ? `${icon('compass', 15)} CHOOSE A TARGET`
       : pendingHeal
-        ? `${icon('heart', 15)} CHOOSE YOUR LORE`
+        ? `${icon('heart', 15)} CHOOSE YOUR CHALLENGE`
         : (mine ? `${icon('strike', 15)} YOUR MOVE` : `${esc(fighter?.name || '')}'s move…`));
   } else if (room.phase === 'question') {
     setBTurn(mine ? '' : `${esc(fighter?.name || '')} faces the question…`);
@@ -2194,16 +2203,16 @@ function renderBattle() {
       sendMove(stance, b.enemies.findIndex((e) => e.hp > 0));
     }
   };
-  // HEAL picks its LORE first — a sub-menu of the four fields replaces the
-  // stance buttons; tapping one sends the spell with that domain
+  // HEAL picks its FORMAT first — a sub-menu of the three question kinds
+  // replaces the stance buttons; tapping one casts the mending hymn that way
   if (pendingHeal) {
     const heals = (me?.upgrades || []).includes('ambrosia') ? 3 : 1;
-    const doms = room.board?.domains || {};
-    for (const [id, info] of Object.entries(doms)) {
-      mk(`${esc(info.field || info.name || id)}`, 'battlebtn heal',
-         () => sendMove('heal', 0, id),
-         `A Tier III ${esc(info.field || '')} question · heal ${heals}`);
-    }
+    mk(`${icon('strike', 16)} MULTIPLE CHOICE`, 'battlebtn heal',
+       () => sendMove('heal', 0, 'mc'), `A Tier III trivia question · heal ${heals}`);
+    mk(`${icon('scroll', 16)} JEOPARDY`, 'battlebtn heal',
+       () => sendMove('heal', 0, 'jeopardy'), `Pick a Jeopardy clue · heal ${heals}`);
+    mk(`${icon('fitting', 16)} PUZZLE`, 'battlebtn heal',
+       () => sendMove('heal', 0, 'puzzle'), `A combat puzzle · heal ${heals}`);
     mk('cancel', 'battlebtn ghost', () => { pendingHeal = false; renderBattle(); });
     return;
   }
