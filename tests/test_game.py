@@ -1672,9 +1672,11 @@ def test_mountain_pass_halts_the_voyage():
 def test_sea_attacks_on_the_crossing():
     import random as _r
     g, (p0, p1) = make_game()
-    # sea attacks happen in the WILDS (realm waters with depth), never the hub
+    # sea attacks happen in the WILDS (realm waters with depth), never the hub —
+    # and never the desert, whose only crossings are the Sphinx gates
     sea = next(nid for nid, n in g.board.nodes.items()
-               if n["type"] == "sea" and n.get("region") and (n.get("depth") or 0) >= 3)
+               if n["type"] == "sea" and n.get("region") not in (None, "desert")
+               and (n.get("depth") or 0) >= 3)
     g.rng = _r.Random(1)                       # 0.134 < the realm-water odds
     force_land(g, p0, sea)
     assert g.phase == "battle"                 # beset mid-crossing
@@ -2138,86 +2140,76 @@ def test_kraken_never_rises_for_poseidons_favor():
 
 
 # ── the sphinx's toll ─────────────────────────────────────────────────────────
-def _desert_road(g):
+def _sphinx_gate(g):
     return next(nid for nid, n in g.board.nodes.items()
-                if n["type"] == "sea" and n.get("region") == "desert"
-                and (n.get("depth") or 0) <= 1)
+                if n.get("sphinx") and not n.get("sphinx_done"))
+
+
+def _land_on_sphinx(g, pid):
+    """Drive player `pid` onto a fresh Sphinx gate and land — she is guaranteed."""
+    road = _sphinx_gate(g)
+    p = g.player_by_pid(pid)
+    g.minigame = None
+    g.battle = None
+    g.turn_idx = 0                                      # keep the actor put
+    g.phase = "sail"
+    p.prev_node = p.node
+    p.node = road
+    g._land(p, road)
+    return road, p
+
+
+def test_desert_has_exactly_three_sphinx_gates():
+    g, _ = make_game()
+    gates = [n for n in g.board.nodes.values() if n.get("sphinx")]
+    assert len(gates) == 3                              # three, no matter what
+    assert all(n.get("region") == "desert" for n in gates)
 
 
 def test_sphinx_stops_desert_crossings():
-    import random as _r
     g, (p0, p1) = make_game()
-    road = _desert_road(g)
-    p = g.player_by_pid(p0)
-    stopped = False
-    for seed in range(60):
-        g.minigame = None
-        g.battle = None
-        g.board.nodes[road]["monster"] = None
-        g.rng = _r.Random(seed)
-        g.turn_idx = 0                                  # keep p0 the actor
-        g.phase = "sail"
-        p.prev_node = p.node
-        p.node = road
-        g._land(p, road)
-        if g.phase == "minigame" and g.minigame.get("sphinx"):
-            stopped = True
-            assert g.minigame["kind"] == "riddle"       # she speaks in riddles
-            break
-        g.battle = None
-    assert stopped
+    road, p = _land_on_sphinx(g, p0)
+    assert g.phase == "minigame" and g.minigame.get("sphinx")
+    assert g.minigame["kind"] == "riddle"              # she speaks in riddles
 
 
-def test_sphinx_failure_sweeps_you_back():
-    import random as _r
+def test_sphinx_failure_looses_a_pack():
     g, (p0, p1) = make_game()
-    road = _desert_road(g)
-    p = g.player_by_pid(p0)
-    start = p.node
-    for seed in range(60):
-        g.minigame = None
-        g.battle = None
-        g.board.nodes[road]["monster"] = None
-        g.rng = _r.Random(seed)
-        g.turn_idx = 0                                  # keep p0 the actor
-        g.phase = "sail"
-        p.prev_node = start
-        p.node = road
-        g._land(p, road)
-        if g.phase == "minigame" and g.minigame.get("sphinx"):
-            before = g.current.pid
-            g.resolve_minigame(False)
-            assert p.node != road                       # swept back down the road
-            assert g.current.pid != before              # …and the turn moved on
-            return
-        g.battle = None
-    assert False, "sphinx never appeared"
+    road, p = _land_on_sphinx(g, p0)
+    assert g.minigame.get("sphinx")
+    g.resolve_minigame(False)
+    assert g.phase == "battle"                          # she looses her guard
+    assert p.node == road                               # you stand and fight
+    assert g.board.nodes[road]["monster"]               # a real pack on the gate
+    assert g.board.nodes[road].get("sphinx_done")       # the gate is settled
 
 
 def test_sphinx_pass_lets_you_stay():
-    import random as _r
     g, (p0, p1) = make_game()
-    road = _desert_road(g)
-    p = g.player_by_pid(p0)
-    for seed in range(60):
-        g.minigame = None
-        g.battle = None
-        g.board.nodes[road]["monster"] = None
-        g.rng = _r.Random(seed)
-        g.turn_idx = 0                                  # keep p0 the actor
-        g.phase = "sail"
-        p.prev_node = p.node
-        p.node = road
-        g._land(p, road)
-        if g.phase == "minigame" and g.minigame.get("sphinx"):
-            before = g.current.pid
-            g.resolve_minigame(True)
-            assert p.node == road                       # you hold your ground
-            finish_trade(g)
-            assert g.current.pid != before              # …and the turn moved on
-            return
-        g.battle = None
-    assert False, "sphinx never appeared"
+    road, p = _land_on_sphinx(g, p0)
+    assert g.minigame.get("sphinx")
+    before = g.current.pid
+    g.resolve_minigame(True)
+    assert p.node == road                               # you hold your ground
+    assert g.board.nodes[road].get("sphinx_done")       # she stays down here now
+    finish_trade(g)
+    assert g.current.pid != before                      # …and the turn moved on
+
+
+def test_sphinx_rises_only_once_per_gate():
+    g, (p0, p1) = make_game()
+    road, p = _land_on_sphinx(g, p0)
+    g.resolve_minigame(True)                            # answer, gate settled
+    finish_trade(g)
+    # land the same gate again: she does NOT rise a second time
+    g.minigame = None
+    g.battle = None
+    g.turn_idx = 0
+    g.phase = "sail"
+    p.prev_node = p.node
+    p.node = road
+    g._land(p, road)
+    assert not (g.phase == "minigame" and (g.minigame or {}).get("sphinx"))
 
 
 # ── puzzles in combat ─────────────────────────────────────────────────────────
