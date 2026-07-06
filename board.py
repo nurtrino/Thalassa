@@ -915,17 +915,18 @@ class Board:
         self._build_neighbors()
 
     def _sword_guardians(self, rng):
-        """The four hardest wilds-beasts — one drawn from each region — set to
-        guard the Sword of Damocles on its islet. A four-front ambush, but not a
-        boss (each is capped just under boss-tier so the pack HUD reads plainly)."""
+        """Three region-bosses stand guard over the Sword of Damocles — the
+        Boreal Wyrm (ice), the Strangler Matriarch (jungle) and the Stag King
+        (autumn) — but WEAKENED for the trial: each at 5 health with a depleted
+        bite (power 1). Marked a ``pack`` so the engine treats it as a plain
+        three-front fight (named cards, own low damage), not a boss battle."""
         enemies = []
-        for region in sorted(REGION_POOL):
-            rows = [row for tier in REGION_POOL[region]["tiers"] for row in tier]
-            name, unit, hp, power, model = max(rows, key=lambda r: (r[2], r[3]))
-            enemies.append({"name": unit, "hp": min(4, hp), "max_hp": min(4, hp),
-                            "power": power, "model": model})
+        for region in ("ice", "jungle", "autumn"):
+            name, _hp, _power, _tier = REGION_POOL[region]["boss"]
+            enemies.append({"name": name, "hp": 5, "max_hp": 5,
+                            "power": 1, "model": REGION_POOL[region]["boss_model"]})
         return {"name": "The Sword's Guardians", "tier": 3, "model": None,
-                "domain": rng.choice(DOMAINS), "enemies": enemies}
+                "domain": rng.choice(DOMAINS), "pack": True, "enemies": enemies}
 
     def _declip_lanes(self):
         """No lane may cross a third island's footprint — the ship (and the

@@ -1074,12 +1074,12 @@ def test_buy_map_costs_thirty_and_reveals_the_islet():
     assert p.scrolls == 11
 
 
-def test_islet_is_guarded_by_four_regional_beasts():
+def test_islet_is_guarded_by_three_weakened_bosses():
     b = Board(7)
     m = b.nodes[b.sword_node]["monster"]
-    assert m and len(m["enemies"]) == 4          # one hardest beast per region
-    assert not any(e["max_hp"] >= 5 for e in m["enemies"])   # a pack, not a boss
-    assert len({e["model"] for e in m["enemies"]}) == 4      # four distinct guardians
+    assert m.get("pack") and len(m["enemies"]) == 3            # a pack, not a boss battle
+    assert {e["model"] for e in m["enemies"]} == {"wyrm", "matriarch", "stag_king"}
+    assert all(e["max_hp"] == 5 and e["power"] == 1 for e in m["enemies"])  # 5 hp, depleted
 
 
 def test_clearing_the_guardians_yields_the_sword():

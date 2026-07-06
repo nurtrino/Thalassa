@@ -1153,7 +1153,8 @@ class Game:
         enemies = m["enemies"]
         if not (0 <= target < len(enemies)) or enemies[target]["hp"] <= 0:
             target = next(i for i, e in enumerate(enemies) if e["hp"] > 0)
-        boss = bool(m.get("boss")) or any(e["max_hp"] >= 5 for e in enemies)
+        boss = bool(m.get("boss")) or (not m.get("pack")
+                                       and any(e["max_hp"] >= 5 for e in enemies))
         # STRIKE draws the easy tier; MAGIC and the SWORD both draw the hard tier-III pool
         tier = (2 if boss else 1) if stance == "attack" else 3
         self.battle["stance"] = stance
@@ -1898,7 +1899,8 @@ class Game:
         if not m:
             return None
         node = self.board.nodes[self.battle["node"]]
-        boss = bool(m.get("boss")) or any(e["max_hp"] >= 5 for e in m["enemies"])
+        boss = bool(m.get("boss")) or (not m.get("pack")
+                                       and any(e["max_hp"] >= 5 for e in m["enemies"]))
         return {"name": m["name"], "tier": m["tier"], "domain": m["domain"],
                 "boss": boss, "model": m.get("model"),
                 "escalation": m.get("escalation", 0),
