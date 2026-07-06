@@ -427,6 +427,11 @@ class Board:
                 make_haven(node)
             elif kind == "shrine":
                 make_shrine(node)
+            elif kind == "sea" and simple:
+                # the desert's three Sphinx gates: she is GUARANTEED here, one
+                # riddle apiece. These are the only crossings that stop you —
+                # every other desert 'sea' hop is empty (no random ambush).
+                node["sphinx"] = True
             main.append(nid)
             # the haven detour hangs off a mid-road span in BOTH layouts: the
             # through-road runs loop_a → (one plain stop) → loop_b, and the

@@ -74,7 +74,6 @@ ATTACK_RUN_CAP = 2                 # an enemy may strike at most twice in a row
 ITEM_CAP = 2                       # max carried of each consumable charm
 KRAKEN_CHANCE = 0.10               # hub crossings: odds the kraken blocks you
 KRAKEN_RIDDLES = 3                 # ...and how many mind-riddles it poses
-SPHINX_CHANCE = 0.35               # desert crossings: odds the Sphinx stops you
 VALE_LANTERN = 3                   # hops of the Amber Vale your lantern shows
 
 COLORS = ["#e4572e", "#2e86ab", "#f6ae2d", "#8e5572", "#33ca7f", "#6457a6"]
@@ -606,6 +605,8 @@ class Game:
                       else min(0.85, 0.45 + 0.1 * (node.get("depth") or 1)))
         elif ntype == "sea" and node.get("region") == "autumn":
             chance = 0.10          # the Vale's plain trail: a hush, mostly
+        elif ntype == "sea" and node.get("region") == "desert":
+            chance = 0.0           # the desert only stops you at its Sphinx gates
         elif ntype == "sea" and node.get("depth"):
             # quieter open water: battles are meatier now (puzzles!), and the
             # roads are longer — the hunting grounds carry the realm's teeth
@@ -640,10 +641,10 @@ class Game:
             self._bump("battle")
             return
 
-        # ── the SPHINX: the desert's toll-keeper. She stops quiet crossings
-        # with a riddle; stumble and she sweeps you a space or two back.
-        if (ntype == "sea" and node.get("region") == "desert"
-                and self.rng.random() < SPHINX_CHANCE):
+        # ── the SPHINX: the desert's toll-keeper. She bars your path at each of
+        # the three marked gates — one riddle apiece. Answer it or fight the
+        # pack she looses on you. She rises only ONCE per gate.
+        if node.get("sphinx") and not node.get("sphinx_done"):
             deal = puzzles.deal_riddle(self.rng, self.used_puzzles)
             # stage the Sphinx in the BATTLE SCREEN — she rises before you like a
             # boss, but poses a riddle instead of trading blows: answer or be
@@ -658,8 +659,8 @@ class Game:
                              "limit": deal["limit"], "deadline": None,
                              "sphinx": True,
                              "text": deal["text"], "category": deal["category"]}
-            self._say(f"🦁 The Sphinx alights on the dunes before {p.name} — "
-                      f"answer her riddle or be swept back!")
+            self._say(f"🦁 The Sphinx blocks {p.name}'s path — "
+                      f"answer her riddle, or fight the pack she looses!")
             self._bump("minigame")
             return
 
@@ -1626,33 +1627,38 @@ class Game:
             self.battle = None
 
     def _sphinx_pass(self):
+        nid = self.battle["node"] if self.battle else self.current.node
+        node = self.board.nodes.get(nid)
+        if node is not None:
+            node["sphinx_done"] = True    # this gate is answered — she stays down
         self._clear_sphinx_stage()
         self.minigame = None
         self._say(f"🦁 The Sphinx bows her head — {self.current.name} may pass.")
         self._end_turn()
 
     def _sphinx_fail(self):
+        # Miss the riddle and she looses her pack: the diorama swaps from the
+        # riddling Sphinx to a real fight, right here on the gate.
         p = self.current
+        nid = self.battle["node"] if self.battle else p.node
         ans = puzzles.answer_text("riddle", self.minigame.get("data")) if self.minigame else ""
         self._clear_sphinx_stage()
         self.minigame = None
-        self._flash(False, f"Wrong — the answer was {ans}" if ans else "The Sphinx sweeps you back!")
-        back = p.prev_node if p.prev_node in self.board.nodes else p.node
-        steps = 1
-        # sometimes she flings you TWO spaces down the road
-        nbrs = [nb for nb in self.board.neighbors.get(back, [])
-                if nb != p.node and self.board.nodes[nb]["type"] not in ("lair", "pharos")]
-        if nbrs and self.rng.random() < 0.5:
-            p.node = self.rng.choice(nbrs)
-            p.prev_node = back
-            steps = 2
-        else:
-            p.node = back
-            p.prev_node = back
-        p.streak = 0
-        self._say(f"🦁 Wrong! The Sphinx's riddle stumps {p.name} — "
-                  f"swept {steps} space{'s' if steps > 1 else ''} back down the road.")
-        self._next_turn()
+        self._flash(False, f"Wrong — the answer was {ans}" if ans else "The Sphinx looses her guard!")
+        node = self.board.nodes.get(nid)
+        if node is None:                  # safety: nothing to fight, just move on
+            self._next_turn()
+            return
+        node["sphinx_done"] = True        # she has risen; the fight settles the gate
+        node["monster"] = self.board.random_pack(node, self.rng)
+        monster = node["monster"]
+        self.battle = {"node": nid, "stance": None, "round": 0,
+                       "charging": False, "ambush": True,
+                       "used_items": [], "first_hit_taken": False}
+        self._arm_battle()
+        self._say(f"🦁 Wrong! The Sphinx looses her guard on {p.name} — "
+                  f"{monster['name']} close in!")
+        self._bump("battle")
 
     def _puzzle_success(self, nid: str):
         p = self.current
