@@ -1725,27 +1725,42 @@ function renderShop() {
  * it free; the third pulls it clear and stamps the X on your map. Body-level so
  * the pull-out survives the panel's frequent re-renders. */
 let mapPull = 0;
-function updateMapTab(me, show) {
-  let tab = document.getElementById('mapTab');
-  if (!show || !me) { if (tab) tab.remove(); mapPull = 0; return; }
+let mapTabEl = null;
+let mapTabRAF = 0;
+function positionMapTab() {
   const panel = $('shopPanel');
-  if (!tab) {
-    tab = document.createElement('button');
-    tab.id = 'mapTab';
-    document.body.appendChild(tab);
-    tab.onclick = onMapTabClick;
+  if (!mapTabEl || !mapTabEl.parentNode || !panel || panel.classList.contains('hidden')) {
+    mapTabRAF = 0;                                   // stop — the tab is gone
+    return;
   }
+  // glue the tip to the box's top-right corner every frame, so it stays put
+  // through the panel's slide-in (a one-shot measure mis-timed the animation)
+  const r = panel.getBoundingClientRect();
+  mapTabEl.style.left = (r.right - 27) + 'px';
+  mapTabEl.style.top = (r.top - 4) + 'px';
+  mapTabRAF = requestAnimationFrame(positionMapTab);
+}
+function updateMapTab(me, show) {
+  if (!show || !me) {
+    if (mapTabEl && mapTabEl.parentNode) mapTabEl.remove();
+    mapPull = 0;
+    return;
+  }
+  if (!mapTabEl) {
+    mapTabEl = document.createElement('button');
+    mapTabEl.id = 'mapTab';
+    mapTabEl.onclick = onMapTabClick;
+  }
+  const tab = mapTabEl;
+  if (tab.parentNode !== document.body) document.body.appendChild(tab);
   const bought = !!me.map_bought;
-  tab.className = 'mapTab' + (bought ? ' got' : '') + (mapPull > 0 ? ' pulled' : '');
+  tab.className = 'mapTab' + (bought ? ' got' : '');
   tab.style.setProperty('--pull', bought ? 3 : mapPull);
-  tab.innerHTML = icon(bought ? 'compass' : 'scroll', 16);
+  tab.innerHTML = icon(bought ? 'compass' : 'scroll', 15);
   tab.title = bought
     ? 'Your chart — open the map (an X marks the islet)'
-    : (mapPull > 0 ? 'Nearly free — keep tugging' : 'A scrap of paper pokes from the corner…');
-  // tuck it BEHIND the stall's top-right corner — only a triangular tip peeks
-  const r = panel.getBoundingClientRect();
-  tab.style.left = (r.right - 27) + 'px';
-  tab.style.top = (r.top - 3) + 'px';
+    : (mapPull > 0 ? 'Nearly free — keep tugging' : 'A scrap of paper pokes from under the corner…');
+  if (!mapTabRAF) mapTabRAF = requestAnimationFrame(positionMapTab);
 }
 function onMapTabClick() {
   const me = room?.players?.find((p) => p.pid === you);
@@ -1761,9 +1776,8 @@ function onMapTabClick() {
   mapPull += 1;
   audio.sfx?.click?.();
   if (tab) {
-    tab.classList.add('pulled');
     tab.classList.remove('shake'); void tab.offsetWidth; tab.classList.add('shake');
-    tab.style.setProperty('--pull', mapPull);
+    tab.style.setProperty('--pull', mapPull);       // slide it further out from under
   }
   if (mapPull >= 3) {                                // the third tug works it free
     mapPull = 0;
