@@ -443,7 +443,7 @@ window.__winPreview = () => {                        // preview the victory sequ
     config: room?.config || { shop_items: {}, relics_to_win: 3 },
     players: [
       { pid: 'W', name: 'Achilles', color: '#e8c27a', banked: 3, cargo: 0, scrolls: 12,
-        hull: 5, max_hull: 6, upgrades: ['hull_plate', 'aegis'], items: { planks: 2, horn: 1 } },
+        hull: 5, max_hull: 6, upgrades: ['hull_plates', 'aegis'], items: { planks: 2, horn: 1 } },
       { pid: 'B', name: 'Odysseus', color: '#6cc6ff', banked: 2, cargo: 1, scrolls: 9,
         hull: 6, max_hull: 6, upgrades: ['sandals'], items: {}, bot: true },
       { pid: 'C', name: 'Ajax', color: '#9be07a', banked: 1, cargo: 0, scrolls: 20,
@@ -1747,9 +1747,11 @@ function renderVictory() {
 function playerLootHtml(p) {
   const ui = room.upgrade_info || {};
   const shop = room.config?.shop_items || {};
-  const ups = (p.upgrades || []).map((id) => esc(ui[id]?.name || id));
+  // never leak a raw snake_case id: fall back to a title-cased label
+  const pretty = (id) => id.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
+  const ups = (p.upgrades || []).map((id) => esc(ui[id]?.name || pretty(id)));
   const items = Object.entries(p.items || {}).filter(([, n]) => n > 0)
-    .map(([id, n]) => `${esc(shop[id]?.name || id)} ×${n}`);
+    .map(([id, n]) => `${esc(shop[id]?.name || pretty(id))} ×${n}`);
   const line = (ic, label, val) =>
     `<span class="vk">${icon(ic, 12)} ${label}</span><span class="vv">${val}</span>`;
   return `<div class="vdet-grid">
