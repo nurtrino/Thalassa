@@ -82,6 +82,7 @@ if (!token) {
 
 /* transient UI state (reset on reconnect) */
 let pendingMove = null;          // 'attack'|'magic'|'guard' while picking a target
+let pendingHeal = false;         // true while the HEAL spell picks its lore/domain
 let myStance = null;             // last stance I sent (labels the reveal beat)
 let mySideAnswer = null;
 let sideKey = null;
@@ -102,6 +103,7 @@ function resetTransient() {
   clearBeats();
   cancelAnimationFrame(timerRAF);
   pendingMove = null;
+  pendingHeal = false;
   mySideAnswer = null;
   sideKey = null;
   mg = { key: null };
@@ -2086,11 +2088,12 @@ function battleView() {
   return null;
 }
 
-function sendMove(stance, target) {
+function sendMove(stance, target, domain) {
   pendingMove = null;
+  pendingHeal = false;
   myStance = stance;
   world.battlePlay('targeted', { idx: null });
-  send({ type: 'stance', stance, target: target ?? 0 });
+  send({ type: 'stance', stance, target: target ?? 0, ...(domain ? { domain } : {}) });
 }
 
 function renderBattle() {
@@ -2153,7 +2156,9 @@ function renderBattle() {
   if (room.phase === 'battle') {
     setBTurn(pendingMove
       ? `${icon('compass', 15)} CHOOSE A TARGET`
-      : (mine ? `${icon('strike', 15)} YOUR MOVE` : `${esc(fighter?.name || '')}'s move…`));
+      : pendingHeal
+        ? `${icon('heart', 15)} CHOOSE YOUR LORE`
+        : (mine ? `${icon('strike', 15)} YOUR MOVE` : `${esc(fighter?.name || '')}'s move…`));
   } else if (room.phase === 'question') {
     setBTurn(mine ? '' : `${esc(fighter?.name || '')} faces the question…`);
   }
@@ -2189,18 +2194,37 @@ function renderBattle() {
       sendMove(stance, b.enemies.findIndex((e) => e.hp > 0));
     }
   };
+  // HEAL picks its LORE first — a sub-menu of the four fields replaces the
+  // stance buttons; tapping one sends the spell with that domain
+  if (pendingHeal) {
+    const heals = (me?.upgrades || []).includes('ambrosia') ? 3 : 1;
+    const doms = room.board?.domains || {};
+    for (const [id, info] of Object.entries(doms)) {
+      mk(`${esc(info.field || info.name || id)}`, 'battlebtn heal',
+         () => sendMove('heal', 0, id),
+         `A Tier III ${esc(info.field || '')} question · heal ${heals}`);
+    }
+    mk('cancel', 'battlebtn ghost', () => { pendingHeal = false; renderBattle(); });
+    return;
+  }
   const st = TIER_ROMAN[b.strike_tier] || 'I';
+  const darkLord = !!b.is_pharos;
   mk(`${icon('strike', 18)} STRIKE<span class="tierchip">${st}</span>`,
      'battlebtn strike', () => move('attack'),
-     `Tier ${st} question · 1 damage${b.horn ? ' · the horn adds +2' : ''}`);
+     darkLord ? 'Tier II question · chips the Dark Lord for 1 (no bonuses apply)'
+              : `Tier ${st} question · 1 damage${b.horn ? ' · the horn adds +2' : ''}`);
   mk(`${icon('magic', 18)} MAGIC<span class="tierchip">III</span>`,
      'battlebtn magic', () => move('magic'),
      'Tier III question · 3 damage · a miss backfires for 1');
+  // HEAL — a mending hymn: pick your field, answer a Tier III question, knit the hull
+  mk(`${icon('heart', 18)} HEAL<span class="tierchip">III</span>`,
+     'battlebtn heal', () => { pendingHeal = true; renderBattle(); },
+     `Tier III question — you pick the field · heals ${(me?.upgrades || []).includes('ambrosia') ? 3 : 1}`);
   // the Sword of Damocles: a third option, but only against the Dark Presence
   if (b.is_pharos && (me?.upgrades || []).includes('sword_of_damocles')) {
     mk(`${icon('sword', 18)} SWORD<span class="tierchip">III</span>`,
        'battlebtn sword', () => move('sword'),
-       'Sword of Damocles · Tier III question · 3 damage · no backfire');
+       'Sword of Damocles · Tier III question · 5 damage · no backfire');
   }
   if (!b.boss) {
     const fleeCost = room.config?.flee_cost ?? 2;

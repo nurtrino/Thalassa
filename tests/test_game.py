@@ -1134,7 +1134,7 @@ def test_clearing_the_guardians_yields_the_sword():
     assert claimed                                # the reveal flagged the draw beat
 
 
-def test_sword_stance_strikes_the_dark_presence_for_three():
+def test_sword_stance_strikes_the_dark_presence_for_five():
     g, (p0, p1) = make_game()
     p = g.player_by_pid(p0)
     p.upgrades.append("sword_of_damocles")
@@ -1152,7 +1152,7 @@ def test_sword_stance_strikes_the_dark_presence_for_three():
     put_question(g, correct=0)
     g.answer(p0, 0)
     hp1 = g.board.alive_monster("pharos")["enemies"][0]["hp"]
-    assert hp0 - hp1 == G.SWORD_DMG == 3
+    assert hp0 - hp1 == G.SWORD_DMG == 5
 
 
 def test_sword_stance_needs_the_sword_and_the_pharos():
@@ -1165,6 +1165,97 @@ def test_sword_stance_needs_the_sword_and_the_pharos():
     g2, (q0, q1), lair2 = boss_battle()
     with pytest.raises(G.GameError):
         g2.stance(q0, "sword")
+
+
+# ── the mending hymn (HEAL) + its relics ───────────────────────────────────────
+def _pharos_battle(g, p0, upgrades=()):
+    p = g.player_by_pid(p0)
+    for u in upgrades:
+        p.upgrades.append(u)
+    p.banked = 3
+    g.pharos_open = True
+    p.node = "pharos"
+    p.prev_node = "home"
+    set_pack(g, "pharos", [12])
+    g._land(p, "pharos")
+    g.enter_pharos(p0)
+    assert g.phase == "battle"
+    return p
+
+
+def test_heal_mends_one_and_needs_a_lore():
+    g, (p0, p1) = make_game()
+    mon = find_node(g, "monster")
+    set_pack(g, mon, [4])
+    battle_at(g, p0, mon)
+    p = g.player_by_pid(p0)
+    p.hull = 3
+    with pytest.raises(G.GameError):        # HEAL must pick a field of lore
+        g.stance(p0, "heal")
+    g.stance(p0, "heal", domain="clio")
+    assert g.phase == "question"            # a themed tier-III question, YOUR pick
+    assert g.qctx["domain"] == "clio" and g.qctx["tier"] == 3
+    put_question(g, correct=0)
+    g.answer(p0, 0)
+    assert p.hull == 4                       # +1, right away
+
+
+def test_ambrosia_makes_heal_mend_three():
+    g, (p0, p1) = make_game()
+    mon = find_node(g, "monster")
+    set_pack(g, mon, [4])
+    battle_at(g, p0, mon)
+    p = g.player_by_pid(p0)
+    p.hull = 1
+    p.upgrades.append("ambrosia")
+    g.stance(p0, "heal", domain="athena")
+    put_question(g, correct=0)
+    g.answer(p0, 0)
+    assert p.hull == 4                       # +3
+
+
+def test_missed_heal_mends_nothing():
+    g, (p0, p1) = make_game()
+    mon = find_node(g, "monster")
+    set_pack(g, mon, [4])
+    battle_at(g, p0, mon)
+    p = g.player_by_pid(p0)
+    p.hull = 3
+    g.stance(p0, "heal", domain="apollo")
+    put_question(g, correct=0)
+    g.answer(p0, 1)                          # wrong
+    assert p.hull == 3                       # no mend (the foe's counter still looms)
+
+
+def test_strike_only_chips_the_dark_lord_for_one():
+    g, (p0, p1) = make_game()
+    # every STRIKE bonus stacked — none of it applies to the Dark Lord
+    p = _pharos_battle(g, p0, upgrades=["ram", "titan_ram"])
+    hp0 = g.board.alive_monster("pharos")["enemies"][0]["hp"]
+    g._force_mode = "mc"
+    g.stance(p0, "attack")
+    put_question(g, correct=0)
+    g.answer(p0, 0)
+    hp1 = g.board.alive_monster("pharos")["enemies"][0]["hp"]
+    assert hp0 - hp1 == 1                     # capped at 1, upgrades ignored
+
+
+def test_phoenix_feather_cheats_death_once():
+    g, (p0, p1) = make_game()
+    mon = find_node(g, "monster")
+    set_pack(g, mon, [4])
+    battle_at(g, p0, mon)
+    p = g.player_by_pid(p0)
+    p.upgrades.append("phoenix_feather")
+    p.hull = 1
+    strike(g, p0)
+    put_question(g, correct=1)               # wrong → the foe counters
+    g.answer(p0, 1)
+    land_blow(g, hit=False)                   # take the full blow — would sink you
+    assert p.cheated_death and p.hull == 1    # pulled from the ash, still afloat
+    assert g.battle is not None               # the fight goes on
+    p.hull = 0
+    assert not g._cheat_death(p)              # the feather is spent — only once
 
 
 def test_pharos_shore_is_open_but_the_door_is_sealed():

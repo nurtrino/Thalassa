@@ -302,7 +302,8 @@ async def dispatch(pid: str | None, kind: str, msg: dict) -> str | None:
         elif kind == "use":
             g.use_item_charm(pid, str(msg.get("item", "")))
         elif kind == "stance":
-            g.stance(pid, str(msg.get("stance", "")), int(msg.get("target", 0)))
+            g.stance(pid, str(msg.get("stance", "")), int(msg.get("target", 0)),
+                     msg.get("domain"))
         elif kind == "dodge":
             g.dodge(pid, bool(msg.get("hit")), bool(msg.get("full")))
         elif kind == "flee":
