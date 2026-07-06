@@ -414,6 +414,8 @@ class Board:
         main = [gate_id]
         n = len(plan)
         loop_a = loop_b = None                 # where the haven loop hangs
+        sphinx_seas = 2                        # main-road Sphinx gates (a third is
+        #                                       GUARANTEED at the junction below)
         for i, kind in enumerate(plan):
             t = (i + 1) / (n + 1)
             # the first isle sits WELL past the arch: sailing in means a real
@@ -430,11 +432,11 @@ class Board:
                 make_haven(node)
             elif kind == "shrine":
                 make_shrine(node)
-            elif kind == "sea" and simple:
-                # the desert's three Sphinx gates: she is GUARANTEED here, one
-                # riddle apiece. These are the only crossings that stop you —
-                # every other desert 'sea' hop is empty (no random ambush).
+            elif kind == "sea" and simple and sphinx_seas > 0:
+                # the desert's Sphinx gates: she BARS the path here (an unanswered
+                # gate halts the sail, so she can't be skipped), one riddle apiece.
                 node["sphinx"] = True
+                sphinx_seas -= 1
             main.append(nid)
             # the haven detour hangs off a mid-road span in BOTH layouts: the
             # through-road runs loop_a → (one plain stop) → loop_b, and the
@@ -448,6 +450,12 @@ class Board:
         main.append(junc_id)
         for u, v in zip(main, main[1:]):
             self._link(u, v)
+        # the GUARANTEED Sphinx: the junction is the ONE gateway to the boss
+        # altar (its only link to the lair), so every route — main road, haven
+        # detour, or the elite shortcut — must face her here. At least one gate,
+        # no matter the path; up to three if you take the long main road.
+        if simple:
+            self.nodes[junc_id]["sphinx"] = True
 
         # ── the HAVEN LOOP: the checkpoint sits OUT ON THE DETOUR ────────────
         # loop_a and loop_b are already joined through the main road; this arm

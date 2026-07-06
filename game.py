@@ -319,6 +319,10 @@ class Game:
                     if ntype == "gate":
                         stops.add(nb)              # the pass halts the voyage
                         continue
+                    if (self.board.nodes[nb].get("sphinx")
+                            and not self.board.nodes[nb].get("sphinx_done")):
+                        stops.add(nb)              # the Sphinx bars the path — face her
+                        continue
                     if ntype == "monster" and self.board.nodes[nb].get("owner"):
                         # a hunting ground on the Vale's narrow trails HALTS
                         # the trek — the guarded door to the barrow is only
