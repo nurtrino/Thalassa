@@ -436,6 +436,24 @@ window.__you = null;
 window.__world = world;               // scene api: arriving()/animating()/currentStage()
 window.__audio = audio;               // music scene lives on audio._scene
 window.__pharosCine = () => playPharosCutscene();   // preview the seal cutscene
+window.__winPreview = () => {                        // preview the victory sequence
+  room = {
+    phase: 'finished', winner: 'W',
+    upgrade_info: room?.upgrade_info || {},
+    config: room?.config || { shop_items: {}, relics_to_win: 3 },
+    players: [
+      { pid: 'W', name: 'Achilles', color: '#e8c27a', banked: 3, cargo: 0, scrolls: 12,
+        hull: 5, max_hull: 6, upgrades: ['hull_plate', 'aegis'], items: { planks: 2, horn: 1 } },
+      { pid: 'B', name: 'Odysseus', color: '#6cc6ff', banked: 2, cargo: 1, scrolls: 9,
+        hull: 6, max_hull: 6, upgrades: ['sandals'], items: {}, bot: true },
+      { pid: 'C', name: 'Ajax', color: '#9be07a', banked: 1, cargo: 0, scrolls: 20,
+        hull: 3, max_hull: 6, upgrades: [], items: { gale: 1 } },
+    ],
+  };
+  you = 'C';
+  victoryShown = false;
+  renderVictory();
+};
 
 function handle(msg) {
   if (msg.type === 'snapshot') {
@@ -630,11 +648,14 @@ function playPharosCeremony(seals, onDone) {
     (_, i) => `<span class="pcsig" style="--i:${i}"></span>`).join('');
   const d = document.createElement('div');
   d.id = 'pharosCine';
+  const wisps = Array.from({ length: 7 },
+    (_, i) => `<span class="pcine-wisp" style="--w:${i}"></span>`).join('');
   d.innerHTML =
     `<div class="pcine-in">` +
       `<div class="pcine-kicker">Set the seals</div>` +
       `<div class="pcine-door"><i class="leaf l"></i><i class="leaf r"></i>` +
         `<span class="pcine-glow"></span><span class="pcine-dark"></span>` +
+        `<span class="pcine-wisps">${wisps}</span>` +
         slots +
       `</div>` +
       `<div class="pcine-title">Darkness Spills Forth</div>` +
@@ -1682,27 +1703,89 @@ function renderShop() {
   });
 }
 
+/* The WIN cinematic — the Dark Presence falls: darkness pours out of the
+   Pharos in streaming wisps, then the whole screen floods to blinding white,
+   and out of the white the leaderboard rises. Plays once, then hands off to
+   buildVictoryBoard(). */
+function playVictoryCinematic(onDone) {
+  if (document.getElementById('victoryCine')) return;
+  // the win screen owns the frame — clear the lobby menu out from behind it
+  $('lobby').classList.add('hidden');
+  $('hud').classList.add('hidden');
+  const wisps = Array.from({ length: 10 },
+    (_, i) => `<span class="vc-wisp" style="--w:${i}"></span>`).join('');
+  const d = document.createElement('div');
+  d.id = 'victoryCine';
+  d.innerHTML =
+    `<div class="vc-dark"></div>` +
+    `<div class="vc-wisps">${wisps}</div>` +
+    `<div class="vc-white"></div>`;
+  document.body.appendChild(d);
+  audio.sfx?.roar?.();                                // the tower disgorges its dark
+  setTimeout(() => d.classList.add('flash'), 1500);  // …then the flood to white
+  setTimeout(() => { onDone?.(); }, 2600);           // board rises out of the white
+  setTimeout(() => d.classList.add('clear'), 2900);  // white recedes to reveal it
+  setTimeout(() => d.remove(), 4400);
+}
+
 /* ── the VICTORY screen: a real curtain call, not a cut-away ────────────── */
 let victoryShown = false;
 function renderVictory() {
-  const existing = document.getElementById('victoryOv');
   if (!room || room.phase !== 'finished' || !room.winner) {
-    if (existing) existing.remove();
+    document.getElementById('victoryOv')?.remove();
+    document.getElementById('victoryCine')?.remove();
     victoryShown = false;
     return;
   }
   if (victoryShown) return;
   victoryShown = true;
+  // darkness out of the Pharos → fade to white → the board rises
+  playVictoryCinematic(() => buildVictoryBoard());
+}
+
+/* what each captain finished the voyage holding — revealed by tapping a row */
+function playerLootHtml(p) {
+  const ui = room.upgrade_info || {};
+  const shop = room.config?.shop_items || {};
+  const ups = (p.upgrades || []).map((id) => esc(ui[id]?.name || id));
+  const items = Object.entries(p.items || {}).filter(([, n]) => n > 0)
+    .map(([id, n]) => `${esc(shop[id]?.name || id)} ×${n}`);
+  const line = (ic, label, val) =>
+    `<span class="vk">${icon(ic, 12)} ${label}</span><span class="vv">${val}</span>`;
+  return `<div class="vdet-grid">
+      ${line('relic', 'Sigils', `${p.banked || 0} banked · ${p.cargo || 0} aboard`)}
+      ${line('scroll', 'Scrolls', p.scrolls || 0)}
+      ${line('hull', 'Hull', `${p.hull}/${p.max_hull}`)}
+      ${line('fitting', 'Fittings & relics', ups.length ? ups.join(', ') : '—')}
+      ${line('market', 'Items', items.length ? items.join(', ') : '—')}
+    </div>`;
+}
+
+function buildVictoryBoard() {
+  if (!room || room.phase !== 'finished' || !room.winner) return;
+  if (document.getElementById('victoryOv')) return;
+  $('lobby').classList.add('hidden');               // no menu behind the board
+  $('hud').classList.add('hidden');
   const w = room.players.find((p) => p.pid === room.winner);
-  const rows = [...room.players]
-    .sort((a, b) => (b.banked - a.banked) || (b.scrolls - a.scrolls))
-    .map((p, i) => `<div class="vrow ${p.pid === room.winner ? 'vwin' : ''}">
-        <span class="vrank">${p.pid === room.winner ? icon('crown', 15) : i + 1}</span>
-        <span class="vdot" style="background:${p.color}"></span>
-        <span class="vname">${esc(p.name)}</span>
-        <span class="vstat">${p.banked} ${icon('relic', 12)} seals</span>
-        <span class="vstat">${p.scrolls} ${icon('scroll', 12)}</span>
-        <span class="vstat">${(p.upgrades || []).length} fittings</span>
+  const sig = (p) => (p.banked || 0) + (p.cargo || 0);
+  // the winner is pinned to #1 (they took the tower first); the rest rank on
+  // sigils held, then scrolls
+  const ranked = [...room.players].sort((a, b) => {
+    if (a.pid === room.winner) return -1;
+    if (b.pid === room.winner) return 1;
+    return (sig(b) - sig(a)) || (b.scrolls - a.scrolls);
+  });
+  const rows = ranked.map((p, i) => `
+      <div class="vrow ${p.pid === room.winner ? 'vwin' : ''}" data-pid="${p.pid}" tabindex="0">
+        <div class="vrow-head">
+          <span class="vrank">${p.pid === room.winner ? icon('crown', 15) : i + 1}</span>
+          <span class="vdot" style="background:${p.color}"></span>
+          <span class="vname">${esc(p.name)}${p.bot ? ' <small>(bot)</small>' : ''}</span>
+          <span class="vstat">${sig(p)} ${icon('relic', 12)}</span>
+          <span class="vstat">${p.scrolls} ${icon('scroll', 12)}</span>
+          <span class="vchev">▾</span>
+        </div>
+        <div class="vdet">${playerLootHtml(p)}</div>
       </div>`).join('');
   const d = document.createElement('div');
   d.id = 'victoryOv';
@@ -1712,6 +1795,7 @@ function renderVictory() {
       <div class="vtitle">VICTORY</div>
       <div class="vsub"><strong style="color:${w?.color || 'var(--gilt)'}">${esc(w?.name || '?')}</strong>
         takes the Pharos — the sea is theirs</div>
+      <div class="vhint">tap a captain to see what they carried home</div>
       <div class="vboard">${rows}</div>
       <div class="vbtns">
         ${you === room.host
@@ -1721,10 +1805,17 @@ function renderVictory() {
       </div>
     </div>`;
   document.body.appendChild(d);
+  d.querySelectorAll('.vrow').forEach((row) => {
+    const toggle = () => row.classList.toggle('open');
+    row.querySelector('.vrow-head').onclick = toggle;
+    row.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggle(); }
+    });
+  });
   const r = document.getElementById('vRematch');
   if (r) r.onclick = () => send({ type: 'rematch' });
   document.getElementById('vHide').onclick = () => d.classList.add('vpeek');
-  audio.sfx?.victory?.();
+  // (the victory sting already rang at the win; the cinematic owns the audio)
 }
 
 /* ── item belt (bottom-right) ───────────────────────────────────────────── */
