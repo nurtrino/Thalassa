@@ -45,6 +45,7 @@ scrolls halved, respawn at your haven checkpoint.
 """
 from __future__ import annotations
 
+import math
 import random
 
 import puzzles
@@ -143,6 +144,19 @@ SHOP_ITEMS = {
     "horn":    {"name": "War Horn",     "cost": 4,
                 "desc": f"+{HORN_BONUS} on your next STRIKE"},
 }
+
+
+def round_half(x: float) -> float:
+    """Snap a value to the nearest half — Health moves in half-hearts now."""
+    return round(x * 2) / 2
+
+
+def fmt_hp(x: float) -> str:
+    """A tidy half-heart label: 0.5 → '½', 2.5 → '2½', 3 → '3'."""
+    w = int(x)
+    if x - w >= 0.5:
+        return f"{w}½" if w else "½"
+    return str(w)
 
 
 class GameError(Exception):
@@ -813,12 +827,14 @@ class Game:
         self._require_turn(pid, "haven")
         p = self.current
         missing = p.max_hull - p.hull
-        spend = min(missing, p.scrolls)
-        if spend <= 0:
+        if missing <= 0 or p.scrolls <= 0:
             raise GameError("Nothing to repair — or no scrolls to pay with.")
+        # a scroll a heart; a lingering half-heart tops off on the last scroll
+        spend = min(math.ceil(missing), p.scrolls)
         p.scrolls -= spend
-        p.hull += spend
-        self._say(f"{p.name} patches {spend} Health at the haven.")
+        healed = min(spend, missing)
+        p.hull = min(p.max_hull, p.hull + spend)
+        self._say(f"{p.name} patches {fmt_hp(healed)} Health at the haven.")
         self._end_turn()
 
     # ── markets ──────────────────────────────────────────────────────────────
@@ -1097,19 +1113,24 @@ class Game:
         enemy_phase.pop("pending", None)
         enemy_phase["enemy_turn"] = True
 
-        # a successful dodge is a clean block: read the blow at all — gold OR
-        # the bright core — and you slip it ENTIRELY, no damage. (The core still
-        # reads as a "PERFECT!" on the wheel for flourish.) Freeze up or miss
-        # the window and the blow lands full.
+        # the dodge wheel has THREE outcomes now: nail the bright CORE and you
+        # slip the blow entirely; a gold READ still lets HALF through (a
+        # half-heart on a weak foe — you're not perfectly clear); freeze up or
+        # miss the window and it lands full.
         full = bool(full) and dodged
-        base = 0 if dodged else power
+        if not dodged:
+            base = power                       # missed the beat → the whole blow
+        elif full:
+            base = 0                           # a PERFECT core read → slip it clean
+        else:
+            base = round_half(power / 2)       # a gold read → HALF gets through
         hit_dmg, blocked = self._absorb(p, base)
         note = ""
         if blocked:
             note = "🛡 The aegis charm turns the blow. "
             enemy_phase["blocked"] = True
         elif p.has("aegis") and hit_dmg > 0 and not self.battle["first_hit_taken"]:
-            hit_dmg = max(1, hit_dmg // 2)
+            hit_dmg = max(0.5, round_half(hit_dmg / 2))
             self.battle["first_hit_taken"] = True
             note = "Your Aegis shard flares — "
         enemy_phase["attacker"] = attacker
@@ -1122,10 +1143,10 @@ class Game:
                 note += f"🌀 You read {attacker}'s {blow} and slip clear!"
             elif dodged:
                 note += (f"🌀 You twist aside — {attacker}'s {blow} "
-                         f"only grazes for {hit_dmg}!")
+                         f"only grazes for {fmt_hp(hit_dmg)}!")
             else:
-                note += (f"💥 {attacker} lands a HEAVY blow for {hit_dmg}!"
-                         if heavy else f"💥 {attacker} strikes for {hit_dmg}!")
+                note += (f"💥 {attacker} lands a HEAVY blow for {fmt_hp(hit_dmg)}!"
+                         if heavy else f"💥 {attacker} strikes for {fmt_hp(hit_dmg)}!")
         note = note.strip()
         p.hull -= hit_dmg
 
