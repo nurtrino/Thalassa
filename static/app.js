@@ -437,6 +437,7 @@ window.__send = send;                 // debug/testing handles
 window.__room = null;
 window.__you = null;
 window.__world = world;               // scene api: arriving()/animating()/currentStage()
+window.__beginSphinxAmbush = () => beginSphinxAmbush();   // QA: replay her intro
 window.__audio = audio;               // music scene lives on audio._scene
 window.__pharosCine = () => playPharosCutscene();   // preview the seal cutscene
 window.__winPreview = () => {                        // preview the victory sequence
@@ -573,7 +574,7 @@ function showRealmBanner(info) {
    begins (ambush, boss trial, the final confrontation). Separate element from
    the realm banner so the two can never clobber each other. */
 let announceEl = null;
-function showAnnounce(title, sub, color) {
+function showAnnounce(title, sub, color, dur = 2600) {
   announceEl?.remove();
   const d = document.createElement('div');
   announceEl = d;
@@ -593,8 +594,57 @@ function showAnnounce(title, sub, color) {
      { opacity: 1, transform: 'translateX(-50%) scale(1)', offset: 0.16 },
      { opacity: 1, transform: 'translateX(-50%) scale(1)', offset: 0.74 },
      { opacity: 0, transform: 'translateX(-50%) scale(1.04) translateY(-8px)' }],
-    { duration: 2600, easing: 'cubic-bezier(.2,.9,.2,1)' },
+    { duration: dur, easing: 'cubic-bezier(.2,.9,.2,1)' },
   ).onfinish = () => { d.remove(); if (announceEl === d) announceEl = null; };
+}
+
+/* ── the Sphinx's ambush: a staged intro before her riddle ────────────────
+   She springs from the dunes ("THE SPHINX AMBUSHES YOU"), then the diorama
+   holds on her — no controls — while she poses her terms, and only THEN does
+   the riddle scroll unfurl. Purely a client-side beat; the server already has
+   the riddle live the instant we land. */
+let sphinxIntro = false;
+let sphinxLine = '';
+let sphinxSpeakEl = null;
+const sphinxTimers = [];
+function clearSphinxTimers() {
+  while (sphinxTimers.length) clearTimeout(sphinxTimers.pop());
+}
+function showSphinxSpeak(text) {
+  hideSphinxSpeak();
+  const d = document.createElement('div');
+  sphinxSpeakEl = d;
+  d.className = 'sphinxspeak';
+  d.innerHTML =
+    `<div class="ssname">${icon('crown', 15)} The Sphinx</div>` +
+    `<div class="ssline">${esc(text)}</div>`;
+  document.body.appendChild(d);
+  requestAnimationFrame(() => d.classList.add('in'));
+}
+function hideSphinxSpeak() {
+  sphinxSpeakEl?.remove();
+  sphinxSpeakEl = null;
+}
+function beginSphinxAmbush() {
+  clearSphinxTimers();
+  sphinxIntro = true;
+  sphinxLine = '';
+  audio.sfx.oracle();
+  // 1) she springs — a brief flash held about half a second
+  showAnnounce('THE SPHINX AMBUSHES YOU', '', '#e8c27a', 1000);
+  render();                                   // hide the riddle, hold on her
+  // 2) …the diorama sits on the Sphinx, then she names her terms
+  sphinxTimers.push(setTimeout(() => {
+    audio.sfx.oracle?.();
+    showSphinxSpeak('Solve my riddle, or face my pride.');
+    render();
+  }, 1000));
+  // 3) …and only now does the riddle scroll unfurl
+  sphinxTimers.push(setTimeout(() => {
+    sphinxIntro = false;
+    hideSphinxSpeak();
+    render();
+  }, 2900));
 }
 
 /* The end of a fight gets its own full-screen beat — a gold VICTORY when the
@@ -823,9 +873,14 @@ function reactAudio(prev, next) {
       audio.sfx.roar();
       showAnnounce('THE KRAKEN', 'three riddles of the mind — or lose a turn', '#3fb6c8');
     } else if (mgTag === 'sphinx') {
-      audio.sfx.oracle();
-      showAnnounce('THE SPHINX BLOCKS YOUR PATH', 'answer her riddle, or fight the pack she sends', '#e8c27a');
+      beginSphinxAmbush();
     }
+  } else if (!mgTag && lastMgTag === 'sphinx') {
+    // left the Sphinx (answered, or swept into her fight): drop any lingering
+    // intro state so a stale flag can't hide a later riddle modal
+    sphinxIntro = false;
+    clearSphinxTimers();
+    hideSphinxSpeak();
   }
   lastMgTag = mgTag;
   if (next.phase === 'finished' && !sfxAnnouncedWin) {
@@ -2474,7 +2529,9 @@ function startTimerBar(deadline, barSel) {
 function renderMinigame() {
   const modal = $('mgmodal');
   const m = room.minigame;
-  const show = room.phase === 'minigame' && m && !world.arriving();
+  // hold the riddle scroll back while the Sphinx's ambush intro plays out
+  const show = room.phase === 'minigame' && m && !world.arriving()
+    && !(m.sphinx && sphinxIntro);
   modal.classList.toggle('hidden', !show);
   if (!show) { mg = { key: null }; return; }
 

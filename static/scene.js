@@ -653,13 +653,29 @@ export function createWorld(container, handlers = {}) {
   function slotFor(nodeId, slotIdx, st) {
     const n = nodeById[nodeId];
     if (n && n.type === 'gate') return gateBerth(n, st, slotIdx);
-    // on foot (the Vale, the desert) you WALK the trail: the captain stands ON
-    // the stop itself (stepping stone, cairn, camp) — never at a ship's berth
-    // off it. The first captain sits dead centre; extra ones fan out a touch.
-    if (isFootStage(st?.id)) {
+    // the VALE is a maze of clearings: the captain stands ON the clearing
+    // itself (stepping stone, cairn) — never at a ship's berth off it. First
+    // captain dead centre; extra ones fan out a touch.
+    if (st?.id === 'autumn') {
       if (slotIdx === 0) return new THREE.Vector3(n.x, 0, n.z);
       const a = (slotIdx / 6) * Math.PI * 2 + 0.8;
       return new THREE.Vector3(n.x + Math.cos(a) * 1.1, 0, n.z + Math.sin(a) * 1.1);
+    }
+    // the DESERT dune road: open 'sea' stops are bare sand the captain stands
+    // dead on; but a stop that carries an island (a monster mound, the shrine)
+    // is solid ground he'd clip — he halts on the SAND just short of its rim.
+    if (isFootStage(st?.id)) {
+      const structured = n && n.type !== 'sea';
+      const isle = st && st.islands[nodeId];
+      const R = isle?.R ?? 4;
+      if (!structured) {
+        if (slotIdx === 0) return new THREE.Vector3(n.x, 0, n.z);
+        const a = (slotIdx / 6) * Math.PI * 2 + 0.8;
+        return new THREE.Vector3(n.x + Math.cos(a) * 1.1, 0, n.z + Math.sin(a) * 1.1);
+      }
+      const a = (slotIdx / 6) * Math.PI * 2 + 0.8;
+      const r = R * 1.2 + 2.4;
+      return new THREE.Vector3(n.x + Math.cos(a) * r, 0, n.z + Math.sin(a) * r);
     }
     // an OPEN-WATER sea mooring (a shoal, no land under it): the ship settles in
     // the MIDDLE of the shoal, not off at its rim. The first captain sits dead
@@ -827,10 +843,13 @@ export function createWorld(container, handlers = {}) {
   }
 
   function startTravel(rec, toNode, st) {
-    // on foot (the Vale AND the desert) the captain follows the FLAGSTONE trail:
-    // stop centre to stop centre, no berth offsets, no island-avoidance arcs, no
-    // corner smoothing — he stays dead on the worn path
+    // on foot the captain follows the trail stop-to-stop (no berth offsets), but
+    // the two foot realms differ: the VALE is a private maze whose trail is hand
+    // laid to thread its clearings, so it walks dead-straight between stops; the
+    // DESERT's dune road bows past scattered mounds, so its captain still arcs
+    // AROUND island footprints instead of ploughing through them.
     const onFoot = isFootStage(st?.id);
+    const walkTrail = st?.id === 'autumn';        // the Vale: raw stop-to-stop
     const route = sailPath(rec.prevNode, toNode);
     const raw = [rec.root.position.clone()];
     if (route && route.length > 2) {
@@ -849,7 +868,7 @@ export function createWorld(container, handlers = {}) {
       raw.push(new THREE.Vector3(dest.x - rad.x * 46, 0, dest.z - rad.z * 46));
     }
     raw.push(slotFor(toNode, rec.idx, st));
-    const pts = onFoot ? raw : avoidIslands(raw, st);
+    const pts = walkTrail ? raw : avoidIslands(raw, st);
     rec.arrivalPending = true;
     let total = 0;
     const legs = [];

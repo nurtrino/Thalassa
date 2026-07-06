@@ -1730,10 +1730,12 @@ class Game:
                 self._kraken_fail()               # one wrong pick: it has you
             return
         if mg.get("sphinx"):
+            # ONE attempt only: a wrong answer stands — the Sphinx does not
+            # let you guess again. She springs her pride on you instead.
             if ok:
                 self._sphinx_pass()
             else:
-                raise GameError("The Sphinx narrows her eyes — try again.")
+                self._sphinx_fail()
             return
         if ok:
             self._puzzle_success(mg["island"])
@@ -1824,7 +1826,8 @@ class Game:
             node["sphinx_done"] = True    # this gate is answered — she stays down
         self._clear_sphinx_stage()
         self.minigame = None
-        self._say(f"🦁 The Sphinx bows her head — {self.current.name} may pass.")
+        self._say(f"🦁 The Sphinx bows her head. “Farewell for now.” "
+                  f"{self.current.name} may pass.")
         self._end_turn()
 
     def _sphinx_fail(self):

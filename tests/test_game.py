@@ -2506,6 +2506,18 @@ def test_sphinx_failure_sends_a_pack():
     assert g.board.nodes[road].get("sphinx_done")       # the gate is settled
 
 
+def test_sphinx_wrong_answer_has_no_retry():
+    # a typed wrong answer is final — she springs her pride at once, never
+    # bouncing you back to guess again
+    g, (p0, p1) = make_game()
+    road, p = _land_on_sphinx(g, p0)
+    assert g.minigame.get("sphinx")
+    g.minigame_submit(p0, "definitely-not-the-answer")
+    assert g.phase == "battle"                          # straight into the fight
+    assert g.board.nodes[road]["monster"]               # her guard on the gate
+    assert g.board.nodes[road].get("sphinx_done")
+
+
 def test_sphinx_pass_lets_you_stay():
     g, (p0, p1) = make_game()
     road, p = _land_on_sphinx(g, p0)
