@@ -978,13 +978,15 @@ class Game:
         # for HALF the blow; nail the bright core at its centre and you slip it
         # entirely. On a boss's telegraphed HEAVY blow the core is the only way
         # out clean — a loose gold-only read still takes half the hit.
+        # Half ROUNDS DOWN (floor): a dodged 1-power blow is 0.5 → 0, so a read
+        # of the weakest packs takes no hit at all.
         full = bool(full) and dodged
         if not dodged:
             base = power
         elif full:
             base = 0
         else:
-            base = power // 2
+            base = power // 2          # floor: 0.5 → 0 (no hit)
         hit_dmg, blocked = self._absorb(p, base)
         note = ""
         if blocked:
@@ -1402,10 +1404,11 @@ class Game:
                         node["monster"] = None     # the waters fall quiet — for now
             else:
                 # ── the enemies' move ────────────────────────────────────────
-                # Packs only punish a miss; a boss answers EVERY exchange.
-                # The counter does NOT land yet — first the reveal shows
-                # plainly how YOUR move went; only after that beat does the
-                # foe wind up and the DODGE action command interrupt.
+                # EVERY foe answers EVERY exchange now — no more "your right
+                # answer makes them whiff." The DODGE is the only way a blow
+                # is turned aside. The counter does NOT land yet: first the
+                # reveal shows how YOUR move went, then the foe winds up and
+                # the DODGE action command interrupts.
                 front_idx = self._attack_queue(enemies)[0]
                 front = enemies[front_idx]
                 if not correct and stance == "magic" and not boss:
@@ -1415,7 +1418,7 @@ class Game:
                     note = ("🛡 The aegis charm eats the backfire."
                             if blocked else f"🔥 The spell backfires — {hit} damage!")
                     p.hull -= hit
-                elif boss or not correct:
+                else:
                     self._advance_attacker(enemies)
                     # bosses ALL land in the 2–4 band (a telegraphed heavy sits
                     # at the top of it); packs strike for their own power
@@ -1431,10 +1434,6 @@ class Game:
                         "was_correct": correct,
                         "move_phase": dict(enemy_phase),
                     }
-                else:
-                    # your successful move carries you clear of the counter
-                    enemy_phase["evaded"] = True
-                    enemy_phase["attacker"] = front["name"]
 
                 if p.hull <= 0:               # only the backfire bites here
                     battle_over = True

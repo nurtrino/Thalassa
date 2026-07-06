@@ -805,7 +805,10 @@ def test_magic_hits_hard_and_backfires():
     put_question(g, correct=1)
     g.answer(p0, 1)                                       # correct → 3 damage
     assert pack(g, mon)[0]["hp"] == 2
-    assert g.reveal["enemy_phase"]["evaded"]              # your success dodges the counter
+    # a right answer no longer makes the foe whiff — it counters; dodge it
+    assert advance_to_dodge(g) == "dodge"
+    land_blow(g, hit=True, full=True)                     # a clean read slips it
+    assert g.player_by_pid(p0).hull == G.MAX_HULL         # no hit taken
     g.advance_after_reveal()
     assert g.phase == "battle"
     cast(g, p0)
@@ -828,8 +831,9 @@ def test_battle_rounds_until_dead_monster():
         strike(g, p0)
         put_question(g)
         g.answer(p0, 0)                                   # always correct
+        land_blow(g, hit=True, full=True)                # every foe counters — dodge it clean
         g.advance_after_reveal()
-    assert pack(g, mon)[0]["hp"] < 99                     # damage accumulated
+    assert pack(g, mon)[0]["hp"] <= 99 - 6                # damage accumulated over the rounds
 
 
 def test_flee_gamble():
@@ -1770,16 +1774,22 @@ def test_boss_counters_even_when_you_hit():
     assert not g.reveal["enemy_phase"]["evaded"]
 
 
-def test_pack_still_lets_a_clean_hit_evade():
+def test_pack_counters_even_on_a_clean_hit():
+    # a right answer no longer makes a pack whiff — every foe counters like a
+    # boss now, and the DODGE is the only way a blow is turned aside. A read
+    # of a weak (1-power) pack floors to 0, so a clean dodge takes no hit.
     g, (p0, p1) = make_game()
     mon = find_node(g, "monster")
-    set_pack(g, mon, [4])
+    set_pack(g, mon, [4])                         # set_pack gives power 1
     battle_at(g, p0, mon)
     strike(g, p0)
     put_question(g)
-    g.answer(p0, 0)
-    assert g.reveal["enemy_phase"]["evaded"]      # packs punish only misses
-    assert g.player_by_pid(p0).hull == G.MAX_HULL
+    g.answer(p0, 0)                               # correct hit
+    assert g.reveal["enemy_phase"].get("pending")  # a counter hangs over it
+    assert advance_to_dodge(g) == "dodge"          # you must dodge it
+    land_blow(g, hit=True)                          # gold read: 1 // 2 = 0
+    assert g.reveal["enemy_phase"]["dmg"] == 0
+    assert g.player_by_pid(p0).hull == G.MAX_HULL   # no hit taken
 
 
 def test_guard_stance_is_gone():

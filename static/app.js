@@ -897,15 +897,8 @@ function playBattleBeats(rv) {
       beat(1900, () => setBTurn(`${icon('laurel', 18)} <strong>VICTORY!</strong>`));
       return;
     }
-    if (ep.pending) return;               // the counter comes after the dodge beat
-    if (ep.evaded) {
-      beat(1500, () => {
-        setBTurn(`${icon('flee', 16)} ENEMY MOVE — ${foe} lunges… <strong>you slip clear!</strong>`);
-        world.battlePlay('enemy_miss');
-        audio.sfx.sail();
-      });
-      chargeAt = 2400;
-    }
+    // every foe now counters — the blow comes after the dodge beat (no evade)
+    if (ep.pending) return;
   } else if (ep.backfire) {
     bEnemyFrozen = false;
     setBTurn(`${icon('magic', 16)} YOUR MOVE — the spell fizzles…`);
