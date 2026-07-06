@@ -410,43 +410,6 @@ function sandRippleRing(R, sandHex) {
 }
 
 /* ── flora: five realm sets ─────────────────────────────────────────────── */
-function makePalm(rng, scale = 1, frondA = COL.frond, frondB = COL.frond2) {
-  const g = new THREE.Group();
-  const lean = (rng() - 0.5) * 0.5;
-  let x = 0, y = 0;
-  for (let i = 0; i < 4; i++) {
-    const h = 0.62 * scale;
-    const seg = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.075 * scale * (1 - i * 0.14), 0.1 * scale * (1 - i * 0.14), h, 5),
-      flat(COL.trunk));
-    seg.position.set(x, y + h / 2, 0);
-    seg.rotation.z = lean * (i + 0.5) * 0.3;
-    seg.castShadow = true;
-    g.add(seg);
-    x += Math.sin(lean * (i + 1) * 0.3) * h;
-    y += Math.cos(lean * (i + 1) * 0.3) * h;
-  }
-  const top = new THREE.Vector3(x, y + 0.05 * scale, 0);
-  const nF = 7 + Math.floor(rng() * 3);
-  for (let i = 0; i < nF; i++) {
-    const fg = new THREE.PlaneGeometry(1.7 * scale, 0.42 * scale, 5, 1);
-    const p = fg.attributes.position;
-    for (let v = 0; v < p.count; v++) {
-      const fx = Math.max(0, p.getX(v) / (1.7 * scale) + 0.5);
-      p.setY(v, p.getY(v) * (1 - fx * 0.55));
-      p.setZ(v, -Math.pow(fx, 1.7) * 0.55 * scale);
-    }
-    fg.computeVertexNormals();
-    const frond = new THREE.Mesh(fg, flat(i % 2 ? frondA : frondB, { side: THREE.DoubleSide }));
-    frond.position.copy(top);
-    frond.rotation.y = (i / nF) * Math.PI * 2 + rng() * 0.4;
-    frond.translateX(0.7 * scale);
-    frond.castShadow = true;
-    g.add(frond);
-  }
-  return g;
-}
-
 function makeCypress(rng, scale = 1) {
   const g = new THREE.Group();
   const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.08, 0.4 * scale, 5), flat(COL.trunk));
@@ -1515,7 +1478,8 @@ function makeGatePortal(accentHex, seed, rockHex = 0x8a8f98) {
   return g;
 }
 
-/* a pocket oasis: still pool ringed with reeds and palms (foot-mode havens) */
+/* a pocket oasis: a still pool ringed with reeds (foot-mode havens). No palms —
+   buildings no longer spawn the little decorative trees around them. */
 function makeOasis(rng, theme) {
   const g = new THREE.Group();
   const pool = new THREE.Mesh(new THREE.CircleGeometry(2.4, 18),
@@ -1524,12 +1488,6 @@ function makeOasis(rng, theme) {
   pool.rotation.x = -Math.PI / 2;
   pool.position.y = 0.06;
   g.add(pool);
-  for (let i = 0; i < 4; i++) {
-    const a = rng() * 6.28;
-    const palm = makePalm(rng, 0.8 + rng() * 0.5);
-    palm.position.set(Math.cos(a) * (2.7 + rng()), 0, Math.sin(a) * (2.7 + rng()));
-    g.add(palm);
-  }
   for (let i = 0; i < 6; i++) {
     const a = rng() * 6.28;
     const reed = new THREE.Mesh(new THREE.ConeGeometry(0.05, 0.8 + rng() * 0.5, 4), flat(0x6a8a3e));
@@ -1783,15 +1741,8 @@ export function buildIsland(node, theme, domains) {
     const shrine = makeShrine(hex, theme.id, spent);
     shrine.position.y = terrain.heightAt(0);
     g.add(shrine);
-    if (foot) {
-      const oasisPalm = makePalm(rng0, 0.9);
-      oasisPalm.position.set(R * 0.45, terrain.surfaceY(R * 0.45, R * 0.2), R * 0.2);
-      g.add(oasisPalm);
-    } else {
-      const fl = floraFor(theme, rng0, 1.0);
-      fl.position.set(R * 0.45, terrain.surfaceY(R * 0.45, R * 0.2), R * 0.2);
-      g.add(fl);
-    }
+    // (no decorative tree beside the shrine — buildings no longer generate the
+    // little trees around them)
   } else if (node.type === 'puzzle') {
     terrain = mt({ seed, R, H: 2.4, mode: 'mesa',
       palette: { ...footPal, grass: foot ? footPal.grass : 0x6fae8f } });
@@ -1805,18 +1756,11 @@ export function buildIsland(node, theme, domains) {
   } else if (node.type === 'haven') {
     terrain = mt({ seed, R, H: foot ? 1.2 : 1.8, mode: 'flat', palette: { ...footPal } });
     if (foot && theme.id === 'autumn') {
-      // a woodland camp: tents in a clearing ringed by amber trees
+      // a woodland camp: tents in a clearing (the Vale's own giant trees ring
+      // it — the camp no longer spawns its own little trees)
       const t = makeTents(rng0);
       t.position.y = terrain.heightAt(0.2);
       g.add(t);
-      for (let i = 0; i < 3; i++) {
-        // the camp's own trees: taller than tents, still shy of the giants
-        const tree = floraFor(theme, rng0, 1.7 + rng0() * 0.6);
-        const a = rng0() * 6.28;
-        const tx = Math.cos(a) * R * 0.62, tz = Math.sin(a) * R * 0.62;
-        tree.position.set(tx, terrain.surfaceY(tx, tz), tz);
-        g.add(tree);
-      }
     } else if (foot) {
       const oasis = makeOasis(rng0, theme);
       oasis.position.y = terrain.heightAt(0.15) + 0.02;
@@ -1830,9 +1774,7 @@ export function buildIsland(node, theme, domains) {
       t.position.y = terrain.heightAt(0.2);
       g.add(t);
       g.add(placeDock(terrain, Math.PI + (rng0() - 0.5), 4.0));
-      const fl = floraFor(theme, rng0, 1.0);
-      fl.position.set(-R * 0.5, terrain.surfaceY(-R * 0.5, -R * 0.2), -R * 0.2);
-      g.add(fl);
+      // (no decorative tree beside the tents)
     }
     // the checkpoint light: a permanent azure beam so a haven is
     // unmistakable from anywhere on the water
@@ -1941,11 +1883,7 @@ export function buildIsland(node, theme, domains) {
     stall.position.set(sp.x, sp.y, sp.z);
     g.add(stall);
     if (!foot) g.add(placeDock(terrain, -Math.PI / 2 + (rng0() - 0.5) * 0.5, 4.6));
-    const fa = 2.2 + rng0();
-    const fp = terrain.place(fa, 0.5);
-    const fl = floraFor(theme, rng0, 1.0);
-    fl.position.set(fp.x, fp.y, fp.z);
-    g.add(fl);
+    // (no decorative tree beside the market — buildings no longer generate them)
   } else {
     terrain = mt({ seed, R, H: 2.0, mode: 'hill', palette: { ...footPal } });
   }
