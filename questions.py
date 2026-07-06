@@ -257,18 +257,61 @@ def _answer_variants(answer: str) -> set[str]:
     return out
 
 
+def _levenshtein(a: str, b: str) -> int:
+    """Classic edit distance (insert/delete/substitute), iterative two-row."""
+    if a == b:
+        return 0
+    if not a:
+        return len(b)
+    if not b:
+        return len(a)
+    prev = list(range(len(b) + 1))
+    for i, ca in enumerate(a, 1):
+        cur = [i]
+        for j, cb in enumerate(b, 1):
+            cur.append(min(prev[j] + 1, cur[j - 1] + 1,
+                           prev[j - 1] + (ca != cb)))
+        prev = cur
+    return prev[-1]
+
+
+def _typo_tol(n: int) -> int:
+    """How many letters a word/answer of length n may be off by. Short answers
+    stay STRICT (iran vs iraq, gold vs cold are different answers, not typos);
+    longer ones tolerate the odd slip, scaling with length."""
+    if n < 5:
+        return 0
+    if n < 8:
+        return 1
+    if n < 12:
+        return 2
+    return 3
+
+
 def check_jeopardy(given: str, answer: str) -> bool:
-    """Lenient typed match: normalized equality, or one being a whole-word run of
-    the other (so 'Hemingway' matches 'Ernest Hemingway', 'Jordan' matches 'the
-    Jordan')."""
+    """Lenient typed match: normalized equality, one being a whole-word run of the
+    other ('Hemingway' matches 'Ernest Hemingway'), OR a near-miss within a few
+    letters (a typo or dropped letter) — both on the whole answer and on its key
+    word, so 'Hemmingway' or 'Carthag' still count."""
     g = _norm_answer(given)
     if not g:
         return False
+    g_words = g.split()
     for v in _answer_variants(answer):
         if g == v:
             return True
         if len(v) >= 4 and (f" {v} " in f" {g} " or f" {g} " in f" {v} "):
             return True
+        # whole-answer near-miss (a typo or two in the full string)
+        if _levenshtein(g, v) <= _typo_tol(len(v)):
+            return True
+        # key-word near-miss: the head noun/surname (longest word) mistyped
+        v_words = v.split()
+        kw = max(v_words, key=len) if v_words else ""
+        if len(kw) >= 5:
+            tol = _typo_tol(len(kw))
+            if any(_levenshtein(w, kw) <= tol for w in g_words):
+                return True
     return False
 
 

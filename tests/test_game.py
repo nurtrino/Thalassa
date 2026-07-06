@@ -2902,3 +2902,12 @@ def test_jeopardy_answer_matching():
     assert C("a raisin in the sun", "A Raisin in the Sun")
     assert not C("Beethoven", "Mozart")
     assert not C("", "Mozart")
+    # a few letters off — a typo or dropped letter still counts
+    assert C("Hemmingway", "(Ernest) Hemingway")   # doubled letter in surname
+    assert C("Carthag", "Carthage")                # dropped trailing letter
+    assert C("dardanells", "The Dardanelles")      # misspelled key word
+    assert C("Beethovan", "Beethoven")             # vowel slip
+    # …but a near-miss that is a DIFFERENT short answer must NOT match
+    assert not C("Iraq", "Iran")
+    assert not C("gold", "cold")
+    assert not C("Corinth", "Carthage")
