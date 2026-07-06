@@ -48,9 +48,10 @@ ISLAND_NAMES = [
     "Gavdos", "Elafonisos", "Meganisi", "Kalamos",
 ]
 
-# the endgame wall: MUCH tankier than a realm boss (a normal boss is 12) so the
-# final trial actually tests the upgrades you've hauled home
-WARDEN = ("The Dark Presence", 39, 3, 3)
+# the endgame wall: tankier than a realm boss (a normal boss is 12) so the final
+# trial actually tests the upgrades you've hauled home — but not a slog when
+# STRIKE only chips 1 (MAGIC / the Sword of Damocles swing for 3)
+WARDEN = ("The Dark Presence", 24, 3, 3)
 WARDEN_MODEL = "tyrant"            # the colossal dark biped who holds the Pharos
 
 # ── the four realms, one beyond each mountain pass ───────────────────────────
@@ -211,6 +212,7 @@ class Board:
         self.neighbors: dict[str, list[str]] = {}
         self.home = "home"
         self.pharos = "pharos"
+        self.sword_node: str | None = None   # hidden islet holding the Sword of Damocles
         self._generate()
 
     # ── generation ───────────────────────────────────────────────────────────
@@ -298,6 +300,7 @@ class Board:
         self._ensure_connected()
         self._insert_waypoints(rng)
         self._declip_lanes()
+        self._place_sword(rng)
 
     def _grow_region(self, gi: int, theme: str, ang: float, rings, names, rng):
         """A pass through the mountain wall, then ONE MAIN ROAD to the boss —
@@ -880,6 +883,34 @@ class Board:
             chain.append(b)
             for u, v in zip(chain, chain[1:]):
                 self._link(u, v)
+        self._build_neighbors()
+
+    def _place_sword(self, rng):
+        """Drop the Sword of Damocles islet into open water in the safe Isles of
+        Peace, AFTER every lane waypoint exists, so it never overlaps another
+        stop. Linked to the nearest node as a short detour hop; unmarked among
+        the scenery until the trader's map circles it."""
+        best = None
+        for _ in range(200):
+            ang = rng.uniform(0, 6.28318)
+            rad = rng.uniform(280, 355)            # inside ring 3 (~380): safe waters
+            sx, sz = round(math.cos(ang) * rad, 2), round(math.sin(ang) * rad, 2)
+            near = min(math.hypot(sx - n["x"], sz - n["z"])
+                       for n in self.nodes.values())
+            if best is None or near > best[2]:
+                best = (sx, sz, near)
+            if near >= 24:
+                break
+        sx, sz, _ = best
+        anchor = min((nid for nid in self.nodes),
+                     key=lambda nid: math.hypot(sx - self.nodes[nid]["x"],
+                                                sz - self.nodes[nid]["z"]))
+        self.nodes["sword_isle"] = {
+            "id": "sword_isle", "name": "Uncharted Islet", "type": "sea",
+            "band": self.nodes[anchor]["band"], "x": sx, "z": sz,
+            "look": "islet", "sword": True}
+        self._link("sword_isle", anchor)
+        self.sword_node = "sword_isle"
         self._build_neighbors()
 
     def _declip_lanes(self):

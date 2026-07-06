@@ -1040,6 +1040,84 @@ def test_bank_and_pharos_open_and_win():
     assert g.phase == "finished"
 
 
+# ── Sword of Damocles quest ────────────────────────────────────────────────
+def test_board_seeds_a_reachable_safe_sword_islet():
+    import math as _m
+    for seed in range(12):
+        b = Board(seed)
+        assert b.sword_node in b.nodes
+        n = b.nodes[b.sword_node]
+        assert n["type"] == "sea" and n.get("sword") and n["look"] == "islet"
+        assert not n.get("region")                       # safe Isles of Peace
+        assert _m.hypot(n["x"], n["z"]) < 380            # inside the mountain wall
+        assert b.neighbors.get(b.sword_node)             # wired into the graph
+
+
+def test_buy_map_costs_thirty_and_reveals_the_islet():
+    g, (p0, p1) = make_game()
+    p = g.player_by_pid(p0)
+    # drop the trader in front of the current captain
+    shop = find_node(g, "shop")
+    force_land(g, p0, shop)
+    assert g.phase == "shop"
+    p.scrolls = 12
+    with pytest.raises(G.GameError):
+        g.buy_map(p0)                                    # 12 < 30
+    assert not p.map_bought
+    p.scrolls = 41
+    g.buy_map(p0)
+    assert p.map_bought and p.scrolls == 11
+    # the snapshot now names the islet to THIS viewer, and to no one else
+    assert g.to_dict(p0)["sword_node"] == g.board.sword_node
+    assert g.to_dict(p1)["sword_node"] is None
+    g.buy_map(p0)                                        # idempotent, no double charge
+    assert p.scrolls == 11
+
+
+def test_landing_on_the_islet_grants_the_sword():
+    g, (p0, p1) = make_game()
+    p = g.player_by_pid(p0)
+    assert not p.has("sword_of_damocles")
+    force_land(g, p0, g.board.sword_node)
+    assert p.has("sword_of_damocles")
+    # the snapshot carries it as an upgrade the client can read
+    me = next(pl for pl in g.to_dict(p0)["players"] if pl["pid"] == p0)
+    assert "sword_of_damocles" in me["upgrades"]
+
+
+def test_sword_stance_strikes_the_dark_presence_for_three():
+    g, (p0, p1) = make_game()
+    p = g.player_by_pid(p0)
+    p.upgrades.append("sword_of_damocles")
+    p.banked = 3
+    g.pharos_open = True
+    p.node = "pharos"
+    p.prev_node = "home"
+    set_pack(g, "pharos", [12])
+    g._land(p, "pharos")
+    g.enter_pharos(p0)
+    assert g.phase == "battle"
+    hp0 = g.board.alive_monster("pharos")["enemies"][0]["hp"]
+    g._force_mode = "mc"
+    g.stance(p0, "sword")
+    put_question(g, correct=0)
+    g.answer(p0, 0)
+    hp1 = g.board.alive_monster("pharos")["enemies"][0]["hp"]
+    assert hp0 - hp1 == G.SWORD_DMG == 3
+
+
+def test_sword_stance_needs_the_sword_and_the_pharos():
+    # with the sword but at a normal boss lair — it answers only the Dark Presence
+    g, (p0, p1), lair = boss_battle()
+    g.player_by_pid(p0).upgrades.append("sword_of_damocles")
+    with pytest.raises(G.GameError):
+        g.stance(p0, "sword")
+    # and without the sword at all
+    g2, (q0, q1), lair2 = boss_battle()
+    with pytest.raises(G.GameError):
+        g2.stance(q0, "sword")
+
+
 def test_pharos_shore_is_open_but_the_door_is_sealed():
     # ANYONE may sail to the Pharos shore (it glows like any landfall) and
     # stand before the door — but without the seals it is sealed bronze:
@@ -1905,8 +1983,8 @@ def test_boss_heavy_telegraph_cycle_and_dodge():
     g.advance_after_reveal()
     assert g.battle["charging"] is True           # after 2, the heavy telegraphs
     hull_before = p.hull
-    power = g.board.alive_monster(lair)["enemies"][0]["power"]
-    # exchange 3 is the heavy: read the dodge → half the doubled blow nulled
+    # exchange 3 is the heavy: read the dodge → the doubled blow is nulled clean
+    # (a successful dodge, gold or core, now blocks ALL damage)
     g._force_mode = "mc"
     g.stance(p0, "attack")
     put_question(g, correct=2)
@@ -1915,30 +1993,32 @@ def test_boss_heavy_telegraph_cycle_and_dodge():
     land_blow(g, hit=True)
     ep = g.reveal["enemy_phase"]
     assert ep["heavy"] and ep["dodged"]
-    assert hull_before - p.hull == (power * G.HEAVY_MULT) // 2
+    assert ep["dmg"] == 0
+    assert hull_before - p.hull == 0
     g.advance_after_reveal()
     assert not g.battle["charging"]               # the cycle resets
 
 
-def test_dodge_halves_the_blow():
+def test_dodge_reads_and_nulls_the_blow():
+    # any successful dodge — gold OR the bright core — now blocks the blow
+    # ENTIRELY; only a freeze/miss takes damage
     g, (p0, p1), lair = boss_battle()
     p = g.player_by_pid(p0)
     p.max_hull = 30
     p.hull = 30
-    power = g.board.alive_monster(lair)["enemies"][0]["power"]
     strike(g, p0)
     put_question(g, correct=0)
     g.answer(p0, 1)                               # miss → the blow comes
     assert advance_to_dodge(g) == "dodge"
-    land_blow(g, hit=True)                        # read it → half nulled
+    land_blow(g, hit=True)                        # read it → fully nulled
     ep = g.reveal["enemy_phase"]
-    assert ep["dodged"] and ep["dmg"] == power // 2
-    assert 30 - p.hull == power // 2
+    assert ep["dodged"] and ep["dmg"] == 0
+    assert p.hull == 30                            # not a scratch
 
 
 def test_core_dodge_fully_nulls_the_blow():
-    # nailing the bright core (full=True) slips the blow ENTIRELY — the option
-    # to escape a boss's heavy blow clean, where a gold-only read only halves it
+    # nailing the bright core (full=True) still slips the blow entirely; the
+    # core reads as "PERFECT!" on the wheel, but a plain gold dodge blocks too
     g, (p0, p1), lair = boss_battle()
     p = g.player_by_pid(p0)
     p.max_hull = 30

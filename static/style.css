@@ -1140,6 +1140,8 @@ input:focus-visible, select:focus-visible {
 }
 .battlebtn.strike { --bz1: #e0704e; --bz2: #bc432c; --bz3: #7c2617; }
 .battlebtn.magic  { --bz1: #a583cc; --bz2: #7d5ba6; --bz3: #4d3470; }
+.battlebtn.sword  { --bz1: #f0d987; --bz2: #cBa53f; --bz3: #8a6a1c; --bzink: #35270a;
+  text-shadow: 0 1px 0 rgba(255, 244, 200, .5); }
 .battlebtn.guard  { --bz1: #62a2c0; --bz2: #3c7391; --bz3: #24485d; }
 .battlebtn.ghost  { font-size: 13px; min-width: 0; padding: 12px 16px; }
 /* tier chip riding a stance button */
@@ -1558,6 +1560,80 @@ body.shake #world { animation: shake .45s; }
 }
 .stallhead svg { width: 17px; height: 17px; }
 .stallhead em { font-family: var(--body); font-size: 12.5px; letter-spacing: .02em; text-transform: none; color: var(--mist); margin-left: auto; }
+
+/* ── the trader's map: a parchment curl on the stall, and the chart modal ── */
+.mapTab {
+  position: absolute; right: -15px; top: 42%; padding: 0;
+  width: 29px; height: 42px;
+  border: 1px solid #a9884b; border-radius: 3px 8px 8px 3px;
+  background: linear-gradient(158deg, #f3e8c6 0%, #e2cd97 60%, #cdb277 100%);
+  color: #6b4f22; box-shadow: 2px 3px 7px rgba(0, 0, 0, .45);
+  display: flex; align-items: center; justify-content: center;
+  transform: rotate(5deg); cursor: pointer; z-index: 2;
+  transition: transform .16s ease, right .16s ease;
+  animation: papernudge 3.4s ease-in-out infinite;
+}
+.mapTab::before {                       /* a curled corner so it reads as paper */
+  content: ''; position: absolute; top: 0; right: 0;
+  border-width: 0 8px 8px 0; border-style: solid;
+  border-color: transparent #bfa163 transparent transparent;
+}
+.mapTab:hover { right: -22px; transform: rotate(8deg) translateY(-2px); }
+.mapTab svg { width: 15px; height: 15px; }
+@keyframes papernudge { 0%, 100% { transform: rotate(5deg) translateX(0); } 50% { transform: rotate(5deg) translateX(2px); } }
+
+#tradersMap {
+  position: fixed; inset: 0; z-index: 40;
+  display: flex; align-items: center; justify-content: center;
+  background: rgba(6, 8, 12, .66); animation: mapfade .2s ease-out;
+}
+@keyframes mapfade { from { opacity: 0; } }
+.mapSheet {
+  position: relative; width: min(420px, 92vw);
+  padding: var(--s4) var(--s4) calc(var(--s4) + 2px);
+  background: linear-gradient(158deg, #efe3bf 0%, #ddc68c 70%, #d0b57e 100%);
+  border: 2px solid #9c7a3e; border-radius: 9px;
+  box-shadow: 0 22px 64px rgba(0, 0, 0, .6);
+  color: #4a3617; animation: sheetup .25s ease-out;
+}
+.mapClose {
+  position: absolute; top: 8px; right: 8px; padding: 4px;
+  background: rgba(80, 56, 22, .14); border: 1px solid #a9884b; border-radius: 5px;
+  color: #6b4f22; cursor: pointer; line-height: 0;
+}
+.mapClose:hover { background: rgba(80, 56, 22, .28); }
+.mapBody h3 {
+  display: flex; align-items: center; gap: 7px;
+  font-family: var(--disp); font-weight: 700; font-size: 16px;
+  letter-spacing: .08em; color: #6b4f22; margin: 0 0 var(--s2);
+}
+.mapBody h3 svg { width: 18px; height: 18px; }
+.mapRolled { text-align: center; padding: var(--s2) 0 var(--s3); }
+.mapRolled svg { width: 58px; height: 58px; color: #8a6a3a; opacity: .85; }
+.mapRolled p { font-size: 13.5px; line-height: 1.55; margin: var(--s2) 0 0; }
+.mapRolled em { color: #6b4f22; font-style: italic; }
+.mapPay {
+  display: flex; align-items: center; justify-content: center; gap: 6px;
+  margin: 0 auto; padding: 8px 20px;
+  font-family: var(--disp); font-weight: 700; font-size: 14px; letter-spacing: .1em;
+  color: #35270a; border: 1px solid #8a6a1c; border-radius: 6px;
+  background: linear-gradient(180deg, #f0d987, #cba53f);
+  box-shadow: 0 2px 6px rgba(0, 0, 0, .3); cursor: pointer;
+}
+.mapPay:hover:not(:disabled) { filter: brightness(1.07); }
+.mapPay:disabled { opacity: .5; cursor: not-allowed; }
+.mapPay svg { width: 13px; height: 13px; }
+.mapNote { text-align: center; font-size: 12px; color: #9a5a24; margin-top: 7px; }
+.mapHint { text-align: center; font-size: 12.5px; font-style: italic; color: #5a4320; margin-bottom: 8px; }
+.mapCanvas {
+  cursor: pointer; border: 1px solid #9c7a3e; border-radius: 6px; overflow: hidden;
+  background:
+    radial-gradient(120% 120% at 30% 20%, rgba(255, 250, 232, .5), transparent 60%),
+    linear-gradient(160deg, #e9dab0, #d3ba82);
+}
+.mapCanvas svg { display: block; width: 100%; height: auto; }
+.mapring { stroke-dasharray: 100; stroke-dashoffset: 100; animation: drawring .55s ease-out forwards; }
+@keyframes drawring { to { stroke-dashoffset: 0; } }
 .shoprow {
   display: grid;
   grid-template-columns: auto 1fr auto auto;

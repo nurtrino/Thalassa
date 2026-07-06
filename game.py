@@ -61,7 +61,9 @@ TIER3_PENALTY = 1
 MAX_HULL = 6
 STRIKE_DMG = 1                     # easy question, reliable chip damage
 MAGIC_DMG = 3                      # hard question, big swing
+SWORD_DMG = 3                      # Sword of Damocles: magic-pool question, 3 damage
 MAGIC_BACKFIRE = 1                 # a missed spell burns the caster
+MAP_COST = 30                      # scrolls the trader charges to unroll his map
 STREAK_AT = 3                      # correct-answer streak that pays a bonus
 SIDE_REWARD = 1                    # scrolls for a correct side answer
 FLEE_COST = 1                      # scrolls to gamble on escaping a battle
@@ -105,8 +107,16 @@ RELICS = {
                       "desc": "Every battle question opens with two lies already burned"},
 }
 
-# one lookup covering ordinary fittings and legendary relics alike
-ALL_UPGRADES = {**UPGRADES, **RELICS}
+# quest treasures — not sold, not in the fitting pool. Earned by sailing to a
+# hidden islet the trader's map reveals. Stored in the same upgrade list.
+QUEST_ITEMS = {
+    "sword_of_damocles": {"name": "Sword of Damocles",
+                          "desc": "A third option against the Dark Presence: a MAGIC-tier "
+                                  "question for 3 damage — and no backfire"},
+}
+
+# one lookup covering ordinary fittings, legendary relics, and quest treasures
+ALL_UPGRADES = {**UPGRADES, **RELICS, **QUEST_ITEMS}
 
 # market-isle stock — consumables plus the shipwright's permanent fittings.
 # Prices are tuned against the d3 economy: a good shrine visit pays 1-3
@@ -155,6 +165,7 @@ class Player:
         self.items = {"hint": 0, "gale": 0, "planks": 0,
                       "aegis_charm": 0, "horn": 0}
         self.next_roll_bonus = 0           # armed Gale Charms
+        self.map_bought = False            # paid the trader to reveal the sword islet
         self.streak = 0
         self.puzzles_solved = 0
         self.skip_turns = 0                # turns owed to the kraken
@@ -174,6 +185,7 @@ class Player:
             "cargo": len(self.cargo), "banked": self.banked,
             "checkpoint": self.checkpoint,
             "upgrades": self.upgrades, "items": self.items,
+            "map_bought": self.map_bought,
             "streak": self.streak, "skip_turns": self.skip_turns,
             "connected": self.connected, "bot": self.is_bot,
         }
@@ -553,6 +565,13 @@ class Game:
                 self._say(f"⚓ {p.name} finds a lost cache in the dust — +1 scroll.")
             else:
                 self._say(f"⚓ {p.name} hauls drifting flotsam aboard — +1 scroll.")
+        # the hidden islet holds the Sword of Damocles — claimed the moment you
+        # set foot on it (the trader's map is only the way to FIND it)
+        if node.get("sword") and not p.has("sword_of_damocles"):
+            p.upgrades.append("sword_of_damocles")
+            self.nonce += 1
+            self._say(f"🗡 {p.name} lifts the Sword of Damocles from a cairn on the "
+                      f"forgotten islet — it hums against the Dark Presence.")
         if node["type"] == "lair":
             if p.pid in node["defeated"]:
                 if p.pid in node["stash"]:
@@ -841,6 +860,27 @@ class Game:
         self.nonce += 1
         self._say(f"{p.name} buys a {stock['name']}.")
 
+    def buy_map(self, pid: str):
+        """The trader unrolls his chart — for a price — and circles the hidden
+        islet where the Sword of Damocles waits in the Isles of Peace."""
+        if not self.players or self.current.pid != pid \
+                or self.phase not in ("shop", "trade"):
+            raise GameError("The trader isn't listening right now.")
+        p = self.current
+        if p.map_bought:
+            return                          # already unrolled — read it freely
+        if not getattr(self.board, "sword_node", None):
+            raise GameError("The trader has no such chart.")
+        if p.has("sword_of_damocles"):
+            raise GameError("You already bear the Sword — the map is worthless to you.")
+        if p.scrolls < MAP_COST:
+            raise GameError(f"The trader wants {MAP_COST} scrolls to unroll his map.")
+        p.scrolls -= MAP_COST
+        p.map_bought = True
+        self.nonce += 1
+        self._say(f"🗺 {p.name} buys the trader's chart — a lone islet in the "
+                  f"Isles of Peace is circled in red.")
+
     # ── consumables ──────────────────────────────────────────────────────────
     def use_item_charm(self, pid: str, item: str):
         """Spend a carried consumable: hint (during your question), gale
@@ -1045,19 +1085,12 @@ class Game:
         enemy_phase.pop("pending", None)
         enemy_phase["enemy_turn"] = True
 
-        # the dodge wheel has TWO windows: clip the gold and you twist aside
-        # for HALF the blow; nail the bright core at its centre and you slip it
-        # entirely. On a boss's telegraphed HEAVY blow the core is the only way
-        # out clean — a loose gold-only read still takes half the hit.
-        # Half ROUNDS DOWN (floor): a dodged 1-power blow is 0.5 → 0, so a read
-        # of the weakest packs takes no hit at all.
+        # a successful dodge is a clean block: read the blow at all — gold OR
+        # the bright core — and you slip it ENTIRELY, no damage. (The core still
+        # reads as a "PERFECT!" on the wheel for flourish.) Freeze up or miss
+        # the window and the blow lands full.
         full = bool(full) and dodged
-        if not dodged:
-            base = power
-        elif full:
-            base = 0
-        else:
-            base = power // 2          # floor: 0.5 → 0 (no hit)
+        base = 0 if dodged else power
         hit_dmg, blocked = self._absorb(p, base)
         note = ""
         if blocked:
@@ -1111,14 +1144,20 @@ class Game:
     # ── battle (Paper-Mario turns: your move, then the enemies') ─────────────
     def stance(self, pid: str, stance: str, target: int = 0):
         self._require_turn(pid, "battle")
-        if stance not in ("attack", "magic"):
-            raise GameError("Choose STRIKE or MAGIC.")
+        if stance not in ("attack", "magic", "sword"):
+            raise GameError("Choose STRIKE, MAGIC, or the SWORD.")
+        node = self.board.nodes[self.battle["node"]]
+        if stance == "sword":
+            if not self.current.has("sword_of_damocles"):
+                raise GameError("You bear no Sword of Damocles.")
+            if node["type"] != "pharos":
+                raise GameError("The Sword of Damocles answers only the Dark Presence.")
         m = self.board.alive_monster(self.battle["node"])
         enemies = m["enemies"]
         if not (0 <= target < len(enemies)) or enemies[target]["hp"] <= 0:
             target = next(i for i, e in enumerate(enemies) if e["hp"] > 0)
-        node = self.board.nodes[self.battle["node"]]
         boss = bool(m.get("boss")) or any(e["max_hp"] >= 5 for e in enemies)
+        # STRIKE draws the easy tier; MAGIC and the SWORD both draw the hard tier-III pool
         tier = (2 if boss else 1) if stance == "attack" else 3
         self.battle["stance"] = stance
         self.battle["target"] = target
@@ -1439,6 +1478,9 @@ class Game:
             elif correct and stance == "magic":
                 dmg = MAGIC_DMG + (1 if p.has("trident") else 0)
                 note = f"✨ Arcane fire sears {tgt['name']} for {dmg}!"
+            elif correct and stance == "sword":
+                dmg = SWORD_DMG
+                note = f"🗡 The Sword of Damocles falls on {tgt['name']} for {dmg}!"
             if dmg:
                 victim["hp"] -= dmg
                 enemy_phase["dealt"] = dmg
@@ -1933,6 +1975,7 @@ class Game:
 
     def to_dict(self, viewer_pid: str | None = None) -> dict:
         shown = self._vale_shown(viewer_pid)
+        viewer = self.player_by_pid(viewer_pid)
         nodes = [self._node_view(nid) for nid in self.board.nodes if shown(nid)]
         edges = [[a, b] for a, b in self.board.edges if shown(a) and shown(b)]
         # rivals inside their own labyrinth are VEILED: from outside you see
@@ -1992,6 +2035,9 @@ class Game:
                                       "boss": REGION_POOL[t]["boss"][0]}
                                   for t in self.board.regions}},
             "players": players,
+            # the islet the trader's map circles — only revealed to a buyer
+            "sword_node": (getattr(self.board, "sword_node", None)
+                           if viewer and viewer.map_bought else None),
             "host": self.players[0].pid if self.players else None,
             "turn": self.current.pid if self.players and self.phase != "lobby" else None,
             "die": self.die,

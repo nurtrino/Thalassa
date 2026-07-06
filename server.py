@@ -296,6 +296,8 @@ async def dispatch(pid: str | None, kind: str, msg: dict) -> str | None:
             g.repair(pid)
         elif kind == "shop_buy":
             g.shop_buy(pid, str(msg.get("item", "")))
+        elif kind == "buy_map":
+            g.buy_map(pid)
         elif kind == "use":
             g.use_item_charm(pid, str(msg.get("item", "")))
         elif kind == "stance":
@@ -348,6 +350,9 @@ async def dispatch(pid: str | None, kind: str, msg: dict) -> str | None:
                 g.no_autowalk = not bool(msg["autowalk"])
             if msg.get("relics") and p:        # grant every relic + a winning set of seals
                 g.dev_grant_relics(pid)
+            if msg.get("scrolls") and p:        # top up the purse (map / relic testing)
+                p.scrolls += int(msg["scrolls"])
+                g.nonce += 1
             if msg.get("fight") and p:         # simulate a fight with anything
                 g.dev_fight(pid, msg["fight"])
             node = str(msg.get("node", ""))

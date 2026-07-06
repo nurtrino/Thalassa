@@ -64,6 +64,8 @@ const I = {
     '<path d="M8.8 11.6l2.3 2.3 4.1-4.2"/>',
   strike: '<path d="M4 20l5.5-5.5"/><path d="M8 13.5 17.5 4H20v2.5L10.5 16Z"/>' +
     '<path d="M6.8 14.8l2.4 2.4"/>',
+  // the Sword of Damocles — a blade hanging point-down, crossguard up top
+  sword: '<path d="M12 3v13"/><path d="M8.5 6h7"/><path d="M12 16l-2.2 3.2h4.4Z"/>',
   magic: '<path d="M12 3.6 13.9 9l5.4 1.9-5.4 1.9L12 18.2l-1.9-5.4L4.7 10.9 10.1 9Z"/>' +
     '<path d="M18.6 16.4v3.8M16.7 18.3h3.8"/>',
   flee: '<path d="M12.5 4.5H6.8A1.8 1.8 0 0 0 5 6.3v11.4a1.8 1.8 0 0 0 1.8 1.8h5.7"/>' +

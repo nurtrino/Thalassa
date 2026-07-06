@@ -1233,6 +1233,7 @@ function render() {
   renderMapBtn();
   renderTray();
   renderShop();
+  renderTradersMap();
   renderItembelt();
   renderBattle();
   renderDodge();
@@ -1687,15 +1688,25 @@ function renderShop() {
            <button class="buy" data-item="${id}" ${cant ? 'disabled' : ''}>Buy</button>`}
     </div>`;
   }).join('');
+  // a curl of parchment pokes out from under the counter — the trader's map to
+  // the Sword of Damocles islet. Only ashore, and only until you bear the sword.
+  const showPaper = !remote && !owns.has('sword_of_damocles');
+  const paperTab = showPaper
+    ? `<button class="mapTab" id="mapTab" title="A curl of old parchment pokes from under the counter…">` +
+      `${icon('scroll', 15)}</button>`
+    : '';
   panel.innerHTML =
     `<div class="stallhead">${icon('market')} ${remote ? "Ship's Trader" : "Trader's Stall"}` +
     `<em>your scrolls: ${me.scrolls}</em>` +
     `<button class="kick" id="shopClose" title="Close">${icon('kick', 12)}</button></div>` +
     (remote ? `<div class="stallnote">Charms only at sea — the shipwright's fittings and relics are sold ashore.</div>` : '') +
     shopRows +
-    (relicRows ? `<div class="relicsplit">${icon('relic', 12)} Legendary Relics</div>${relicRows}` : '');
+    (relicRows ? `<div class="relicsplit">${icon('relic', 12)} Legendary Relics</div>${relicRows}` : '') +
+    paperTab;
+  if (showPaper) $('mapTab').onclick = () => openTradersMap();
   $('shopClose').onclick = () => {
     if (remote) shopRemote = false; else shopClosed = true;
+    closeTradersMap();
     renderShop(); renderTray();
   };
   panel.querySelectorAll('.buy').forEach((b) => {
@@ -1726,6 +1737,101 @@ function playVictoryCinematic(onDone) {
   setTimeout(() => { onDone?.(); }, 2600);           // board rises out of the white
   setTimeout(() => d.classList.add('clear'), 2900);  // white recedes to reveal it
   setTimeout(() => d.remove(), 4400);
+}
+
+/* ── the trader's chart: pay 30 scrolls to unroll it, tap to circle the islet
+ * where the Sword of Damocles waits ─────────────────────────────────────── */
+let chartOpen = false;
+let chartCircled = false;
+function openTradersMap() { chartOpen = true; chartCircled = false; renderTradersMap(); }
+function closeTradersMap() {
+  chartOpen = false;
+  const el = document.getElementById('tradersMap');
+  if (el) el.remove();
+}
+function renderTradersMap() {
+  let el = document.getElementById('tradersMap');
+  const me = room?.players?.find((p) => p.pid === you);
+  // the chart lives at the trader's counter — leaving the stall closes it
+  if (!chartOpen || !room || !room.board || !me ||
+      !['shop', 'trade'].includes(room.phase) || room.turn !== you) {
+    if (el) el.remove();
+    return;
+  }
+  const bought = !!me.map_bought;
+  if (!el) {
+    el = document.createElement('div');
+    el.id = 'tradersMap';
+    el.innerHTML = `<div class="mapSheet"><button class="mapClose" title="Roll it back up">` +
+      `${icon('kick', 13)}</button><div class="mapBody"></div></div>`;
+    document.body.appendChild(el);
+    el.querySelector('.mapClose').onclick = closeTradersMap;
+    el.addEventListener('pointerdown', (e) => { if (e.target === el) closeTradersMap(); });
+  }
+  const body = el.querySelector('.mapBody');
+  const key = bought ? (chartCircled ? 'map-ring' : 'map') : `pay${me.scrolls}`;
+  if (el.dataset.key === key) return;
+  el.dataset.key = key;
+  if (!bought) {
+    const cost = 30;
+    const can = (me.scrolls ?? 0) >= cost;
+    body.innerHTML =
+      `<h3>${icon('scroll', 18)} The Trader's Chart</h3>` +
+      `<div class="mapRolled">${icon('scroll', 64)}` +
+      `<p>The trader keeps the parchment rolled tight. <em>"An old chart, captain — ` +
+      `it marks a lonely islet in the safe isles. Thirty scrolls to unroll it."</em></p></div>` +
+      `<button class="mapPay" ${can ? '' : 'disabled'}>Pay ${cost} ${icon('scroll', 13)}</button>` +
+      (can ? '' : `<div class="mapNote">You lack the scrolls (you have ${me.scrolls}).</div>`);
+    body.querySelector('.mapPay').onclick = () => { audio.sfx.build(); send({ type: 'buy_map' }); };
+    return;
+  }
+  body.innerHTML =
+    `<h3>${icon('scroll', 18)} The Trader's Chart</h3>` +
+    `<div class="mapHint">${chartCircled
+      ? 'An islet in the Isles of Peace is circled — sail there to claim the Sword of Damocles.'
+      : 'Tap the chart to read the trader’s mark.'}</div>` +
+    `<div class="mapCanvas">${buildMapSvg(room.sword_node, chartCircled)}</div>`;
+  body.querySelector('.mapCanvas').onclick = () => {
+    if (!chartCircled) { chartCircled = true; audio.sfx.oracle?.(); renderTradersMap(); }
+  };
+}
+function buildMapSvg(swid, circled) {
+  const nodes = room.board.nodes || [];
+  let minX = 1e9, maxX = -1e9, minZ = 1e9, maxZ = -1e9;
+  for (const n of nodes) {
+    minX = Math.min(minX, n.x); maxX = Math.max(maxX, n.x);
+    minZ = Math.min(minZ, n.z); maxZ = Math.max(maxZ, n.z);
+  }
+  const W = 330, H = 330, pad = 22;
+  const s = Math.min((W - 2 * pad) / Math.max(1, maxX - minX),
+                     (H - 2 * pad) / Math.max(1, maxZ - minZ));
+  const ox = (W - (maxX - minX) * s) / 2, oz = (H - (maxZ - minZ) * s) / 2;
+  const px = (x) => (ox + (x - minX) * s).toFixed(1);
+  const py = (z) => (oz + (z - minZ) * s).toFixed(1);
+  const col = (t) => t === 'home' ? '#e0b24a' : t === 'pharos' ? '#b23a2a'
+    : t === 'gate' ? '#8a6a44' : t === 'sea' ? '#8fa9ba' : '#b79a68';
+  let dots = '';
+  for (const n of nodes) {
+    if (n.id === swid) continue;
+    const r = n.type === 'pharos' ? 4.2 : n.type === 'home' ? 3.4
+      : n.type === 'sea' ? 1.1 : 2.1;
+    dots += `<circle cx="${px(n.x)}" cy="${py(n.z)}" r="${r}" fill="${col(n.type)}"` +
+      ` opacity="${n.type === 'sea' ? 0.45 : 0.9}"/>`;
+  }
+  const sw = nodes.find((n) => n.id === swid);
+  let mark = '';
+  if (sw) {
+    const X = +px(sw.x), Y = +py(sw.z);
+    mark = `<circle cx="${X}" cy="${Y}" r="2.6" fill="#e0b24a"/>`;
+    if (circled) {
+      mark += `<circle class="mapring" cx="${X}" cy="${Y}" r="15" fill="none" ` +
+        `stroke="#c0392b" stroke-width="2.6" stroke-linecap="round"/>` +
+        `<path d="M${X - 7} ${Y - 20} L${X} ${Y - 13} L${X + 7} ${Y - 20}" fill="none" ` +
+        `stroke="#c0392b" stroke-width="1.6" opacity="0.85"/>`;
+    }
+  }
+  return `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid meet">` +
+    `<rect x="0" y="0" width="${W}" height="${H}" fill="none"/>${dots}${mark}</svg>`;
 }
 
 /* ── the VICTORY screen: a real curtain call, not a cut-away ────────────── */
@@ -2008,6 +2114,12 @@ function renderBattle() {
   mk(`${icon('magic', 18)} MAGIC<span class="tierchip">III</span>`,
      'battlebtn magic', () => move('magic'),
      'Tier III question · 3 damage · a miss backfires for 1');
+  // the Sword of Damocles: a third option, but only against the Dark Presence
+  if (b.is_pharos && (me?.upgrades || []).includes('sword_of_damocles')) {
+    mk(`${icon('sword', 18)} SWORD<span class="tierchip">III</span>`,
+       'battlebtn sword', () => move('sword'),
+       'Sword of Damocles · Tier III question · 3 damage · no backfire');
+  }
   if (!b.boss) {
     const fleeCost = room.config?.flee_cost ?? 2;
     // .flee carries a spacer gap: butted against GUARD it was the #1
