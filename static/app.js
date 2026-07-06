@@ -733,7 +733,7 @@ function reactAudio(prev, next) {
       showAnnounce('THE KRAKEN', 'three riddles of the mind — or lose a turn', '#3fb6c8');
     } else if (mgTag === 'sphinx') {
       audio.sfx.oracle();
-      showAnnounce('THE SPHINX BLOCKS YOUR PATH', 'answer her riddle, or fight the pack she looses', '#e8c27a');
+      showAnnounce('THE SPHINX BLOCKS YOUR PATH', 'answer her riddle, or fight the pack she sends', '#e8c27a');
     }
   }
   lastMgTag = mgTag;

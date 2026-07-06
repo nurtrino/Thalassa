@@ -2173,12 +2173,12 @@ def test_sphinx_stops_desert_crossings():
     assert g.minigame["kind"] == "riddle"              # she speaks in riddles
 
 
-def test_sphinx_failure_looses_a_pack():
+def test_sphinx_failure_sends_a_pack():
     g, (p0, p1) = make_game()
     road, p = _land_on_sphinx(g, p0)
     assert g.minigame.get("sphinx")
     g.resolve_minigame(False)
-    assert g.phase == "battle"                          # she looses her guard
+    assert g.phase == "battle"                          # she sends her guard
     assert p.node == road                               # you stand and fight
     assert g.board.nodes[road]["monster"]               # a real pack on the gate
     assert g.board.nodes[road].get("sphinx_done")       # the gate is settled
