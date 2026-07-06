@@ -1750,8 +1750,9 @@ function renderItembelt() {
 /* ── battle screen ──────────────────────────────────────────────────────── */
 function hpBar(cur, max, cls) {
   // cap the pip count so a big-health boss (the Dark Presence) doesn't overflow
-  // the card — past 20 each pip stands for several points, filled proportionally
-  const N = Math.min(max, 20);
+  // the card — past this each pip stands for several points, filled
+  // proportionally. 18 is the most foe cells that fit the card on ONE row.
+  const N = Math.min(max, 18);
   const on = max <= N ? cur : Math.ceil((cur / max) * N);
   const cells = Array.from({ length: N }, (_, i) =>
     `<span class="hpcell ${i < on ? 'on' : ''}"></span>`).join('');

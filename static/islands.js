@@ -2243,6 +2243,14 @@ function dioramaWaterDisc(theme, R = 36) {
   return m;
 }
 
+// world-space height of the diorama sand surface at a point. Props on the sand
+// seat on this so none float over a trough or sink into a crest (the disc
+// undulates ±0.45). Kept in lock-step with dioramaSandDisc's vertex displacement.
+const SAND_DISC_Y0 = -0.08;
+function sandDiscHeight(x, z) {
+  return SAND_DISC_Y0 + Math.sin(x * 0.22 + z * 0.3) * 0.25 + Math.sin(z * 0.12) * 0.2;
+}
+
 function dioramaSandDisc(theme, R = 36) {
   const geo = new THREE.CircleGeometry(R, 40);
   geo.rotateX(-Math.PI / 2);
@@ -2253,7 +2261,8 @@ function dioramaSandDisc(theme, R = 36) {
   const c = new THREE.Color();
   for (let i = 0; i < pos.count; i++) {
     const x = pos.getX(i), z = pos.getZ(i);
-    pos.setY(i, Math.sin(x * 0.22 + z * 0.3) * 0.25 + Math.sin(z * 0.12) * 0.2);
+    // displacement relative to the mesh's own -0.08 offset (added below)
+    pos.setY(i, sandDiscHeight(x, z) - SAND_DISC_Y0);
     const stripe = 0.5 + 0.5 * Math.sin(x * 0.5 + z * 0.8);
     c.copy(dark).lerp(sand, 0.5 + stripe * 0.5);
     col[i * 3] = c.r; col[i * 3 + 1] = c.g; col[i * 3 + 2] = c.b;
@@ -2262,7 +2271,7 @@ function dioramaSandDisc(theme, R = 36) {
   geo.computeVertexNormals();
   const m = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({
     vertexColors: true, flatShading: true, roughness: 1 }));
-  m.position.y = -0.08;
+  m.position.y = SAND_DISC_Y0;
   m.receiveShadow = true;
   return m;
 }
@@ -2416,7 +2425,7 @@ export function makeBattleBackdrop(theme) {
     // half-buried — no sandstone bluffs (they read as out of place here)
     for (const [x, z] of [[15, 12], [-10, 19], [19, 2]]) {
       const cac = propGroup('cactus', 1.0 + rng() * 0.4);
-      cac.position.set(x, 0, z);
+      cac.position.set(x, sandDiscHeight(x, z), z);
       g.add(cac);
     }
     const ribs = makeRibs(rng);
@@ -2487,7 +2496,9 @@ export function makeBattleBackdrop(theme) {
     // Dark Presence (replaces the old static glow-sprite "lamps")
     brazierSpots = [[10, -12], [20, 2], [-12, -12], [6, 16]];
     for (const [x, z] of brazierSpots) {
-      g.add(makeBrazierFire(rng, x, z, anims));
+      const bz = makeBrazierFire(rng, x, z, anims);
+      bz.position.y = sandDiscHeight(x, z);            // stand on the sand, not mid-air
+      g.add(bz);
     }
     const beacon = glowSprite(0xff5626, 26);
     beacon.material.opacity = 0.5; beacon.material.fog = false;
@@ -2539,7 +2550,10 @@ export function makeBattleBackdrop(theme) {
         x *= 1.2; z *= 1.2;
       }
     }
-    if (id === 'desert' || id === 'pharos' || FLOATS.has(pid) || GROUNDED.has(pid)) {
+    if (id === 'desert' || id === 'pharos') {
+      // seat on the undulating sand so nothing hovers over a trough
+      p.position.set(x, sandDiscHeight(x, z), z);
+    } else if (FLOATS.has(pid) || GROUNDED.has(pid)) {
       p.position.set(x, 0, z);
     } else {
       // seat the prop on the rock's MEASURED top (a fixed offset floated the
