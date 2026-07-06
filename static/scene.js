@@ -24,7 +24,7 @@ import { makeWater, makeGround } from './water.js';
 import { buildIsland, makeShip, makeParticles, nameSprite, makeRealmField, preloadStructures } from './islands.js';
 import { preloadProps } from './props.js';
 import { buildMountainWall, buildRealmBackdrop } from './wall.js';
-import { getMonster, animateMonster, preloadMonsters, disposeMonster } from './monsters.js';
+import { getMonster, animateMonster, preloadMonsters, disposeMonster, BOSS_IDS } from './monsters.js';
 import { createBattleStage } from './battle.js';
 
 const FADE_MS = 480;               // fade-to-black hold before the swap
@@ -1279,7 +1279,10 @@ export function createWorld(container, handlers = {}) {
     fading = true;
     pendingTarget = target;
     fadeEl.style.opacity = '1';
-    setTimeout(() => {
+    // hold the arena reveal behind the black curtain until the boss model is
+    // actually loaded — the entrance is lost if the boss pops in afterwards.
+    const gate = target === 'battle' ? bossReady(lastRoom) : Promise.resolve();
+    gate.then(() => setTimeout(() => {
       const tgt = pendingTarget;
       applyTarget(tgt);
       fadeEl.style.opacity = '0';
@@ -1290,7 +1293,20 @@ export function createWorld(container, handlers = {}) {
        * opening tour owns the stage while it runs */
       const want = tour ? tour.legs[tour.i]?.stage : desiredTarget(lastRoom);
       if (want && want !== (battleOn ? 'battle' : activeBoardId)) requestStage(want);
-    }, FADE_MS);
+    }, FADE_MS));
+  }
+
+  /* resolve once every BOSS in the pending fight has its model loaded (or at
+   * once if there's no boss / it's already warm) — used to keep the battle
+   * curtain down until the entrance can actually land. */
+  function bossReady(room) {
+    const b = room && room.battle;
+    if (!b || !b.enemies) return Promise.resolve();
+    const bosses = b.enemies
+      .map((e) => e.model || e.name)
+      .filter((id) => id && BOSS_IDS.has(id));
+    if (!bosses.length) return Promise.resolve();
+    return Promise.all(preloadMonsters(bosses)).catch(() => {});
   }
 
   /* ── snapshot sync (idempotent) ─────────────────────────────────────── */
@@ -1773,7 +1789,9 @@ export function createWorld(container, handlers = {}) {
     const jobs = [
       ...preloadStructures(),
       ...preloadProps(),
-      ...preloadMonsters(['captain', 'kraken', 'sphinx']),
+      // every boss up front: a boss that streams in AFTER its arena curtain
+      // lifts kills the entrance, so warm them all before anyone can arrive
+      ...preloadMonsters(['captain', ...BOSS_IDS]),
     ];
     let done = 0;
     handlers.onLoadStart?.(jobs.length);
