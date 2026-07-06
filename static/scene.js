@@ -1204,7 +1204,7 @@ export function createWorld(container, handlers = {}) {
     // id is veiled, so the local board can't answer "on foot?")
     const heroKind = (b.is_pharos || b.mode === 'foot' || node?.mode === 'foot')
       ? 'captain' : 'ship';
-    battleKey = b.node + '|' + (fighter?.pid || '') + '|' + (b.round != null ? 'r' : '');
+    battleKey = b.node + '|' + (fighter?.pid || '') + '|' + (b.name || '') + '|' + (b.round != null ? 'r' : '');
     battleStage.enter({
       battle: b, room, you: myPid, theme,
       heroColor: fighter?.color || '#e4572e', heroKind,
@@ -1426,7 +1426,11 @@ export function createWorld(container, handlers = {}) {
     /* battle re-key: a brand-new fight arriving while one is showing */
     if (battleOn && room.battle) {
       const fighter = room.players?.find((p) => p.pid === room.turn);
-      const key = room.battle.node + '|' + (fighter?.pid || '') + '|' + (room.battle.round != null ? 'r' : '');
+      // include the monster NAME so a mid-fight foe SWAP re-keys: the Sphinx
+      // failing her riddle replaces herself with a real pack on the SAME node,
+      // same fighter, same round — without her name in the key the diorama
+      // would keep showing the Sphinx while you fight her guard.
+      const key = room.battle.node + '|' + (fighter?.pid || '') + '|' + (room.battle.name || '') + '|' + (room.battle.round != null ? 'r' : '');
       if (key !== battleKey) {
         battleStage.exit();
         enterBattle(room);
