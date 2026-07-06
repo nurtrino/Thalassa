@@ -61,7 +61,9 @@ TIER3_PENALTY = 1
 MAX_HULL = 6
 STRIKE_DMG = 1                     # easy question, reliable chip damage
 MAGIC_DMG = 3                      # hard question, big swing
-SWORD_DMG = 3                      # Sword of Damocles: magic-pool question, 3 damage
+SWORD_DMG = 5                      # Sword of Damocles: tier-III question, 5 damage
+HEAL_SMALL = 1                     # the mending hymn's base heal
+HEAL_BIG = 3                       # …with Ambrosia of the Gods
 MAGIC_BACKFIRE = 1                 # a missed spell burns the caster
 MAP_COST = 30                      # scrolls the trader charges to unroll his map
 STREAK_AT = 3                      # correct-answer streak that pays a bonus
@@ -105,6 +107,11 @@ RELICS = {
                       "desc": "+2 STRIKE damage (stacks with the Bronze Ram)"},
     "oracle_eye":    {"name": "Eye of the Oracle", "cost": 28,
                       "desc": "Every battle question opens with two lies already burned"},
+    "ambrosia":      {"name": "Ambrosia of the Gods", "cost": 24,
+                      "desc": "Your mending hymn heals 3 Health instead of 1"},
+    "phoenix_feather": {"name": "Phoenix Feather", "cost": 32,
+                        "desc": "Once per game, a killing blow leaves you at 1 Health "
+                                "instead of sinking"},
 }
 
 # quest treasures — not sold, not in the fitting pool. Earned by sailing to a
@@ -112,7 +119,7 @@ RELICS = {
 QUEST_ITEMS = {
     "sword_of_damocles": {"name": "Sword of Damocles",
                           "desc": "A third option against the Dark Presence: a MAGIC-tier "
-                                  "question for 3 damage — and no backfire"},
+                                  "question for 5 damage — and no backfire"},
 }
 
 # one lookup covering ordinary fittings, legendary relics, and quest treasures
@@ -168,6 +175,7 @@ class Player:
         self.map_bought = False            # paid the trader to reveal the sword islet
         self.streak = 0
         self.puzzles_solved = 0
+        self.cheated_death = False         # Phoenix Feather: spent once per game
         self.skip_turns = 0                # turns owed to the kraken
         # the Amber Vale is a private fog-of-war maze: this is the captain's
         # own map of it — every stop their lantern has ever shown. Monotonic;
@@ -1117,6 +1125,8 @@ class Game:
         battle_over = False
         player_dead = False
         if p.hull <= 0:
+            self._cheat_death(p)            # Phoenix Feather may pull you back to 1
+        if p.hull <= 0:
             battle_over = True
             player_dead = True
             node = self.board.nodes[self.battle["node"]]
@@ -1139,16 +1149,30 @@ class Game:
             battle_over, player_dead, enemy_phase)
 
     # ── battle (Paper-Mario turns: your move, then the enemies') ─────────────
-    def stance(self, pid: str, stance: str, target: int = 0):
+    def stance(self, pid: str, stance: str, target: int = 0, domain: str | None = None):
         self._require_turn(pid, "battle")
-        if stance not in ("attack", "magic", "sword"):
-            raise GameError("Choose STRIKE, MAGIC, or the SWORD.")
+        if stance not in ("attack", "magic", "sword", "heal"):
+            raise GameError("Choose STRIKE, MAGIC, HEAL, or the SWORD.")
         node = self.board.nodes[self.battle["node"]]
         if stance == "sword":
             if not self.current.has("sword_of_damocles"):
                 raise GameError("You bear no Sword of Damocles.")
             if node["type"] != "pharos":
                 raise GameError("The Sword of Damocles answers only the Dark Presence.")
+        if stance == "heal":
+            # the mending hymn: YOU pick which lore to answer (no random deck, no
+            # puzzle, no Jeopardy) — a tier-III themed question. Get it right and
+            # the hull knits; get it wrong and the foe still counters.
+            if domain not in DOMAINS:
+                raise GameError("Choose which lore to sing.")
+            self.battle["stance"] = "heal"
+            self.battle["target"] = 0
+            self.qctx = {"kind": "battle", "island": self.battle["node"],
+                         "tier": 3, "domain": domain, "mode": "themed", "heal": True}
+            self.question = None
+            self.side_answers = {}
+            self._bump("question")
+            return
         m = self.board.alive_monster(self.battle["node"])
         enemies = m["enemies"]
         if not (0 <= target < len(enemies)) or enemies[target]["hp"] <= 0:
@@ -1241,6 +1265,8 @@ class Game:
         self._say(f"✗ {m['name']} cuts off the escape — "
                   + ("the aegis holds." if blocked else f"{front['name']} strikes for {hit}."))
         if p.hull <= 0:
+            self._cheat_death(p)            # Phoenix Feather may pull you back to 1
+        if p.hull <= 0:
             self._shipwreck(p)
             self.battle = None
             self._next_turn()
@@ -1271,6 +1297,17 @@ class Game:
             self.nonce += 1                   # cancel the old question timer
         else:
             raise GameError("That trinket has no power here.")
+
+    def _cheat_death(self, p: Player) -> bool:
+        """Phoenix Feather: the first killing blow of the game leaves you at 1
+        Health instead of sinking. Returns True if death was cheated."""
+        if p.hull > 0 or p.cheated_death or not p.has("phoenix_feather"):
+            return False
+        p.cheated_death = True
+        p.hull = 1                             # clawed back from the brink
+        self._say(f"🔥 {p.name} is struck down — but the Phoenix Feather flares! "
+                  f"They rise from the ash at 1 Health.")
+        return True
 
     def _shipwreck(self, p: Player):
         returned = []
@@ -1465,20 +1502,35 @@ class Game:
             # ── your move ────────────────────────────────────────────────────
             dmg = 0
             victim = tgt                       # which enemy my blow lands on
+            dark_lord = self.board.nodes[self.battle["node"]]["type"] == "pharos"
             if correct and stance == "attack":
-                dmg = (STRIKE_DMG + (1 if p.has("ram") else 0)
-                       + (2 if p.has("titan_ram") else 0))
-                horn = self.battle.get("horn")
-                if horn:
-                    dmg += HORN_BONUS
-                    self.battle["horn"] = False
-                note = f"{'📯 ' if horn else ''}⚔ Your blade bites {tgt['name']} for {dmg}!"
+                if dark_lord:
+                    # against the Dark Lord a STRIKE only ever CHIPS for 1 — no
+                    # fittings, no relics, no horn (the Sword is your real weapon)
+                    dmg = STRIKE_DMG
+                    note = f"⚔ Your blade chips {tgt['name']} for {dmg}."
+                else:
+                    dmg = (STRIKE_DMG + (1 if p.has("ram") else 0)
+                           + (2 if p.has("titan_ram") else 0))
+                    horn = self.battle.get("horn")
+                    if horn:
+                        dmg += HORN_BONUS
+                        self.battle["horn"] = False
+                    note = f"{'📯 ' if horn else ''}⚔ Your blade bites {tgt['name']} for {dmg}!"
             elif correct and stance == "magic":
                 dmg = MAGIC_DMG + (1 if p.has("trident") else 0)
                 note = f"✨ Arcane fire sears {tgt['name']} for {dmg}!"
             elif correct and stance == "sword":
                 dmg = SWORD_DMG
                 note = f"🗡 The Sword of Damocles falls on {tgt['name']} for {dmg}!"
+            elif correct and stance == "heal":
+                amt = HEAL_BIG if p.has("ambrosia") else HEAL_SMALL
+                healed = min(amt, p.max_hull - p.hull)
+                p.hull += healed
+                note = (f"✚ A mending hymn knits the hull — +{healed} Health!" if healed
+                        else "✚ The hull is already whole — the hymn steadies the crew.")
+            elif not correct and stance == "heal":
+                note = "✚ The hymn falters — no mending comes."
             if dmg:
                 victim["hp"] -= dmg
                 enemy_phase["dealt"] = dmg
@@ -1553,6 +1605,8 @@ class Game:
                     }
 
                 if p.hull <= 0:               # only the backfire bites here
+                    self._cheat_death(p)      # Phoenix Feather may pull you back to 1
+                if p.hull <= 0:
                     battle_over = True
                     player_dead = True
                     node = self.board.nodes[self.battle["node"]]

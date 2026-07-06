@@ -1144,6 +1144,7 @@ input:focus-visible, select:focus-visible {
 .battlebtn.magic  { --bz1: #a583cc; --bz2: #7d5ba6; --bz3: #4d3470; }
 .battlebtn.sword  { --bz1: #f0d987; --bz2: #cBa53f; --bz3: #8a6a1c; --bzink: #35270a;
   text-shadow: 0 1px 0 rgba(255, 244, 200, .5); }
+.battlebtn.heal   { --bz1: #5ec98a; --bz2: #34a06a; --bz3: #1c6440; }
 .battlebtn.guard  { --bz1: #62a2c0; --bz2: #3c7391; --bz3: #24485d; }
 .battlebtn.ghost  { font-size: 13px; min-width: 0; padding: 12px 16px; }
 /* tier chip riding a stance button */
