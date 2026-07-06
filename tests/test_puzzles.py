@@ -51,10 +51,10 @@ def test_battle_puzzles_are_tiered_and_exclude_slow_kinds():
     assert sizes[1]["tetromino"] == (4, 4)
     assert "sequence" in seen[1] and "sequence" not in seen[2]   # Fates' Thread moved
     # MAGIC: picross, matrix, the full 6×6 sigil, the Mosaic, and the big
-    # 6×6 + 7×7 memory boards — and NO riddle
+    # 6×6 memory board — and NO riddle
     assert "nonogram" in seen[3] and "nonogram" not in seen[1]
     assert sizes[3]["tetromino"] == (6, 6)
-    assert "sliding" in seen[3] and vm_sizes[3] == {6, 7}
+    assert "sliding" in seen[3] and vm_sizes[3] == {6}
     assert "riddle" not in seen[3]
     # the sigil clock is size-aware: 15s on the quick 4×4, 40s on the full 6×6
     assert tet_limits[1] == {15} and tet_limits[3] == {40}

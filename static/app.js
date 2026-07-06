@@ -2641,7 +2641,7 @@ function renderTetromino(board, m, mine, fresh) {
   });
   const tip = document.createElement('span');
   tip.className = 'tag';
-  tip.textContent = 'drag a piece onto the grid · drag a placed piece to move it';
+  tip.textContent = 'drag a piece onto the grid · drag a placed piece to move it, or off the grid to remove it';
   palette.appendChild(tip);
   board.appendChild(palette);
 }
@@ -2689,7 +2689,7 @@ function dragPiece(e0, board, grid, m, form, idx, mine, origCells = null, grab =
       cell.classList.add('drop-bad');
     }
   };
-  const up = () => {
+  const up = (e) => {
     document.removeEventListener('pointermove', move);
     document.removeEventListener('pointerup', up);
     ghost.remove();
@@ -2698,10 +2698,15 @@ function dragPiece(e0, board, grid, m, form, idx, mine, origCells = null, grab =
       for (const j of hoverCells) mg.cells[j] = idx;
       mg.placed[idx] = hoverCells;
     } else if (origCells) {
-      // let go somewhere it can't sit — return a lifted piece to its home, so a
-      // fumbled move never loses it off the board
-      for (const j of origCells) mg.cells[j] = idx;
-      mg.placed[idx] = origCells;
+      // a lifted piece let go with no valid landing: if the release was still
+      // OVER the grid it snaps home (a fumble never loses it), but dropped OFF
+      // the board it's REMOVED — back to the tray to place again
+      const overGrid = !!(e && grid.contains(document.elementFromPoint(e.clientX, e.clientY)));
+      if (overGrid) {
+        for (const j of origCells) mg.cells[j] = idx;
+        mg.placed[idx] = origCells;
+      }
+      // else: leave it un-placed — the palette button re-enables on re-render
     }
     if (Object.keys(mg.placed).length === m.pieces.length) {
       send({ type: 'solve', payload: mg.cells });

@@ -13,7 +13,7 @@ Five interactive/generated kinds (client never receives fields in "secret"):
                cells, locked in the client). Any grid matching the clues counts.
   · simon      memory: watch a flashed sequence on a 3×3 pad, then reproduce
                it (4 tones in a STRIKE-vs-pack fight, 6 elsewhere).
-  · visual_memory  Human-Benchmark recall: a 7×7 board flashes a set of tiles;
+  · visual_memory  Human-Benchmark recall: a 6×6 board flashes a set of tiles;
                memorise them, then click them all back. Three misses (lives)
                ends it. The flashed set is public (the client lights it), like
                simon's sequence — the checker just verifies the picks.
@@ -521,8 +521,8 @@ BATTLE_TIERS = {
     # STRIKE vs boss: the 6-tone echo, the 5×5 board, the Shifting Mosaic, a riddle
     2: ("simon6", "vm5", "sliding", "riddle"),
     # MAGIC: picross, the matrix, the full 6×6 sigil, the Shifting Mosaic, and
-    # the big 6×6 and 7×7 memory boards
-    3: ("nonogram", "ravens", "tet6", "sliding", "vm6", "vm7"),
+    # the big 6×6 memory board
+    3: ("nonogram", "ravens", "tet6", "sliding", "vm6"),
 }
 BATTLE_KINDS = tuple(dict.fromkeys(k for ks in BATTLE_TIERS.values() for k in ks))
 
