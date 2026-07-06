@@ -1698,8 +1698,12 @@ function renderItembelt() {
 
 /* ── battle screen ──────────────────────────────────────────────────────── */
 function hpBar(cur, max, cls) {
-  const cells = Array.from({ length: max }, (_, i) =>
-    `<span class="hpcell ${i < cur ? 'on' : ''}"></span>`).join('');
+  // cap the pip count so a big-health boss (the Dark Presence) doesn't overflow
+  // the card — past 20 each pip stands for several points, filled proportionally
+  const N = Math.min(max, 20);
+  const on = max <= N ? cur : Math.ceil((cur / max) * N);
+  const cells = Array.from({ length: N }, (_, i) =>
+    `<span class="hpcell ${i < on ? 'on' : ''}"></span>`).join('');
   return `<div class="hpbar ${cls}">${cells}</div>`;
 }
 

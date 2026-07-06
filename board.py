@@ -48,7 +48,9 @@ ISLAND_NAMES = [
     "Gavdos", "Elafonisos", "Meganisi", "Kalamos",
 ]
 
-WARDEN = ("The Dark Presence", 14, 3, 3)
+# the endgame wall: MUCH tankier than a realm boss (a normal boss is 12) so the
+# final trial actually tests the upgrades you've hauled home
+WARDEN = ("The Dark Presence", 40, 3, 3)
 WARDEN_MODEL = "tyrant"            # the colossal dark biped who holds the Pharos
 
 # ── the four realms, one beyond each mountain pass ───────────────────────────

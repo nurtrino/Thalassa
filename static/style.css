@@ -1051,7 +1051,7 @@ input:focus-visible, select:focus-visible {
 }
 
 /* hp segment bars */
-.hpbar { display: flex; gap: 4px; justify-content: center; }
+.hpbar { display: flex; flex-wrap: wrap; gap: 4px; justify-content: center; }
 .hpcell {
   width: 32px; height: 13px;
   background: rgba(255, 255, 255, .1);

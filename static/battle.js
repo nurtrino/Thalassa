@@ -193,7 +193,7 @@ function updateFlash(pool, t) {
 // per-model tweaks to the raw-bounds scale. monsters.js now normalizes every
 // template to its species height at load, so this sits empty — kept as the
 // knob for one-off framing fixes.
-const MODEL_SCALE = {};
+const MODEL_SCALE = { tyrant: 1.3 };   // the Dark Presence looms 30% larger
 
 function sizeFor(e) {
   const model = e.model || e.name || '';
@@ -428,6 +428,16 @@ export function createBattleStage(renderer) {
     hemi.intensity = st.baseHemi = theme.hemi.intensity * 0.7;
     amb.color.set(theme.ambient);
     amb.intensity = st.baseAmb = 0.55;
+    // the Pharos arena is deliberately storm-dark — but lift the key + fill a
+    // touch (and warm them) so the Dark Presence is clearly lit, not a black
+    // silhouette. The brazier firelight does the rest.
+    if (theme.id === 'pharos') {
+      key.color.set(0xffb27a);
+      key.intensity = st.baseKey = 1.5;
+      amb.color.set(0x3a2c3a);
+      amb.intensity = st.baseAmb = 0.85;
+      hemi.intensity = st.baseHemi = 0.5;
+    }
 
     /* backdrop */
     let bd;

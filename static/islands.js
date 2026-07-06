@@ -2279,10 +2279,53 @@ function hazePlane(hex, w, h, opacity, x = 0, y = 0, z = 0) {
   return m;
 }
 
+/* an iron brazier crowned with a live, flickering flame — layered additive
+   flame tongues that dance, a warm point light that gutters, an ember halo.
+   Pushes its per-frame animation into `anims` (the backdrop's update loop). */
+function makeBrazierFire(rng, x, z, anims) {
+  const g = new THREE.Group();
+  g.position.set(x, 0, z);
+  const stem = new THREE.Mesh(new THREE.CylinderGeometry(0.16, 0.26, 1.5, 6), flat(0x1a1a20));
+  stem.position.y = 0.75; stem.castShadow = true; g.add(stem);
+  const bowl = new THREE.Mesh(new THREE.CylinderGeometry(0.66, 0.34, 0.5, 8), flat(0x26242e));
+  bowl.position.y = 1.6; bowl.castShadow = true; g.add(bowl);
+  const flameMat = (hex, op) => new THREE.MeshBasicMaterial({
+    color: hex, transparent: true, opacity: op,
+    blending: THREE.AdditiveBlending, depthWrite: false, fog: false });
+  const flames = [];
+  // outer red → mid orange → inner white-gold, each a tapered tongue
+  for (const [r, h, hex, op] of [[0.52, 1.9, 0xd6381a, 0.5],
+                                 [0.38, 1.5, 0xff7a2a, 0.66],
+                                 [0.24, 1.05, 0xffe49a, 0.82]]) {
+    const fl = new THREE.Mesh(new THREE.ConeGeometry(r, h, 6, 1), flameMat(hex, op));
+    fl.position.y = 1.85 + h / 2;
+    g.add(fl);
+    flames.push({ mesh: fl, ph: rng() * 6.28 });
+  }
+  const light = new THREE.PointLight(0xff8a3a, 2.6, 24, 2);
+  light.position.set(0, 2.5, 0);
+  g.add(light);
+  const halo = glowSprite(0xff7a2a, 2.8);
+  halo.material.opacity = 0.55; halo.material.fog = false;
+  halo.position.y = 2.3; g.add(halo);
+  anims.push((t) => {
+    for (const f of flames) {
+      const k = 0.82 + Math.sin(t * 9 + f.ph) * 0.15 + Math.sin(t * 24 + f.ph * 2) * 0.06;
+      f.mesh.scale.set(0.9 + (k - 0.9) * 0.5, k, 0.9 + (k - 0.9) * 0.5);
+      f.mesh.position.x = Math.sin(t * 7 + f.ph) * 0.06;
+      f.mesh.position.z = Math.cos(t * 6.3 + f.ph) * 0.06;
+    }
+    light.intensity = 2.3 + Math.sin(t * 11) * 0.5 + Math.sin(t * 27 + 1.3) * 0.25;
+    halo.material.opacity = 0.5 + Math.sin(t * 13) * 0.12;
+  });
+  return g;
+}
+
 export function makeBattleBackdrop(theme) {
   const g = new THREE.Group();
   const rng = mulberry32(hashStr('battle:' + theme.id));
   const id = theme.id;
+  const anims = [];                 // per-frame animators (fire, etc.)
 
   // floor — desert and the Pharos arena stand on solid ground, not water
   g.add(id === 'desert' || id === 'pharos'
@@ -2439,19 +2482,10 @@ export function makeBattleBackdrop(theme) {
       col.rotation.z = (rng() - 0.5) * 0.14;
       g.add(col);
     }
+    // live braziers ring the crown — real flickering flame, warm light on the
+    // Dark Presence (replaces the old static glow-sprite "lamps")
     for (const [x, z] of [[10, -12], [20, 2], [-12, -12], [6, 16]]) {
-      const stub = new THREE.Mesh(new THREE.CylinderGeometry(0.5, 0.72, 1.8, 6), flat(0x17171d));
-      stub.position.set(x, 0.9, z);
-      stub.castShadow = true;
-      g.add(stub);
-      const fire = glowSprite(0xff7a2a, 3.4);
-      fire.material.opacity = 0.9; fire.material.fog = false;
-      fire.position.set(x, 2.5, z);
-      g.add(fire);
-      const core = glowSprite(0xffd25a, 1.5);
-      core.material.opacity = 0.85; core.material.fog = false;
-      core.position.set(x, 2.3, z);
-      g.add(core);
+      g.add(makeBrazierFire(rng, x, z, anims));
     }
     const beacon = glowSprite(0xff5626, 26);
     beacon.material.opacity = 0.5; beacon.material.fog = false;
@@ -2478,7 +2512,7 @@ export function makeBattleBackdrop(theme) {
     desert: ['ruined_arch', 'bone_pile', 'cactus', 'sarcophagus'],
     jungle: ['jungle_tree', 'mossy_idol', 'fern_cluster', 'mushroom_cluster', 'ruined_arch'],
     autumn: ['autumn_tree', 'dead_tree', 'mushroom_cluster', 'campfire', 'boulder'],
-    pharos: ['ruined_column', 'broken_statue', 'sarcophagus', 'bone_pile'],
+    pharos: ['ruined_column', 'ruined_column', 'sarcophagus', 'bone_pile'],
   };
   const FLOATS = new Set(['iceberg', 'ice_shard', 'lily_pads', 'driftwood']);
   // rocks/boulders/cairns/bones are ground features themselves — never perch
@@ -2509,5 +2543,7 @@ export function makeBattleBackdrop(theme) {
     g.add(p);
   }
 
+  // the battle stage calls this each frame (see battle.js) — drive the flames
+  if (anims.length) g.userData.update = (t) => { for (const a of anims) a(t); };
   return g;
 }
