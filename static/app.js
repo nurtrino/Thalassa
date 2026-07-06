@@ -197,6 +197,10 @@ function devRegionNode(region) {
   }
   return pick((n) => n.region === region);
 }
+function devSend(extra) {
+  if (!ws || ws.readyState !== 1) return;
+  send(Object.assign({ type: 'dev', code: '783' }, extra));
+}
 function devTeleport(node, land, region) {
   if (!ws || ws.readyState !== 1) return;
   // a region without a node lets the server pick the landing spot (the dev
@@ -204,23 +208,70 @@ function devTeleport(node, land, region) {
   if (!node && !region) return;
   send({ type: 'dev', node: node || '', land: !!land, region: region || '', code: '783' });
 }
+let devAutoWalk = true;      // gate carry-through; dev can freeze it to stay put
+function devMkBtn(label, onclick) {
+  const b = document.createElement('button');
+  b.className = 'dev-btn';
+  b.textContent = label;
+  b.onclick = onclick;
+  return b;
+}
 function buildDevBar() {
   if (document.getElementById('devBar')) { document.getElementById('devBar').remove(); return; }
   const bar = document.createElement('div');
   bar.id = 'devBar';
   bar.innerHTML = '<div class="dev-title">DEV · teleport</div>';
   for (const [reg, label] of DEV_REGIONS) {
-    const b = document.createElement('button');
-    b.className = 'dev-btn';
-    b.textContent = label;
-    b.onclick = () => devTeleport(devRegionNode(reg), false, reg);
-    bar.appendChild(b);
+    bar.appendChild(devMkBtn(label, () => devTeleport(devRegionNode(reg), false, reg)));
   }
   const hint = document.createElement('div');
   hint.className = 'dev-hint';
   hint.textContent = 'Click any stop, or open the chart (M) and click an isle, to jump there.';
   bar.appendChild(hint);
+
+  // ── dev powers ─────────────────────────────────────────────────────────
+  const title = document.createElement('div');
+  title.className = 'dev-title';
+  title.textContent = 'DEV · powers';
+  bar.appendChild(title);
+
+  const walkBtn = devMkBtn('', null);
+  const paintWalk = () => {
+    walkBtn.textContent = 'auto-walk: ' + (devAutoWalk ? 'ON' : 'OFF');
+    walkBtn.classList.toggle('dev-off', !devAutoWalk);
+  };
+  walkBtn.onclick = () => { devAutoWalk = !devAutoWalk; devSend({ autowalk: devAutoWalk }); paintWalk(); };
+  paintWalk();
+  bar.appendChild(walkBtn);
+
+  bar.appendChild(devMkBtn('simulate fight…', () => toggleDevFightMenu(bar)));
+  bar.appendChild(devMkBtn('give all relics + seals', () => devSend({ relics: true })));
+
   document.body.appendChild(bar);
+}
+function toggleDevFightMenu(bar) {
+  const open = document.getElementById('devFightMenu');
+  if (open) { open.remove(); return; }
+  const menu = document.createElement('div');
+  menu.id = 'devFightMenu';
+  const add = (label, spec) => menu.appendChild(devMkBtn(label, () => {
+    devSend({ fight: spec });
+    menu.remove();
+  }));
+  const best = room?.config?.dev_bestiary;
+  const depths = ['shallow', 'mid', 'deep'];
+  if (best) {
+    add('⚔ Warden · ' + best.warden, { kind: 'boss', region: 'warden' });
+    for (const [reg, info] of Object.entries(best.regions || {})) {
+      add('👑 ' + info.boss, { kind: 'boss', region: reg });
+      (info.tiers || []).forEach((names, ti) =>
+        names.forEach((nm, ri) =>
+          add(`· ${nm} (${depths[ti] || ti})`, { kind: 'pack', region: reg, tier: ti, row: ri })));
+    }
+  }
+  add('· Sea rabble (light)', { kind: 'pack', region: '', tier: 0 });
+  add('· Sea rabble (heavy)', { kind: 'pack', region: '', tier: 1 });
+  bar.appendChild(menu);
 }
 function unlockDev() {
   devUnlocked = true;

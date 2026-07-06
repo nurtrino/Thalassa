@@ -1956,7 +1956,15 @@ body.touring #mapBtn, body.touring #dice, body.touring #shopPanel { display: non
   padding: 5px 9px; cursor: pointer; text-align: left;
 }
 #devBar .dev-btn:hover { background: #24405c; }
+#devBar .dev-btn.dev-off { background: #3a2330; border-color: #6a3346; color: #f0b8c4; }
 #devBar .dev-hint { color: #8aa0b4; font-size: 11px; margin-top: 3px; max-width: 160px; }
+#devFightMenu {
+  display: flex; flex-direction: column; gap: 4px;
+  max-height: 44vh; overflow-y: auto; margin-top: 4px;
+  padding-top: 6px; border-top: 1px solid #2a3341;
+}
+#devFightMenu .dev-btn { background: #17202b; }
+#devFightMenu .dev-btn:hover { background: #24405c; }
 
 /* dev teleport: when unlocked, the aerial-chart isles become jump targets */
 body.dev .mapchip { cursor: pointer; }

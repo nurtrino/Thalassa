@@ -50,7 +50,8 @@ import random
 import puzzles
 import questions
 from board import (Board, DOMAIN_INFO, DOMAINS, REGION_POOL, REGION_MODELS,
-                   RELICS_TO_WIN)
+                   RELICS_TO_WIN, WARDEN, WARDEN_MODEL,
+                   ENCOUNTERS_LIGHT, ENCOUNTERS_HEAVY)
 
 # ── tunables ─────────────────────────────────────────────────────────────────
 MIN_PLAYERS = 1                    # solo runs are allowed for testing
@@ -198,6 +199,7 @@ class Game:
         self.jchoose_deadline: float | None = None
         self._pending_jeopardy: dict | None = None   # clue chosen off the board
         self.gate_walk: dict | None = None   # pending carry-through at a pass
+        self.no_autowalk = False             # DEV: freeze the gate carry-through
         self.side_answers: dict[str, int] = {}
         self.reveal: dict | None = None
         self.battle: dict | None = None    # {node, stance, used_items, first_hit_taken}
@@ -677,7 +679,7 @@ class Game:
                      if ((self.board.nodes[nb].get("region") == region)
                          != from_realm)
                      and self.board.nodes[nb].get("owner") in (None, p.pid)]
-            if cands:
+            if cands and not self.no_autowalk:
                 gx, gz = node["x"], node["z"]
                 dest = min(cands, key=lambda c: (self.board.nodes[c]["x"] - gx) ** 2
                            + (self.board.nodes[c]["z"] - gz) ** 2)
@@ -936,6 +938,74 @@ class Game:
         m = self.board.nodes[self.battle["node"]].get("monster")
         if m:
             self._attack_queue(m["enemies"])
+
+    # ── dev cheats (unlocked with code 783 / DEV_CHEATS=1) ────────────────────
+    def dev_grant_relics(self, pid: str) -> None:
+        """Give the caller every legendary relic and a WINNING set of banked
+        seals, then swing the Pharos open — so the endgame can be reached
+        without hauling fragments home."""
+        p = self.player_by_pid(pid)
+        if not p:
+            return
+        for r in RELICS:
+            if r not in p.upgrades:
+                p.upgrades.append(r)
+        p.cargo = list(REGION_POOL.keys())        # one of every sigil aboard
+        p.banked = max(p.banked, RELICS_TO_WIN)   # …and a full set already banked
+        self.pharos_open = True
+        self._say(f"⚜ [DEV] {p.name} is granted every relic and a full set of "
+                  f"seals — the Pharos stands open.")
+        self.nonce += 1
+
+    def dev_fight(self, pid: str, spec: dict) -> None:
+        """Spawn ANY enemy at the caller's current stop and open a battle —
+        boss, warden, or a region pack, on demand."""
+        p = self.player_by_pid(pid)
+        if not p or p.node not in self.board.nodes:
+            return
+        monster = self._dev_monster(spec or {})
+        if not monster:
+            return
+        idx = next((i for i, pl in enumerate(self.players) if pl.pid == pid), None)
+        if idx is not None:
+            self.turn_idx = idx                   # the fight belongs to the dev
+        self.board.nodes[p.node]["monster"] = monster
+        self.battle = {"node": p.node, "stance": None, "round": 0,
+                       "charging": False, "ambush": False,
+                       "used_items": [], "first_hit_taken": False}
+        self._arm_battle()
+        self._say(f"⚔ [DEV] {monster['name']} rise against {p.name}!")
+        self._bump("battle")
+
+    def _dev_monster(self, spec: dict) -> dict | None:
+        """Build a monster dict from a dev fight spec: {kind:'boss'|'pack',
+        region, tier, row}. Region '' / None means the open-sea rabble."""
+        kind = spec.get("kind")
+        region = spec.get("region") or None
+        if kind == "boss":
+            if region == "warden":
+                return self.board._boss(WARDEN, self.rng, WARDEN_MODEL)
+            info = REGION_POOL.get(region)
+            return (self.board._boss(tuple(info["boss"]), self.rng, info["boss_model"])
+                    if info else None)
+        if kind == "pack":
+            tier = max(0, min(2, int(spec.get("tier", 0))))
+            if region in REGION_POOL:
+                rows = REGION_POOL[region]["tiers"][tier]
+            else:
+                rows = ENCOUNTERS_LIGHT if tier == 0 else ENCOUNTERS_HEAVY
+            row = spec.get("row")
+            name, unit, hp, power, model = (
+                rows[row] if isinstance(row, int) and 0 <= row < len(rows)
+                else self.rng.choice(rows))
+            count = int(spec["count"]) if spec.get("count") else (3 if hp <= 2 else 2)
+            count = max(1, min(3, count))
+            enemies = [{"name": f"{unit} {'ⅠⅡⅢ'[i]}" if count > 1 else unit,
+                        "hp": hp, "max_hp": hp, "power": power, "model": model}
+                       for i in range(count)]
+            return {"name": name, "tier": 2 if tier == 0 else 3, "model": model,
+                    "domain": self.rng.choice(DOMAINS), "enemies": enemies}
+        return None
 
     def _advance_attacker(self, enemies) -> None:
         q = self._attack_queue(enemies)
@@ -1962,5 +2032,12 @@ class Game:
                        "heavy_mult": HEAVY_MULT, "planks_heal": PLANKS_HEAL,
                        # every monster model a realm can field, so the client
                        # preloads a region's whole bestiary on arrival
-                       "region_models": REGION_MODELS},
+                       "region_models": REGION_MODELS,
+                       # the dev fight menu (code 783): every boss + pack by name
+                       "dev_bestiary": {
+                           "warden": WARDEN[0],
+                           "regions": {r: {"boss": info["boss"][0],
+                                           "tiers": [[row[0] for row in tier]
+                                                     for tier in info["tiers"]]}
+                                       for r, info in REGION_POOL.items()}}},
         }

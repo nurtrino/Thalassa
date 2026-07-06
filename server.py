@@ -341,6 +341,12 @@ async def dispatch(pid: str | None, kind: str, msg: dict) -> str | None:
                 g.pharos_open = True
             if msg.get("battle_mode"):         # force the next battle round's deck
                 g._force_mode = str(msg["battle_mode"])
+            if "autowalk" in msg:              # freeze/unfreeze the gate carry-through
+                g.no_autowalk = not bool(msg["autowalk"])
+            if msg.get("relics") and p:        # grant every relic + a winning set of seals
+                g.dev_grant_relics(pid)
+            if msg.get("fight") and p:         # simulate a fight with anything
+                g.dev_fight(pid, msg["fight"])
             node = str(msg.get("node", ""))
             region = msg.get("region")
             if p and region and node not in g.board.nodes:
