@@ -330,8 +330,11 @@ class Game:
                         # grounds elsewhere never wall passage)
                         stops.add(nb)
                         continue
-                    if ntype == "lair":
-                        stops.add(nb)              # the altar takes ANY roll
+                    if ntype in ("lair", "haven"):
+                        # the altar AND every haven take ANY roll: a checkpoint
+                        # you can reach — or would sail clean past — is always a
+                        # legal landfall, no circling to line up an exact count
+                        stops.add(nb)
                     nxt.add((nb, node))
             cur = nxt
             if not cur:

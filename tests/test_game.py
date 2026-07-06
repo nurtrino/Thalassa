@@ -1989,6 +1989,20 @@ def test_mountain_pass_halts_the_voyage():
     assert g.phase == "roll" and g.current.pid == p1   # a quiet landfall
 
 
+def test_haven_takes_any_roll():
+    # a checkpoint you can REACH — or would sail clean past — is always a legal
+    # landfall, in every world, no exact count needed
+    g, (p0, p1) = make_game()
+    b = g.board
+    haven = next(nid for nid, n in b.nodes.items() if n["type"] == "haven")
+    before = next(iter(b.neighbors[haven]))
+    p = g.player_by_pid(p0)
+    p.node = before
+    p.prev_node = None
+    assert haven in g._reachable_for(p, 1)             # a step away — of course
+    assert haven in g._reachable_for(p, 3)             # …and even a roll that overshoots
+
+
 def test_sea_attacks_on_the_crossing():
     import random as _r
     g, (p0, p1) = make_game()
