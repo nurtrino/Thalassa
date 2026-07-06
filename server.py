@@ -341,6 +341,9 @@ async def dispatch(pid: str | None, kind: str, msg: dict) -> str | None:
                 g.pharos_open = True
             if msg.get("battle_mode"):         # force the next battle round's deck
                 g._force_mode = str(msg["battle_mode"])
+            if msg.get("reset"):               # exit dev: drop every dev-only toggle
+                g.no_autowalk = False
+                g._force_mode = None
             if "autowalk" in msg:              # freeze/unfreeze the gate carry-through
                 g.no_autowalk = not bool(msg["autowalk"])
             if msg.get("relics") and p:        # grant every relic + a winning set of seals
