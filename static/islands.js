@@ -2338,8 +2338,22 @@ export function makeBattleBackdrop(theme) {
   let brazierSpots = null;          // keep scattered props clear of the flames
 
   // floor — desert and the Pharos arena stand on solid ground, not water
-  g.add(id === 'desert' || id === 'pharos'
-    ? dioramaSandDisc(theme) : dioramaWaterDisc(theme));
+  const onSand = id === 'desert' || id === 'pharos';
+  const floor = onSand ? dioramaSandDisc(theme) : dioramaWaterDisc(theme);
+  g.add(floor);
+  // true surface height at a point: raycast the ACTUAL floor mesh. The disc is a
+  // coarse flat-shaded fan, so the smooth height function misses the triangles by
+  // up to ~0.3 — enough to float a prop. Rays hit the real triangulated surface.
+  floor.updateMatrixWorld(true);
+  const _ray = new THREE.Raycaster();
+  const _dn = new THREE.Vector3(0, -1, 0);
+  const _from = new THREE.Vector3();
+  const groundY = (x, z) => {
+    if (!onSand) return 0;                    // water arenas: props float at y=0
+    _ray.set(_from.set(x, 30, z), _dn);
+    const hit = _ray.intersectObject(floor, false);
+    return hit.length ? hit[0].point.y : sandDiscHeight(x, z);
+  };
 
   // horizon rim: broken ring of dark rock so the disc never ends in nothing
   for (let i = 0; i < 9; i++) {
@@ -2425,7 +2439,7 @@ export function makeBattleBackdrop(theme) {
     // half-buried — no sandstone bluffs (they read as out of place here)
     for (const [x, z] of [[15, 12], [-10, 19], [19, 2]]) {
       const cac = propGroup('cactus', 1.0 + rng() * 0.4);
-      cac.position.set(x, sandDiscHeight(x, z), z);
+      cac.position.set(x, groundY(x, z), z);
       g.add(cac);
     }
     const ribs = makeRibs(rng);
@@ -2497,7 +2511,7 @@ export function makeBattleBackdrop(theme) {
     brazierSpots = [[10, -12], [20, 2], [-12, -12], [6, 16]];
     for (const [x, z] of brazierSpots) {
       const bz = makeBrazierFire(rng, x, z, anims);
-      bz.position.y = sandDiscHeight(x, z);            // stand on the sand, not mid-air
+      bz.position.y = groundY(x, z);                   // stand on the sand, not mid-air
       g.add(bz);
     }
     const beacon = glowSprite(0xff5626, 26);
@@ -2546,13 +2560,13 @@ export function makeBattleBackdrop(theme) {
     // radial until it's clear
     if (brazierSpots) {
       let guard = 0;
-      while (guard++ < 8 && brazierSpots.some(([bx, bz]) => Math.hypot(bx - x, bz - z) < 6)) {
-        x *= 1.2; z *= 1.2;
+      while (guard++ < 12 && brazierSpots.some(([bx, bz]) => Math.hypot(bx - x, bz - z) < 9)) {
+        x *= 1.25; z *= 1.25;                           // shove it clear, further back
       }
     }
-    if (id === 'desert' || id === 'pharos') {
-      // seat on the undulating sand so nothing hovers over a trough
-      p.position.set(x, sandDiscHeight(x, z), z);
+    if (onSand) {
+      // seat on the ACTUAL sand surface (raycast) so nothing hovers over a trough
+      p.position.set(x, groundY(x, z), z);
     } else if (FLOATS.has(pid) || GROUNDED.has(pid)) {
       p.position.set(x, 0, z);
     } else {
