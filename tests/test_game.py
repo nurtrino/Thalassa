@@ -476,6 +476,25 @@ def test_dev_autowalk_off_freezes_the_gate_carry_through():
     assert g.gate_walk is not None
 
 
+def test_dev_reset_clears_every_dev_toggle():
+    import asyncio
+    import server as S
+    S.table.reset()
+    g = S.table.game
+    a = g.add_player("tokA", "A")
+    g.add_player("tokB", "B")
+    g.start(a.pid)
+    g.no_autowalk = True
+    g._force_mode = "mc"
+
+    async def run():
+        return await S.dispatch(a.pid, "dev", {"code": "783", "reset": True})
+    asyncio.get_event_loop().run_until_complete(run())
+    assert g.no_autowalk is False                      # auto-walk restored
+    assert getattr(g, "_force_mode", None) is None     # forced deck cleared
+    S.table.reset()
+
+
 def test_vale_roll_offers_an_arrow_walk():
     # rolling in the Vale offers a golden arrow per open trail; tapping one
     # walks the roll down it, pausing at forks, and waives the beacons

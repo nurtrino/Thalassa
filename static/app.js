@@ -246,6 +246,7 @@ function buildDevBar() {
 
   bar.appendChild(devMkBtn('simulate fight…', () => toggleDevFightMenu(bar)));
   bar.appendChild(devMkBtn('give all relics + seals', () => devSend({ relics: true })));
+  bar.appendChild(devMkBtn('exit dev mode', () => lockDev()));
 
   document.body.appendChild(bar);
 }
@@ -278,6 +279,18 @@ function unlockDev() {
   document.body.classList.add('dev');
   buildDevBar();
 }
+function lockDev() {
+  // fully back to a normal player: no teleport-on-click, no bar, and the
+  // server-side dev toggles (frozen auto-walk, forced battle deck) are cleared
+  // — exactly as if dev mode had never been turned on.
+  devUnlocked = false;
+  devAutoWalk = true;
+  document.body.classList.remove('dev');
+  document.getElementById('devFightMenu')?.remove();
+  document.getElementById('devBar')?.remove();
+  devSend({ reset: true });
+  if (room) render();
+}
 (function devUnlockInit() {
   // triple-click the "You" chip in the turn banner, then enter the code
   const bar = document.getElementById('turnBanner');
@@ -290,8 +303,11 @@ function unlockDev() {
       timer = setTimeout(() => { clicks = 0; }, 1600);
       if (clicks >= 3) {
         clicks = 0;
-        if (devUnlocked) { buildDevBar(); return; }     // toggle the bar
-        if (prompt('Dev code:') === '783') unlockDev();
+        // the code is a TOGGLE: enter it locked → unlock; enter it unlocked →
+        // exit dev entirely (back to a plain player, as if never turned on)
+        if (prompt(devUnlocked ? 'Dev code (to exit):' : 'Dev code:') === '783') {
+          devUnlocked ? lockDev() : unlockDev();
+        }
       }
     });
   }
