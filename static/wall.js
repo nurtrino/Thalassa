@@ -391,38 +391,42 @@ export function buildRealmBackdrop(theme, { radius = 520, gateAngle = 0 } = {}) 
   const snow = new THREE.Color(theme.wall.snow);
   const updaters = [];
 
-  /* the ridge crescent */
+  /* the ridge crescent — the Bleached Reach has NONE: it reads as an endless
+     flat sand plane that just dissolves into its own haze, no ring on the
+     horizon at all. Every other realm keeps its enclosing crescent. */
   const geoms = [];
-  const rows = [
-    { r: radius,      n: 40, hMin: 60, hMax: 110, bMin: 40, bMax: 62, snowline: 0.55 },
-    { r: radius - 44, n: 30, hMin: 36, hMax: 72,  bMin: 26, bMax: 44, snowline: 0.62 },
-  ];
-  for (const row of rows) {
-    for (let i = 0; i < row.n; i++) {
-      const a = (i / row.n) * Math.PI * 2 + (rng() - 0.5) * (3.6 / row.n);
-      const d = Math.abs(_d(a, gateAngle));
-      if (d < 0.05) continue;                          // the pass stays open
-      const keep = 0.3 + 0.7 * (Math.cos(d) + 1) / 2;  // dense near the gate side
-      if (rng() > keep) continue;
-      const baseR = row.bMin + rng() * (row.bMax - row.bMin);
-      const rr = row.r + (rng() - 0.5) * 30;
-      geoms.push(peakGeometry({
-        baseR,
-        h: row.hMin + rng() * (row.hMax - row.hMin),
-        x: Math.cos(a) * rr, z: Math.sin(a) * rr,
-        rotY: rng() * Math.PI * 2,
-        seed: seedFrom(rng),
-        rock, rockDark, snow,
-        snowline: theme.id === 'desert' ? 0.72 : row.snowline,
-        // dissolve the crescent toward the REALM'S FOG, hard: the material
-        // ignores true fog (the baked-painting trick), so without this the
-        // ridge floats over the murk as raw saturated slabs — worst in the
-        // jungle, whose fog sits at 24 wu while the ridge stands at ~500
-        haze: new THREE.Color(theme.fog.color), hazeAmt: 0.78,
-      }));
+  if (theme.id !== 'desert') {
+    const rows = [
+      { r: radius,      n: 40, hMin: 60, hMax: 110, bMin: 40, bMax: 62, snowline: 0.55 },
+      { r: radius - 44, n: 30, hMin: 36, hMax: 72,  bMin: 26, bMax: 44, snowline: 0.62 },
+    ];
+    for (const row of rows) {
+      for (let i = 0; i < row.n; i++) {
+        const a = (i / row.n) * Math.PI * 2 + (rng() - 0.5) * (3.6 / row.n);
+        const d = Math.abs(_d(a, gateAngle));
+        if (d < 0.05) continue;                          // the pass stays open
+        const keep = 0.3 + 0.7 * (Math.cos(d) + 1) / 2;  // dense near the gate side
+        if (rng() > keep) continue;
+        const baseR = row.bMin + rng() * (row.bMax - row.bMin);
+        const rr = row.r + (rng() - 0.5) * 30;
+        geoms.push(peakGeometry({
+          baseR,
+          h: row.hMin + rng() * (row.hMax - row.hMin),
+          x: Math.cos(a) * rr, z: Math.sin(a) * rr,
+          rotY: rng() * Math.PI * 2,
+          seed: seedFrom(rng),
+          rock, rockDark, snow,
+          snowline: row.snowline,
+          // dissolve the crescent toward the REALM'S FOG, hard: the material
+          // ignores true fog (the baked-painting trick), so without this the
+          // ridge floats over the murk as raw saturated slabs — worst in the
+          // jungle, whose fog sits at 24 wu while the ridge stands at ~500
+          haze: new THREE.Color(theme.fog.color), hazeAmt: 0.78,
+        }));
+      }
     }
   }
-  group.add(mergeRock(geoms));
+  if (geoms.length) group.add(mergeRock(geoms));
 
   /* a welcoming pair of braziers on the realm side of the pass */
   {
@@ -469,31 +473,9 @@ export function buildRealmBackdrop(theme, { radius = 520, gateAngle = 0 } = {}) 
                      Math.sin(gateAngle + Math.PI) * radius * 0.9);
     group.add(sun);
   } else if (theme.id === 'desert') {
-    const sun = glowSprite(0xfff0c4, 90);
-    sun.material.opacity = 0.45;
-    sun.material.fog = false;
-    sun.position.set(Math.cos(gateAngle + Math.PI) * radius * 0.85, 110,
-                     Math.sin(gateAngle + Math.PI) * radius * 0.85);
-    group.add(sun);
-    const shimmers = [];
-    for (let i = 0; i < 2; i++) {
-      const sh = new THREE.Mesh(new THREE.PlaneGeometry(radius * 1.3, 22 + i * 12),
-        new THREE.MeshBasicMaterial({ color: 0xf9e3ae, transparent: true, opacity: 0.1 - i * 0.03,
-          blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide, fog: false }));
-      sh.position.set(Math.cos(gateAngle + Math.PI) * radius * 0.7, 16 + i * 14,
-                      Math.sin(gateAngle + Math.PI) * radius * 0.7);
-      sh.rotation.y = gateAngle + Math.PI / 2;
-      group.add(sh);
-      shimmers.push(sh);
-    }
-    updaters.push((t) => {
-      const w = 1 + Math.sin(t * 1.7) * 0.06;
-      sun.scale.set(130 * w, 130 / w, 1);
-      for (let i = 0; i < shimmers.length; i++) {
-        shimmers[i].scale.y = 1 + Math.sin(t * 2.3 + i * 1.7) * 0.18;
-        shimmers[i].material.opacity = (0.1 - i * 0.03) * (1 + Math.sin(t * 3.1 + i) * 0.35);
-      }
-    });
+    // NOTHING on the Reach's horizon: no false sun disc, no additive
+    // heat-shimmer banners — just bare sand fading into the sky. The empty
+    // haze IS the look (see the skipped ridge crescent above).
   } else if (theme.id === 'jungle') {
     group.add(makeCanopyWall(radius, gateAngle, rng, theme));
     // god-light: a warm gleam low over the canopy

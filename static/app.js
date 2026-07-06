@@ -910,10 +910,17 @@ function reactAudio(prev, next) {
   // the seals banked you keep sailing the hub to its own theme until you win.
   else if (next.phase === 'finished') scene = 'endgame';
   else {
-    // open sea → the realm's own theme (desert alternates). Prefer the LIVE
-    // active stage over curRealm so the track can't lag or flip mid-crossing.
+    // open sea → the realm's own theme (desert alternates). Normally we follow
+    // the LIVE active stage so the track can't lag or flip mid-crossing — but a
+    // realm's stage can take a beat to engage after the gate carries you
+    // through (asset load), leaving a silent gap. So the moment YOUR OWN node
+    // sits inside a music realm, start that theme even before its stage has
+    // finished swapping in.
     const stg = world.currentStage?.();
-    const realm = REALM_MUSIC.has(stg) ? stg
+    const meP = next.players?.find((p) => p.pid === you);
+    const myRegion = meP && nodeOf(meP)?.region;
+    const realm = REALM_MUSIC.has(myRegion) ? myRegion
+      : REALM_MUSIC.has(stg) ? stg
       : (REALM_MUSIC.has(curRealm) ? curRealm : null);
     if (realm) scene = realmMusic(realm);
   }
