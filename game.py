@@ -986,7 +986,7 @@ class Game:
             return
         for r in RELICS:
             if r not in p.upgrades:
-                p.upgrades.append(r)
+                self._apply_upgrade(p, r)         # fire instant effects (Fleece heal, etc.)
         p.cargo = list(REGION_POOL.keys())        # one of every sigil aboard
         p.banked = max(p.banked, RELICS_TO_WIN)   # …and a full set already banked
         self.pharos_open = True
