@@ -50,9 +50,10 @@ def test_battle_puzzles_are_tiered_and_exclude_slow_kinds():
     assert vm_sizes[1] == {5} and vm_sizes[2] == {5}
     assert sizes[1]["tetromino"] == (4, 4)
     assert "sequence" in seen[1] and "sequence" not in seen[2]   # Fates' Thread moved
-    # MAGIC: picross, matrix, the full 6×6 sigil, the Mosaic, and the big
-    # 6×6 memory board — and NO riddle
-    assert "nonogram" in seen[3] and "nonogram" not in seen[1]
+    # MAGIC: picross (nono2), matrix, the full 6×6 sigil, the Mosaic, and the
+    # big 6×6 memory board — and NO riddle. (The easy nono5 picross also turns
+    # up at STRIKE tiers, so nonogram is no longer MAGIC-only.)
+    assert "nonogram" in seen[3]
     assert sizes[3]["tetromino"] == (6, 6)
     assert "sliding" in seen[3] and vm_sizes[3] == {6}
     assert "riddle" not in seen[3]
