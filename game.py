@@ -337,7 +337,7 @@ class Game:
                             and not self.board.nodes[nb].get("sphinx_done")):
                         stops.add(nb)              # the Sphinx bars the path — face her
                         continue
-                    if ntype == "monster" and self.board.nodes[nb].get("owner"):
+                    if ntype == "monster" and self.board.nodes[nb].get("region") == "autumn":
                         # a hunting ground on the Vale's narrow trails HALTS
                         # the trek — the guarded door to the barrow is only
                         # passed by facing what holds it (open-water hunting
@@ -475,7 +475,7 @@ class Game:
         never straight back the way you came — unless that is all there is."""
         nbrs = [nb for nb in self.board.neighbors.get(node, [])
                 if not self._blocked(p, nb)
-                and (self.board.nodes[nb].get("owner") == p.pid
+                and (self.board.nodes[nb].get("region") == "autumn"
                      or self.board.nodes[nb]["type"] == "gate")]
         return [nb for nb in nbrs if nb != came] or nbrs
 
@@ -1937,17 +1937,6 @@ class Game:
         self._next_turn()
 
     # ── turn / lifecycle ─────────────────────────────────────────────────────
-    def skip_turn(self, host_pid: str):
-        if not self.players or self.players[0].pid != host_pid:
-            raise GameError("Only the host can skip a turn.")
-        if self.phase in ("lobby", "finished"):
-            raise GameError("Nothing to skip.")
-        self.battle = None
-        self.minigame = None
-        self.kraken = None
-        self.upgrade_offer = None
-        self._next_turn()
-
     def _end_turn(self):
         """A LAST WORD WITH THE TRADER: a normal turn doesn't pass the dice
         until the acting captain says so — one quiet beat to spend scrolls

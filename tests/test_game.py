@@ -134,13 +134,11 @@ def test_full_map_visible_from_turn_one():
     g, (p0, p1) = make_game()
     snap = g.to_dict(p0)
     shown = {n["id"] for n in snap["board"]["nodes"]}
-    unowned = {nid for nid, n in g.board.nodes.items() if not n.get("owner")}
-    assert unowned <= shown                    # the whole open sea, turn one
+    # the WHOLE chart is open turn one — including the now-shared Amber Vale
+    assert set(g.board.nodes) == shown
     assert "pharos" in shown
-    # the Amber Vale is fogged: nothing of a RIVAL's labyrinth, ever — and of
-    # your own, only your barrow (the beacon) before you first step in
-    assert all(g.board.nodes[nid].get("owner") in (None, p0) for nid in shown)
-    assert g.board.vale_lairs[p0] in shown     # direction, never route
+    assert g.board.vale_lairs[p0] in shown
+    assert not any(g.board.nodes[nid].get("owner") for nid in shown)  # no private ground
 
 
 def test_amber_vale_pass_is_empty_until_launch():
@@ -155,16 +153,19 @@ def test_amber_vale_pass_is_empty_until_launch():
         assert len(b.lairs()) >= RELICS_TO_WIN
 
         lairs = b.grow_vale(["pA", "pB"])
-        for pid in ("pA", "pB"):
-            mine = {nid: n for nid, n in b.nodes.items()
-                    if n.get("owner") == pid}
-            assert len(mine) >= 15
-            assert b.nodes[lairs[pid]]["owner"] == pid
-            assert all(n.get("mode") == "foot" for n in mine.values())
+        # ONE shared maze now: both captains get the SAME barrow, no owners
+        assert lairs["pA"] == lairs["pB"]
+        maze = {nid: n for nid, n in b.nodes.items()
+                if n.get("region") == "autumn" and n["type"] != "gate"}
+        assert len(maze) >= 15
+        assert all(n.get("mode") == "foot" for n in maze.values())
+        assert not any(n.get("owner") for n in maze.values())
 
 
-def _own_vale(g, pid):
-    return {nid for nid, n in g.board.nodes.items() if n.get("owner") == pid}
+def _own_vale(g, pid=None):
+    # the shared Vale's interior stops (ownership is gone — one maze for all)
+    return {nid for nid, n in g.board.nodes.items()
+            if n.get("region") == "autumn" and n["type"] != "gate"}
 
 
 def test_vale_is_a_loopy_maze_with_paying_dead_ends():
@@ -206,7 +207,7 @@ def test_vale_is_a_loopy_maze_with_paying_dead_ends():
             assert types["haven"] >= 1 and types["monster"] >= 2
 
 
-def test_vale_movement_never_enters_a_rivals_maze():
+def test_vale_movement_reaches_the_shared_maze():
     g, (p0, p1) = make_game()
     p = g.player_by_pid(p0)
     p.node = g.board.vale_gate
@@ -214,9 +215,8 @@ def test_vale_movement_never_enters_a_rivals_maze():
     g.phase = "roll"
     g.roll(p0, 3)
     assert g.reachable
-    assert all(g.board.nodes[nid].get("owner") in (None, p0)
-               for nid in g.reachable)
-    assert any(g.board.nodes[nid].get("owner") == p0 for nid in g.reachable)
+    # every roll steers into the one shared Vale (no more private mazes)
+    assert any(g.board.nodes[nid].get("region") == "autumn" for nid in g.reachable)
 
 
 def test_vale_fog_always_shows_where_you_can_land():
@@ -240,47 +240,42 @@ def test_vale_lantern_reveals_and_remembers():
     seen_at_gate = set(p.seen)
     assert len(seen_at_gate & _own_vale(g, p0)) >= 3   # the mouth of the woods
     inward = next(nid for nid in g.board.neighbors[g.board.vale_gate]
-                  if g.board.nodes[nid].get("owner") == p0)
+                  if g.board.nodes[nid].get("region") == "autumn")
     g.phase = "roll"
     force_land(g, p0, inward)
     assert seen_at_gate <= p.seen                      # monotonic: never dark again
     assert len(p.seen) > len(seen_at_gate)
 
 
-def test_vale_rivals_are_veiled_at_the_pass():
+def test_vale_rivals_are_visible_to_spectators():
+    # the Vale is shared and public now — a rival deep in the woods shows fully
+    # to everyone, which is exactly what lets the spectator camera follow them
     g, (p0, p1) = make_game()
     p = g.player_by_pid(p0)
     deep = next(iter(_own_vale(g, p0)))
     p.node = deep
     p.checkpoint = deep
     snap = g.to_dict(p1)
-    # none of p0's maze exists for p1...
-    assert not any(g.board.nodes[n["id"]].get("owner") == p0
-                   for n in snap["board"]["nodes"])
-    # ...and p0 themselves shows only as a ship at the pass
+    shown = {n["id"] for n in snap["board"]["nodes"]}
+    assert deep in shown                                     # p1 sees the ground
     me = next(pl for pl in snap["players"] if pl["pid"] == p0)
-    assert me["node"] == g.board.vale_gate and me.get("veiled")
-    assert me["checkpoint"] == g.board.vale_gate
-    # the owner still sees themselves truly
-    own = next(pl for pl in g.to_dict(p0)["players"] if pl["pid"] == p0)
-    assert own["node"] == deep and not own.get("veiled")
+    assert me["node"] == deep and not me.get("veiled")       # p0 shows truly
+    assert me["checkpoint"] == deep
 
 
-def test_vale_battle_is_veiled_for_spectators():
-    # a fight deep in a private maze reaches spectators as a diorama (name,
-    # enemies, region) — but never the private stop id it happens on
+def test_vale_battle_is_visible_to_spectators():
+    # a fight deep in the Vale reaches spectators on its TRUE stop — no veil
     g, (p0, p1) = make_game()
     door = next(nid for nid, n in g.board.nodes.items()
-                if n.get("owner") == p0 and n["type"] == "monster"
+                if n.get("region") == "autumn" and n["type"] == "monster"
                 and n.get("elite"))
     g.board.nodes[door]["monster"] = g.board.random_pack(g.board.nodes[door])
     force_land(g, p0, door)
     assert g.phase == "battle"
     spec = g.to_dict(p1)
     assert spec["battle"] is not None
-    assert spec["battle"]["node"] == g.board.vale_gate      # veiled
-    assert g.to_dict(p0)["battle"]["node"] == door          # the owner sees true
-    assert spec["battle"]["enemies"]                        # the show goes on
+    assert spec["battle"]["node"] == door                   # the real stop
+    assert spec["battle"]["enemies"]
 
 
 def test_vale_hunting_grounds_halt_the_trek():
@@ -289,7 +284,7 @@ def test_vale_hunting_grounds_halt_the_trek():
     g, (p0, p1) = make_game()
     p = g.player_by_pid(p0)
     door = next(nid for nid, n in g.board.nodes.items()
-                if n.get("owner") == p0 and n["type"] == "monster"
+                if n.get("region") == "autumn" and n["type"] == "monster"
                 and n.get("elite"))
     # stand one step before the door, on the arc stop it hangs off
     arc = next(nid for nid in g.board.neighbors[door]
@@ -311,8 +306,9 @@ def test_vale_hunting_grounds_halt_the_trek():
         while q:
             cur, d = q.popleft()
             for nb in g.board.neighbors[cur]:
-                if nb in seen or g.board.nodes[nb].get("owner") not in (None, p0):
-                    continue
+                nn = g.board.nodes[nb]
+                if nb in seen or (nn.get("region") != "autumn" and nn["type"] != "gate"):
+                    continue                        # stay inside the Vale
                 seen.add(nb)
                 dist[nb] = d + 1
                 q.append((nb, d + 1))
@@ -334,29 +330,27 @@ def test_vale_guarded_door_is_the_short_way():
         pids = [g.add_player(f"tok{i}", f"P{i}").pid for i in range(2)]
         g.start(pids[0])
         b = g.board
-        for pid in pids:
-            allowed = _own_vale(g, pid) | {b.vale_gate}
-            hops = {b.vale_gate: 0}
-            q = collections.deque([b.vale_gate])
-            while q:
-                cur = q.popleft()
-                for nb in b.neighbors[cur]:
-                    if nb in allowed and nb not in hops:
-                        hops[nb] = hops[cur] + 1
-                        q.append(nb)
-            pi = pids.index(pid)
-            fast_arc = next(x for x in b.neighbors[f"av{pi}_d0"]
-                            if b.nodes[x]["type"] != "lair")
-            slow_arc = next(x for x in b.neighbors[f"av{pi}_d1"]
-                            if b.nodes[x]["type"] != "lair")
-            assert hops[fast_arc] <= hops[slow_arc]
+        allowed = _own_vale(g) | {b.vale_gate}       # the one shared maze
+        hops = {b.vale_gate: 0}
+        q = collections.deque([b.vale_gate])
+        while q:
+            cur = q.popleft()
+            for nb in b.neighbors[cur]:
+                if nb in allowed and nb not in hops:
+                    hops[nb] = hops[cur] + 1
+                    q.append(nb)
+        fast_arc = next(x for x in b.neighbors["av0_d0"]
+                        if b.nodes[x]["type"] != "lair")
+        slow_arc = next(x for x in b.neighbors["av0_d1"]
+                        if b.nodes[x]["type"] != "lair")
+        assert hops[fast_arc] <= hops[slow_arc]
 
 
 def test_vale_hoard_pays_three_scrolls_once():
     g, (p0, p1) = make_game()
     p = g.player_by_pid(p0)
     cache = next(nid for nid, n in g.board.nodes.items()
-                 if n.get("owner") == p0 and n.get("cache"))
+                 if n.get("region") == "autumn" and n.get("cache"))
     before = p.scrolls
     force_land(g, p0, cache)
     assert p.scrolls == before + 3
@@ -386,31 +380,23 @@ def test_vale_boosted_roll_reveals_the_trails_between():
         assert nid in linked, f"{nid} shown but floats with no visible lane"
 
 
-def test_vale_dev_teleport_cannot_enter_a_rivals_maze():
-    # the dev hook (code 783) must not pierce ownership: an explicit rival
-    # node id — trivially guessable like 'av1_L' — is refused
+def test_vale_dev_teleport_into_the_shared_maze():
+    # the Vale is shared now — the dev hook can drop any captain onto its
+    # (owner-less) barrow; the old rival-maze guard is moot
     import asyncio
     import server as S
     S.table.reset()
     g = S.table.game
     a = g.add_player("tokA", "A")
-    b = g.add_player("tokB", "B")
+    g.add_player("tokB", "B")
     g.start(a.pid)
-    rival_lair = g.board.vale_lairs[b.pid]
+    lair = g.board.vale_lairs[a.pid]
 
     async def run():
         return await S.dispatch(a.pid, "dev",
-                                {"code": "783", "node": rival_lair, "land": 1})
+                                {"code": "783", "node": lair, "land": 0})
     asyncio.get_event_loop().run_until_complete(run())
-    assert a.node != rival_lair                       # never moved in
-    assert not g.board.nodes[rival_lair]["defeated"]  # nothing looted
-    own = g.board.vale_lairs[a.pid]
-
-    async def run2():
-        return await S.dispatch(a.pid, "dev",
-                                {"code": "783", "node": own, "land": 0})
-    asyncio.get_event_loop().run_until_complete(run2())
-    assert a.node == own                              # your own maze still works
+    assert a.node == lair                             # dropped in cleanly
     S.table.reset()
 
 
@@ -518,7 +504,8 @@ def test_vale_roll_offers_an_arrow_walk():
     g.turn_idx = 0
     g.roll(p0, 3)
     assert g.walk and g.walk["options"]
-    assert all(g.board.nodes[o].get("owner") == p0 for o in g.walk["options"])
+    assert all(g.board.nodes[o].get("region") == "autumn"
+               or g.board.nodes[o]["type"] == "gate" for o in g.walk["options"])
     assert g.reachable                              # beacons still up pre-commit
     with pytest.raises(GameError):
         g.walk_step(p0, "not_a_trail")
@@ -545,7 +532,7 @@ def test_vale_walk_halts_on_a_hunting_ground():
     g, (p0, p1) = make_game()
     p = g.player_by_pid(p0)
     door = next(nid for nid, n in g.board.nodes.items()
-                if n.get("owner") == p0 and n["type"] == "monster"
+                if n.get("region") == "autumn" and n["type"] == "monster"
                 and n.get("elite"))
     host = next(nid for nid in g.board.neighbors[door]
                 if g.board.nodes[nid]["type"] != "lair")
@@ -644,15 +631,15 @@ def test_vale_hidden_from_anonymous_spectators():
         assert snap["reachable"] == {}
 
 
-def test_vale_shipwreck_returns_the_seal_to_your_own_barrow():
+def test_vale_shipwreck_returns_the_seal_to_the_barrow():
     g, (p0, p1) = make_game()
     p = g.player_by_pid(p0)
     p.cargo = ["autumn"]
     g._shipwreck(p)
-    own_lair = g.board.vale_lairs[p0]
-    rival_lair = g.board.vale_lairs[p1]
-    assert p0 in g.board.nodes[own_lair]["stash"]
-    assert p0 not in g.board.nodes[rival_lair]["stash"]
+    lair = g.board.vale_lairs[p0]                 # the one shared barrow
+    assert g.board.vale_lairs[p1] == lair
+    assert p0 in g.board.nodes[lair]["stash"]     # your lost seal waits there for you
+    assert p1 not in g.board.nodes[lair]["stash"]  # …tracked per captain
 
 
 def test_sea_waypoints_pad_the_routes():

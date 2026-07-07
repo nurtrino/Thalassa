@@ -1634,13 +1634,6 @@ function renderTray() {
     return;
   }
   if (!mine) {
-    const cur = room.players.find((p) => p.pid === room.turn);
-    if (cur?.veiled) {
-      trayHint(tray, `${icon('anchor', 14)} <strong>${esc(cur.name)}</strong> walks their own Amber Vale — the fog keeps their trail.`);
-    }
-    if (you === room.host) {
-      trayBtn(tray, 'skip turn', 'ghost small', () => send({ type: 'skip' }));
-    }
     return;
   }
 

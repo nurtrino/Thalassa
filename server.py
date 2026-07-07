@@ -329,8 +329,6 @@ async def dispatch(pid: str | None, kind: str, msg: dict) -> str | None:
             g.minigame_submit(pid, msg.get("payload"))
         elif kind == "pick":
             g.pick_upgrade(pid, str(msg.get("upgrade", "")))
-        elif kind == "skip":
-            g.skip_turn(pid)
         elif kind == "kick":
             g.remove_player(pid, str(msg.get("pid", "")))
             table.bots = {b: s for b, s in table.bots.items()

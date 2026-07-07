@@ -500,15 +500,14 @@ class Board:
                   "Hartsfoot Rise", "Cindershade", "Mistling Hollow"]
 
     def grow_vale(self, pids: list[str]) -> dict[str, str]:
-        """Grow one PRIVATE maze per captain beyond the Amber Vale's pass —
-        called once when the voyage launches (the fleet is known then).
-        Returns {pid: lair node id} so the engine can seed each captain's
-        map with their own barrow (the beacon: direction, never route).
+        """Grow the ONE shared Amber Vale labyrinth beyond the pass — called
+        once when the voyage launches. Returns {pid: lair node id} (every
+        captain shares the same barrow) so the engine can seed the beacon.
 
-        THE VALE IS DIFFERENT FOR EVERYONE. Each captain gets their own
-        labyrinth in the same wedge of the world, and only ever sees or
-        walks their own (the engine filters both vision and movement by
-        the nodes' ``owner``). Design rules, tuned for the d3:
+        THE VALE IS THE SAME FOR EVERYONE now: a single maze in the wedge,
+        fully visible to all (no per-captain ownership, no fog) — so the
+        spectator camera can follow a rival through it. Design rules, tuned
+        for the d3:
 
           · LOOPS, NOT DEAD ENDS — three arc-roads crossed by staggered
             radial links, so a wrong turn is the long way round, never a
@@ -525,15 +524,17 @@ class Board:
         R0 = WALL_R + 10
         info = REGION_POOL["autumn"]
         lairs: dict[str, str] = {}
-        for pi, pid in enumerate(pids):
+        lair_id = None
+        for pi, pid in enumerate(pids[:1]):     # ONE shared maze for the whole fleet
             rng = random.Random(self.rng.randrange(2**31))
             names = self.VALE_NAMES[:]
             rng.shuffle(names)
 
             def put(nid, radius, a, depth, **extra):
+                # no ``owner``: the Vale is shared and fully public now
                 node = {"id": nid, "name": "Forest Trail", "type": "sea",
                         "band": 4, "region": "autumn", "mode": "foot",
-                        "owner": pid, "depth": depth, "look": "none",
+                        "depth": depth, "look": "none",
                         "x": round(math.cos(a) * radius, 2),
                         "z": round(math.sin(a) * radius, 2),
                         "flotsam": rng.random() < 0.15}
@@ -644,7 +645,8 @@ class Board:
                 node.pop("look", None)
 
             # ── safety nets: no accidental walls, no orphaned stops ──
-            mine = [nid for nid, n in self.nodes.items() if n.get("owner") == pid]
+            mine = [nid for nid, n in self.nodes.items()
+                    if n.get("region") == "autumn" and nid != gate_id]
             spurs = {cache["id"], shrine["id"]}
             self._build_neighbors()
             for nid in mine:
@@ -693,7 +695,7 @@ class Board:
             while frontier:
                 cur = frontier.pop(0)
                 for nb in self.neighbors[cur]:
-                    if nb not in hops and self.nodes[nb].get("owner") == pid:
+                    if nb not in hops and self.nodes[nb].get("region") == "autumn":
                         hops[nb] = hops[cur] + 1
                         frontier.append(nb)
             # doors hang off the OUTERMOST arc and prefer QUIET hosts: pinning
@@ -713,9 +715,10 @@ class Board:
             fast.pop("look", None)
             mid_of(by_hops[-1], lair_id, f"av{pi}_d1", 6,
                    bow=rng.uniform(0.05, 0.09))
-            self._spread_vale_forks(pid)
-            lairs[pid] = lair_id
+            self._spread_vale_forks()
         self._build_neighbors()
+        # every captain shares the one barrow (a personal trial on a shared node)
+        lairs = {pid: lair_id for pid in pids} if lair_id else {}
         self.vale_lairs = lairs
         return lairs
 
@@ -726,7 +729,7 @@ class Board:
     # around the fork until every pair of outgoing trails clears MIN_SEP.
     _VALE_MIN_SEP = 0.55            # rad ≈ 31°
 
-    def _spread_vale_forks(self, pid: str) -> None:
+    def _spread_vale_forks(self) -> None:
         self._build_neighbors()
 
         def adelta(a, b):
@@ -737,7 +740,7 @@ class Board:
             # doors, the cache and shrine spurs. Arc stops and the lair are
             # the maze's skeleton and stay put.
             n = self.nodes[nid]
-            if n.get("owner") != pid:
+            if n.get("region") != "autumn" or nid == self.vale_gate:
                 return False
             tag = nid.split("_", 1)[1] if "_" in nid else ""
             return not tag.startswith("a") and not tag.startswith("L")
@@ -784,7 +787,8 @@ class Board:
         # single bounded rotation can never fold a trail into a hairpin.
         frozen: set[str] = set()          # each node is placed at most once
         forks = [self.vale_gate] + sorted(
-            nid for nid, n in self.nodes.items() if n.get("owner") == pid)
+            nid for nid, n in self.nodes.items()
+            if n.get("region") == "autumn" and nid != self.vale_gate)
         for _round in range(3):
             acted = False
             for nid in forks:
