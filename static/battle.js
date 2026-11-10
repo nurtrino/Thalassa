@@ -106,8 +106,10 @@ function fallbackBackdrop(theme) {
    ship/prop buffers are flagged (userData.keep on a subtree, userData.shared
    on a geometry/material/texture) and left alone — they are reused next fight. */
 function disposeDeep(obj) {
+  if (obj.isInstancedMesh) obj.dispose();        // its per-instance buffers are always its own
   if (obj.userData.keep) return;
-  if (obj.geometry && !obj.geometry.userData.shared) obj.geometry.dispose();
+  // (every Sprite shares three's one quad — never dispose that)
+  if (obj.geometry && !obj.isSprite && !obj.geometry.userData.shared) obj.geometry.dispose();
   const mats = Array.isArray(obj.material) ? obj.material : (obj.material ? [obj.material] : []);
   for (const m of mats) {
     if (m.userData.shared) continue;

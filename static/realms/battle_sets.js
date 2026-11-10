@@ -684,7 +684,7 @@ function autumnTrees(spots) {                 // spots: [x, y, z, scale, ry, var
 }
 
 /* ── classical columns for the lighthouse crown (instanced) ──────────────── */
-let _colGeo = null, _stumpGeo = null;
+let _colGeo = null, _stumpGeo = null, _colMat = null;
 function columnGeometries() {
   if (_colGeo) return [_colGeo, _stumpGeo];
   const prof = (rows) => rows.map(([r, y]) => new THREE.Vector2(r, y));
@@ -722,8 +722,9 @@ function fluteTexture() {
 function columns(spots, hex) {                // spots: [x, y, z, height, broken, ry]
   const g = new THREE.Group();
   const [colGeo, stumpGeo] = columnGeometries();
-  const mat = new THREE.MeshStandardMaterial({
+  _colMat = _colMat || new THREE.MeshStandardMaterial({
     color: hex, roughness: 0.62, metalness: 0, bumpMap: fluteTexture(), bumpScale: 2.2 });
+  const mat = _colMat;
   const m4 = new THREE.Matrix4(), q = new THREE.Quaternion(), s = new THREE.Vector3(), p = new THREE.Vector3();
   const e = new THREE.Euler();
   for (const broken of [false, true]) {
@@ -1052,7 +1053,7 @@ export function buildBattleSet(theme, opts = {}, kit = {}) {
     g.add(shelfMesh([[bx, bz, 6], [20.5, 13.5, 4.5], [20, -15.5, 4.5]]));
     prop('reeds', bx - 0.6, 0.25, bz + 0.6, 1.7); prop('fern_cluster', bx + 1.3, 0.3, bz - 0.2, 1.5);
     prop('fern_cluster', 20, 0.5, -15.5, 1.4);
-    prop('lily_pads', -2.5, SEA + 0.05, -7.5, 2.4); prop('lily_pads', 24, SEA + 0.05, -6, 2.2);
+    prop('lily_pads', 1.5, SEA + 0.05, -13.5, 2.4); prop('lily_pads', 24, SEA + 0.05, -6, 2.2);
     if (!afloat) prop('driftwood', 14, -0.02, -9.5, 1.4);
     // sun through the canopy
     shaft(18, 13, -16, 7, 34, new THREE.Color(1.3, 1.2, 0.72), 0.16, 0.4);
