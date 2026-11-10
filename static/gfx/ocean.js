@@ -227,7 +227,7 @@ void main() {
   vec4 d2 = texture2D(uDetail, xz * 0.193 + vec2(-t * 0.027, t * 0.031));
   vec4 d3 = texture2D(uDetail, xz * 0.0157 + vec2(t * 0.004, -t * 0.006));
   vec2 dn = (d1.xy - 0.5) * 1.3 + (d2.xy - 0.5) * 0.9 + (d3.xy - 0.5) * 0.8;
-  float rippleFade = 1.0 / (1.0 + dist * 0.004);
+  float rippleFade = 1.0 / (1.0 + dist * 0.011);
   n.xz += dn * (0.16 + 0.22 * uChop) * rippleFade;
   vec3 N = normalize(n);
 
@@ -262,7 +262,7 @@ void main() {
 
   // sun glitter: a tight core plus a broad sheen, both shattered by ripples
   float sdot = max(dot(R, uSunDir), 0.0);
-  float glint = pow(sdot, 900.0) * 10.0 + pow(sdot, 140.0) * 0.32 + pow(sdot, 20.0) * 0.022;
+  float glint = pow(sdot, 900.0) * 9.0 + pow(sdot, 160.0) * 0.20 + pow(sdot, 22.0) * 0.016;
   float sparkleMask = 0.45 + 1.1 * smoothstep(0.52, 0.62, d2.a) * smoothstep(0.4, 0.7, d1.a + 0.15);
   col += uSunSpec * glint * sparkleMask * uOpts.x * (0.25 + 0.75 * fres * 4.0);
 

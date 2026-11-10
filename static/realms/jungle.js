@@ -187,7 +187,7 @@ function canopyMassGeos(rng, noise, spots, out) {
   const pal = [C.leafDark, C.leafMid, C.leafLit, C.leafTip];
   spots.forEach((sp, i) => {
     const tint = 0.86 + rng() * 0.28;
-    const blob = crownBlob(rng, noise, sp.r, 0.72 + rng() * 0.12, i < 2 && spots.length > 3 ? 2 : 1, sp.x, sp.y, sp.z, pal);
+    const blob = crownBlob(rng, noise, sp.r, 0.72 + rng() * 0.12, i === 0 && spots.length > 3 ? 2 : 1, sp.x, sp.y, sp.z, pal);
     const col = blob.attributes.color;
     for (let v = 0; v < col.count; v++) col.setXYZ(v, col.getX(v) * tint * (0.95 + rng() * 0.1), col.getY(v) * tint, col.getZ(v) * tint * 0.92);
     out.push(blob);
@@ -210,7 +210,7 @@ function mangroveGeo(seed) {
   for (let i = 0; i < n; i++) {
     const a = (i / n) * 6.283 + rng() * 0.6, d = 1.3 + rng() * 1.2, h = 1.0 + rng() * 0.9;
     geos.push(tubeAlong([V3(Math.cos(a) * 0.1, h, Math.sin(a) * 0.1), V3(Math.cos(a) * d * 0.6, h * 0.95, Math.sin(a) * d * 0.6),
-      V3(Math.cos(a) * d, 0.1, Math.sin(a) * d), V3(Math.cos(a) * d * 1.08, -1.0, Math.sin(a) * d * 1.08)], 0.15, 0.08,
+      V3(Math.cos(a) * d, 0.1, Math.sin(a) * d), V3(Math.cos(a) * d * 1.08, -1.0, Math.sin(a) * d * 1.08)], 0.19, 0.1,
       { radial: 3, steps: 3, colourOf: (t, c) => c.copy(C.bark).lerp(C.barkWet, smooth(0.45, 0.8, t)) }));
   }
   const pal = [C.mangDark, C.mangMid, C.mangLit, C.leafTip];
@@ -480,9 +480,13 @@ function bankMesh(geos) {
 /* an underwater shoal only the shore map sees: a low cone, so the water over
    it lies calm and silty for the lilies and fades off with no hard edge */
 function shoalGeo(x, z, r) {
-  const N = 12, pos = [x, SEA_Y - 0.55, z], idx = [];
-  for (const [k, y] of [[1, SEA_Y - 0.72], [1.3, SEA_Y - 3.6], [2.3, SEA_Y - 9]]) {
-    for (let i = 0; i < N; i++) { const a = (i / N) * 6.283; pos.push(x + Math.cos(a) * r * k, y, z + Math.sin(a) * r * k); }
+  const N = 16, pos = [x, SEA_Y - 0.85, z], idx = [];
+  const ph = x * 0.37 + z * 0.61;
+  for (const [k, y] of [[1, SEA_Y - 1.0], [1.45, SEA_Y - 3.8], [2.4, SEA_Y - 9]]) {
+    for (let i = 0; i < N; i++) {
+      const a = (i / N) * 6.283, w = 1 + 0.14 * Math.sin(a * 3 + ph) + 0.08 * Math.sin(a * 5 - ph);
+      pos.push(x + Math.cos(a) * r * k * w, y, z + Math.sin(a) * r * k * w);
+    }
   }
   for (let i = 0; i < N; i++) idx.push(0, 1 + (i + 1) % N, 1 + i);
   for (let j = 0; j < 2; j++) for (let i = 0; i < N; i++) {
@@ -529,14 +533,14 @@ function plantBank(batch, cell, rng, bank, o, massGeos, { crowns, near }) {
   const spots = [];
   let tries = 0;
   while (spots.length < crowns && tries++ < crowns * 10) {
-    const p = bank.at(rng() * 6.283, 0.05 + Math.sqrt(rng()) * 0.6);
-    const r = (2.2 + rng() * rng() * 2.6) * scale;
-    if (spots.some((q) => Math.hypot(q.x - p.x, q.z - p.z) < (q.r + r) * 0.4)) continue;
+    const p = bank.at(rng() * 6.283, 0.05 + Math.sqrt(rng()) * 0.66);
+    const r = (spots.length < 2 ? 3.6 + rng() * 1.2 : 1.9 + rng() * rng() * 2.6) * scale;
+    if (spots.some((q) => Math.hypot(q.x - p.x, q.z - p.z) < (q.r + r) * 0.38)) continue;
     const g0 = bank.heightAt(p.x, p.z);
     spots.push({ x: p.x, z: p.z, g: g0, r, y: g0 + (2.6 + r * 0.55 + rng() * 2.4) * scale });
   }
   canopyMassGeos(rng, noise3(), spots, massGeos);
-  const edge = o.edgeTrees ?? (near ? 1 + (rng() < 0.3 ? 1 : 0) : 0);
+  const edge = o.edgeTrees ?? (near && rng() < 0.7 ? 1 : 0);
   for (let i = 0; i < edge; i++) {
     const p = bank.at(rng() * 6.283, 0.66 + rng() * 0.2);
     const kind = near && !o.lod ? 'treeNear' + Math.floor(rng() * 3) : 'treeFar' + Math.floor(rng() * 2);
@@ -600,7 +604,7 @@ export function buildJungleField(theme, nodes, segs, rng) {
     bankGeos[cell].push(bank.geo);
     banks.push({ x, z, r: R });
     plantBank(batch, cell, rng, bank, { treeScale: near ? 1 : 1.35 }, massGeos[cell],
-      { crowns: near ? Math.max(5, Math.min(9, Math.round(R * R * ex * ez / 17))) : 9, near });
+      { crowns: near ? Math.max(6, Math.min(12, Math.round(R * R * ex * ez / 11))) : 12, near });
   };
 
   /* the channel walls: banks marched down both sides of every lane */

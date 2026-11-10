@@ -26,9 +26,11 @@ export const REMOVED_STRUCTURES = new Set(['sand_spire']);
 /* Material finish per landmark. White plaster and marble keep a soft sheen,
    timber and canvas stay matte, the ice shrine is glazed. `glow` scales the
    baked emissive map (windows, lamps, inlays) into HDR so it blooms; the
-   chroma gate in modelmat.js already drops Meshy's "white = glowing" texels. */
+   chroma gate in modelmat.js already drops Meshy's "white = glowing" texels.
+   `side: 'double'` marks the sculpts that are not watertight (open-edge audit
+   in modeltest.html: window.__audit()); the rest render single-sided. */
 const STRUCT_FINISH = {
-  pharos:        finishOf('marble', { rough: [0.50, 0.92] }),
+  pharos:        finishOf('marble', { rough: [0.50, 0.92], side: 'double' }),
   lighthouse:    finishOf('marble', { rough: [0.62, 0.95], glow: 1.6 }),
   temple:        finishOf('marble', { glow: 1.4 }),
   temple_ice:    finishOf('ice', { rough: [0.14, 0.55], glow: 1.2, glowGate: 0.85 }),
@@ -36,9 +38,9 @@ const STRUCT_FINISH = {
   temple_jungle: finishOf('marble', { rough: [0.40, 0.90], glow: 1.4 }),
   temple_autumn: finishOf('marble', { rough: [0.60, 0.96], glow: 1.4 }),
   ice_temple:    finishOf('ice', { rough: [0.12, 0.60], glow: 0.9, glowGate: 0.8 }),
-  market:        finishOf('marble', { rough: [0.66, 0.98] }),
-  dock:          finishOf('wood'),
-  obelisk:       finishOf('stone', { rough: [0.55, 0.95], glow: 2.6 }),
+  market:        finishOf('marble', { rough: [0.66, 0.98], side: 'double' }),
+  dock:          finishOf('wood', { side: 'double' }),
+  obelisk:       finishOf('stone', { rough: [0.55, 0.95], glow: 2.6, side: 'double' }),
   tents:         finishOf('cloth', { glow: 2.4 }),
   ship:          finishOf('wood', { side: 'double' }),
   gate_portal:   finishOf('stone', { glow: 2.0 }),

@@ -638,7 +638,7 @@ function autumnTreeGeometry(variant) {
     g.computeVertexNormals();
     parts.push(tint(g, (pp, nn, c) => {
       const sp = n(pp.x * 2.4 + o, pp.z * 2.4 - pp.y * 1.6);
-      c.copy(hue).lerp(hue2, sp).multiplyScalar(0.6 + 0.55 * smooth(-0.8, 0.9, nn.y) + (sp - 0.5) * 0.16);
+      c.copy(hue).lerp(hue2, sp).multiplyScalar(0.72 + 0.46 * smooth(-0.8, 0.9, nn.y) + (sp - 0.5) * 0.16);
     }));
   }
   geo = mergeGeometries(parts.map((g) => {
@@ -1030,7 +1030,7 @@ export function buildBattleSet(theme, opts = {}, kit = {}) {
     wall(100, -6, 13, [[0.5, 0.4, 3.6], [2.0, 0.3, 3.9], [3.4, 0.55, 3.3], [5.0, 0.5, 3.6]]);
     // foreground: reeds and fern on a mud lip, lilies on the slack water
     const [bx, bz] = P(13.5, 9.4);
-    const paint = rockPaint(seed + 2, 0x6a5a40, 0x587a3a, 0.85);
+    const paint = rockPaint(seed + 2, 0x6a5a40, 0x4f6a34, 0.5);
     const mud = lumps([
       { x: bx, z: bz, y: -0.45, sx: 3.2, sy: 0.9, sz: 2.4, seed: 21, rough: 0.25 },
       { x: 20.5, z: 13.5, y: -0.5, sx: 2.2, sy: 1.0, sz: 1.7, seed: 22, rough: 0.3 },
@@ -1078,7 +1078,7 @@ export function buildBattleSet(theme, opts = {}, kit = {}) {
     sit('waymarker_stone', 40, -4.5, 1.7, 0.4); sit('waymarker_stone', 41.5, 10.5, 1.7, -0.5);
     const T = (d, s, sc, v) => { const [x, z] = P(d, s); return [x, height(x, z) - 0.1, z, sc, rng() * 6.283, v]; };
     g.add(autumnTrees([
-      T(12.5, 10.9, 2.3, 0),                                   // the framing trunk, right foreground
+      T(13, 11.2, 1.95, 0),                                    // the framing trunk, right foreground
       T(30, -20.5, 2.1, 1), T(40, -27, 2.5, 2), T(52, -22, 2.2, 0), T(64, -15, 2.7, 1),
       T(70, 6, 2.6, 2), T(62, 21, 2.4, 0), T(46, 27, 2.3, 1), T(33, 24, 2.0, 2),
       T(84, -36, 3.0, 2), T(92, -10, 3.2, 2), T(90, 24, 3.0, 2), T(108, -52, 3.4, 2),
@@ -1100,14 +1100,15 @@ export function buildBattleSet(theme, opts = {}, kit = {}) {
       leafGeo.setAttribute('position', new THREE.Float32BufferAttribute(
         [-0.5, 0, 0, 0, 0.05, 0.24, 0.5, 0.02, 0, 0, 0.05, -0.24], 3));
       leafGeo.setAttribute('normal', new THREE.Float32BufferAttribute([0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0], 3));
-      leafGeo.setIndex([0, 1, 2, 0, 2, 3]);
+      // both windings share the up-facing normal: lit alike from either side
+      leafGeo.setIndex([0, 1, 2, 0, 2, 3, 0, 2, 1, 0, 3, 2]);
       const bladeGeo = new THREE.BufferGeometry();
       {
         const pos = [], nor = [], idx = [];
         for (let b = 0; b < 5; b++) {
           const a = (b / 5) * 6.283 + b, dx = Math.cos(a), dz = Math.sin(a), o = pos.length / 3;
           const lean = 0.18 + (b % 3) * 0.1, h = 0.5 + (b % 2) * 0.22;
-          pos.push(-dz * 0.045, 0, dx * 0.045, dz * 0.045, 0, -dx * 0.045, dx * lean, h, dz * lean);
+          pos.push(-dz * 0.09, 0, dx * 0.09, dz * 0.09, 0, -dx * 0.09, dx * lean, h, dz * lean);
           nor.push(dx * 0.3, 0.95, dz * 0.3, dx * 0.3, 0.95, dz * 0.3, dx * 0.3, 0.95, dz * 0.3);
           idx.push(o, o + 1, o + 2, o, o + 2, o + 1);
         }
@@ -1115,7 +1116,7 @@ export function buildBattleSet(theme, opts = {}, kit = {}) {
         bladeGeo.setAttribute('normal', new THREE.Float32BufferAttribute(nor, 3));
         bladeGeo.setIndex(idx);
       }
-      const litterMat = new THREE.MeshStandardMaterial({ roughness: 0.9, side: THREE.DoubleSide });
+      const litterMat = new THREE.MeshStandardMaterial({ roughness: 0.9 });
       const LEAVES = 620, TUFTS = 260;
       const leaves = new THREE.InstancedMesh(leafGeo, litterMat, LEAVES);
       const tufts = new THREE.InstancedMesh(bladeGeo, litterMat, TUFTS);
@@ -1145,7 +1146,7 @@ export function buildBattleSet(theme, opts = {}, kit = {}) {
         const k = 0.8 + rng() * 1.1;
         q.setFromEuler(e.set(0, rng() * 6.283, 0));
         m4.compose(pp.set(x, y - 0.02, z), q, sc.set(k, k * (0.8 + rng() * 0.6), k));
-        tufts.setColorAt(i, _c1.set(rng() < 0.6 ? 0xc9a85a : 0x8f8a44).multiplyScalar(0.8 + rng() * 0.35));
+        tufts.setColorAt(i, _c1.set(rng() < 0.6 ? 0xe6c878 : 0xb8a85a).multiplyScalar(0.9 + rng() * 0.3));
       });
     }
     // low sun raking between the trunks; leaves letting go
@@ -1223,23 +1224,31 @@ export function buildBattleSet(theme, opts = {}, kit = {}) {
       dais.position.set(BX, 0, BZ);
       dais.castShadow = true; dais.receiveShadow = true;
       g.add(dais);
+      // …raised on a fluted drum so the flame crowns the foe instead of hiding behind him
+      const LIFT = 5.4;
+      const drum = new THREE.Mesh(new THREE.LatheGeometry(prof([
+        [2.9, 1.65], [2.9, 1.95], [2.45, 2.1], [2.3, 4.2], [2.2, 6.3], [2.6, 6.5], [2.75, 6.75], [2.75, 7.05], [0, 7.05]]), 28),
+        new THREE.MeshStandardMaterial({ color: 0x625e6c, roughness: 0.6, bumpMap: fluteTexture(), bumpScale: 3 }));
+      drum.position.set(BX, 0, BZ);
+      drum.castShadow = true; drum.receiveShadow = true;
+      g.add(drum);
       const bowl = new THREE.Mesh(new THREE.LatheGeometry(prof([
         [0, 1.65], [1.5, 1.65], [1.25, 1.95], [0.85, 2.3], [0.8, 2.9], [1.3, 3.25], [2.6, 3.7], [3.5, 4.5],
         [3.7, 4.55], [3.45, 4.62], [2.5, 4.0], [0, 3.8]]), 36),
         new THREE.MeshStandardMaterial({ color: 0x8a5a2c, roughness: 0.38, metalness: 0.85 }));
-      bowl.position.set(BX, 0, BZ);
+      bowl.position.set(BX, LIFT, BZ);
       bowl.castShadow = true;
       g.add(bowl);
       const coals = new THREE.Mesh(new THREE.CircleGeometry(3.3, 24).rotateX(-Math.PI / 2),
         new THREE.MeshBasicMaterial({ color: new THREE.Color(2.4, 0.8, 0.16), map: softDiscTexture(), fog: false }));
-      coals.position.set(BX, 4.42, BZ);
+      coals.position.set(BX, 4.42 + LIFT, BZ);
       g.add(coals);
-      g.add(makeFire(anims, { x: BX, y: 4.3, z: BZ, w: 6.5, h: 11.5, seed: 2, glow: 0.62, halo: 0.22 }));
+      g.add(makeFire(anims, { x: BX, y: 4.3 + LIFT, z: BZ, w: 6.5, h: 11, seed: 2, glow: 0.62, halo: 0.22 }));
       const light = new THREE.PointLight(0xff7a30, 330, 90, 2);
-      light.position.set(BX - 1.5, 9, BZ + 0.5);
+      light.position.set(BX - 1.5, 9 + LIFT, BZ + 0.5);
       g.add(light);
       anims.push((t) => { light.intensity = 330 * (0.88 + Math.sin(t * 9.3) * 0.07 + Math.sin(t * 23.1 + 1) * 0.05); });
-      g.add(makeDrift(anims, { n: 110, box: [5, 24, 5], origin: [BX, 5, BZ], rise: 2.6, sway: 0.9,
+      g.add(makeDrift(anims, { n: 110, box: [5, 24, 5], origin: [BX, 5 + LIFT, BZ], rise: 2.6, sway: 0.9,
         size: 0.26, color: new THREE.Color(3.0, 1.0, 0.2), seed: 4 }));
       // basalt needles flank the fire, their tips still glowing from it
       const needle = new THREE.LatheGeometry([[0, 0], [1.25, 0], [1.25, 0.9], [0.95, 0.9], [0.62, 11], [0, 11]]

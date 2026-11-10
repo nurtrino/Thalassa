@@ -286,3 +286,47 @@ export function canvasTexture(size, paint, { srgb = true, aniso = 8 } = {}) {
   t.anisotropy = aniso;
   return t;
 }
+
+/* the hunting-ground warning: a leaning, weathered stake crowned with a skull
+   and crossed thigh bones — ambushes happen here. One merged mesh. */
+let _stakeMat = null;
+export function warningStake(rng, s = 1) {
+  const V = (x, y, z) => new THREE.Vector3(x, y, z);
+  const parts = [];
+  const lean = (rng() - 0.5) * 0.5;
+  const top = V(lean * 0.9 * s, 2.5 * s, 0.1 * s);
+  const pole = taperTube([V(0, -0.3 * s, 0), V(lean * 0.3 * s, 1.0 * s, 0), top], 0.11 * s, 0.07 * s, 5, 6);
+  parts.push(tint(pole, 0x6b4d33, (x, y) => 0.7 + clamp01(y / (2.5 * s)) * 0.4));
+  for (const side of [-1, 1]) {
+    const b = taperTube([V(top.x - 0.62 * s, top.y - 0.95 * s - side * 0.42 * s, 0.12 * s),
+                         V(top.x, top.y - 0.9 * s, 0.16 * s),
+                         V(top.x + 0.62 * s, top.y - 0.95 * s + side * 0.42 * s, 0.12 * s)], 0.06 * s, 0.06 * s, 3, 5);
+    parts.push(tint(b, 0xe9e1cc));
+    for (const e of [-1, 1]) {                       // knuckle ends
+      const k = new THREE.SphereGeometry(0.085 * s, 6, 4);
+      k.translate(top.x + e * 0.62 * s, top.y - 0.95 * s + e * side * 0.42 * s, 0.12 * s);
+      parts.push(tint(k, 0xe9e1cc));
+    }
+  }
+  // the skull: cranium, cheek block, two dark sockets and a nose notch
+  const cranium = lumpGeometry(1, 1, 0.07, 17, 1.2);
+  cranium.scale(0.33 * s, 0.34 * s, 0.38 * s);
+  cranium.translate(top.x, top.y + 0.18 * s, top.z);
+  parts.push(tint(cranium, 0xefe8d6, (x, y) => 0.8 + clamp01((y - top.y) / (0.4 * s)) * 0.22));
+  const jaw = new THREE.BoxGeometry(0.34 * s, 0.2 * s, 0.26 * s, 1, 1, 1);
+  jaw.translate(top.x, top.y - 0.12 * s, top.z + 0.12 * s);
+  parts.push(tint(jaw, 0xddd4bd));
+  for (const e of [-1, 1]) {
+    const eye = new THREE.SphereGeometry(0.085 * s, 7, 5);
+    eye.translate(top.x + e * 0.13 * s, top.y + 0.16 * s, top.z + 0.3 * s);
+    parts.push(tint(eye, 0x120d0a));
+  }
+  const nose = new THREE.SphereGeometry(0.045 * s, 5, 4);
+  nose.translate(top.x, top.y + 0.03 * s, top.z + 0.35 * s);
+  parts.push(tint(nose, 0x120d0a));
+  const m = new THREE.Mesh(merge(parts), _stakeMat || (_stakeMat = new THREE.MeshStandardMaterial({
+    vertexColors: true, roughness: 0.7, metalness: 0 })));
+  m.castShadow = true;
+  m.receiveShadow = true;
+  return m;
+}

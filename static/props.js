@@ -70,7 +70,7 @@ const PROP_FINISH = {
   waymarker_stone:  finishOf('stone'),
   tomb:             finishOf('stone', { rough: [0.74, 1.0] }),
   barrow:           finishOf('stone'),
-  jungle_dungeon:   finishOf('stone', { rough: [0.70, 1.0] }),
+  jungle_dungeon:   finishOf('stone', { rough: [0.70, 1.0], side: 'double' }),
   stone_well:       finishOf('stone', { side: 'double' }),
   broken_statue:    finishOf('marble'),
   bone_pile:        finishOf('marble', { rough: [0.60, 0.95] }),
@@ -95,7 +95,7 @@ const PROP_FINISH = {
   palm_tree:        finishOf('foliage'),
   cypress_tree:     finishOf('foliage'),
   olive_tree:       finishOf('foliage'),
-  jungle_tree:      finishOf('foliage'),
+  jungle_tree:      finishOf('foliage', { tint: [1.55, 1.6, 1.4] }),   // the sculpt is very dark
   dead_scrub:       finishOf('foliage', { rough: [0.8, 1.0] }),
   fern_cluster:     finishOf('foliage'),
   reeds:            finishOf('foliage'),
@@ -108,7 +108,7 @@ const PROP_FINISH = {
      amber_tree   the gnarled olive in autumn copper — the Amber Vale's tree
                   until a real autumn oak/beech is generated */
 const PROP_VARIANTS = {
-  amber_tree: { use: 'olive_tree', height: 3.0, desat: 0.9, tint: [3.4, 1.55, 0.42] },
+  amber_tree: { use: 'olive_tree', height: 3.0, desat: 1.0, tint: [2.1, 0.82, 0.17] },
 };
 export const PROP_VARIANT_IDS = Object.keys(PROP_VARIANTS);
 

@@ -30,7 +30,7 @@ import { lookFor } from '../gfx/looks.js';
 import { propGroup } from '../props.js';
 import {
   smooth, clamp01, makeSegDist, trailStops, makeTrailField, TRAIL_GLSL, NOISE_GLSL,
-  addWorldVaryings, tint, merge, lumpGeometry, taperTube,
+  addWorldVaryings, tint, merge, lumpGeometry, taperTube, warningStake,
 } from './footkit.js';
 
 const GY = -0.04;                      // floor datum: a hair under the stops' pads
@@ -271,7 +271,7 @@ export function makeDesertGround(theme, size = 3000, opts = {}) {
       const n1 = F.fbm((x - cx) / 46 + 5.5, (z - cz) / 46 - 8.2);
       const n2 = F.fbm((x - cx) / 13 - 2.1, (z - cz) / 13 + 6.6);
       c.copy(sandDeep).lerp(sand, 0.5 + n1 * 0.5);
-      const lee = clamp01((nx * w.x + nz * w.z) * inv * 2.6);
+      const lee = smooth(0.1, 0.46, (nx * w.x + nz * w.z) * inv);
       c.lerp(sandLee, lee * 0.75);
       c.lerp(sandHot, crest * 0.7 * (1 - lee));
       const flats = (1 - smooth(0.4, 2.6, amp)) * lane;
@@ -807,6 +807,81 @@ export function makeOasis(rng, theme, wellAngle = null) {
   jars.rotation.y = rng() * 6.28;
   g.add(jars);
   return g;
+}
+
+/* wind-rounded sandstone boulders, merged (n stones scattered by `where(i)`) */
+function sandstoneBoulders(rng, n, where) {
+  const parts = [];
+  const cc = new THREE.Color();
+  for (let i = 0; i < n; i++) {
+    const p = where(i);
+    if (!p) continue;
+    const r = p.r ?? (0.35 + rng() * 0.55);
+    const g = lumpGeometry(1, r > 0.6 ? 2 : 1, 0.24, rng() * 99, 1.4);
+    g.scale(r * (1 + rng() * 0.4), r * (0.6 + rng() * 0.25), r);
+    g.rotateY(rng() * 6.28);
+    g.translate(p.x, p.y + r * 0.22, p.z);
+    cc.set(rng() < 0.4 ? 0xb39468 : 0xc9ad7e).multiplyScalar(0.88 + rng() * 0.2);
+    const y0 = p.y;
+    tint(g, cc.getHex(), (px, py) => 0.7 + clamp01((py - y0) / (r * 0.9)) * 0.32);
+    parts.push(g);
+  }
+  const geo = merge(parts);
+  if (!geo) return null;
+  const m = new THREE.Mesh(geo, slabMaterial());
+  m.castShadow = true;
+  m.receiveShadow = true;
+  return m;
+}
+
+/* what stands on a stop's pad in the Reach (called from dressIsland).
+   Sparse on purpose: each kind of stop gets one clear idea. */
+export function dressReachIsland(g, rng, theme, R, terrain, node = null) {
+  const type = node?.type;
+  const at = (a, rr) => terrain.place(a, rr);
+  const put = (o, a, rr, sink = 0.05) => {
+    const p = at(a, rr);
+    o.position.set(p.x, p.y - sink, p.z);
+    g.add(o);
+    return o;
+  };
+  // every pad: a few rounded boulders on its shoulder
+  const a0 = rng() * 6.28;
+  const rocks = sandstoneBoulders(rng, 3 + Math.floor(rng() * 3), (i) => at(a0 + i * 1.9 + rng(), 0.62 + rng() * 0.25));
+  if (rocks) g.add(rocks);
+  if (type === 'monster') {
+    // a hunting ground: picked ribs arching out of the knoll, bones below
+    const ribs = makeGiantRibs(rng, 0.42);
+    ribs.rotation.y = rng() * 6.28;
+    put(ribs, a0 + 2.6, 0.5, 0.15);
+    const heap = propGroup('bone_pile', 1.3);
+    heap.rotation.y = rng() * 6.28;
+    put(heap, a0 + 4.4, 0.62);
+    if (!node.monster) {                         // calm: the warning stake
+      const stake = warningStake(rng, 1.25);
+      stake.rotation.y = Math.atan2(-node.x, -node.z) + (rng() - 0.5);
+      put(stake, 0, 0.12, 0);
+    }
+  } else if (type === 'lair') {
+    for (const side of [-1, 1]) {                // braziers flank the approach
+      const b = propGroup('brazier', 1.5);
+      const face = Math.atan2(-node.x, -node.z);
+      const bx = Math.sin(face) * R * 0.62 + Math.cos(face) * side * 3.4;
+      const bz = Math.cos(face) * R * 0.62 - Math.sin(face) * side * 3.4;
+      b.position.set(bx, terrain.surfaceY(bx, bz) - 0.05, bz);
+      g.add(b);
+    }
+    const sar = propGroup('sarcophagus', 1.2);
+    sar.rotation.y = rng() * 6.28;
+    put(sar, a0 + 3.3, 0.78);
+  } else if (type === 'shrine') {
+    const jars = propGroup('amphora_pile', 1.1);
+    jars.rotation.y = rng() * 6.28;
+    put(jars, a0 + 2.2, 0.66);
+  } else if (type !== 'haven') {
+    const scrub = propGroup('dead_scrub', 0.9 + rng() * 0.5);
+    put(scrub, a0 + 3.0, 0.7);
+  }
 }
 
 /* ── the wilds between the stops ─────────────────────────────────────────── */

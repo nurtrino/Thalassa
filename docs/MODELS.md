@@ -43,6 +43,23 @@ desaturate + tint recolour or a hue-keyed "painted glow" (eyes, visor slits,
 flames that the emissive map missed). The per-model tables are `MONSTER_FINISH`
 (monsters.js), `PROP_FINISH` (props.js) and `STRUCT_FINISH` (structures.js).
 
+**Geometry repair (also in `modelmat.js`, once per geometry at load).**
+
+- *Zero-length normals.* Six kept files contain vertices whose normal is
+  (0,0,0): `props/jungle_tree` (14 vertices), `props/jungle_dungeon` (4),
+  `props/lily_pads` (2), `structures/dock` (2), `structures/lighthouse` (8),
+  `structures/tents` (23) — 53 in all. A zero normal becomes a NaN pixel, and
+  the bloom blur spreads one NaN over the whole HDR frame (a black screen at
+  some angles). The loader replaces each with the average normal of its
+  faces (else of a co-located vertex, else +Y). The files themselves are
+  unchanged — fix them at the source when they are next re-exported.
+- *Creatures have no normals at all.* None of the 32 creature GLBs carries a
+  normal attribute (the auto-rig export dropped it), so three.js was
+  flat-shading them under normal maps baked for smooth surfaces. The loader
+  now builds crease-aware smooth normals (welded across UV seams by position,
+  split at edges sharper than 62°). A re-export should write real normals.
+- No creature file has a zero-length normal (they have none to be zero).
+
 **Auto-rig helper meshes.** `tools/meshy_rig.py` adds `eye` balls, a `core`
 ball and a gold `crown` ring to each creature at bounding-box guesses; they
 float off the sculpt. The loader removes `eye` and `core` (the real eyes and

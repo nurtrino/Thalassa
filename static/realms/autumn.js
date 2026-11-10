@@ -38,7 +38,7 @@ import { groundGrainTexture } from '../gfx/terrain.js';
 import { propGroup } from '../props.js';
 import {
   smooth, clamp01, makeSegDist, makeTrailField, TRAIL_GLSL, NOISE_GLSL,
-  addWorldVaryings, tint, merge, lumpGeometry, smoothNormals, taperTube,
+  addWorldVaryings, tint, merge, lumpGeometry, smoothNormals, taperTube, warningStake,
 } from './footkit.js';
 
 const TAU = Math.PI * 2;
@@ -1054,4 +1054,57 @@ export function valeWaystone(rng) {
   const g = new THREE.Group();
   g.add(m);
   return g;
+}
+
+/* what grows and gathers in a stop's clearing (called from dressIsland): a
+   fringe of bracken and leaf drifts round its edge, toadstools, and one prop
+   that says what kind of stop this is. A handful of instanced meshes. */
+export function dressValeIsland(g, rng, theme, R, terrain, node = null) {
+  const kit = treeKit();
+  const type = node?.type;
+  const m4 = new THREE.Matrix4(), q = new THREE.Quaternion(), sc = new THREE.Vector3(), pp = new THREE.Vector3();
+  const yAxis = new THREE.Vector3(0, 1, 0), col = new THREE.Color();
+  const ringOf = (geo, mat, n, r0, r1, s0, s1, tints) => {
+    const im = new THREE.InstancedMesh(geo, mat, n);
+    for (let i = 0; i < n; i++) {
+      const a = (i / n) * TAU + rng() * 0.6, r = R * (r0 + rng() * (r1 - r0)), s = s0 + rng() * (s1 - s0);
+      m4.compose(pp.set(Math.cos(a) * r, 0, Math.sin(a) * r), q.setFromAxisAngle(yAxis, rng() * TAU), sc.set(s, s, s));
+      im.setMatrixAt(i, m4);
+      if (tints) im.setColorAt(i, col.set(tints[(rng() * tints.length) | 0]));
+    }
+    im.receiveShadow = true;
+    g.add(im);
+  };
+  ringOf(kit.fern, kit.fernMat, 9, 0.8, 1.05, 0.8, 1.5, [0x9aa644, 0xd6a23a, 0xc9772c]);
+  ringOf(kit.drift, kit.driftMat, 6, 0.7, 1.0, 1.4, 2.6, null);
+  ringOf(kit.shrooms, kit.shroomMat, 3, 0.55, 0.9, 0.9, 1.6, null);
+  const put = (id, s, a, rr) => {
+    const o = propGroup(id, s);
+    o.position.set(Math.cos(a) * R * rr, 0, Math.sin(a) * R * rr);
+    o.rotation.y = rng() * TAU;
+    g.add(o);
+    return o;
+  };
+  const a0 = rng() * TAU;
+  if (type === 'monster') {
+    put('dead_tree', 2.0, a0, 0.66);
+    put('bone_pile', 1.2, a0 + 2.4, 0.5);
+    if (!node.monster) {                         // calm: the warning stake
+      const stake = warningStake(rng, 1.25);
+      stake.position.set(R * 0.1, 0, 0);
+      stake.rotation.y = Math.atan2(-node.x, -node.z) + (rng() - 0.5);
+      g.add(stake);
+    }
+  } else if (type === 'haven') {
+    put('campfire', 1.3, a0, 0.42);
+    put('barrel', 1.0, a0 + 0.9, 0.62);
+  } else if (type === 'shrine') {
+    put('waymarker_stone', 1.5, a0, 0.72);
+    put('waymarker_stone', 1.2, a0 + Math.PI, 0.72);
+  } else if (type === 'lair') {
+    put('mushroom_cluster', 1.8, a0, 0.8);
+    put('dead_tree', 2.2, a0 + 2.0, 0.85);
+  } else {
+    put('mushroom_cluster', 1.4, a0, 0.6);
+  }
 }

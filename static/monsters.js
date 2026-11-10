@@ -135,7 +135,7 @@ const MODEL_YAW = {
 const eyes = (key, gain = 3, tol = 0.95, min = 0.35) => ({ key, gain, tol, min });
 const MONSTER_FINISH = {
   jackal:        finishOf('hide'),
-  boar:          finishOf('hide'),
+  boar:          finishOf('hide', { side: 'double' }),     // not watertight (tusks, bristles)
   vulture:       finishOf('hide'),
   harpy:         finishOf('hide'),
   faun:          finishOf('hide'),
@@ -164,8 +164,8 @@ const MONSTER_FINISH = {
   stalker:       finishOf('wet', { glow: 1.6 }),
   crab:          finishOf('wet', { rough: [0.2, 0.7] }),
   scorpion:      finishOf('wet', { rough: [0.12, 0.6], glow: 1.6 }),
-  kraken:        finishOf('wet', { glow: 2.4, eyes: eyes(0xffa018, 3.5, 0.975, 0.6) }),
-  wyrm:          finishOf('wet', { rough: [0.2, 0.7] }),
+  kraken:        finishOf('wet', { side: 'double', glow: 2.4, eyes: eyes(0xffa018, 3.5, 0.975, 0.6) }),
+  wyrm:          finishOf('wet', { rough: [0.2, 0.7], side: 'double' }),
 };
 
 const loader = new GLTFLoader();
@@ -209,7 +209,6 @@ export function preloadMonsters(ids) {
 const RX_SUFFIX = /\.\d+$/;
 const baseName = (n) => n.replace(RX_SUFFIX, '');
 const _box = new THREE.Box3();
-const _v = new THREE.Vector3();
 
 /* Finish the materials, replace the auto-rig's helper meshes, square up the
  * facing and normalize to the species height — once, on the shared template. */
@@ -341,7 +340,7 @@ const _col = new THREE.Color();
 
 /* Last resort — a GLB failed to load (offline, bad deploy). A small hooded
  * spectre built from smooth primitives: robe, cowl, two lit eyes, drifting
- * motes. It is named on the animator's contract (body/head/eye/tatter/wisp)
+ * motes. It is named on the animator's contract (body/head/eye/wisp)
  * so it hovers, sways and fights like any other creature, and it is clearly
  * a deliberate "something is here" figure rather than a debug blob. */
 function buildFallback() {

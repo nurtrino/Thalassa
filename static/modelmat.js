@@ -163,6 +163,7 @@ function toModelMaterial(src, spec) {
     if (!(m.emissiveIntensity > 0)) { m.emissive.setRGB(0, 0, 0); m.emissiveMap = null; }
   }
   m.side = spec.side === 'double' ? THREE.DoubleSide : THREE.FrontSide;
+  m.flatShading = false;      // GLTFLoader sets it when a mesh has no normals; repairGeometry adds them
   if (spec.desat != null) m.finish.z = spec.desat;
   m.tint.copy(_white);
   if (spec.tint != null) setColor(m.tint, spec.tint);
@@ -183,6 +184,121 @@ function toModelMaterial(src, spec) {
   return m;
 }
 
+/* ── geometry repair ─────────────────────────────────────────────────────────
+ * Two defects in the shipped GLBs are fixed here, once per geometry (clones
+ * share it), before anything renders:
+ *
+ *  · ZERO-LENGTH NORMALS. A handful of prop/landmark vertices carry a normal
+ *    of (0,0,0) (degenerate triangles in the source mesh). normalize() of
+ *    that is NaN, one NaN pixel in an HDR frame is smeared over the whole
+ *    screen by the bloom blur → black frame. Each such normal is replaced by
+ *    the average of its faces, else of its co-located neighbours, else +Y.
+ *
+ *  · NO NORMALS AT ALL. Every creature GLB was exported without a normal
+ *    attribute, so GLTFLoader fell back to flat shading — faceted sculpts
+ *    under a tangent-space normal map that was baked for smooth ones. They
+ *    get crease-aware smooth normals: averaged across the UV seams that
+ *    split the mesh (by position), but not across edges sharper than CREASE,
+ *    so armour plates and stone blocks keep their corners.
+ */
+const CREASE_COS = Math.cos(THREE.MathUtils.degToRad(62));
+const _repaired = new WeakSet();
+export const repairStats = { healed: 0, smoothed: 0 };   // read by modeltest.html
+
+function positionGroups(pos) {
+  // co-located vertices → linked lists (head by quantized position, next by index)
+  const n = pos.count;
+  let x0 = Infinity, y0 = Infinity, z0 = Infinity, x1 = -Infinity, y1 = -Infinity, z1 = -Infinity;
+  for (let i = 0; i < n; i++) {
+    const x = pos.getX(i), y = pos.getY(i), z = pos.getZ(i);
+    if (x < x0) x0 = x; if (x > x1) x1 = x;
+    if (y < y0) y0 = y; if (y > y1) y1 = y;
+    if (z < z0) z0 = z; if (z > z1) z1 = z;
+  }
+  const q = 65535 / Math.max(x1 - x0, y1 - y0, z1 - z0, 1e-9);
+  const head = new Map();
+  const next = new Int32Array(n).fill(-1);
+  const first = new Int32Array(n);
+  for (let i = 0; i < n; i++) {
+    const k = Math.round((pos.getX(i) - x0) * q)
+            + Math.round((pos.getY(i) - y0) * q) * 65536
+            + Math.round((pos.getZ(i) - z0) * q) * 4294967296;
+    const h = head.get(k);
+    if (h === undefined) { head.set(k, i); first[i] = i; }
+    else { next[i] = next[h]; next[h] = i; first[i] = h; }
+  }
+  return { first, next };
+}
+
+function repairGeometry(geo) {
+  if (_repaired.has(geo)) return;
+  _repaired.add(geo);
+  const pos = geo.getAttribute('position');
+  if (!pos) return;
+  let nrm = geo.getAttribute('normal');
+  if (!nrm) {
+    // no normals: per-chart normals first, then weld across seams below the crease angle
+    geo.computeVertexNormals();
+    nrm = geo.getAttribute('normal');
+    const n = nrm.count;
+    const src = Float32Array.from(nrm.array);
+    const { first, next } = positionGroups(pos);
+    const out = nrm.array;
+    for (let i = 0; i < n; i++) {
+      const ax = src[i * 3], ay = src[i * 3 + 1], az = src[i * 3 + 2];
+      const lone = ax * ax + ay * ay + az * az < 1e-12;   // degenerate faces only: take any neighbour
+      let sx = 0, sy = 0, sz = 0;
+      for (let j = first[i]; j !== -1; j = next[j]) {
+        const bx = src[j * 3], by = src[j * 3 + 1], bz = src[j * 3 + 2];
+        if (lone || ax * bx + ay * by + az * bz >= CREASE_COS) { sx += bx; sy += by; sz += bz; }
+      }
+      const l = Math.hypot(sx, sy, sz);
+      if (l > 1e-6) { out[i * 3] = sx / l; out[i * 3 + 1] = sy / l; out[i * 3 + 2] = sz / l; }
+      else { out[i * 3] = 0; out[i * 3 + 1] = 1; out[i * 3 + 2] = 0; }
+    }
+    nrm.needsUpdate = true;
+    repairStats.smoothed++;
+    return;
+  }
+  // normals present: heal the zero-length ones
+  const bad = [];
+  for (let i = 0; i < nrm.count; i++) {
+    const x = nrm.getX(i), y = nrm.getY(i), z = nrm.getZ(i);
+    if (!(x * x + y * y + z * z > 1e-12)) bad.push(i);
+  }
+  if (!bad.length) return;
+  const fix = new Map(bad.map((i) => [i, [0, 0, 0]]));
+  const idx = geo.index;
+  const tri = idx ? idx.count : pos.count;
+  const _a = new THREE.Vector3(), _b = new THREE.Vector3(), _c = new THREE.Vector3();
+  for (let t = 0; t < tri; t += 3) {
+    const i0 = idx ? idx.getX(t) : t, i1 = idx ? idx.getX(t + 1) : t + 1, i2 = idx ? idx.getX(t + 2) : t + 2;
+    const f0 = fix.get(i0), f1 = fix.get(i1), f2 = fix.get(i2);
+    if (!f0 && !f1 && !f2) continue;
+    _a.fromBufferAttribute(pos, i0); _b.fromBufferAttribute(pos, i1); _c.fromBufferAttribute(pos, i2);
+    _b.sub(_a); _c.sub(_a); _b.cross(_c);            // area-weighted face normal
+    for (const f of [f0, f1, f2]) if (f) { f[0] += _b.x; f[1] += _b.y; f[2] += _b.z; }
+  }
+  let groups = null;
+  for (const [i, f] of fix) {
+    let l = Math.hypot(f[0], f[1], f[2]);
+    if (!(l > 1e-9)) {
+      // every face on it is degenerate: borrow from a vertex at the same place
+      groups = groups || positionGroups(pos);
+      for (let j = groups.first[i]; j !== -1; j = groups.next[j]) {
+        if (fix.has(j)) continue;
+        f[0] += nrm.getX(j); f[1] += nrm.getY(j); f[2] += nrm.getZ(j);
+      }
+      l = Math.hypot(f[0], f[1], f[2]);
+    }
+    if (l > 1e-9) nrm.setXYZ(i, f[0] / l, f[1] / l, f[2] / l);
+    else nrm.setXYZ(i, 0, 1, 0);
+    repairStats.healed++;
+  }
+  if (nrm.isInterleavedBufferAttribute) nrm.data.needsUpdate = true;
+  else nrm.needsUpdate = true;
+}
+
 /**
  * Apply a finish spec to every mesh under `root` (in place). `spec` is a
  * FINISH preset or a custom object of the same shape; `skip(mesh)` may veto
@@ -194,6 +310,7 @@ export function finishModel(root, spec = FINISH.stone, { castShadow = true, skip
     if (skip && skip(o)) return;
     o.castShadow = castShadow;
     o.receiveShadow = true;
+    repairGeometry(o.geometry);
     o.material = Array.isArray(o.material)
       ? o.material.map((m) => (m ? toModelMaterial(m, spec) : m))
       : toModelMaterial(o.material, spec);

@@ -9,8 +9,8 @@ import { DOMAIN_COLORS, REALM_INFO } from './themes.js';
 import { propGroup } from './props.js';
 import { buildIceField, iceMooring, dressIceIsland, makeIceberg, makeIceFloe } from './realms/ice.js';
 import { buildJungleField, jungleMooring, dressJungleIsland, makeLilyRaft } from './realms/jungle.js';
-import { makeDesertField, desertWaypoint, sandApron, makeOasis as makeReachOasis } from './realms/desert.js';
-import { makeValeField, valeWaystone } from './realms/autumn.js';
+import { makeDesertField, desertWaypoint, sandApron, dressReachIsland, makeOasis as makeReachOasis } from './realms/desert.js';
+import { makeValeField, valeWaystone, dressValeIsland } from './realms/autumn.js';
 import { glbProp, preloadStructures } from './structures.js';
 import { makeTerrain, makeNoise2D, makeGroundMaterial, groundGrainTexture, groundReliefTexture, SHORE_LAYER, GROUND_TILE } from './gfx/terrain.js';
 
@@ -911,6 +911,9 @@ function dressIsland(g, rng, theme, R, terrain, node = null) {
   // the water realms dress their own isles (static/realms/)
   if (theme.id === 'ice') return dressIceIsland(g, rng, theme, R, terrain, node);
   if (theme.id === 'jungle') return dressJungleIsland(g, rng, theme, R, terrain, node);
+  // …and so do the two foot realms
+  if (theme.id === 'desert') return dressReachIsland(g, rng, theme, R, terrain, node);
+  if (theme.id === 'autumn') return dressValeIsland(g, rng, theme, R, terrain, node);
   // props ride the ACTUAL surface via terrain.place(a, rr) — no more trees
   // hovering over the noise bumps or sinking through them. Kept in the solid
   // interior (rr ≤ ~0.6) so nothing perches on the wavy coastline.
@@ -1193,7 +1196,7 @@ export function buildIsland(node, theme, domains) {
     const iceLair = dark && theme.id === 'ice';
     const flatLair = jungleLair || iceLair;
     terrain = mt({ seed, R, H: flatLair ? 1.6 : (dark ? 3.6 : 2.6),
-      mode: flatLair ? 'mesa' : 'peak',
+      mode: flatLair ? 'mesa' : (foot ? 'hill' : 'peak'),   // on foot: a rounded knoll, not a spike
       palette: { ...footPal, ...(dark && !flatLair ? { rock: COL.basalt } : {}) } });
     if (node.type === 'lair') {
       const accent = REALM_INFO[node.region]?.accent ?? '#ff5030';
@@ -1220,8 +1223,9 @@ export function buildIsland(node, theme, domains) {
       const totem = makeMonsterTotem(rng0, node.monster);
       totem.position.set(R * 0.1, terrain.heightAt(0.25) + 0.3, 0);
       g.add(totem);
-    } else if (node.type === 'monster') {
+    } else if (node.type === 'monster' && !foot) {
       // calm hunting grounds: bone-stake warning that ambushes happen here
+      // (the foot realms plant their own — see realms/footkit.js warningStake)
       const stake = new THREE.Mesh(new THREE.CylinderGeometry(0.09, 0.12, 2.4, 6), flat(COL.woodDark));
       stake.position.set(R * 0.1, terrain.heightAt(0.25) + 1.1, 0);
       const skull = new THREE.Mesh(displace(new THREE.SphereGeometry(0.34, 8, 6), 0.07, seed + 9),
@@ -1236,7 +1240,7 @@ export function buildIsland(node, theme, domains) {
       }
     }
     // (the water realms scatter their own smooth boulders in dressIsland)
-    for (let i = 0; i < (theme.id === 'ice' || theme.id === 'jungle' ? 0 : 3); i++) {
+    for (let i = 0; i < (theme.id === 'ice' || theme.id === 'jungle' || foot ? 0 : 3); i++) {
       const rk = makeRock(rng0, 0.4 + rng0() * 0.4, dark ? COL.basalt : pal.rock);
       const a = rng0() * 6.28;
       rk.position.set(Math.cos(a) * R * 0.7, terrain.heightAt(0.7) + 0.15, Math.sin(a) * R * 0.7);

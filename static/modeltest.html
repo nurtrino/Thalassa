@@ -44,6 +44,7 @@ import { lookFor } from '/static/gfx/looks.js';
 import { makeSky, bakeEnvironment } from '/static/gfx/sky.js';
 import { makeLightRig } from '/static/gfx/lighting.js';
 import { createPipeline } from '/static/gfx/pipeline.js';
+import { repairStats } from '/static/modelmat.js';
 import { getMonster, animateMonster, MONSTER_IDS, STAND_INS, BOSS_IDS } from '/static/monsters.js';
 import { propGroup, PROP_IDS, PROP_VARIANT_IDS, preloadProps } from '/static/props.js';
 import { glbProp, STRUCTURE_IDS, structTemplate } from '/static/structures.js';
@@ -112,10 +113,20 @@ const STRUCT_H = { pharos: 31.2, lighthouse: 4.6, temple: 4.6, temple_ice: 4.6, 
   temple_jungle: 4.6, temple_autumn: 4.6, ice_temple: 9.0, market: 5.0, obelisk: 5.4, tents: 2.3,
   ship: 3.0, gate_portal: 12 };
 
+const _mb = new THREE.Box3();
 function measure(obj) {
+  // the sculpt itself: meshes only, no boss crown, no glow sprites
   obj.updateMatrixWorld(true);
   const box = new THREE.Box3();
-  obj.traverse((o) => { if (o.isMesh && o.visible) box.expandByObject(o); });
+  const visit = (o) => {
+    if (!o.visible || o.name === 'crown') return;
+    if (o.isMesh) {
+      if (!o.geometry.boundingBox) o.geometry.computeBoundingBox();
+      box.union(_mb.copy(o.geometry.boundingBox).applyMatrix4(o.matrixWorld));
+    }
+    for (const c of o.children) visit(c);
+  };
+  visit(obj);
   return box;
 }
 
@@ -290,7 +301,8 @@ renderer.setAnimationLoop(() => {
     tag.style.top = `${(-_p.y * 0.5 + 0.5) * innerHeight}px`;
   }
   if (loaded && ++frames === 4) {
-    window.__info = { calls: renderer.info.render.calls, tris: renderer.info.render.triangles };
+    window.__info = { calls: renderer.info.render.calls, tris: renderer.info.render.triangles,
+                      normalsHealed: repairStats.healed, geometriesSmoothed: repairStats.smoothed };
     window.__ready = true;
   }
 });
