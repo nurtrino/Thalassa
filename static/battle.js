@@ -438,8 +438,11 @@ export function createBattleStage(renderer) {
       tall = Math.max(tall, (s.mon ? s.mon.userData.height : 1.8) * s.scl);
     }
     const near = tall > 0 ? clamp01((2.5 - tall) / 1.5) : 0;
-    st.camGoal.set(-17 - f * 7.5 + near * 1.9, 4.6 + f * 4.2 - near * 0.8, 7 + f * 3.4 - near * 0.5);
-    st.camLookGoal.set(0.5 + f * 2.4 + near * 0.7, 1.9 + f * 2.2 - near * 0.5, -0.3);
+    // the galley is a long, low hero: stand off a little further and aim lower
+    const ship = st.hero.kind === 'ship' ? 1 : 0;
+    st.camGoal.set(-17 - f * 7.5 + near * 1.9 - ship * 1.9, 4.6 + f * 4.2 - near * 0.8 + ship * 0.5,
+      7 + f * 3.4 - near * 0.5 + ship * 0.9);
+    st.camLookGoal.set(0.5 + f * 2.4 + near * 0.7, 1.9 + f * 2.2 - near * 0.5 - ship * 0.45, -0.3);
   }
 
   /* ── enter / exit ─────────────────────────────────────────────────────── */

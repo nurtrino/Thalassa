@@ -49,7 +49,7 @@ const SYS = [
   // megadunes: long, high, slow — the ridgelines of the middle distance
   { lam: 176, c: 0.72, warp: 0.46, wl: 420, off: 3.7 },
   // the near dunes that ride on and between them
-  { lam: 58, c: 0.70, warp: 0.55, wl: 150, off: 11.1 },
+  { lam: 36, c: 0.74, warp: 0.6, wl: 120, off: 11.1 },
 ];
 const profile = (s, c) => (s < c ? Math.pow(s / c, 1.7) : Math.pow(1 - (s - c) / (1 - c), 1.5));
 
@@ -78,28 +78,28 @@ function makeDuneField(cx, cz, segs) {
   const sample = (x, z) => {
     const dl = trailD(x, z);
     out.dl = dl;
-    const L = smooth(7, 26, dl);
+    const L = smooth(6, 22, dl);
     out.lane = L;
     if (L <= 0) { out.h = 0; out.amp = 0; out.crest = 0; return 0; }
     const lx = x - cx, lz = z - cz;
     const u = lx * w.x + lz * w.z, v = -lx * w.z + lz * w.x;
-    // the amphitheatre rule: dunes rise away from the road at ≤ 0.2 — under
+    // the amphitheatre rule: dunes rise away from the road at ≤ 0.24 — under
     // the lowest chase camera's sight line to the captain
-    const cap = 0.2 * Math.max(0, dl - 7);
+    const cap = 0.24 * Math.max(0, dl - 6);
     const far = smooth(60, 260, dl);
     const s0 = frac(phase(0, u, v)), s1 = frac(phase(1, u, v));
     const env0 = 0.4 + 0.6 * fbm(lx / 520 + 7.7, lz / 520 - 3.1);
-    const a0 = Math.min((5 + 17 * far) * env0, cap);
+    const a0 = Math.min((8 + 15 * far) * env0, cap);
     const slip0 = s0 > SYS[0].c ? Math.sin(Math.PI * (s0 - SYS[0].c) / (1 - SYS[0].c)) : 0;
-    const env1 = smooth(0.30, 0.62, fbm(lx / 210 - 11.3, lz / 210 + 4.9));
-    const a1 = Math.min(6.5 * env1 * (1 - 0.75 * slip0), cap);
+    const env1 = smooth(0.26, 0.58, fbm(lx / 170 - 11.3, lz / 170 + 4.9));
+    const a1 = Math.min(4.3 * env1 * (1 - 0.75 * slip0), cap);
     const base = (fbm(lx / 85 + 2.2, lz / 85 + 9.1) - 0.5) * 1.8;
     const h = (base + a0 * profile(s0, SYS[0].c) + a1 * profile(s1, SYS[1].c)) * L;
     out.h = h;
     out.amp = (a0 + a1) * L;
     // how close to a crest line (world units → 0..1), weighted by its dune
     const c0 = Math.abs(s0 - SYS[0].c) * SYS[0].lam, c1 = Math.abs(s1 - SYS[1].c) * SYS[1].lam;
-    out.crest = Math.max((1 - smooth(0, 7, c0)) * clamp01(a0 / 5), (1 - smooth(0, 4, c1)) * clamp01(a1 / 3)) * L;
+    out.crest = Math.max((1 - smooth(0, 7, c0)) * clamp01(a0 / 5), (1 - smooth(0, 3, c1)) * clamp01(a1 / 2.5)) * L;
     return h;
   };
   const heightAt = (x, z) => sample(x, z);
@@ -188,8 +188,8 @@ function sandMaterial(trail, wind) {
         float rLee = clamp(dot(normalize(vWNrm).xz, uWind) * 2.4, 0.0, 1.0);
         float rAmt = (1.0 - rPath) * (1.0 - rScuff * 0.45) * (1.0 - rLee * 0.7);
         float rFineK = rAmt * (1.0 - smoothstep(16.0, 62.0, length(vViewPosition)));
-        float rMegaK = rAmt * 0.85;
-        diffuseColor.rgb *= 1.0 + (rFine.b - 0.5) * 0.17 * rFineK + (rMega.b - 0.5) * 0.15 * rMegaK;`)
+        float rMegaK = rAmt * 0.5;
+        diffuseColor.rgb *= 1.0 + (rFine.b - 0.5) * 0.17 * rFineK + (rMega.b - 0.5) * 0.12 * rMegaK;`)
       .replace('#include <normal_fragment_maps>', /* glsl */`#include <normal_fragment_maps>
         {
           vec2 rG = (rFine.rg - 0.5) * 1.5 * rFineK + (rMega.rg - 0.5) * 1.25 * rMegaK;
@@ -244,8 +244,8 @@ export function makeDesertGround(theme, size = 3000, opts = {}) {
   const sand = new THREE.Color(theme.palette.sand);
   const sandDeep = new THREE.Color(theme.palette.grass2 ?? 0xb99a60);
   const sandHot = sand.clone().lerp(new THREE.Color(0xfff6dc), 0.55);
-  const sandLee = new THREE.Color(theme.palette.grass ?? 0xcaa868).lerp(new THREE.Color(0xc98f52), 0.35);
-  const hardpan = new THREE.Color(0xd9cba6);
+  const sandLee = new THREE.Color(theme.palette.sandLee ?? 0xb98248);
+  const hardpan = new THREE.Color(theme.palette.hardpan ?? 0xd6c59c);
   const c = new THREE.Color();
   for (let j = 0; j < NV; j++) {
     for (let i = 0; i < NU; i++) {
@@ -272,8 +272,8 @@ export function makeDesertGround(theme, size = 3000, opts = {}) {
       const n2 = F.fbm((x - cx) / 13 - 2.1, (z - cz) / 13 + 6.6);
       c.copy(sandDeep).lerp(sand, 0.5 + n1 * 0.5);
       const lee = clamp01((nx * w.x + nz * w.z) * inv * 2.6);
-      c.lerp(sandLee, lee * 0.55);
-      c.lerp(sandHot, crest * 0.6);
+      c.lerp(sandLee, lee * 0.75);
+      c.lerp(sandHot, crest * 0.7 * (1 - lee));
       const flats = (1 - smooth(0.4, 2.6, amp)) * lane;
       c.lerp(hardpan, flats * (0.25 + n2 * 0.4));
       c.multiplyScalar(0.95 + n2 * 0.1);

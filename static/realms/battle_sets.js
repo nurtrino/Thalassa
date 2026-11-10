@@ -132,12 +132,14 @@ function makeShoal({ cx, cz, rx, rz, top, seed, dry, wet, accent = null }) {
     mask: (x, z) => rrOf(x, z) < 2.2,
     paint: (x, z, y, ny, c) => {
       const n = f(x * 0.3 + 4, z * 0.3 - 7);
-      c.copy(cWet).lerp(cDry, smooth(SEA, top, y) * (0.65 + n * 0.5));
+      // dry and pale where the creatures stand, dark and wet toward the surf
+      c.copy(cWet).lerp(cDry, smooth(0.95, 0.5, rrOf(x, z)) * (0.6 + n * 0.5));
       if (cAcc) c.lerp(cAcc, smooth(0.52, 0.72, f(x * 0.21 - 11, z * 0.21 + 5)) * smooth(0.45, 0.95, rrOf(x, z)) * 0.8);
       c.multiplyScalar(0.9 + n * 0.2);
       if (y < SEA - 0.4) c.lerp(cDeep, smooth(SEA - 0.4, SEA - 5, y));
     },
-    material: makeGroundMaterial({ tide: true, bump: 0.9 }),
+    // matte on purpose: the stock tide gloss turns a bar this low into a mirror
+    material: makeGroundMaterial({ tide: false, bump: 0.9 }),
   });
   mesh.layers.enable(SHORE_LAYER);
   mesh.name = 'arena';
@@ -738,7 +740,7 @@ export function buildBattleSet(theme, opts = {}, kit = {}) {
   if (id === 'hub') {
     /* ── Aegean afternoon: a sandbar off a temple isle ── */
     g.add(makeShoal({ ...ARENA, top: afloat ? SEA - 1.5 : -0.03, seed: seed + 1,
-      dry: theme.palette.sand, wet: 0xc9b98a }));
+      dry: 0xe6d6a4, wet: 0x9c8a62 }));
 
     const [tx, tz] = P(55, 4);
     const temple = isle(tx, tz, 10, 3.2, 'mesa', 'meadow');
@@ -922,7 +924,7 @@ export function buildBattleSet(theme, opts = {}, kit = {}) {
   } else if (id === 'jungle') {
     /* ── the Verdigris Deep: a pale silt bar in a brown river, canopy walls ── */
     g.add(makeShoal({ ...ARENA, top: afloat ? SEA - 1.5 : -0.03, seed: seed + 1,
-      dry: 0xdccd98, wet: 0xa89868, accent: 0x6f8a44 }));
+      dry: 0xdccd98, wet: 0x8f7d54, accent: 0x6f8a44 }));
     const [tx, tz] = P(55, 4);
     const ruin = isle(tx, tz, 11.5, 1.5, 'flat', 'meadow');
     landmark('jungle_dungeon', 0, ruin.top - 0.2, 0, { h: 9.5, ry: -Math.PI / 2 - 0.42 }, ruin.group);

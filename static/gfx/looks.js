@@ -40,15 +40,15 @@ const LOOKS = {
   },
 
   desert: {
-    sun: { az: 27, el: 64, color: 0xfff4d8, intensity: 3.9 },
-    sky: { zenith: 0x1c69cc, ground: 0xc9a96a, curve: 0.36, glow: 0.7, disc: 34,
-           clouds: { cover: 0.10, scale: 1.4, speed: 0.006, soft: 0.22, lit: 0xffffff, shade: 0xc9b89a } },
-    fog: { color: 0xecd9a8, sunColor: 0xfff0c2, sunGlow: 0.5, heightFalloff: 0.008, heightBase: 6, heightAmount: 0.8 },
-    env: 1.0, fill: { sky: 0xffe9c0, ground: 0xc79a5c, intensity: 0.26 },
+    sun: { az: 27, el: 60, color: 0xfff2d2, intensity: 4.0 },
+    sky: { zenith: 0x1a62c6, ground: 0xc9a96a, curve: 0.27, glow: 0.7, disc: 34,
+           clouds: { cover: 0.08, scale: 1.4, speed: 0.006, soft: 0.22, lit: 0xffffff, shade: 0xc9b89a } },
+    fog: { color: 0xecd6a2, sunColor: 0xfff0c2, sunGlow: 0.5, heightFalloff: 0.014, heightBase: 5, heightAmount: 0.85 },
+    env: 0.8, fill: { sky: 0xffe9c0, ground: 0xc79a5c, intensity: 0.16 },
     shadow: { strength: 0.95, radius: 2.0 },
-    exposure: 0.94, bloom: { strength: 0.36, radius: 0.6, threshold: 1.1 },
+    exposure: 0.88, bloom: { strength: 0.34, radius: 0.6, threshold: 1.1 },
     shafts: 0.2, shaftColor: 0xfff0c8,
-    grade: { contrast: 1.09, saturation: 1.06, shadows: 0xfff4ea, highlights: 0xfff8e6, vignette: 0.24 },
+    grade: { contrast: 1.13, saturation: 1.14, shadows: 0xfff1e2, highlights: 0xfff8e6, vignette: 0.24 },
   },
 
   jungle: {

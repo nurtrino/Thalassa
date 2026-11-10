@@ -71,11 +71,14 @@ const THEMES = {
     water: { deep: 0x1a7f8e, shallow: 0x53d3c4, sparkle: 1.2, chop: 0.7 },
     ground: 'sand',
     sky: { zenith: 0x2470c2, mid: 0x8ec8e6, horizon: 0xf9e3ae },
-    fog: { color: 0xeeddb0, near: 55, far: 310 },
+    fog: { color: 0xeeddb0, near: 85, far: 380 },
     sun: { color: 0xfff3cd, intensity: 2.15, position: [120, 300, 60] },
     hemi: { sky: 0xffe9c0, ground: 0xb08a56, intensity: 0.75 },
     ambient: 0x3d3322,
-    palette: { grass: 0xc9ae6e, grass2: 0xa8905a, sand: 0xf0dfae, rock: 0xc98a4a, dry: true, cover: 'rocks' },
+    // golden sand that shades to ochre on the slip faces; stops stand on
+    // pale sandstone, not orange rock (sandLee/hardpan are read by realms/desert.js)
+    palette: { grass: 0xd2b47c, grass2: 0xc39f66, sand: 0xe6c88e, rock: 0xb8996a,
+               sandLee: 0xb37c44, hardpan: 0xd9c8a0, dry: true, cover: 'rocks' },
     flora: 'cactus',
     particles: 'dust',
     wall: { rock: 0xa8703e, snow: 0xf3e3b4, glow: 0xe8c27a },

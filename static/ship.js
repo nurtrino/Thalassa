@@ -522,7 +522,7 @@ function buildBody(paint) {
       hullNormal(u, s, side, o.n);
       o.u = u * 7; o.v = 0.06 + s * 2.4;
       if (j >= BAND_FROM) o.c = paint;
-      else o.c = _col.copy(C.wood).lerp(C.pitch, smooth(WL + 0.2, WL + 0.02, o.p.y)).clone();
+      else o.c = _col.copy(C.wood).lerp(C.pitch, smooth(WL + 0.11, WL - 0.02, o.p.y)).clone();
     });
     /* inner bulwark: sheer down to the deck edge */
     B.grid(NU - 4, 1, (i, j, o) => {
