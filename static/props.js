@@ -7,7 +7,7 @@
  * loading, so the synchronous island builder can scatter props without waiting.
  */
 import * as THREE from 'three';
-import { GLTFLoader } from './vendor/GLTFLoader.js';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 
 export const PROP_IDS = [
   // core filler props

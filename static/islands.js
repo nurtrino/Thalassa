@@ -4,90 +4,16 @@
  * via the THEME objects from themes.js.
  */
 import * as THREE from 'three';
-import { GLTFLoader } from './vendor/GLTFLoader.js';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { hashStr, mulberry32, flat, displace, seedFrom, softDiscTexture } from './util.js';
 import { DOMAIN_COLORS, REALM_INFO } from './themes.js';
 import { propGroup } from './props.js';
+import { makeTerrain, makeNoise2D, groundGrainTexture, groundReliefTexture, SHORE_LAYER } from './gfx/terrain.js';
 
-/* ── stylized "painted" ground overlay ──────────────────────────────────────
- * Terrain keeps its solid height-based vertex colours (the real biome colour);
- * we just multiply in ONE neutral, procedurally-painted mottle so the flat
- * facets read as hand-painted gouache instead of dead-flat. No image files,
- * no per-biome art — the island colour is "painted on" purely via the palette,
- * and islands generate cleanly. Tweak the greys below to taste. */
-const GROUND_TILE = 9;   // world units per texture repeat
-
-/* draw a wrap-safe blotch field onto a canvas context */
-function blotch(ctx, S, rng, n, rMin, rMax, ink) {
-  for (let i = 0; i < n; i++) {
-    const x = rng() * S, y = rng() * S, r = rMin + rng() * (rMax - rMin);
-    ctx.fillStyle = ink(rng);
-    for (const ox of [-S, 0, S]) for (const oy of [-S, 0, S]) {
-      ctx.beginPath(); ctx.arc(x + ox, y + oy, r, 0, 6.2832); ctx.fill();
-    }
-  }
-}
-
-let _paintedTex = null;
-export function paintedGroundTexture() {
-  if (_paintedTex) return _paintedTex;
-  const S = 256;
-  const cv = document.createElement('canvas');
-  cv.width = cv.height = S;
-  const ctx = cv.getContext('2d');
-  ctx.fillStyle = '#ffffff';
-  ctx.fillRect(0, 0, S, S);                       // base = no tint (solid colour)
-  const rng = mulberry32(24239);                  // deterministic detail layers
-  // broad soft patches → meadows read as ground, not paint
-  blotch(ctx, S, rng, 70, 22, 52, (r) => {
-    const v = 200 + ((r() * 50) | 0);
-    return `rgba(${v},${v},${v},${0.06 + r() * 0.07})`;
-  });
-  // mid clumps
-  blotch(ctx, S, rng, 240, 6, 18, (r) => {
-    const v = 192 + ((r() * 63) | 0);
-    return `rgba(${v},${v},${v},${0.06 + r() * 0.08})`;
-  });
-  // fine stipple — the tooth that reads at deck height
-  blotch(ctx, S, rng, 2400, 0.6, 1.8, (r) => {
-    const dark = r() < 0.6;
-    const v = dark ? 168 + ((r() * 50) | 0) : 255;
-    return `rgba(${v},${v},${v},${0.05 + r() * 0.07})`;
-  });
-  const t = new THREE.CanvasTexture(cv);
-  t.wrapS = t.wrapT = THREE.RepeatWrapping;
-  t.colorSpace = THREE.SRGBColorSpace;
-  t.anisotropy = 8;
-  _paintedTex = t;
-  return t;
-}
-
-/* matching greyscale relief — bump-mapped so grass, sand and rock catch the
-   sun with actual surface tooth instead of reading as smooth plastic */
-let _bumpTex = null;
-export function groundBumpTexture() {
-  if (_bumpTex) return _bumpTex;
-  const S = 256;
-  const cv = document.createElement('canvas');
-  cv.width = cv.height = S;
-  const ctx = cv.getContext('2d');
-  ctx.fillStyle = '#808080';
-  ctx.fillRect(0, 0, S, S);
-  const rng = mulberry32(77121);
-  blotch(ctx, S, rng, 120, 10, 34, (r) => {
-    const v = 96 + ((r() * 128) | 0);
-    return `rgba(${v},${v},${v},${0.10 + r() * 0.10})`;
-  });
-  blotch(ctx, S, rng, 2600, 0.6, 2.2, (r) => {
-    const v = r() < 0.5 ? 40 + ((r() * 60) | 0) : 190 + ((r() * 65) | 0);
-    return `rgba(${v},${v},${v},${0.16 + r() * 0.16})`;
-  });
-  const t = new THREE.CanvasTexture(cv);
-  t.wrapS = t.wrapT = THREE.RepeatWrapping;
-  t.anisotropy = 8;
-  _bumpTex = t;
-  return t;
-}
+/* ground grain/relief textures now live with the terrain engine (gfx/terrain.js);
+   re-exported under their old names for the sand floors in water.js */
+export const paintedGroundTexture = groundGrainTexture;
+export const groundBumpTexture = groundReliefTexture;
 
 /* ── Meshy landmark GLBs (static/assets/structures) ─────────────────────────
    The AI-generated set ships centred at arbitrary unit scale; mount() grounds
@@ -160,190 +86,8 @@ const COL = {
   wood: 0x9a6b3f, woodDark: 0x74502f, bone: 0xe8e2d2,
 };
 
-/* ── terrain — REVAMPED procedural island engine ─────────────────────────
- * Real-island rules, no radial artifacts:
- *   · the COASTLINE is seeded 2D noise sampled around a circle — every isle
- *     an organic, asymmetric blob (never a star, never symmetric)
- *   · HEIGHT follows the mode profile, with noise RELIEF that fades in
- *     toward the rim — the heart of the island stays exactly on heightAt()
- *     so buildings and flora never float
- *   · COLOURS band by elevation like a real shore — wet sand, dry beach, a
- *     dithered blend into grass, noise-patched rock — with every band line
- *     wavered by world-space noise. NOTHING is a function of angle: no
- *     pinwheels, no bullseyes, no swirl.
- */
-function makeNoise2D(seed) {
-  const rng = mulberry32(seed);
-  const perm = new Uint8Array(512);
-  const srcp = Array.from({ length: 256 }, (_, i) => i);
-  for (let i = 255; i > 0; i--) {
-    const j = (rng() * (i + 1)) | 0;
-    const t = srcp[i]; srcp[i] = srcp[j]; srcp[j] = t;
-  }
-  for (let i = 0; i < 512; i++) perm[i] = srcp[i & 255];
-  const val = (ix, iz) => perm[(ix & 255) + perm[iz & 255]] / 255;
-  return (x, z) => {
-    const ix = Math.floor(x), iz = Math.floor(z);
-    const fx = x - ix, fz = z - iz;
-    const sx = fx * fx * (3 - 2 * fx), sz = fz * fz * (3 - 2 * fz);
-    const a = val(ix, iz), b = val(ix + 1, iz);
-    const c = val(ix, iz + 1), d = val(ix + 1, iz + 1);
-    return a + (b - a) * sx + (c - a) * sz + (a - b - c + d) * sx * sz;
-  };
-}
-
-export function makeTerrain({ seed, R, H, mode = 'hill', palette = {}, lobes = 0, tex = null }) {
-  const rng = mulberry32(seed);
-  const noise = makeNoise2D((seed ^ 0x9e3779) >>> 0);
-  const fbm = (x, z) => (noise(x, z) + 0.5 * noise(x * 2.13 + 37.7, z * 2.13 - 19.1)
-                         + 0.25 * noise(x * 4.31 - 53.3, z * 4.31 + 11.9)) / 1.75;
-  const SEG_A = 48, SEG_R = 13;
-  const ex = 0.8 + rng() * 0.5;
-  const ez = 0.8 + rng() * 0.5;
-  const rugged = 0.6 + rng() * (mode === 'mesa' ? 0.5 : 1.0);
-  const hueDrift = (c, dh, ds, dl) => {
-    const hsl = {};
-    c.getHSL(hsl);
-    c.setHSL((hsl.h + dh + 1) % 1, Math.min(1, Math.max(0, hsl.s + ds)),
-             Math.min(1, Math.max(0, hsl.l + dl)));
-    return c;
-  };
-  const gShift = (rng() - 0.5) * 0.06, sShift = (rng() - 0.5) * 0.03;
-  const P = {
-    sand: hueDrift(new THREE.Color(palette.sand ?? COL.sand), sShift, 0, (rng() - 0.5) * 0.06),
-    sandWet: new THREE.Color(palette.sandWet ?? COL.sandWet),
-    grass: hueDrift(new THREE.Color(palette.grass ?? COL.grass), gShift, (rng() - 0.5) * 0.1, 0),
-    grass2: hueDrift(new THREE.Color(palette.grass2 ?? COL.grass2), gShift, 0, (rng() - 0.5) * 0.08),
-    rock: new THREE.Color(palette.rock ?? COL.rock),
-  };
-  // the coastline: noise around the unit circle — organic and closed
-  const eoff = rng() * 90;
-  const ephase = rng() * 6.28;
-  const edge = (a) => (0.78 + 0.52 * rugged
-                        * fbm(Math.cos(a) * 2.3 + eoff, Math.sin(a) * 2.3 + eoff))
-                      * (1 + lobes * Math.sin(2 * a + ephase));
-  const smooth = (a, b, x) => {
-    const k = Math.min(1, Math.max(0, (x - a) / (b - a)));
-    return k * k * (3 - 2 * k);
-  };
-  const profile = (rr) => {
-    if (mode === 'mesa') return H * (1 - smooth(0.52, 0.88, rr));
-    if (mode === 'peak') return H * Math.pow(Math.max(0, 1 - rr), 1.35);
-    if (mode === 'flat') return H * (1 - smooth(0.7, 0.97, rr));
-    if (mode === 'atoll') return H * (smooth(0.14, 0.4, rr) - smooth(0.55, 0.92, rr));
-    return H * (1 - smooth(0.15, 0.95, rr)) * (0.75 + 0.25 * Math.cos(rr * 3));
-  };
-
-  const pos = [], col = [], idx = [], uvs = [];
-  const RINGS = SEG_R + 3;
-  const heightAt = (rr) => Math.max(0, profile(Math.min(rr, 1)));
-  const _sand = new THREE.Color();
-
-  for (let ri = 0; ri <= RINGS; ri++) {
-    for (let ai = 0; ai < SEG_A; ai++) {
-      const a = (ai / SEG_A) * Math.PI * 2;
-      let rr;
-      if (ri <= SEG_R) rr = ri / SEG_R;
-      else rr = 1 + (ri - SEG_R) * 0.09;
-      const wr = rr * R * edge(a);
-      const px = Math.cos(a) * wr * ex, pz = Math.sin(a) * wr * ez;
-      let y;
-      if (ri <= SEG_R) {
-        // relief fades IN toward the rim: the heart stays on heightAt()
-        const relief = 1 + (fbm(px * 0.16 + 5.1, pz * 0.16 - 8.7) - 0.5)
-                         * 0.8 * rugged * smooth(0.4, 0.95, rr);
-        y = heightAt(rr) * relief;
-        if (ri === SEG_R) y = 0.08;                     // the waterline lip
-      } else {
-        y = -(ri - SEG_R) * 1.15;                       // submerged flank
-      }
-      pos.push(px, y, pz);
-      uvs.push(px / GROUND_TILE, pz / GROUND_TILE);
-
-      const c = new THREE.Color();
-      const hFrac = y / Math.max(H, 0.001);
-      const n = fbm(px * 0.42 + 11.3, pz * 0.42 - 23.9); // slow world mottle
-      const dither = (n - 0.5) * 0.24;                   // wavers every band line
-      if (ri > SEG_R) {
-        c.copy(ri === SEG_R + 1 ? P.sandWet : P.rock).multiplyScalar(0.75);
-      } else {
-        const beachTop = Math.min(0.34, H * 0.2)
-          + dither * Math.min(1, H * 0.55);              // wandering shoreline
-        if (rr > 0.94) c.copy(P.sandWet);
-        else if (y < beachTop) c.copy(P.sand);
-        else if (mode === 'mesa' && rr > 0.5 + dither * 0.5 && rr < 0.96) {
-          c.copy(P.rock);   // the carved cliff walls
-        } else if (mode === 'peak' && hFrac + dither > 0.53) {
-          c.copy(P.rock).lerp(new THREE.Color(COL.rockDark),
-            Math.min(1, Math.max(0, (hFrac - 0.53) * 1.6)));
-        } else {
-          // grassland: two tones in soft world-space patches, sun-dried in spots
-          c.copy(P.grass).lerp(P.grass2, fbm(px * 0.5 - 31.7, pz * 0.5 + 47.3));
-          c.lerp(P.sand, smooth(0.62, 0.92, n) * 0.16);
-          // dithered beach→grass blend so the shore is never a hard ring
-          const k = smooth(beachTop, beachTop + Math.min(0.32, H * 0.24), y);
-          _sand.copy(P.sand);
-          c.lerpColors(_sand, c, k);
-        }
-      }
-      col.push(c.r, c.g, c.b);
-    }
-  }
-  const capY = heightAt(0);
-  pos.push(0, capY, 0);
-  uvs.push(0, 0);
-  const capC = mode === 'peak' ? new THREE.Color(COL.rockDark) : P.grass;
-  col.push(capC.r, capC.g, capC.b);
-  const capIdx = pos.length / 3 - 1;
-
-  const vid = (ri, ai) => ri * SEG_A + (ai % SEG_A);
-  for (let ai = 0; ai < SEG_A; ai++) idx.push(capIdx, vid(0, ai + 1), vid(0, ai));
-  for (let ri = 0; ri < RINGS; ri++) {
-    for (let ai = 0; ai < SEG_A; ai++) {
-      const a0 = vid(ri, ai), a1 = vid(ri, ai + 1), b0 = vid(ri + 1, ai), b1 = vid(ri + 1, ai + 1);
-      idx.push(a0, a1, b0, a1, b1, b0);
-    }
-  }
-  const geo = new THREE.BufferGeometry();
-  geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
-  geo.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
-  geo.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
-  geo.setIndex(idx);
-  geo.computeVertexNormals();
-  const mesh = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({
-    vertexColors: true, flatShading: true, roughness: 0.95,
-    map: paintedGroundTexture(),        // neutral painted mottle × vertex colour
-    bumpMap: groundBumpTexture(),       // …with real tooth under the sun
-    bumpScale: 0.55,
-  }));
-  mesh.receiveShadow = true;
-  // the island cone must NOT cast — its own shadow used to fall on its
-  // submerged sandy shelf and bleed through the translucent shallow-water ring
-  // as a dark stain in the shallows. Props on the isle (lighthouse, trees) still
-  // cast onto the beach, since the terrain keeps RECEIVING shadows.
-  mesh.castShadow = false;
-
-  // exact surface samplers so props sit ON the sculpted ground, not on the
-  // smooth radial profile (which ignores the noise relief and the ex/ez /
-  // coastline warp — the cause of floating / half-buried trees).
-  const relief = (px, pz, rr) =>
-    1 + (fbm(px * 0.16 + 5.1, pz * 0.16 - 8.7) - 0.5)
-        * 0.8 * rugged * smooth(0.4, 0.95, Math.min(rr, 1));
-  // world point for a compass direction + normalized radius (matches a vertex)
-  const place = (a, rr) => {
-    const wr = rr * R * edge(a);
-    const x = Math.cos(a) * wr * ex, z = Math.sin(a) * wr * ez;
-    return { x, y: Math.max(0, profile(Math.min(rr, 1))) * relief(x, z, rr), z };
-  };
-  // surface height beneath any local (x,z)
-  const surfaceY = (x, z) => {
-    const ax = x / ex, az = z / ez;
-    const a = Math.atan2(az, ax);
-    const rr = Math.min(1, Math.hypot(ax, az) / (R * edge(a) || 1));
-    return Math.max(0, profile(rr)) * relief(x, z, rr);
-  };
-  return { mesh, heightAt, place, surfaceY, rng };
-}
+/* terrain: see gfx/terrain.js (makeTerrain is imported above and re-exported) */
+export { makeTerrain };
 
 // a jetty seated on the real coastline at `angle`, sized to the island so it
 // rests on the beach and reaches over the water — never clipping or floating
@@ -356,41 +100,10 @@ function placeDock(terrain, angle, len = 5.0) {
 }
 
 /* ── water-line dressings ───────────────────────────────────────────────── */
-const _shallowTexCache = new Map();
-function shallowDisc(radius, shallowHex = 0x60e0d5) {
-  let tex = _shallowTexCache.get(shallowHex);
-  if (!tex) {
-    const cc = new THREE.Color(shallowHex);
-    const r = Math.round(cc.r * 255), g = Math.round(cc.g * 255), b = Math.round(cc.b * 255);
-    const c = document.createElement('canvas');
-    c.width = c.height = 256;
-    const ctx = c.getContext('2d');
-    const gr = ctx.createRadialGradient(128, 128, 20, 128, 128, 128);
-    gr.addColorStop(0, `rgba(${r},${g},${b},0.62)`);
-    gr.addColorStop(0.55, `rgba(${r},${g},${b},0.34)`);
-    gr.addColorStop(1, `rgba(${r},${g},${b},0)`);
-    ctx.fillStyle = gr;
-    ctx.fillRect(0, 0, 256, 256);
-    tex = new THREE.CanvasTexture(c);
-    _shallowTexCache.set(shallowHex, tex);
-  }
-  const m = new THREE.Mesh(new THREE.PlaneGeometry(radius, radius),
-    new THREE.MeshBasicMaterial({ map: tex, transparent: true, depthWrite: false }));
-  m.rotation.x = -Math.PI / 2;
-  m.position.y = -0.05;
-  return m;
-}
-
-function foamRing(R) {
-  const foam = new THREE.Mesh(
-    new THREE.RingGeometry(R * 1.06, R * 1.3, 36),
-    new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.3,
-      side: THREE.DoubleSide, depthWrite: false }));
-  foam.rotation.x = -Math.PI / 2;
-  foam.position.y = 0.03;
-  foam.name = 'foam';
-  return foam;
-}
+/* shallows and surf are painted by the ocean itself now (from the baked shore
+   map — gfx/shoremap.js), so these old overlay discs are intentionally empty */
+function shallowDisc() { return new THREE.Group(); }
+function foamRing() { return new THREE.Group(); }
 
 /* the desert-trek analogue of the foam ring: wind ripples in the sand */
 function sandRippleRing(R, sandHex) {

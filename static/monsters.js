@@ -26,7 +26,7 @@
  * callers own the wrapper's own position/rotation/scale entirely.
  */
 import * as THREE from 'three';
-import { GLTFLoader } from './vendor/GLTFLoader.js';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { flat, mulberry32, hashStr } from './util.js';
 
 export const MONSTER_IDS = [

@@ -17,15 +17,22 @@
  *   (realm node coordinates come from the server and are not origin-centred).
  */
 import * as THREE from 'three';
-import { OrbitControls } from './vendor/OrbitControls.js';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { hashStr, mulberry32, flat } from './util.js';
 import { themeFor } from './themes.js';
-import { makeWater, makeGround } from './water.js';
+import { makeGround } from './water.js';
 import { buildIsland, makeShip, makeParticles, nameSprite, makeRealmField, preloadStructures } from './islands.js';
 import { preloadProps } from './props.js';
 import { buildMountainWall, buildRealmBackdrop } from './wall.js';
 import { getMonster, animateMonster, preloadMonsters, disposeMonster, BOSS_IDS } from './monsters.js';
 import { createBattleStage } from './battle.js';
+import { installAtmosphere, applyLook, updateAtmosphere } from './gfx/atmosphere.js';
+import { lookFor } from './gfx/looks.js';
+import { makeSky, bakeEnvironment } from './gfx/sky.js';
+import { makeLightRig } from './gfx/lighting.js';
+import { makeOcean } from './gfx/ocean.js';
+import { createPipeline } from './gfx/pipeline.js';
+import { makeShoreMap } from './gfx/shoremap.js';
 
 const FADE_MS = 480;               // fade-to-black hold before the swap
 const GOLD = 0xffd75e;
@@ -65,40 +72,6 @@ function ensureTextures() {
   ]);
 }
 
-/* ── per-stage sky dome (legacy shader, themed) ─────────────────────────── */
-function makeSky(sky) {
-  const geo = new THREE.SphereGeometry(1500, 24, 14);
-  const mat = new THREE.ShaderMaterial({
-    side: THREE.BackSide, depthWrite: false, fog: false,
-    uniforms: {
-      zenith: { value: new THREE.Color(sky.zenith) },
-      mid: { value: new THREE.Color(sky.mid) },
-      horizon: { value: new THREE.Color(sky.horizon) },
-    },
-    vertexShader: `varying vec3 vP; void main(){ vP = position;
-      gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }`,
-    fragmentShader: `uniform vec3 zenith; uniform vec3 mid; uniform vec3 horizon; varying vec3 vP;
-      void main(){
-        float h = normalize(vP).y;
-        vec3 c = h > 0.25 ? mix(mid, zenith, smoothstep(0.25, 0.8, h))
-                          : mix(horizon, mid, smoothstep(-0.05, 0.25, h));
-        gl_FragColor = vec4(c, 1.0);
-      }`,
-  });
-  const m = new THREE.Mesh(geo, mat);
-  m.renderOrder = -10;
-  return m;
-}
-
-function makeSunGlow(colorHex) {
-  const sp = new THREE.Sprite(new THREE.SpriteMaterial({
-    map: TEX_GLOW, transparent: true, blending: THREE.AdditiveBlending,
-    depthWrite: false, fog: false, color: new THREE.Color(colorHex).lerp(new THREE.Color(0xffffff), 0.4),
-  }));
-  sp.scale.set(220, 220, 1);
-  return sp;
-}
-
 /* clouds, gulls and dolphins are gone — the sea keeps its own company */
 
 /* ── view keys: island groups rebuild only when this changes ────────────── */
@@ -130,13 +103,16 @@ export function createWorld(container, handlers = {}) {
   preloadProps();          // start loading Meshy island filler props
 
   /* renderer */
-  const renderer = new THREE.WebGLRenderer({ antialias: true });
-  renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+  installAtmosphere();     // aerial-perspective fog on every material, before any compile
+  const renderer = new THREE.WebGLRenderer({ antialias: false, powerPreference: 'high-performance' });
   renderer.shadowMap.enabled = true;
-  renderer.shadowMap.type = THREE.PCFSoftShadowMap;
-  renderer.toneMapping = THREE.ACESFilmicToneMapping;
-  renderer.toneMappingExposure = 1.05;
+  renderer.shadowMap.type = THREE.PCFShadowMap;
   container.appendChild(renderer.domElement);
+  /* the HDR frame: bloom, sun shafts, tone map and film grade (gfx/pipeline.js) */
+  const pipe = createPipeline(renderer);
+  /* one shared top-down height map of the active stage — the ocean reads it
+     for shallows, caustics and surf (gfx/shoremap.js) */
+  const shore = makeShoreMap(renderer, { res: pipe.quality === 'high' ? 4096 : 2048 });
 
   /* the fade curtain — CSS (Agent D) provides the .45s opacity transition */
   const fadeEl = document.createElement('div');
@@ -327,28 +303,15 @@ export function createWorld(container, handlers = {}) {
     const center = stageCenter(stageId, room);
     const rng = mulberry32(hashStr('stage:' + stageId));
 
-    const sky = makeSky(theme.sky);
-    sky.position.set(center.x, 0, center.z);
-    scene.add(sky);
-
-    const sunDir = new THREE.Vector3().fromArray(theme.sun.position).normalize();
-    const sun = new THREE.DirectionalLight(theme.sun.color, theme.sun.intensity);
-    sun.castShadow = true;
-    sun.shadow.mapSize.set(2048, 2048);
-    sun.shadow.camera.left = -120; sun.shadow.camera.right = 120;
-    sun.shadow.camera.top = 120; sun.shadow.camera.bottom = -120;
-    sun.shadow.camera.near = 10;
-    sun.shadow.camera.far = 900;
-    sun.shadow.bias = -0.0004;
-    sun.position.copy(center).addScaledVector(sunDir, 380);
-    sun.target.position.copy(center);
-    scene.add(sun, sun.target);
-    scene.add(new THREE.HemisphereLight(theme.hemi.sky, theme.hemi.ground, theme.hemi.intensity));
-    scene.add(new THREE.AmbientLight(theme.ambient, 0.35));
-
-    const glow = makeSunGlow(theme.sun.color);
-    glow.position.copy(center).addScaledVector(sunDir, 1300);
-    scene.add(glow);
+    /* light: the stage's look drives the shared atmosphere (sky, sun, haze);
+       ambient comes from the sky itself, baked into scene.environment */
+    const look = lookFor(stageId);
+    scene.add(makeSky());
+    const rig = makeLightRig(look);
+    scene.add(rig.group);
+    const sun = rig.sun, sunDir = rig.sunDir;
+    scene.environmentIntensity = look.env;
+    rig.follow(center, 60);
 
     // trail segments (world space) — needed up-front so the desert floor can
     // keep the LANES flat and roll dunes only in the wilds between them
@@ -363,7 +326,7 @@ export function createWorld(container, handlers = {}) {
     }
     const surf = theme.ground === 'sand'
       ? makeGround(theme, 3000, { center, segs: groundSegs })
-      : makeWater(theme, 3000);
+      : makeOcean(theme, look);
     surf.mesh.position.x += center.x;
     surf.mesh.position.z += center.z;
     scene.add(surf.mesh);
@@ -437,8 +400,8 @@ export function createWorld(container, handlers = {}) {
     scene.add(laneGroup);
 
     return {
-      id: stageId, theme, scene, center, rng,
-      sun, sunDir, glow, surf, wall, particles, field,
+      id: stageId, theme, look, scene, center, rng, rig, env: null,
+      sun, sunDir, surf, wall, particles, field,
       islands: {},           // nodeId → {key, group, proxy, R, plateauY, fxBits}
       proxyList: [],
       laneGroup, laneKey: '',
@@ -446,6 +409,8 @@ export function createWorld(container, handlers = {}) {
   }
 
   function destroyStage(st) {
+    if (litStage === st) litStage = null;
+    st.env?.dispose();
     disposeDeep(st.scene);
     st.scene.clear();
   }
@@ -514,6 +479,7 @@ export function createWorld(container, handlers = {}) {
       };
       cacheIslandFx(st.islands[node.id]);
       proxiesDirty = true;
+      st.shoreDirty = true;
     }
     for (const id of Object.keys(st.islands)) {
       if (present.has(id)) continue;
@@ -523,6 +489,7 @@ export function createWorld(container, handlers = {}) {
       isle.proxy.geometry.dispose();
       delete st.islands[id];
       proxiesDirty = true;
+      st.shoreDirty = true;
     }
     if (proxiesDirty) st.proxyList = Object.values(st.islands).map((i) => i.proxy);
 
@@ -1525,7 +1492,7 @@ export function createWorld(container, handlers = {}) {
     const w = container.clientWidth || 1, h = container.clientHeight || 1;
     camera.aspect = w / h;
     camera.updateProjectionMatrix();
-    renderer.setSize(w, h);
+    pipe.setSize(w, h);
     battleStage.resize(w, h);
   }
   window.addEventListener('resize', resize);
@@ -1533,7 +1500,7 @@ export function createWorld(container, handlers = {}) {
 
   /* ── per-frame animation ────────────────────────────────────────────── */
   function tickAmbience(st, t) {
-    st.surf.update(t);
+    st.surf.update(t, controls.target, st.scene.fog);
     st.wall?.userData?.update?.(t);
     if (st.particles) {
       st.particles.points.position.x = controls.target.x;
@@ -1709,8 +1676,7 @@ export function createWorld(container, handlers = {}) {
         7 - 5.4 * ease,
         cine.gate.z + (o.z - cine.gate.z) * ease);
       controls.update();
-      st.sun.position.copy(controls.target).addScaledVector(st.sunDir, 380);
-      st.sun.target.position.copy(controls.target);
+      followSun(st, controls.target);
       return true;
     }
     const o = cine.origin;
@@ -1721,15 +1687,13 @@ export function createWorld(container, handlers = {}) {
                         o.z + Math.sin(azi) * radius);
     controls.target.set(o.x, 1.6, o.z);                     // always on the boat
     controls.update();
-    st.sun.position.copy(controls.target).addScaledVector(st.sunDir, 380);
-    st.sun.target.position.copy(controls.target);
+    followSun(st, controls.target);
     return true;
   }
 
   function tickCamera(st, t, dt = 0.016) {
     if (window.__freezeCam) {              // dev/screenshot hook only
-      st.sun.position.copy(controls.target).addScaledVector(st.sunDir, 380);
-      st.sun.target.position.copy(controls.target);
+      followSun(st, controls.target);
       controls.update();
       return;
     }
@@ -1760,8 +1724,7 @@ export function createWorld(container, handlers = {}) {
     }
     controls.update();
     /* keep the tight shadow frustum (and the sun) glued to the action */
-    st.sun.position.copy(controls.target).addScaledVector(st.sunDir, 380);
-    st.sun.target.position.copy(controls.target);
+    followSun(st, controls.target);
   }
 
   /* ── the OPENING TOUR: fly the Isles of Peace, then every realm, then land
@@ -1918,8 +1881,7 @@ export function createWorld(container, handlers = {}) {
       controls.target.set(lx, 0, lz);
     }
     controls.update();
-    st.sun.position.copy(controls.target).addScaledVector(st.sunDir, 380);
-    st.sun.target.position.copy(controls.target);
+    followSun(st, controls.target);
     if (k >= 1) {
       tour.i += 1;
       tour.startedAt = null;
@@ -2010,8 +1972,7 @@ export function createWorld(container, handlers = {}) {
     camera.lookAt(m.tx, 0, m.tz);
     const st = stages[activeBoardId];
     if (st) {
-      st.sun.position.set(m.tx, 0, m.tz).addScaledVector(st.sunDir, 380);
-      st.sun.target.position.set(m.tx, 0, m.tz);
+      followSun(st, _vD.set(m.tx, 0, m.tz), 400);
     }
   }
 
@@ -2116,8 +2077,8 @@ export function createWorld(container, handlers = {}) {
       const tx = ship ? ship.x : (n ? n.x : mon.position.x);
       const tz = ship ? ship.z : (n ? n.z : mon.position.z);
       mon.rotation.set(0, Math.atan2(mon.position.z - tz, tx - mon.position.x), 0);
-      animateMonster(mon, clock.getElapsedTime(), 'idle');
-      mon.position.y = -0.8 + Math.sin(clock.getElapsedTime() * 1.1) * 0.25;  // heave
+      animateMonster(mon, tNow, 'idle');
+      mon.position.y = -0.8 + Math.sin(tNow * 1.1) * 0.25;  // heave
     }
   }
 
@@ -2126,25 +2087,49 @@ export function createWorld(container, handlers = {}) {
      stage CENTRE — beyond ~120 wu from the Pharos every island rendered
      shadowless and flat. Follow the camera target instead, snapped to a
      coarse grid so the shadow edges don't crawl as the boat glides. */
-  const _sunAnchor = new THREE.Vector3();
-  function tickSunShadow(st) {
-    const q = 1.0;                              // snap step, world units
-    _sunAnchor.set(Math.round(controls.target.x / q) * q, 0,
-                   Math.round(controls.target.z / q) * q);
-    st.sun.position.copy(_sunAnchor).addScaledVector(st.sunDir, 380);
-    st.sun.target.position.copy(_sunAnchor);
+  function followSun(st, target, dist) {
+    st.rig.follow(target, dist ?? camera.position.distanceTo(target));
+  }
+  function tickSunShadow(st) { followSun(st, controls.target); }
+
+  /* make a stage's light the live one: shared atmosphere, grade, sky ambient */
+  let litStage = null;
+  function bakeShore(st) {
+    st.shoreDirty = false;
+    if (!st.surf.setShoreMap) return;                 // sand stages have no sea
+    let far = 240;
+    for (const id in st.islands) {
+      const p = st.islands[id].group.position;
+      far = Math.max(far, Math.hypot(p.x - st.center.x, p.z - st.center.z) + 90);
+    }
+    shore.bake(st.scene, { x: st.center.x, z: st.center.z, size: far * 2 });
+    st.surf.setShoreMap(shore);
+  }
+  function lightStage(st) {
+    if (litStage === st) { if (st.shoreDirty) bakeShore(st); return; }
+    litStage = st;
+    bakeShore(st);
+    applyLook(st.look);
+    pipe.setLook(st.look);
+    if (!st.env) {
+      st.env = bakeEnvironment(renderer);
+      st.scene.environment = st.env.texture;
+    }
   }
 
-  const clock = new THREE.Clock();
-  let tPrev = 0;
+  const clock = new THREE.Timer();
+  let tPrev = 0, tNow = 0;
   renderer.setAnimationLoop(() => {
-    const t = clock.getElapsedTime();
+    clock.update();
+    const t = tNow = clock.getElapsed();
     const dt = Math.min(0.1, t - tPrev);
     tPrev = t;
     if (battleOn) {
       if (mapMode) exitMapView();
+      litStage = null;                       // the diorama owns the light while it runs
       battleStage.update(t, dt);
-      renderer.render(battleStage.scene, battleStage.camera);
+      updateAtmosphere(battleStage.camera, t);
+      pipe.render(battleStage.scene, battleStage.camera, dt);
       return;
     }
     const st = stages[activeBoardId];
@@ -2160,7 +2145,9 @@ export function createWorld(container, handlers = {}) {
     else if (mapMode) tickMapView(dt);
     else tickCamera(st, t, dt);
     tickSunShadow(st);
-    renderer.render(st.scene, camera);
+    lightStage(st);
+    updateAtmosphere(camera, t);
+    pipe.render(st.scene, camera, dt);
   });
 
   /* ── public API ─────────────────────────────────────────────────────── */

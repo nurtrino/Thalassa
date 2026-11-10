@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <title>model scale review</title>
-<script type="importmap">{ "imports": { "three": "/static/vendor/three.module.min.js" } }</script>
+<script type="importmap">{ "imports": { "three": "/static/vendor/three.module.min.js", "three/addons/": "/static/vendor/addons/" } }</script>
 <style>
   html,body{margin:0;height:100%;background:#18242f;overflow:hidden}
   #world{position:fixed;inset:0}
@@ -22,7 +22,7 @@
 import * as THREE from 'three';
 import { getMonster, MONSTER_IDS } from '/static/monsters.js';
 import { propGroup, PROP_IDS } from '/static/props.js';
-import { GLTFLoader } from '/static/vendor/GLTFLoader.js';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 
 const el = document.getElementById('world');
 const label = document.getElementById('label');
