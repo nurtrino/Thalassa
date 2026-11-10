@@ -2361,10 +2361,12 @@ function renderBattle() {
      'battlebtn strike', () => move('attack'),
      darkLord
        ? 'STRIKE: answer a Tier II question. A right answer chips the Dark Presence for 1 — bonuses (horn, relics) do not apply here.'
-       : `STRIKE: answer a Tier ${st} question right to deal 1 damage${b.horn ? '; the War Horn adds +2' : ''}. A wrong answer does nothing.`);
+       : `STRIKE: answer a Tier ${st} question right to deal 1 damage${b.horn ? '; the War Horn adds +2' : ''}. Right or wrong, the foe strikes back — time your dodge.`);
   mk(`${icon('magic', 18)} MAGIC<span class="tierchip">III</span>`,
      'battlebtn magic', () => move('magic'),
-     'MAGIC: answer a hard Tier III question for 3 damage. Miss and the spell backfires, costing you 1 hull.');
+     b.boss
+       ? 'MAGIC: answer a hard Tier III question for 3 damage. Hit or miss, the boss strikes back — time your dodge.'
+       : 'MAGIC: answer a hard Tier III question for 3 damage. Miss and the spell backfires, costing you 1 hull.');
   // HEAL — a mending hymn: pick your field, answer a Tier III question, knit the hull
   mk(`${icon('heart', 18)} HEAL<span class="tierchip">III</span>`,
      'battlebtn heal', () => { pendingHeal = true; renderBattle(); },
@@ -2375,7 +2377,8 @@ function renderBattle() {
        'battlebtn sword', () => move('sword'),
        'SWORD of Damocles: answer a Tier III question for 5 damage — no backfire on a miss. Only against the Dark Presence.');
   }
-  if (!b.boss) {
+  // the engine says who may be fled (battle.can_flee); older snapshots fall back to "not a boss"
+  if (b.can_flee ?? !b.boss) {
     const fleeCost = room.config?.flee_cost ?? 2;
     // .flee carries a spacer gap: butted against GUARD it was the #1
     // fat-finger complaint — an accidental flee costs scrolls AND a free hit

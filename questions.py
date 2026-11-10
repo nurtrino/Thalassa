@@ -368,9 +368,9 @@ def jeopardy_question(cell: dict) -> dict:
             "value": cell.get("value", 0)}
 
 
-def jeopardy_pick(rng: random.Random) -> dict:
-    """One typed clue (legacy single-clue path / fallback)."""
-    return jeopardy_question(jeopardy_board(rng, "low", 1)[0])
+def jeopardy_pick(rng: random.Random, band: str = "low") -> dict:
+    """One typed clue from a band (the single-clue path: Lyre swaps, fallback)."""
+    return jeopardy_question(jeopardy_board(rng, band, 1)[0])
 
 
 # ── typed-answer matching ────────────────────────────────────────────────────

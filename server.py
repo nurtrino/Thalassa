@@ -551,7 +551,9 @@ async def fetch_question(nonce: int = 0):
             q = pending
         elif mode == "jeopardy":             # typed clue, 15s on the clock
             limit = JEOPARDY_SECS
-            q = questions.jeopardy_pick(g.rng)
+            # (a Lyre swap lands here) — keep the move's band: MAGIC-tier
+            # questions redraw from the hard clues, STRIKE from the easy ones
+            q = questions.jeopardy_pick(g.rng, "high" if ctx.get("tier", 1) >= 3 else "low")
         elif mode == "mc":                    # battle MC — live Trivia API (buffered)
             limit = QUESTION_SECS             # STRIKE (tier I/II) easier than MAGIC (III)
             q = trivia_bank.get(ctx.get("tier", 2))
