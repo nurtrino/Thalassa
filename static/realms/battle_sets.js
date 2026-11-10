@@ -458,6 +458,27 @@ function iceTexture() {
   });
 }
 
+/* leaf dabs: light and dark brush marks that the canopy colour shows through */
+function foliageTexture() {
+  return cached('foliage', () => {
+    const S = 256, [cv, ctx] = canvas(S, S);
+    const rng = mulberry32(3131);
+    ctx.fillStyle = '#c4c4c4'; ctx.fillRect(0, 0, S, S);
+    for (let i = 0; i < 1100; i++) {
+      const x = rng() * S, y = rng() * S, a = rng() * 3.14, rx = 4 + rng() * 8, ry = 2 + rng() * 4;
+      ctx.fillStyle = rng() < 0.5 ? `rgba(255,255,255,${0.12 + rng() * 0.22})` : `rgba(20,10,0,${0.10 + rng() * 0.2})`;
+      for (const ox of [-S, 0, S]) for (const oy of [-S, 0, S]) {
+        ctx.beginPath(); ctx.ellipse(x + ox, y + oy, rx, ry, a, 0, 6.3); ctx.fill();
+      }
+    }
+    const t = new THREE.CanvasTexture(cv);
+    t.wrapS = t.wrapT = THREE.RepeatWrapping;
+    t.colorSpace = THREE.SRGBColorSpace;
+    t.anisotropy = 4;
+    return t;
+  });
+}
+
 /* a soft teardrop for flames; a tall soft streak for light shafts */
 function flameTexture() {
   return cached('flame', () => {
@@ -569,7 +590,6 @@ function autumnTreeGeometry(variant) {
       col[i * 3] = c.r; col[i * 3 + 1] = c.g; col[i * 3 + 2] = c.b;
     }
     g.setAttribute('color', new THREE.BufferAttribute(col, 3));
-    if (!g.attributes.uv) g.setAttribute('uv', new THREE.BufferAttribute(new Float32Array(p.count * 2), 2));
     return g;
   };
   // trunk and two boughs: tapered tubes, flared at the root
@@ -592,26 +612,33 @@ function autumnTreeGeometry(variant) {
   parts.push(limb([[0, -0.3, 0], [lean * 0.3, 1.2, 0.05], [lean * 0.8, 2.5, 0], [lean, 3.6, -0.1]], 0.3, 0.16, 1));
   parts.push(limb([[lean * 0.6, 2.0, 0], [lean + 0.7, 2.9, 0.4], [lean + 1.3, 3.6, 0.6]], 0.14, 0.06, 0));
   parts.push(limb([[lean * 0.7, 2.3, 0], [lean - 0.6, 3.1, -0.5], [lean - 1.2, 3.9, -0.7]], 0.13, 0.06, 0));
-  // the crown: overlapping leaf masses, each its own hue, lit from above
-  const HUES = [0xd9862a, 0xc2512a, 0xe9b23c, 0xa94a26, 0xe0993a, 0xcf6a2c];
+  // the crown: overlapping leaf masses, each its own hue, lit from above.
+  // variant 2 is the cheap one the far wood is made of
+  const HUES = [0xe0902e, 0xc9562a, 0xf0bb40, 0xb5502a, 0xe8a23c, 0xd6702c];
   const n = makeNoise2D(900 + variant * 13);
-  const crown = [[lean, 4.3, 0, 1.55], [lean + 1.25, 3.9, 0.55, 1.1], [lean - 1.2, 4.1, -0.6, 1.15],
-                 [lean + 0.3, 5.2, -0.3, 1.15], [lean - 0.5, 4.0, 0.9, 1.0], [lean + 0.6, 4.1, -1.0, 0.95],
+  const near = variant !== 2;
+  const crown = [[lean, 4.3, 0, 1.5], [lean + 1.25, 3.9, 0.55, 1.08], [lean - 1.2, 4.1, -0.6, 1.12],
+                 [lean + 0.3, 5.2, -0.3, 1.12], [lean - 0.5, 4.0, 0.9, 1.0], [lean + 0.6, 4.1, -1.0, 0.95],
                  [lean - 0.2, 5.0, 0.6, 0.9]];
+  if (near) crown.push([lean + 1.5, 4.6, -0.4, 0.8], [lean - 1.3, 4.9, 0.3, 0.78], [lean + 0.1, 3.7, -0.2, 1.15]);
   for (const [bx, by, bz, br] of crown) {
-    const g = lumpBase(3).clone();
+    const g = lumpBase(near ? 4 : 3).clone();
     const hue = new THREE.Color(HUES[Math.floor(rng() * HUES.length)]);
     const hue2 = new THREE.Color(HUES[Math.floor(rng() * HUES.length)]);
-    const p = g.attributes.position, sx = 0.9 + rng() * 0.3, sy = 0.7 + rng() * 0.2, o = rng() * 50;
+    const p = g.attributes.position, sx = 0.9 + rng() * 0.3, sy = 0.72 + rng() * 0.2, o = rng() * 50;
+    const uv = new Float32Array(p.count * 2);
     for (let i = 0; i < p.count; i++) {
       const x = p.getX(i), y = p.getY(i), z = p.getZ(i);
-      const r = br * (0.82 + 0.36 * n(x * 2.2 + o, z * 2.2 + y * 1.7) + 0.12 * n(x * 6 + o, y * 6 - z * 5));
+      // soft billows, not spikes: low-frequency swell plus a little crinkle
+      const r = br * (0.84 + 0.3 * n(x * 1.5 + o, z * 1.5 + y * 1.2) + 0.07 * n(x * 4.2 + o, y * 4.2 - z * 3.6));
       p.setXYZ(i, bx + x * r * sx, by + y * r * sy, bz + z * r * sx);
+      uv[i * 2] = (p.getX(i) + p.getZ(i) * 0.6) * 0.42; uv[i * 2 + 1] = (p.getY(i) + p.getZ(i) * 0.3) * 0.42;
     }
+    g.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
     g.computeVertexNormals();
     parts.push(tint(g, (pp, nn, c) => {
-      const sp = n(pp.x * 3.1 + o, pp.z * 3.1 - pp.y * 2);
-      c.copy(hue).lerp(hue2, sp).multiplyScalar(0.5 + 0.62 * smooth(-0.7, 0.9, nn.y) + (sp - 0.5) * 0.2);
+      const sp = n(pp.x * 2.4 + o, pp.z * 2.4 - pp.y * 1.6);
+      c.copy(hue).lerp(hue2, sp).multiplyScalar(0.6 + 0.55 * smooth(-0.8, 0.9, nn.y) + (sp - 0.5) * 0.16);
     }));
   }
   geo = mergeGeometries(parts.map((g) => {
@@ -619,6 +646,7 @@ function autumnTreeGeometry(variant) {
     out.setAttribute('position', g.attributes.position);
     out.setAttribute('normal', g.attributes.normal);
     out.setAttribute('color', g.attributes.color);
+    out.setAttribute('uv', g.attributes.uv);
     out.setIndex(g.index);
     return out;
   }));
@@ -629,7 +657,8 @@ function autumnTreeGeometry(variant) {
 let _treeMat = null;
 function autumnTrees(spots) {                 // spots: [x, y, z, scale, ry, variant]
   const g = new THREE.Group();
-  _treeMat = _treeMat || new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.86, metalness: 0 });
+  _treeMat = _treeMat || new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.86, metalness: 0,
+    map: foliageTexture(), bumpMap: foliageTexture(), bumpScale: 1.1 });
   _treeMat.userData.shared = true;
   const m4 = new THREE.Matrix4(), q = new THREE.Quaternion(), s = new THREE.Vector3(), p = new THREE.Vector3();
   const yAxis = new THREE.Vector3(0, 1, 0);
@@ -1016,15 +1045,15 @@ export function buildBattleSet(theme, opts = {}, kit = {}) {
     prop('lily_pads', 24, SEA + 0.05, -6, 2.2);
     if (!afloat) prop('driftwood', 14, -0.02, -9.5, 1.4);
     // sun through the canopy
-    shaft(18, 13, -16, 7, 34, new THREE.Color(1.3, 1.2, 0.72), 0.2, -0.42);
-    shaft(31, 14, -4, 9, 38, new THREE.Color(1.3, 1.2, 0.72), 0.16, -0.42);
-    shaft(6, 12, -22, 5, 30, new THREE.Color(1.3, 1.2, 0.72), 0.14, -0.42);
+    shaft(18, 13, -16, 7, 34, new THREE.Color(1.3, 1.2, 0.72), 0.16, 0.4);
+    shaft(34, 14, -10, 9, 38, new THREE.Color(1.3, 1.2, 0.72), 0.13, 0.4);
+    shaft(6, 12, -22, 5, 30, new THREE.Color(1.3, 1.2, 0.72), 0.12, 0.4);
     range();
   } else if (id === 'autumn') {
     /* ── the Amber Vale: a straw-gold clearing ringed by the turning wood ── */
     shore = null;
     const f = fbm2(seed + 4);
-    const straw = new THREE.Color(0xd8b56c), earth = new THREE.Color(0x8a6238), litter = new THREE.Color(0xb5612a);
+    const straw = new THREE.Color(0xdcbb74), earth = new THREE.Color(0x7c5632), litter = new THREE.Color(0xa9531f);
     const moss = new THREE.Color(0x77763a);
     const height = (x, z) => {
       const d = Math.hypot(x - 2, z);
@@ -1036,10 +1065,10 @@ export function buildBattleSet(theme, opts = {}, kit = {}) {
       paint: (x, z, y, ny, c) => {
         const d = Math.hypot(x - 2, z * 0.85), n = f(x * 0.16 + 9, z * 0.16 - 4), n2 = f(x * 0.6, z * 0.6);
         // trodden straw in the clearing → leaf litter and moss under the trees
-        c.copy(straw).lerp(earth, smooth(0.55, 0.8, n2) * 0.35);
-        c.lerp(litter, smooth(14, 26, d + (n - 0.5) * 12) * (0.55 + n2 * 0.4));
-        c.lerp(moss, smooth(0.6, 0.85, n) * smooth(20, 40, d) * 0.6);
-        c.multiplyScalar(0.9 + n2 * 0.2);
+        c.copy(straw).lerp(earth, smooth(0.5, 0.74, n2) * 0.55);
+        c.lerp(litter, smooth(13, 24, d + (n - 0.5) * 14) * (0.5 + n2 * 0.5));
+        c.lerp(moss, smooth(0.56, 0.8, n) * smooth(16, 36, d) * 0.7);
+        c.multiplyScalar(0.84 + n2 * 0.32);
       },
       material: makeGroundMaterial({ tide: false, bump: 1.3 }),
     }));
@@ -1049,12 +1078,12 @@ export function buildBattleSet(theme, opts = {}, kit = {}) {
     sit('waymarker_stone', 40, -4.5, 1.7, 0.4); sit('waymarker_stone', 41.5, 10.5, 1.7, -0.5);
     const T = (d, s, sc, v) => { const [x, z] = P(d, s); return [x, height(x, z) - 0.1, z, sc, rng() * 6.283, v]; };
     g.add(autumnTrees([
-      T(11.5, 10.2, 2.5, 0),                                   // the framing trunk, right foreground
+      T(12.5, 10.9, 2.3, 0),                                   // the framing trunk, right foreground
       T(30, -20.5, 2.1, 1), T(40, -27, 2.5, 2), T(52, -22, 2.2, 0), T(64, -15, 2.7, 1),
       T(70, 6, 2.6, 2), T(62, 21, 2.4, 0), T(46, 27, 2.3, 1), T(33, 24, 2.0, 2),
-      T(84, -36, 3.0, 0), T(92, -10, 3.2, 1), T(90, 24, 3.0, 2), T(108, -52, 3.4, 1),
-      T(112, 8, 3.5, 0), T(110, 44, 3.2, 2), T(72, -44, 2.8, 2), T(74, 42, 2.8, 0),
-      T(140, -30, 4, 0), T(138, 30, 4, 1), T(132, -74, 4, 2), T(22, -17, 1.7, 2),
+      T(84, -36, 3.0, 2), T(92, -10, 3.2, 2), T(90, 24, 3.0, 2), T(108, -52, 3.4, 2),
+      T(112, 8, 3.5, 2), T(110, 44, 3.2, 2), T(72, -44, 2.8, 2), T(74, 42, 2.8, 2),
+      T(140, -30, 4, 2), T(138, 30, 4, 2), T(132, -74, 4, 2), T(22, -17, 1.7, 1),
     ]));
     sit('dead_tree', 34, -15, 1.6); sit('dead_tree', 50, 18, 1.8); sit('dead_tree', 26, 19, 1.3);
     sit('boulder', 29, -14.5, 1.7); sit('boulder', 24, 14.5, 1.3); sit('boulder', 45, -12, 2.2);
@@ -1065,9 +1094,63 @@ export function buildBattleSet(theme, opts = {}, kit = {}) {
       prop('campfire', x, height(x, z), z, 1.5);
       g.add(makeFire(anims, { x, y: height(x, z) + 0.35, z, w: 1.0, h: 1.7, seed: 5, glow: 0.6, halo: 0.2 }));
     }
+    // the floor of the wood: fallen leaves everywhere, dry grass at the clearing's edge
+    {
+      const leafGeo = new THREE.BufferGeometry();
+      leafGeo.setAttribute('position', new THREE.Float32BufferAttribute(
+        [-0.5, 0, 0, 0, 0.05, 0.24, 0.5, 0.02, 0, 0, 0.05, -0.24], 3));
+      leafGeo.setAttribute('normal', new THREE.Float32BufferAttribute([0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0], 3));
+      leafGeo.setIndex([0, 1, 2, 0, 2, 3]);
+      const bladeGeo = new THREE.BufferGeometry();
+      {
+        const pos = [], nor = [], idx = [];
+        for (let b = 0; b < 5; b++) {
+          const a = (b / 5) * 6.283 + b, dx = Math.cos(a), dz = Math.sin(a), o = pos.length / 3;
+          const lean = 0.18 + (b % 3) * 0.1, h = 0.5 + (b % 2) * 0.22;
+          pos.push(-dz * 0.045, 0, dx * 0.045, dz * 0.045, 0, -dx * 0.045, dx * lean, h, dz * lean);
+          nor.push(dx * 0.3, 0.95, dz * 0.3, dx * 0.3, 0.95, dz * 0.3, dx * 0.3, 0.95, dz * 0.3);
+          idx.push(o, o + 1, o + 2, o, o + 2, o + 1);
+        }
+        bladeGeo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+        bladeGeo.setAttribute('normal', new THREE.Float32BufferAttribute(nor, 3));
+        bladeGeo.setIndex(idx);
+      }
+      const litterMat = new THREE.MeshStandardMaterial({ roughness: 0.9, side: THREE.DoubleSide });
+      const LEAVES = 620, TUFTS = 260;
+      const leaves = new THREE.InstancedMesh(leafGeo, litterMat, LEAVES);
+      const tufts = new THREE.InstancedMesh(bladeGeo, litterMat, TUFTS);
+      const m4 = new THREE.Matrix4(), q = new THREE.Quaternion(), e = new THREE.Euler();
+      const sc = new THREE.Vector3(), pp = new THREE.Vector3();
+      const HUES = [0xd9862a, 0xb8481f, 0xe9b23c, 0x9a4a22, 0xc96a24];
+      const scatter = (im, count, rMin, rMax, place) => {
+        for (let i = 0; i < count; i++) {
+          const a = rng() * 6.283, r = rMin + Math.pow(rng(), 0.7) * (rMax - rMin);
+          const x = 2 + Math.cos(a) * r * 1.15, z = Math.sin(a) * r;
+          place(i, x, height(x, z), z);
+          im.setMatrixAt(i, m4);
+        }
+        im.instanceMatrix.needsUpdate = true;
+        im.instanceColor.needsUpdate = true;
+        im.receiveShadow = true;
+        im.frustumCulled = false;
+        g.add(im);
+      };
+      scatter(leaves, LEAVES, 2, 46, (i, x, y, z) => {
+        const k = 0.28 + rng() * 0.34;
+        q.setFromEuler(e.set((rng() - 0.5) * 0.5, rng() * 6.283, (rng() - 0.5) * 0.5));
+        m4.compose(pp.set(x, y + 0.03, z), q, sc.set(k, k, k));
+        leaves.setColorAt(i, _c1.set(HUES[i % HUES.length]).multiplyScalar(0.8 + rng() * 0.4));
+      });
+      scatter(tufts, TUFTS, 13, 52, (i, x, y, z) => {
+        const k = 0.8 + rng() * 1.1;
+        q.setFromEuler(e.set(0, rng() * 6.283, 0));
+        m4.compose(pp.set(x, y - 0.02, z), q, sc.set(k, k * (0.8 + rng() * 0.6), k));
+        tufts.setColorAt(i, _c1.set(rng() < 0.6 ? 0xc9a85a : 0x8f8a44).multiplyScalar(0.8 + rng() * 0.35));
+      });
+    }
     // low sun raking between the trunks; leaves letting go
-    shaft(20, 11, -18, 8, 30, new THREE.Color(1.5, 0.95, 0.42), 0.16, -0.5);
-    shaft(34, 12, -6, 10, 34, new THREE.Color(1.5, 0.95, 0.42), 0.13, -0.5);
+    shaft(18, 12, -20, 9, 30, new THREE.Color(1.5, 0.95, 0.42), 0.13, 0.45);
+    shaft(40, 13, -16, 12, 36, new THREE.Color(1.5, 0.95, 0.42), 0.1, 0.45);
     g.add(makeDrift(anims, { n: 70, box: [60, 16, 50], origin: [10, 0.2, -4], rise: -1.1, sway: 1.6,
       size: 0.34, color: 0xe0872e, additive: false, seed: 9 }));
     range({ radius: 200, depth: 150 });

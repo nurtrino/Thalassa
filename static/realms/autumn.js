@@ -104,7 +104,7 @@ function dapple() {
   };
   const sun = sunInfo();
   U.uDapple.value = tex;
-  U.uSunH.value.set(sun.hx, sun.hz, sun.cot, 0.16);
+  U.uSunH.value.set(sun.hx, sun.hz, sun.cot, 0.3);
   /** how sunlit is the floor at (x,z)? 0 shade … 1 full pool (same maths as DAPPLE_GLSL) */
   const at = (x, z) => {
     const a = x * sun.hx + z * sun.hz, b = -x * sun.hz + z * sun.hx;
@@ -146,7 +146,7 @@ float valePort(float rIn, float rOut, float dNear, float dFar) {
 const f3 = (x) => x.toFixed(3);
 /* patch a MeshStandardMaterial with the Vale's light: sun pools, the sight
    tunnel, and (for leaves) the glow of low sun shining through them */
-function valePatch(mat, key, { dapple: dk = 0, port = null, glow = 0 } = {}) {
+function valePatch(mat, key, { dapple: dk = 0, port = null, portMinY = null, glow = 0 } = {}) {
   dapple();
   mat.onBeforeCompile = (shader) => {
     addWorldVaryings(shader);
@@ -157,7 +157,7 @@ function valePatch(mat, key, { dapple: dk = 0, port = null, glow = 0 } = {}) {
       .replace('#include <common>', `#include <common>\n${DAPPLE_GLSL}\n${PORT_GLSL}`);
     if (port) {
       fs = fs.replace('#include <alphatest_fragment>', `#include <alphatest_fragment>
-        if (valePort(${port.map(f3).join(', ')}) < valeIGN(gl_FragCoord.xy)) discard;`);
+        if (${portMinY === null ? '' : `vWPos.y > ${f3(portMinY)} && `}valePort(${port.map(f3).join(', ')}) < valeIGN(gl_FragCoord.xy)) discard;`);
     }
     if (dk) {
       fs = fs.replace('#include <lights_fragment_end>', `#include <lights_fragment_end>
@@ -267,8 +267,8 @@ function litterTextures() {
     }
   }
   const pal = jitterPal([
-    ['#c9791f', 3], ['#dc9a2c', 3], ['#e6b53c', 2], ['#b55a1f', 3], ['#96421c', 2],
-    ['#7c5230', 3], ['#5d3f25', 2], ['#a8953a', 1], ['#d8672a', 1]], rnd);
+    ['#c9842a', 3], ['#dba035', 3], ['#e6b848', 3], ['#b96a2a', 2], ['#9c5226', 1],
+    ['#8a6038', 3], ['#6b4a2c', 2], ['#b09c44', 1], ['#d27a34', 1]], rnd);
   // old brown leaves first (the mat), the bright fresh fall on top
   paintLeaves(ctx, hctx, S, rnd, 5200, jitterPal([['#6e4a2b', 3], ['#59391f', 3], ['#85582e', 2], ['#4a2f1a', 2]], rnd), 12, 24, 'rgba(30,16,8,0.4)');
   paintLeaves(ctx, hctx, S, rnd, 6200, pal, 11, 25, 'rgba(60,28,10,0.42)');
@@ -299,7 +299,7 @@ function barkTexture() {
     }
   };
   for (let i = 0; i < 46; i++) furrow(rnd() * W, 5 + rnd() * 9, `rgba(128,104,84,${0.25 + rnd() * 0.3})`, 7);   // plates
-  for (let i = 0; i < 60; i++) furrow(rnd() * W, 2 + rnd() * 4, `rgba(34,22,16,${0.45 + rnd() * 0.4})`, 6);     // furrows
+  for (let i = 0; i < 60; i++) furrow(rnd() * W, 2 + rnd() * 4, `rgba(40,27,20,${0.3 + rnd() * 0.3})`, 6);      // furrows
   for (let i = 0; i < 70; i++) furrow(rnd() * W, 1, `rgba(170,146,120,${0.2 + rnd() * 0.25})`, 6);              // lit edges
   for (let i = 0; i < 300; i++) {            // cross cracks
     const x = rnd() * W, y = rnd() * H;
@@ -683,7 +683,7 @@ function shaftMaterial() {
   const look = lookFor('autumn');
   return new THREE.ShaderMaterial({
     uniforms: {
-      uColor: { value: new THREE.Color(look.shaftColor ?? 0xffc27a).multiplyScalar(0.55) },
+      uColor: { value: new THREE.Color(look.shaftColor ?? 0xffc27a).multiplyScalar(0.4) },
       uValeT: U.uValeT,
     },
     vertexShader: /* glsl */`
@@ -743,8 +743,8 @@ function treeKit() {
     drift: buildDrift(),
     shaft: buildShaft(),
     bark: valePatch(new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.95, metalness: 0,
-      map: barkTexture(), bumpMap: barkTexture(), bumpScale: 2.4 }), 'bark-v1',
-      { dapple: 0.9, port: [0.15, 0.30, 0.70, 0.90] }),
+      map: barkTexture(), bumpMap: barkTexture(), bumpScale: 1.8 }), 'bark-v1',
+      { dapple: 0.9, port: [0.15, 0.30, 0.70, 0.90], portMinY: 1.6 }),
     crown: valePatch(new THREE.MeshStandardMaterial(crownOpts), 'crown-v1',
       { port: [0.62, 1.0, 0.92, 1.36], glow: 1.5 }),
     proxyMat: new THREE.MeshBasicMaterial({ colorWrite: false, depthWrite: false }),
@@ -900,7 +900,7 @@ export function makeValeField(theme, nodes, segs, rng, heightAt = null) {
       { shadow: true, receive: false });
     const low = (o) => m4.compose(pp.set(o.x, 0, o.z), q.setFromAxisAngle(yAxis, o.yaw), sc.set(o.s, o.s, o.s));
     inst(near, kit.fern, kit.fernMat, c.ferns, low, { color: (o) => col.set(o.col) });
-    inst(near, kit.shrooms, kit.shroomMat, c.shrooms, low, { shadow: true });
+    inst(near, kit.shrooms, kit.shroomMat, c.shrooms, low);
     inst(near, kit.drift, kit.driftMat, c.drifts,
       (o) => m4.compose(pp.set(o.x, -0.02, o.z), q.setFromAxisAngle(yAxis, o.yaw), sc.set(o.s, o.s * 0.8, o.s)));
     const sh = inst(near, kit.shaft, kit.shaftMat, c.shafts,
