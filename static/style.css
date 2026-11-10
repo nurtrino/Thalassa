@@ -470,6 +470,28 @@ input:focus-visible, select:focus-visible {
   transition: color var(--fast), transform var(--fast);
 }
 #muteBtn:hover { color: var(--gilt); transform: translateY(-1px); }
+
+/* graphics-quality toggle, left of the sound button */
+#gfxBtn {
+  position: fixed; top: var(--s3); right: calc(var(--s3) + 52px); z-index: 30;
+  width: 42px; height: 42px; padding: 9px;
+  color: var(--bronze);
+  background: var(--ink-glass);
+  border: 1px solid rgba(201, 162, 39, .5);
+  border-radius: 9px;
+  box-shadow: 0 3px 10px rgba(3, 8, 13, .5), inset 0 1px 0 rgba(255, 240, 190, .12);
+  transition: color var(--fast), transform var(--fast);
+}
+#gfxBtn:hover { color: var(--gilt); transform: translateY(-1px); }
+#gfxBtn svg { width: 100%; height: 100%; }
+#gfxBtn .gfx-tier {
+  position: absolute; right: -5px; bottom: -5px;
+  min-width: 17px; height: 17px; padding: 0 3px;
+  font: 800 10px/17px var(--disp); letter-spacing: .02em; text-align: center;
+  color: #0e1822; background: var(--bronze);
+  border-radius: 9px; box-shadow: 0 1px 4px rgba(3, 8, 13, .6);
+}
+body.touring #gfxBtn { display: none !important; }
 #muteBtn.off { color: #5c6a76; }
 #muteBtn.off .wave { opacity: 0; }
 
@@ -2347,7 +2369,8 @@ body.dev .mapchip:hover {
 
 /* phone-scale touch targets: 44px minimum on the toolbar icons + item belt */
 @media (max-width: 700px) {
-  #muteBtn, #mapBtn { width: 44px; height: 44px; }
+  #muteBtn, #mapBtn, #gfxBtn { width: 44px; height: 44px; }
+  #gfxBtn { right: calc(var(--s3) + 54px); }
   #bactions .itemslot, #bactions .beltslot { width: 44px; height: 44px; padding: 8px; }
   .itemslot, .beltslot { min-width: 44px; min-height: 44px; }
 }

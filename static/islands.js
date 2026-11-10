@@ -4,10 +4,10 @@
  * via the THEME objects from themes.js.
  */
 import * as THREE from 'three';
-import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { hashStr, mulberry32, flat, displace, seedFrom, softDiscTexture } from './util.js';
 import { DOMAIN_COLORS, REALM_INFO } from './themes.js';
 import { propGroup } from './props.js';
+import { glbProp, preloadStructures } from './structures.js';
 import { makeTerrain, makeNoise2D, makeGroundMaterial, groundGrainTexture, groundReliefTexture, SHORE_LAYER, GROUND_TILE } from './gfx/terrain.js';
 
 /* ground grain/relief textures now live with the terrain engine (gfx/terrain.js);
@@ -16,66 +16,9 @@ export const paintedGroundTexture = groundGrainTexture;
 export const groundBumpTexture = groundReliefTexture;
 
 /* ── Meshy landmark GLBs (static/assets/structures) ─────────────────────────
-   The AI-generated set ships centred at arbitrary unit scale; mount() grounds
-   the feet on y=0 and normalizes to a WORLD height (or length). Templates are
-   cached; instances are cheap clones that share geometry and textures. */
-const _structLoader = new GLTFLoader();
-const _structTpls = new Map();     // id → Promise<Scene|null>
-
-function structTemplate(id) {
-  let p = _structTpls.get(id);
-  if (p) return p;
-  p = _structLoader.loadAsync(`/static/assets/structures/${id}.glb`)
-    .then((gltf) => {
-      const s = gltf.scene;
-      s.traverse((o) => {
-        if (o.isMesh) {
-          o.castShadow = true;
-          o.receiveShadow = true;
-          // matte the Meshy PBR down so landmarks sit in the faceted world
-          if (o.material && 'roughness' in o.material) {
-            o.material.roughness = Math.max(0.85, o.material.roughness);
-          }
-        }
-      });
-      s.userData.box = new THREE.Box3().setFromObject(s);
-      return s;
-    })
-    .catch((err) => {
-      console.warn(`structures: failed to load '${id}'`, err);
-      return null;
-    });
-  _structTpls.set(id, p);
-  return p;
-}
-
-/* Every landmark the map mounts — preloaded by the loading screen */
-export function preloadStructures() {
-  return ['pharos', 'temple', 'temple_ice', 'temple_desert', 'temple_jungle',
-          'temple_autumn', 'market', 'dock', 'obelisk', 'tents', 'lighthouse',
-          'sand_spire', 'ice_temple']
-    .map((id) => structTemplate(id));
-}
-
-/* Returns a group NOW; the landmark pops in when its GLB lands. opts:
-   h = target height, len = target length along x (one of the two), ry yaw. */
-function glbProp(id, { h = null, len = null, ry = 0, onReady = null } = {}) {
-  const g = new THREE.Group();
-  structTemplate(id).then((tpl) => {
-    if (!tpl) return;
-    const box = tpl.userData.box;
-    const k = h ? h / Math.max(0.05, box.max.y - box.min.y)
-                : len / Math.max(0.05, box.max.x - box.min.x);
-    const inst = tpl.clone(true);
-    inst.scale.setScalar(k);
-    inst.position.set(-(box.max.x + box.min.x) / 2 * k, -box.min.y * k,
-                      -(box.max.z + box.min.z) / 2 * k);
-    g.rotation.y = ry;
-    g.add(inst);
-    if (onReady) onReady(inst);
-  });
-  return g;
-}
+   The loader, the per-landmark material finish and glbProp() live in
+   structures.js; preloadStructures is re-exported for the loading screen. */
+export { preloadStructures };
 
 const COL = {
   sand: 0xf3e3b4, sandWet: 0xd9c489, grass: 0x5cb56e, grass2: 0x3f9e58,

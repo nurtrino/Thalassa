@@ -78,6 +78,8 @@ HEAVY_MULT = 2                     # ...that lands for double damage
 DODGE_SECS = 3.0                   # window to time the dodge before it lands
 ATTACK_RUN_CAP = 2                 # an enemy may strike at most twice in a row
 ITEM_CAP = 2                       # max carried of each consumable charm
+GALE_STACK_CAP = ITEM_CAP * GALE_BONUS   # most wind one roll can hold (armed gales)
+MAX_DIE = 6                        # the largest die the server may hand roll()
 KRAKEN_CHANCE = 0.10               # hub crossings: odds the kraken blocks you
 KRAKEN_RIDDLES = 3                 # ...and how many mind-riddles it poses
 VALE_LANTERN = 3                   # hops of the Amber Vale your lantern shows
@@ -163,6 +165,22 @@ class GameError(Exception):
     pass
 
 
+def _int(v) -> int:
+    """A client-supplied index / tier / target must be a real integer —
+    not a bool, float, string or list. Anything else is refused BEFORE any
+    state is touched, so a malformed message can never half-apply."""
+    if type(v) is not int:
+        raise GameError("Malformed message.")
+    return v
+
+
+def _str(v) -> str:
+    """A client-supplied id (node, item, stance…) must be a string."""
+    if not isinstance(v, str):
+        raise GameError("Malformed message.")
+    return v
+
+
 class Player:
     def __init__(self, pid: str, token: str, name: str, idx: int, is_bot: bool = False):
         self.pid = pid
@@ -232,6 +250,7 @@ class Game:
         self.jboard: dict | None = None      # the Jeopardy category board
         self.jchoose_deadline: float | None = None
         self._pending_jeopardy: dict | None = None   # clue chosen off the board
+        self._pending_puzzle: dict | None = None     # legacy MC puzzle awaiting delivery
         self.gate_walk: dict | None = None   # pending carry-through at a pass
         self.no_autowalk = False             # DEV: freeze the gate carry-through
         self.side_answers: dict[str, int] = {}
@@ -270,6 +289,21 @@ class Game:
     @property
     def current(self) -> Player:
         return self.players[self.turn_idx]
+
+    @property
+    def host_pid(self) -> str | None:
+        """Who holds the host's powers (launch, kick, rematch): the first
+        captain in. But a host whose socket is gone can press nothing, so
+        while they are away the powers pass to the first CONNECTED human
+        captain — and return the moment the host reconnects. Without this
+        a host who closes the tab strands the table: nobody can launch the
+        lobby, kick the absent captain whose turn it is, or call a rematch."""
+        if not self.players:
+            return None
+        for p in self.players:
+            if p.connected and not p.is_bot:
+                return p.pid
+        return self.players[0].pid
 
     def _require_turn(self, pid, *phases):
         if self.phase not in phases:
@@ -353,8 +387,11 @@ class Game:
             cur = nxt
             if not cur:
                 break
-        out = {node: steps for node, _ in cur if node != p.node}
-        for g in stops:
+        # sorted: set order follows the process's string-hash seed, and the
+        # ORDER of this dict steers every "first reachable stop" choice (the
+        # bots', a test's) — a seeded game must replay identically anywhere
+        out = {node: steps for node in sorted({n for n, _ in cur}) if node != p.node}
+        for g in sorted(stops):
             out[g] = steps
         return out
 
@@ -367,14 +404,21 @@ class Game:
             raise GameError("The voyage has already begun.")
         if len(self.players) >= MAX_PLAYERS:
             raise GameError("The fleet is full (6 captains).")
-        name = (name or "").strip()[:16] or f"Captain {len(self.players) + 1}"
+        name = str(name or "").strip()[:16] or f"Captain {len(self.players) + 1}"
+        taken = {q.pid for q in self.players}
         pid = f"p{len(self.players) + 1}_{self.rng.randrange(16**4):04x}"
+        while pid in taken:                    # a refilled seat reuses the "pN" prefix
+            pid = f"p{len(self.players) + 1}_{self.rng.randrange(16**4):04x}"
         p = Player(pid, token, name, len(self.players), is_bot=is_bot)
+        # a seat refilled after a lobby kick must not share a rival's colour
+        used = {q.color for q in self.players}
+        if p.color in used:
+            p.color = next((c for c in COLORS if c not in used), p.color)
         self.players.append(p)
         return p
 
     def remove_player(self, host_pid: str, pid: str):
-        if not self.players or self.players[0].pid != host_pid:
+        if not self.players or self.host_pid != host_pid:
             raise GameError("Only the host can do that.")
         if pid == host_pid:
             raise GameError("The host cannot kick themselves.")
@@ -384,23 +428,69 @@ class Game:
         if self.phase == "lobby":
             self.players.remove(p)
             return
+        if self.winner is not None and pid == self.winner:
+            # the victory screen is built around the victor — they stay for
+            # the curtain call (anyone else may be shown out before a rematch)
+            raise GameError("The victor stays for the curtain call.")
         was_turn = self.current.pid == pid
         removed_idx = self.players.index(p)
+        if was_turn and self.phase != "finished":
+            self._abandon_turn()
         self.players.remove(p)
+        self._forget(pid)
         if removed_idx < self.turn_idx:
             self.turn_idx -= 1
         if self.turn_idx >= len(self.players):
             self.turn_idx = 0
+        if self.phase == "finished":
+            return                             # nobody "wins" a kick at the curtain
         if len(self.players) == 1:
-            self.winner = self.players[0].pid
+            # last captain standing. Whatever was mid-flight (a battle, a
+            # question, a riddle) dies with the voyage — none of it may ride
+            # along onto the victory screen.
+            self._abandon_turn()
+            self._clear_turn_state()
+            self.winner = self.winner or self.players[0].pid
             self._bump("finished")
         elif was_turn:
-            self._start_turn()
+            # the dice pass to whoever sat next — through the normal door, so
+            # a captain who owes the kraken a turn still pays it
+            self.turn_idx = (removed_idx - 1) % len(self.players)
+            self._next_turn()
+
+    def _forget(self, pid: str):
+        """Scrub a departed captain from table state that is keyed by pid."""
+        self.side_answers.pop(pid, None)
+        if self.gate_walk and self.gate_walk.get("pid") == pid:
+            self.gate_walk = None
+        for nid in self.board.lairs():
+            stash = self.board.nodes[nid]["stash"]
+            if pid in stash:
+                stash.remove(pid)              # no orphan seal left on the altar
+
+    def _abandon_turn(self):
+        """The acting captain is gone mid-turn: strike the set they left on
+        the BOARD. The staged Sphinx is a 1-hp diorama prop — left standing
+        it would meet the next arrival as a real (boss-flagged, unfleeable)
+        foe. A half-fought trial boss or Warden must not wait, softened, for
+        the next challenger either."""
+        if not self.battle:
+            return
+        if self.battle.get("sphinx"):
+            self._clear_sphinx_stage()
+            return
+        node = self.board.nodes.get(self.battle["node"])
+        if node is None:
+            return
+        if node["type"] == "lair":
+            node["monster"] = None             # the next captain gets a fresh trial
+        elif node["type"] == "pharos":
+            self.board.reset_warden()
 
     def start(self, pid: str):
         if self.phase != "lobby":
             raise GameError("Already sailing.")
-        if not self.players or self.players[0].pid != pid:
+        if not self.players or self.host_pid != pid:
             raise GameError("Only the host can launch the fleet.")
         if len(self.players) < MIN_PLAYERS:
             raise GameError(f"Need at least {MIN_PLAYERS} captain(s).")
@@ -416,22 +506,38 @@ class Game:
         for p in self.players:
             p.seen.add(lairs[p.pid])
 
-    def _start_turn(self):
+    def _clear_turn_state(self):
+        """Everything that belongs to ONE turn. Wiped whenever the dice pass,
+        so nothing from the last captain's turn — a half-played battle after
+        a kick, a Jeopardy clue picked but not yet served, the kraken's
+        gauntlet, a stale deadline — can leak into the next."""
         self.die = None
         self.reachable = {}
         self.walk = None
         self.qctx = None
         self.question = None
+        self.question_deadline = None
         self.side_answers = {}
         self.reveal = None
         self.battle = None
         self.minigame = None
+        self.kraken = None
+        self.jboard = None
+        self.jchoose_deadline = None
+        self.dodge_deadline = None
+        self._pending_jeopardy = None
+        self._pending_puzzle = None
         self.upgrade_offer = None
+
+    def _start_turn(self):
+        self._clear_turn_state()
         self._bump("roll")
 
     # ── movement ─────────────────────────────────────────────────────────────
     def roll(self, pid: str, die: int):
         self._require_turn(pid, "roll")
+        if type(die) is not int or not (1 <= die <= MAX_DIE):
+            raise GameError("That is no throw of the die.")
         p = self.current
         self.die = die
         steps = die + (1 if p.has("sandals") else 0) + p.next_roll_bonus
@@ -460,7 +566,7 @@ class Game:
 
     def sail(self, pid: str, node: str):
         self._require_turn(pid, "sail")
-        if node not in self.reachable:
+        if _str(node) not in self.reachable:
             raise GameError("Your ship cannot reach those waters.")
         p = self.current
         self.walk = None                     # a direct pick waives the arrows
@@ -505,7 +611,7 @@ class Game:
         w = self.walk
         if not w or not w.get("options"):
             raise GameError("There is no trail to take here.")
-        if node not in w["options"]:
+        if _str(node) not in w["options"]:
             raise GameError("That trail does not open from here.")
         p = self.current
         self.reachable = {}                  # committed: steer by arrows now
@@ -625,6 +731,15 @@ class Game:
             self._bump("pharos")
             return
         monster = self.board.alive_monster(nid)
+        # the Sword's islet: its guardians stand again for every captain who
+        # has yet to draw the blade. They used to fall ONCE, for good — the
+        # next captain to pay the trader 30 scrolls for the chart landed on
+        # an empty rock, and could only claim the sword if a random sea
+        # skirmish happened to rise there.
+        if (node.get("sword") and not p.has("sword_of_damocles")
+                and not (monster and monster.get("pack"))):
+            node["monster"] = self.board._sword_guardians(self.rng)
+            monster = node["monster"]
 
         # ── the KRAKEN: hub crossings only. One in ten sailings, it rises and
         # bars the way with a gauntlet of three mind-riddles — miss one and it
@@ -675,13 +790,13 @@ class Game:
                 self._say(f"⚔ {monster['name']} waylay {p.name} "
                           f"in the home waters!")
         if monster:
-            guarded = bool(node.get("sword"))
+            guarded = bool(node.get("sword") and monster.get("pack"))
             self.battle = {"node": nid, "stance": None, "round": 0,
                            "charging": False, "ambush": ambush or guarded,
                            "used_items": [], "first_hit_taken": False}
             self._arm_battle()
             if guarded:
-                self._say(f"⚔ {p.name} sets foot on the islet — its four guardians "
+                self._say(f"⚔ {p.name} sets foot on the islet — its three guardians "
                           f"rise as one to bar the way to the sword in the stone!")
             elif not node.get("encounter") and not ambush and ntype != "sea":
                 self._say(f"{monster['name']} bars {p.name}'s way!")
@@ -768,6 +883,29 @@ class Game:
         else:
             self._end_turn()                  # cleared / spent / empty waters
 
+    def gate_carry(self, pid: str, gate: str, dest: str) -> bool:
+        """The pass carries a captain through: a beat after landfall the
+        server walks them on to the far side's first stop (see ``gate_walk``).
+        Positional only — no landing effects. Returns True if they moved.
+
+        Refused when it would be wrong to move them: they have already left
+        the arch, the stop is not next to it, or — the race this method
+        exists for — their NEXT roll has already been plotted from the arch
+        (a fast table, a solo run): carrying them now would leave the landing
+        beacons measured from a stop they no longer stand on."""
+        p = self.player_by_pid(pid)
+        if not p or p.node != gate or gate not in self.board.nodes:
+            return False
+        if dest not in self.board.neighbors.get(gate, ()):
+            return False
+        if self.phase == "sail" and self.players and self.current.pid == pid:
+            return False
+        p.prev_node = p.node
+        p.node = dest
+        self._reveal_vale(p)
+        self.nonce += 1
+        return True
+
     def _bank(self, p: Player):
         if p.cargo:
             n = len(p.cargo)
@@ -805,7 +943,7 @@ class Game:
         node = self.board.nodes[p.node]
         if node["type"] != "shrine" or node.get("charges", 0) <= 0:
             raise GameError("This shrine is spent.")
-        if tier not in TIER_REWARD:
+        if _int(tier) not in TIER_REWARD:
             raise GameError("Choose tier I, II, or III.")
         self.qctx = {"kind": "shrine", "island": p.node, "tier": tier,
                      "domain": node["domain"]}
@@ -850,6 +988,7 @@ class Game:
                 or self.phase not in ("shop", "trade"):
             raise GameError("The trader isn't listening right now.")
         p = self.current
+        _str(item)
         at_market = self.phase == "shop"
         remote = not at_market
         if item in RELICS or item == "fitting":
@@ -918,11 +1057,11 @@ class Game:
         p = self.player_by_pid(pid)
         if not p or self.current.pid != pid:
             raise GameError("Not your turn.")
-        if p.items.get(item, 0) <= 0:
+        if p.items.get(_str(item), 0) <= 0:
             raise GameError("You don't carry one.")
         if item == "planks":
             if self.phase not in ("roll", "sail", "battle", "shrine", "haven",
-                                  "shop", "trade"):
+                                  "shop", "trade", "pharos"):
                 raise GameError("Steady your hands first — not now.")
             if p.hull >= p.max_hull:
                 raise GameError("The hull is already sound.")
@@ -950,6 +1089,12 @@ class Game:
         elif item == "gale":
             if self.phase not in ("roll", "trade"):
                 raise GameError("Use it before you roll.")
+            # arming a gale takes it out of the hold — without a ceiling the
+            # trade beat became buy → crack → buy → crack, stacking a +20
+            # roll straight past ITEM_CAP ("nobody stacks buffs") and clean
+            # over a realm's whole road onto the boss altar
+            if p.next_roll_bonus >= GALE_STACK_CAP:
+                raise GameError("Your sails can hold no more wind.")
             p.items["gale"] -= 1
             p.next_roll_bonus += GALE_BONUS
             self.nonce += 1
@@ -959,6 +1104,10 @@ class Game:
                 raise GameError("Sound it in battle, before your move.")
             if self.battle.get("horn"):
                 raise GameError("The horn already sounds.")
+            if self.board.nodes[self.battle["node"]]["type"] == "pharos":
+                # a STRIKE only ever chips the Dark Presence for 1 — the horn
+                # would be spent for nothing (and never even discharged)
+                raise GameError("The Dark Presence does not heed a war horn.")
             p.items["horn"] -= 1
             self.battle["horn"] = True
             self.nonce += 1
@@ -1035,6 +1184,11 @@ class Game:
         if not monster:
             return
         idx = next((i for i, pl in enumerate(self.players) if pl.pid == pid), None)
+        # the panel can be opened at ANY moment — mid-question, mid-dodge, on
+        # a rival's turn. Strike whatever was in flight first, or the summoned
+        # fight starts with a stale question / minigame / incoming blow.
+        self._abandon_turn()
+        self._clear_turn_state()
         if idx is not None:
             self.turn_idx = idx                   # the fight belongs to the dev
         self.board.nodes[p.node]["monster"] = monster
@@ -1179,8 +1333,11 @@ class Game:
     # ── battle (Paper-Mario turns: your move, then the enemies') ─────────────
     def stance(self, pid: str, stance: str, target: int = 0, mode: str | None = None):
         self._require_turn(pid, "battle")
-        if stance not in ("attack", "magic", "sword", "heal"):
+        if _str(stance) not in ("attack", "magic", "sword", "heal"):
             raise GameError("Choose STRIKE, MAGIC, HEAL, or the SWORD.")
+        _int(target)
+        if mode is not None:
+            _str(mode)
         node = self.board.nodes[self.battle["node"]]
         if stance == "sword":
             if not self.current.has("sword_of_damocles"):
@@ -1272,7 +1429,7 @@ class Game:
         becomes the typed question."""
         self._require_turn(pid, "jchoose")
         board = self.jboard
-        if not board or not (0 <= idx < len(board["cells"])):
+        if not board or not (0 <= _int(idx) < len(board["cells"])):
             raise GameError("Pick a category.")
         self._pending_jeopardy = questions.jeopardy_question(board["cells"][idx])
         self.jboard = None
@@ -1322,12 +1479,19 @@ class Game:
         if self.qctx["kind"] != "battle" or self.question is None:
             raise GameError("No battle question to bend.")
         p = self.current
+        if _str(item) not in ("owl", "lyre"):
+            raise GameError("That trinket has no power here.")
         if not p.has(item):
             raise GameError("You don't carry that.")
         if item in self.battle["used_items"]:
             raise GameError("Already used this battle.")
         if item == "owl" and self.question.get("typed"):
             raise GameError("The Owl can't narrow a typed clue.")
+        if item == "owl" and self.question.get("disabled"):
+            # a SECOND random pair of lies struck from the same card would
+            # (two times in three) expose all three wrong answers — the same
+            # reason a Hint Stone refuses an already-narrowed question
+            raise GameError("The options are already narrowed.")
         if item == "owl":
             self.battle["used_items"].append("owl")
             correct = self.question["correct"]
@@ -1337,9 +1501,11 @@ class Game:
         elif item == "lyre":
             self.battle["used_items"].append("lyre")
             self.question = None              # server fetches a fresh one
+            self.question_deadline = None
+            # rivals' side guesses were for the OLD card — an index carried
+            # over would be scored against the new question's answer
+            self.side_answers = {}
             self.nonce += 1                   # cancel the old question timer
-        else:
-            raise GameError("That trinket has no power here.")
 
     def _cheat_death(self, p: Player) -> bool:
         """Phoenix Feather: the first killing blow of the game leaves you at 1
@@ -1413,6 +1579,8 @@ class Game:
             raise GameError("Spectators watch in silence.")
         if pid in self.side_answers:
             raise GameError("You already answered.")
+        if not (0 <= _int(idx) < len(self.question.get("options", []))):
+            raise GameError("Pick one of the answers.")
         self.side_answers[pid] = idx
 
     def answer(self, pid: str, idx: int):
@@ -1421,6 +1589,8 @@ class Game:
             raise GameError("The question is still on its way.")
         if self.question.get("typed"):
             raise GameError("Type your answer for this clue.")
+        if not (0 <= _int(idx) < len(self.question.get("options", []))):
+            raise GameError("Pick one of the answers.")
         if idx in self.question.get("disabled", []):
             raise GameError("The Owl has ruled that answer out.")
         self._resolve_question(idx == self.question["correct"], idx)
@@ -1457,7 +1627,8 @@ class Game:
                     continue
                 ok = sidx == self.question.get("correct")
                 if ok:
-                    sp.scrolls += SIDE_REWARD + self._side_streak(sp)
+                    sp.scrolls += SIDE_REWARD
+                    self._streak_bonus(sp)     # pays its own +1 at a streak
                 else:
                     sp.streak = 0
                 side[spid] = {"ok": ok, "chosen": sidx}
@@ -1611,7 +1782,8 @@ class Game:
                     if node.get("encounter") or node["type"] == "sea":
                         node["monster"] = None     # the waters fall quiet — for now
                     # the islet's guardians are down — the sword is yours to draw
-                    if node.get("sword") and not p.has("sword_of_damocles"):
+                    if (node.get("sword") and m.get("pack")
+                            and not p.has("sword_of_damocles")):
                         p.upgrades.append("sword_of_damocles")
                         self._sword_claimed = True
                         note += (" 🗡 Beyond the fallen guard a sword juts from a "
@@ -1697,13 +1869,6 @@ class Game:
             self.battle = None
         self._bump("reveal")
 
-    def _side_streak(self, sp: Player) -> int:
-        sp.streak += 1
-        if sp.streak >= STREAK_AT:
-            sp.scrolls += 1
-            return 1
-        return 0
-
     def advance_after_reveal(self):
         if self.phase != "reveal":
             return
@@ -1732,7 +1897,13 @@ class Game:
     def minigame_submit(self, pid: str, payload):
         self._require_turn(pid, "minigame")
         mg = self.minigame
-        ok = puzzles.check(mg["kind"], mg["data"], payload)
+        try:
+            ok = puzzles.check(mg["kind"], mg["data"], payload)
+        except (TypeError, ValueError, KeyError, IndexError, AttributeError,
+                OverflowError, RecursionError):
+            # a payload of the wrong shape is a malformed message, not a
+            # wrong answer: refuse it without spending the attempt
+            raise GameError("Malformed message.") from None
         if mg.get("battle"):
             if ok:
                 self.minigame = None
@@ -1928,7 +2099,7 @@ class Game:
 
     def pick_upgrade(self, pid: str, upgrade: str):
         self._require_turn(pid, "upgrade_pick")
-        if not self.upgrade_offer or upgrade not in self.upgrade_offer:
+        if not self.upgrade_offer or _str(upgrade) not in self.upgrade_offer:
             raise GameError("That prize is not on offer.")
         p = self.current
         self._apply_upgrade(p, upgrade)
@@ -1965,7 +2136,7 @@ class Game:
     def rematch(self, pid: str):
         if self.phase != "finished":
             raise GameError("The voyage is not over.")
-        if not self.players or self.players[0].pid != pid:
+        if not self.players or self.host_pid != pid:
             raise GameError("Only the host can call a rematch.")
         self.board = Board(self.rng.randrange(2**31))     # a brand-new sea
         for p in self.players:
@@ -1979,6 +2150,7 @@ class Game:
         self.kraken = None
         self.used_puzzles = set()
         self.log = []
+        self.flash = None                  # last voyage's verdict banner
         self.turn_idx = 0
         self._start_turn()
 
@@ -2003,6 +2175,10 @@ class Game:
                              "model": e.get("model")}
                             for e in m["enemies"]],
                 "strike_tier": 2 if boss else 1,
+                # the RULE, not the look: only true trials (lair bosses, the
+                # Warden, the staged Sphinx) refuse a retreat. "boss" above is
+                # also set for packs of 5-HP brutes, which CAN be fled.
+                "can_flee": not m.get("boss"),
                 "node": self.battle["node"], "is_lair": node["type"] == "lair",
                 "is_pharos": node["type"] == "pharos",
                 "region": node.get("region"),
@@ -2138,7 +2314,7 @@ class Game:
             # the islet the trader's map circles — only revealed to a buyer
             "sword_node": (getattr(self.board, "sword_node", None)
                            if viewer and viewer.map_bought else None),
-            "host": self.players[0].pid if self.players else None,
+            "host": self.host_pid,
             "turn": self.current.pid if self.players and self.phase != "lobby" else None,
             "die": self.die,
             "reachable": self.reachable if (self.players and self.phase != "lobby"

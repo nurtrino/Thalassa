@@ -180,7 +180,9 @@ export function createPipeline(renderer, { quality = null } = {}) {
     finalPass = new ShaderPass(shader);
     composer.addPass(finalPass);
     composer.setPixelRatio(pr);
+    renderer.setSize(width, height);
     composer.setSize(width, height);
+    finalPass.uniforms.uAspect.value = width / height;
     applyLookUniforms();
   }
 

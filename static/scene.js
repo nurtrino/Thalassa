@@ -30,7 +30,7 @@ import { installAtmosphere, applyLook, updateAtmosphere } from './gfx/atmosphere
 import { lookFor } from './gfx/looks.js';
 import { makeSky, bakeEnvironment } from './gfx/sky.js';
 import { makeLightRig } from './gfx/lighting.js';
-import { makeOcean } from './gfx/ocean.js';
+import { makeOcean, WATER_Y } from './gfx/ocean.js';
 import { createPipeline } from './gfx/pipeline.js';
 import { makeShoreMap } from './gfx/shoremap.js';
 
@@ -1581,8 +1581,21 @@ export function createWorld(container, handlers = {}) {
         }
       }
       if (rec.galley.visible) {
-        rec.galley.position.y = Math.sin(t * 1.9 + rec.phase) * 0.1;
-        rec.galley.rotation.z = Math.sin(t * 1.4 + rec.phase) * 0.04;
+        const wave = st.surf.waveHeight;
+        if (wave) {
+          // ride the real swell: heave with the surface, pitch and roll to its slope
+          const p = rec.root.position, yaw = rec.root.rotation.y;
+          const fx = Math.cos(yaw), fz = -Math.sin(yaw);
+          const h0 = wave(p.x, p.z, t);
+          const bow = wave(p.x + fx * 2.2, p.z + fz * 2.2, t), stern = wave(p.x - fx * 2.2, p.z - fz * 2.2, t);
+          const port = wave(p.x - fz * 1.0, p.z + fx * 1.0, t), stbd = wave(p.x + fz * 1.0, p.z - fx * 1.0, t);
+          rec.galley.position.y = (h0 - WATER_Y) * 0.85;
+          rec.galley.rotation.z = Math.atan2(bow - stern, 4.4) * 0.8;
+          rec.galley.rotation.x = Math.atan2(stbd - port, 2.0) * 0.6 + Math.sin(t * 1.4 + rec.phase) * 0.015;
+        } else {
+          rec.galley.position.y = Math.sin(t * 1.9 + rec.phase) * 0.1;
+          rec.galley.rotation.z = Math.sin(t * 1.4 + rec.phase) * 0.04;
+        }
       }
       if (rec.captain && rec.captain.visible) {
         animateMonster(rec.captain, t + rec.phase, moving ? 'walk' : 'idle');
@@ -2162,8 +2175,32 @@ export function createWorld(container, handlers = {}) {
     battleStage.play(kind, payload);
   }
 
+  /* the title screen's backdrop: before any snapshot exists, raise a small
+     stand-in archipelago (Pharos, Home Port, a few isles) so the entry card
+     sits over the living world instead of a void. The first real snapshot
+     has a different board signature and replaces it wholesale. */
+  function showTitle() {
+    if (lastRoom) return;
+    const N = (id, type, x, z, extra = {}) => ({ id, type, x, z, name: '', ...extra });
+    update({
+      code: 'title-vista', phase: 'lobby', players: [], turn: null,
+      board: {
+        domains: {}, regions: {}, edges: [],
+        nodes: [
+          N('pharos', 'pharos', -34, -46), N('home', 'home', 0, 0),
+          N('t_shrine', 'shrine', 52, -30, { domain: 'clio', charges: 2 }),
+          N('t_haven', 'haven', -58, 22), N('t_shop', 'shop', 34, 46),
+          N('t_puzzle', 'puzzle', -16, 70), N('t_shrine2', 'shrine', 96, 34, { domain: 'athena', charges: 2 }),
+          N('t_sea1', 'sea', 22, -62, { look: 'islet' }), N('t_sea2', 'sea', -78, -30, { look: 'rocks' }),
+          N('t_sea3', 'sea', 74, 86, { look: 'islet' }), N('t_sea4', 'sea', -70, 84, { look: 'islet' }),
+        ],
+      },
+    }, null);
+  }
+
   const api = {
     update,
+    showTitle,
     battlePlay,
     battleActive: () => battleOn,
     holdBattleStage: (v) => { battleHold = !!v; },
@@ -2176,6 +2213,8 @@ export function createWorld(container, handlers = {}) {
     mapProject,
     tourActive: () => !!tour,
     endTour,
+    quality: () => pipe.quality,
+    setQuality: (q) => pipe.setQuality(q),
   };
 
   /* debug handle for dev tooling / screenshot scripts */

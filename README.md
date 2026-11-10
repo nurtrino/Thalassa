@@ -107,6 +107,27 @@ regenerates the Blender creature models (`pip install bpy`).
 .venv/bin/pip install pytest && .venv/bin/python -m pytest tests/ -q
 ```
 
+### Rules simulator
+
+`tools/sim.py` plays whole voyages headlessly against `game.py` — no server,
+no clock — and checks the engine's invariants after every action (valid
+phase/turn, sane purses and hulls, seal conservation, nothing left over from
+an earlier phase, JSON-safe snapshots that never leak an answer, a legal
+move always available, turns that always end):
+
+```bash
+python3 tools/sim.py --games 500 --seed 1      # summary; exits non-zero on a failure
+python3 tools/sim.py --games 1 --seed 137 --verbose    # replay one game, action by action
+python3 tools/sim.py --mode bots --max-turns 3000      # honest bot voyages (balance numbers)
+python3 tools/sim.py --study stances           # boss / Warden win rates by stance
+```
+
+Half the tables are honest all-bot voyages (the balance numbers), half are
+"chaos" tables: random-legal play plus illegal, out-of-turn and malformed
+calls (which must raise `GameError` and change nothing), stale timers, kicks,
+disconnects, idle-clock autopilot and dev-style teleports. A small slice runs
+in the unit suite (`tests/test_sim.py`).
+
 ## QA pipeline
 
 One command runs the whole quality gate — unit tests, JS syntax, a

@@ -327,6 +327,8 @@ function lockDev() {
   }
 })();
 
+world.showTitle();        // the living sea behind the title card
+
 $('nameInput').value = localStorage.getItem('thalassa_name') || '';
 
 const muteBtn = $('muteBtn');
@@ -336,6 +338,25 @@ function paintMute() {
 }
 paintMute();
 muteBtn.onclick = () => { audio.init(); audio.toggleMuted(); paintMute(); };
+
+/* graphics quality: High (sun shafts, 4× MSAA) → Balanced → Light. The
+   renderer also steps down on its own if a device can't hold frame rate. */
+const GFX_TIERS = { high: ['H', 'High'], medium: ['B', 'Balanced'], low: ['L', 'Light'] };
+function paintGfx() {
+  const q = world?.quality?.() || 'high';
+  const [chip, label] = GFX_TIERS[q] || GFX_TIERS.high;
+  $('gfxBtn').querySelector('.gfx-tier').textContent = chip;
+  $('gfxBtn').title = `Graphics: ${label} — tap to change`;
+}
+$('gfxBtn').onclick = () => {
+  const order = ['high', 'medium', 'low'];
+  const next = order[(order.indexOf(world.quality()) + 1) % order.length];
+  world.setQuality(next);
+  paintGfx();
+  toast(`Graphics: ${GFX_TIERS[next][1]}`);
+};
+setInterval(paintGfx, 4000);       // reflects automatic step-downs too
+paintGfx();
 
 /* first interaction of any kind wakes the audio context AND the menu music */
 document.addEventListener('pointerdown', (e) => {

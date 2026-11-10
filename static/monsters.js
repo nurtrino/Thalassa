@@ -1,21 +1,37 @@
 /*
- * monsters.js — Agent C (creatures)
+ * monsters.js — creatures: loading, stand-ins, per-instance clones, animation.
  *
- * Loads the 32 Blender-baked GLBs, hands out per-instance clones, and drives
- * ALL creature animation procedurally on the named-part contract from
- * tools/make_monsters.py (body/head/jaw/legXX/armX/wingX/tail0..N/vine0..N/
- * weapon/shield/eye/core/wisp/crown...).
+ * THE MODELS. static/assets/monsters holds the kept Meshy sculpts (see
+ * docs/MODELS.md). Each GLB is ONE fused, textured mesh named `body` under a
+ * `world` root, plus a few heuristic helper meshes the auto-rig dropped in
+ * (`eye` balls, a `core` ball, a `crown` ring — tools/meshy_rig.py). Those
+ * helpers float off the sculpt, so prepareTemplate() deals with them:
+ *   eye / core  removed — the baked emissive map (golem crystals, wraith
+ *               eyes) and the hue-keyed "painted glow" in modelmat.js light
+ *               the real eyes and cores on the sculpt itself, in HDR, so they
+ *               bloom;
+ *   crown       rebuilt as a thin gold halo floating over the boss's highest
+ *               point; the animator turns and bobs it.
  *
- * CONTRACT NOTE / deviation: the shipped GLBs contain NO material literally
- * named 'PlayerTint' (the make_monsters.py docstring promises one but the
- * captain builder names its tintable cloth material 'cloth', baked neutral
- * grey #8a8a8a). retint() therefore recolors 'PlayerTint' materials when
- * present and otherwise falls back to the neutral 'cloth' material, so the
- * captain tints correctly today and any future PlayerTint export also works.
+ * THE ANIMATOR drives creatures procedurally BY NAMED PART (body/head/jaw/
+ * legXX/armX/wingX/tail0..N/vine0..N/weapon/shield/crown/wisp/tatter...). A
+ * fused sculpt only offers `body` (+ `crown`), so today's creatures breathe,
+ * hover, lunge, flinch and crumple as one piece; an articulated remake that
+ * exports the other names animates fully with no code change. The remake
+ * notes in docs/MODELS.md list the names per creature.
  *
- * Axis note: the exporter bakes Y-up into every node, so in three.js space
- * creatures face +X, up is +Y, flanks are ±Z. Limb fore-aft swings are
- * rotations about Z, wing flaps about X, tail wags about Y.
+ * STAND-INS. Some server model ids (board.py REGION_POOL / encounter tables)
+ * have no model any more — the sculpts were cut in the V2 triage. STAND_INS
+ * maps each to a kept model with a recolour and a species height, so the
+ * enemy still reads as itself until it is remade. No file is ever requested
+ * for a stand-in id.
+ *
+ * Player colours: the captain's cloak and tunic are baked neutral grey;
+ * retint() hands the player colour to the material's grey-cloth key
+ * (ModelMaterial.playerTint), so bronze, skin and leather keep their paint.
+ *
+ * Axis note: creatures face +X, up is +Y, flanks are ±Z. Limb fore-aft swings
+ * are rotations about Z, wing flaps about X, tail wags about Y.
  *
  * animateMonster(group, t, mode):
  *   'idle' | 'walk' | 'cast' | 'charge'  → t is GLOBAL time (seconds)
@@ -27,70 +43,158 @@
  */
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
-import { flat, mulberry32, hashStr } from './util.js';
+import { hashStr } from './util.js';
+import { finishModel, finishOf, setModelColor, modelGlowTexture } from './modelmat.js';
 
+/* every creature file on disk (static/assets/monsters/<id>.glb) */
 export const MONSTER_IDS = [
-  'wolf', 'fox', 'jackal', 'boar', 'stag', 'jaguar', 'stalker', 'shambler',
-  'harpy', 'bird', 'vulture', 'raider', 'faun', 'monkey', 'cyclops',
-  'drowned', 'golem', 'siren', 'wraith', 'shade', 'serpent', 'drake',
+  'jackal', 'boar', 'stalker', 'shambler', 'harpy', 'vulture', 'raider',
+  'faun', 'drowned', 'golem', 'siren', 'wraith', 'shade', 'serpent', 'drake',
   'briar', 'crab', 'scorpion', 'skiff', 'captain', 'stag_king', 'wyrm',
   'colossus', 'matriarch', 'warden', 'tyrant', 'kraken', 'sphinx',
-  // Meshy realm re-tints — same beast, re-skinned for its home realm
-  'wolf_frost', 'golem_tomb', 'golem_jade', 'bird_poison',
-  'serpent_dust', 'serpent_bloom',
+  // realm re-skins — same sculpt family, painted for its home realm
+  'golem_tomb', 'golem_jade', 'serpent_dust', 'serpent_bloom',
 ];
+const HAVE = new Set(MONSTER_IDS);
 
-/* The Meshy-generated GLBs come out at arbitrary unit-ish sizes; the whole
- * game (battle sizing, map placement, camera framing) is tuned in WORLD
- * heights. Normalize every template to its species height at load. */
+/* The whole game (battle sizing, map placement, camera framing) is tuned in
+ * WORLD heights; the sculpts come out at arbitrary sizes. Every template is
+ * normalized to its species height at load. */
 const HEIGHTS = {
-  wolf: 1.5, fox: 0.95, jackal: 1.1, boar: 1.5, stag: 2.0, jaguar: 1.4,
-  stalker: 1.7, shambler: 1.9, harpy: 1.7, bird: 1.0, vulture: 1.25,
-  raider: 1.8, faun: 1.7, monkey: 1.1, cyclops: 2.6, drowned: 1.8,
+  jackal: 1.1, boar: 1.5, stalker: 1.7, shambler: 1.9, harpy: 1.7,
+  vulture: 1.25, raider: 1.8, faun: 1.7, drowned: 1.8,
   golem: 2.4, siren: 1.8, wraith: 1.8, shade: 1.8, serpent: 2.2, drake: 1.7,
   briar: 1.7, crab: 1.3, scorpion: 1.6, skiff: 2.2, captain: 1.8,
   stag_king: 3.4, wyrm: 3.6, colossus: 4.2, matriarch: 4.2, warden: 4.6,
   tyrant: 4.2, kraken: 4.4, sphinx: 3.6,
-  wolf_frost: 1.5, golem_tomb: 2.4, golem_jade: 2.4, bird_poison: 1.0,
-  serpent_dust: 2.2, serpent_bloom: 2.2,
+  golem_tomb: 2.4, golem_jade: 2.4, serpent_dust: 2.2, serpent_bloom: 2.2,
 };
+
+/* ── stand-ins for the creatures cut in the V2 triage ──────────────────────
+ * id → { use, height, finish }. `use` is the kept sculpt that plays the part,
+ * `height` the species height the game expects for this id, and `finish`
+ * overrides the sculpt's material finish (modelmat.js): `desat` drains the
+ * baked colour, `tint` is the new coat (hex, or a LINEAR [r,g,b] multiplier
+ * that may exceed 1 to bleach a coat white), `eyes` relights the eyes.
+ * Remove a row when the real model is regenerated (docs/MODELS.md). */
+export const STAND_INS = {
+  // Leafshade Wolf / Sea Wolf — the lean jackal, bulked up, in a grey coat
+  wolf:        { use: 'jackal', height: 1.45,
+                 finish: { desat: 0.92, tint: [0.62, 0.64, 0.70] } },
+  // Frost Wolf / Frostfang Alpha — the same hound bleached to rime
+  wolf_frost:  { use: 'jackal', height: 1.5,
+                 finish: { desat: 1.0, tint: [1.75, 1.95, 2.25], rough: [0.4, 0.9] } },
+  // Snow Fox — the jackal at fox size, white
+  fox:         { use: 'jackal', height: 0.95,
+                 finish: { desat: 1.0, tint: [2.3, 2.3, 2.35] } },
+  // Carrion Crow / Stymphalian Bird — a small vulture in black plumage
+  bird:        { use: 'vulture', height: 1.0,
+                 finish: { desat: 0.95, tint: [0.34, 0.35, 0.42] } },
+  // Poison Bird — the same, in venom green
+  bird_poison: { use: 'vulture', height: 1.0,
+                 finish: { desat: 0.9, tint: [0.42, 1.25, 0.30] } },
+  // Jaguar Shade — the stalker in a night-black coat, eyes lit green
+  jaguar:      { use: 'stalker', height: 1.4,
+                 finish: { desat: 1.0, tint: [0.16, 0.17, 0.22], glowTint: 0x66ff88, glow: 3 } },
+  // Thorn Monkey — a small, dark thorn-imp cut from the faun
+  monkey:      { use: 'faun', height: 1.15,
+                 finish: { desat: 0.55, tint: [0.62, 0.52, 0.42] } },
+  // Cyclops Herdsman — the golem's bulk in weathered umber, crystals as embers
+  cyclops:     { use: 'golem', height: 2.6,
+                 finish: { desat: 0.85, tint: [0.95, 0.60, 0.42], glowTint: 0xffa040, glow: 2.2 } },
+  // Stag Spirit — the Stag King at herd size, uncrowned
+  stag:        { use: 'stag_king', height: 2.0, crown: false, finish: {} },
+};
+/* an id the client has never heard of (a newer server): a nameless shade */
+const UNKNOWN_STAND_IN = { use: 'shade', height: 1.8, float: true,
+  finish: { desat: 0.8, tint: [0.55, 0.5, 0.75] } };
 
 export const BOSS_IDS = new Set(['stag_king', 'wyrm', 'colossus', 'matriarch',
   'warden', 'tyrant', 'sphinx', 'kraken']);
 const FLOATERS = new Set(['wraith', 'shade', 'siren',
   // fliers hover too — wings out, feet never on the ground
-  'bird', 'bird_poison', 'vulture', 'harpy']);
+  'vulture', 'harpy', 'bird', 'bird_poison']);
 const BOATS = new Set(['skiff']);
 
-/* a few Meshy sculpts came out of the auto-rig facing ±Z instead of the
- * game's +X convention — square them up at template time. The whole avian
- * family (harpy + the birds/vulture, and the poison re-tint) shares the wrong
- * facing, so they all get the same quarter-turn. */
+/* a few sculpts came out of the auto-rig facing ±Z instead of the game's +X
+ * convention — square them up at template time. */
 const MODEL_YAW = {
-  sphinx: Math.PI / 2, monkey: Math.PI / 2, harpy: Math.PI / 2,
-  bird: Math.PI / 2, bird_poison: Math.PI / 2,
-  // the vulture sculpt sits a further quarter-turn off its avian kin —
-  // squared up (90° clockwise from the old fix) so it fronts the hero
+  sphinx: Math.PI / 2, harpy: Math.PI / 2,
+  // the vulture sculpt sits a further quarter-turn off its avian kin
   vulture: 0,
-  // squared up from the visual rotation review so each fronts the hero
   shade: Math.PI / 2, scorpion: Math.PI / 2, tyrant: Math.PI / 2,
   skiff: 3 * Math.PI / 2, wyrm: 3 * Math.PI / 2,
 };
 
+/* ── material finish per creature (classes in modelmat.js) ─────────────────
+ * hide = fur/feather/skin, matte with a little sheen · wet = sea-slick scale
+ * and chitin · metal = the baked metal map is honoured (bronze, iron) · stone
+ * = constructs. `glow` lifts the baked emissive map into HDR so crystals and
+ * eyes bloom; `eyes` is the painted-glow key for sculpts whose emissive map
+ * is empty (hue of the painted eye, gain, hue tolerance, min brightness). */
+const eyes = (key, gain = 3, tol = 0.95, min = 0.35) => ({ key, gain, tol, min });
+const MONSTER_FINISH = {
+  jackal:        finishOf('hide'),
+  boar:          finishOf('hide'),
+  vulture:       finishOf('hide'),
+  harpy:         finishOf('hide'),
+  faun:          finishOf('hide'),
+  stag_king:     finishOf('hide'),
+  sphinx:        finishOf('hide', { rough: [0.5, 0.95] }),
+  raider:        finishOf('hide', { metal: 1, rough: [0.42, 0.98] }),
+  captain:       finishOf('metal', { rough: [0.34, 0.96] }),
+  warden:        finishOf('metal', { rough: [0.36, 0.92] }),
+  tyrant:        finishOf('metal', { rough: [0.30, 0.90] }),
+  colossus:      finishOf('stone', { rough: [0.70, 1.0] }),
+  golem:         finishOf('stone', { rough: [0.62, 1.0], glow: 3.0 }),
+  golem_tomb:    finishOf('stone', { rough: [0.66, 1.0], glow: 3.0 }),
+  golem_jade:    finishOf('marble', { rough: [0.34, 0.9], glow: 3.0 }),
+  shambler:      finishOf('wood'),
+  briar:         finishOf('wood', { rough: [0.6, 0.98] }),
+  matriarch:     finishOf('wet', { rough: [0.42, 0.92] }),
+  skiff:         finishOf('wood', { side: 'double' }),
+  wraith:        finishOf('cloth', { glow: 3.2 }),
+  shade:         finishOf('cloth'),
+  siren:         finishOf('wet', { glow: 1.1 }),
+  drowned:       finishOf('wet', { rough: [0.34, 0.9] }),
+  serpent:       finishOf('wet'),
+  serpent_dust:  finishOf('hide', { rough: [0.5, 0.95] }),
+  serpent_bloom: finishOf('wet', { rough: [0.3, 0.8] }),
+  drake:         finishOf('wet', { rough: [0.3, 0.8] }),
+  stalker:       finishOf('wet', { glow: 1.6 }),
+  crab:          finishOf('wet', { rough: [0.2, 0.7] }),
+  scorpion:      finishOf('wet', { rough: [0.12, 0.6], glow: 1.6 }),
+  kraken:        finishOf('wet', { glow: 2.4 }),
+  wyrm:          finishOf('wet', { rough: [0.2, 0.7] }),
+};
+
 const loader = new GLTFLoader();
 const templates = new Map();     // id → Promise<Group>  (never rejects)
+const _warned = new Set();
 
 /* ── loading ──────────────────────────────────────────────────────────────── */
 
 function ensureTemplate(id) {
   let p = templates.get(id);
   if (p) return p;
-  p = loader.loadAsync(`/static/assets/monsters/${id}.glb`)
-    .then((gltf) => prepareTemplate(gltf.scene, id))
-    .catch((err) => {
-      console.warn(`monsters: failed to load '${id}', using fallback`, err);
-      return prepareTemplate(buildFallback(id), id);
-    });
+  if (HAVE.has(id)) {
+    p = loader.loadAsync(`/static/assets/monsters/${id}.glb`)
+      .then((gltf) => prepareTemplate(gltf.scene, id))
+      .catch((err) => {
+        console.warn(`monsters: failed to load '${id}', using the spectre fallback`, err);
+        return prepareTemplate(buildFallback(id), id);
+      });
+  } else {
+    let spec = STAND_INS[id];
+    if (!spec) {
+      if (!_warned.has(id)) {
+        _warned.add(id);
+        console.warn(`monsters: unknown model id '${id}' — shown as a nameless shade`);
+      }
+      spec = UNKNOWN_STAND_IN;
+    }
+    p = ensureTemplate(spec.use).then((src) => makeStandIn(src, id, spec));
+  }
   templates.set(id, p);
   return p;
 }
@@ -99,38 +203,30 @@ export function preloadMonsters(ids) {
   return ids.map((id) => ensureTemplate(id));
 }
 
-/* Saturate/deepen the baked colors ~15% (they export a touch pale), flag
- * shadows, and measure height once on the shared template. */
-const _hsl = { h: 0, s: 0, l: 0 };
-const _PROXY_PARTS = new Set(['eye', 'core', 'crown']);
+const RX_SUFFIX = /\.\d+$/;
+const baseName = (n) => n.replace(RX_SUFFIX, '');
+const _box = new THREE.Box3();
+const _v = new THREE.Vector3();
+
+/* Finish the materials, replace the auto-rig's helper meshes, square up the
+ * facing and normalize to the species height — once, on the shared template. */
 function prepareTemplate(scene, id) {
-  const seen = new Set();
   const procedural = !!scene.userData.procedural;
   if (MODEL_YAW[id]) scene.rotation.y = MODEL_YAW[id];
-  scene.traverse((o) => {
-    if (!o.isMesh) return;
-    // the Meshy auto-rig drops heuristic glow proxies (eye/core/crown balls)
-    // that frequently float off the sculpt — the baked textures carry the
-    // look, so hide them. The procedural fallback keeps its placed eyes.
-    if (!procedural && _PROXY_PARTS.has((o.name || '').replace(/\.\d+$/, ''))) {
-      o.visible = false;
-      return;
-    }
-    o.castShadow = true;
-    o.receiveShadow = true;
-    const mats = Array.isArray(o.material) ? o.material : [o.material];
-    for (const m of mats) {
-      if (!m || seen.has(m)) continue;
-      seen.add(m);
-      if (!m.userData.saturated) {
-        m.userData.saturated = true;
-        m.color.getHSL(_hsl);
-        m.color.setHSL(_hsl.h, Math.min(1, _hsl.s * 1.15), _hsl.l * 0.96);
-      }
-    }
-  });
-  const box = new THREE.Box3().setFromObject(scene);
-  const rawH = Math.max(0.05, box.max.y - box.min.y);
+  if (!procedural) {
+    const helpers = [];
+    scene.traverse((o) => {
+      if (!o.isMesh) return;
+      const n = baseName(o.name || '');
+      if (n === 'eye' || n === 'core' || n === 'crown') helpers.push(o);
+    });
+    for (const o of helpers) o.parent.remove(o);
+    finishModel(scene, MONSTER_FINISH[id] || finishOf('hide'));
+    if (helpers.some((o) => baseName(o.name) === 'crown')) addCrown(scene);
+  }
+  scene.updateMatrixWorld(true);
+  _box.setFromObject(scene);
+  const rawH = Math.max(0.05, _box.max.y - _box.min.y);
   const target = HEIGHTS[id];
   if (target && Math.abs(rawH - target) > 0.05) {
     scene.scale.multiplyScalar(target / rawH);   // feet stay on y=0
@@ -140,52 +236,155 @@ function prepareTemplate(scene, id) {
   return scene;
 }
 
-/* Never-break fallback: a dark spiky ico-sphere with glowing eyes, named so
- * the animator still has body/head/eye to chew on. */
-function buildFallback(id) {
-  const rng = mulberry32(hashStr(id || 'fallback'));
+/* The boss halo: a thin gold ring with a soft glow, floating over the
+ * sculpt's HIGHEST point (antler tips, horns, crest — wherever the eye goes),
+ * parented to `body` so it rides every bob and lunge. Named 'crown': the
+ * animator turns and bobs it. */
+function addCrown(scene) {
+  let body = null;
+  scene.traverse((o) => { if (!body && o.isMesh && baseName(o.name || '') === 'body') body = o; });
+  if (!body) return;
+  const pos = body.geometry.getAttribute('position');
+  body.geometry.computeBoundingBox();
+  const bb = body.geometry.boundingBox;
+  const H = bb.max.y - bb.min.y;
+  // centroid of the top slice of the sculpt, in the body's local space
+  const yCut = bb.max.y - H * 0.06;
+  let sx = 0, sz = 0, n = 0;
+  for (let i = 0; i < pos.count; i++) {
+    if (pos.getY(i) >= yCut) { sx += pos.getX(i); sz += pos.getZ(i); n++; }
+  }
+  const cx = n ? sx / n : 0, cz = n ? sz / n : 0;
+  const R = H * 0.085;
+  const crown = new THREE.Group();
+  crown.name = 'crown';
+  crown.position.set(cx, bb.max.y + H * 0.075, cz);
+  const ring = new THREE.Mesh(
+    new THREE.TorusGeometry(R, R * 0.075, 8, 36),
+    new THREE.MeshStandardMaterial({
+      color: 0xffc64a, metalness: 1, roughness: 0.28,
+      emissive: 0xffa41c, emissiveIntensity: 1.5 }));
+  ring.rotation.x = Math.PI / 2;
+  ring.castShadow = false;
+  const halo = new THREE.Sprite(new THREE.SpriteMaterial({
+    map: modelGlowTexture(), color: new THREE.Color(1.0, 0.72, 0.28),
+    transparent: true, opacity: 0.4, depthWrite: false,
+    blending: THREE.AdditiveBlending }));
+  halo.scale.setScalar(R * 4.6);
+  crown.add(ring, halo);
+  body.add(crown);
+}
+
+/* A removed creature played by a kept sculpt: same geometry and textures, its
+ * own recoloured material, its own species height. */
+function makeStandIn(src, id, spec) {
+  const s = src.clone(true);
+  if (spec.crown === false) {
+    const crowns = [];
+    s.traverse((o) => { if (o.name === 'crown') crowns.push(o); });
+    for (const o of crowns) o.parent.remove(o);
+  }
+  const mats = new Map();
+  const f = spec.finish || {};
+  s.traverse((o) => {
+    if (!o.isMesh || !o.material || !o.material.isModelMaterial) return;
+    let m = mats.get(o.material);
+    if (!m) {
+      m = o.material.clone();
+      if (f.desat != null) m.finish.z = f.desat;
+      if (f.tint != null) setModelColor(m.tint, f.tint);
+      if (f.rough) { m.finish.x = f.rough[0]; m.finish.y = f.rough[1]; }
+      if (f.glow != null) m.emissiveIntensity = f.glow;
+      if (f.glowTint != null) { m.emissive.set(f.glowTint); m.glowParams.z = 0; }
+      if (f.eyes) {
+        setModelColor(_col, f.eyes.key);
+        m.glowKey.set(_col.r, _col.g, _col.b, f.eyes.gain ?? 3);
+        m.glowParams.x = f.eyes.tol ?? 0.95;
+        m.glowParams.y = f.eyes.min ?? 0.35;
+      }
+      mats.set(o.material, m);
+    }
+    o.material = m;
+  });
+  s.scale.multiplyScalar(spec.height / src.userData.height);
+  s.userData = { height: spec.height, monsterId: id, standIn: spec.use, float: !!spec.float };
+  return s;
+}
+const _col = new THREE.Color();
+
+/* Last resort — a GLB failed to load (offline, bad deploy). A small hooded
+ * spectre built from smooth primitives: robe, cowl, two lit eyes, drifting
+ * motes. It is named on the animator's contract (body/head/eye/tatter/wisp)
+ * so it hovers, sways and fights like any other creature, and it is clearly
+ * a deliberate "something is here" figure rather than a debug blob. */
+function buildFallback() {
   const root = new THREE.Group();
   root.name = 'root';
-  root.userData.procedural = true;   // its eyes are PLACED, keep them visible
+  root.userData.procedural = true;
+  root.userData.float = true;      // it drifts, whatever it is standing in for
   const body = new THREE.Group();
   body.name = 'body';
-  body.position.y = 0.85;
   root.add(body);
-  const core = new THREE.Mesh(
-    new THREE.IcosahedronGeometry(0.62, 1),
-    flat(0x1c202b, { roughness: 0.85 }));
-  core.name = 'skull';
-  body.add(core);
-  const spikeGeo = new THREE.ConeGeometry(0.11, 0.5, 5);
-  const spikeMat = flat(0x2b3140, { roughness: 0.7 });
-  for (let i = 0; i < 10; i++) {
-    const s = new THREE.Mesh(spikeGeo, spikeMat);
-    const dir = new THREE.Vector3(rng() * 2 - 1, rng() * 1.6 - 0.4, rng() * 2 - 1).normalize();
-    s.position.copy(dir).multiplyScalar(0.58);
-    s.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir);
-    s.name = 'spike';
-    body.add(s);
+  const robeMat = new THREE.MeshStandardMaterial({
+    color: 0x2a2d4a, roughness: 0.92, metalness: 0, side: THREE.DoubleSide,
+    emissive: 0x1a2460, emissiveIntensity: 0.35 });
+  // robe: a lathe profile, narrow shoulders flaring to a ragged, open hem
+  const prof = [];
+  const P = [[0.50, 0.00], [0.46, 0.10], [0.36, 0.42], [0.30, 0.78], [0.27, 1.05],
+             [0.25, 1.22], [0.17, 1.32], [0.0, 1.36]];
+  for (const [r, y] of P) prof.push(new THREE.Vector2(r, y));
+  const robeGeo = new THREE.LatheGeometry(prof, 28);
+  const rp = robeGeo.getAttribute('position');
+  for (let i = 0; i < rp.count; i++) {              // tattered hem
+    const y = rp.getY(i);
+    if (y < 0.12) {
+      const a = Math.atan2(rp.getZ(i), rp.getX(i));
+      rp.setY(i, y + Math.max(0, Math.sin(a * 7)) * 0.13 + Math.sin(a * 3 + 1) * 0.03);
+    }
   }
+  robeGeo.computeVertexNormals();
+  const robe = new THREE.Mesh(robeGeo, robeMat);
+  robe.castShadow = true; robe.receiveShadow = true;
+  robe.name = 'robe';
+  body.add(robe);
   const head = new THREE.Group();
   head.name = 'head';
-  head.position.set(0.42, 0.28, 0);
+  head.position.set(0, 1.42, 0);
   body.add(head);
-  const eyeGeo = new THREE.SphereGeometry(0.09, 6, 4);
+  // cowl: a sphere shell open toward +X (the face)
+  const cowl = new THREE.Mesh(
+    new THREE.SphereGeometry(0.27, 24, 16, 0.55, Math.PI * 2 - 1.1), robeMat);
+  cowl.rotation.y = Math.PI;
+  cowl.scale.set(1.05, 1.15, 1);
+  cowl.castShadow = true;
+  head.add(cowl);
+  const dark = new THREE.Mesh(new THREE.SphereGeometry(0.2, 16, 12),
+    new THREE.MeshBasicMaterial({ color: 0x05060c }));
+  dark.position.x = 0.02;
+  head.add(dark);
   const eyeMat = new THREE.MeshStandardMaterial({
-    color: 0x0c0c0c, emissive: 0xff4a2a, emissiveIntensity: 3, flatShading: true });
+    color: 0x0a0c10, emissive: 0x7fd8ff, emissiveIntensity: 3.2, roughness: 0.4 });
   for (const sz of [-1, 1]) {
-    const e = new THREE.Mesh(eyeGeo, eyeMat);
+    const e = new THREE.Mesh(new THREE.SphereGeometry(0.036, 10, 8), eyeMat);
     e.name = 'eye';
-    e.position.set(0.2, 0.05, 0.18 * sz);
+    e.position.set(0.19, 0.0, 0.075 * sz);
     head.add(e);
+  }
+  const moteMat = new THREE.SpriteMaterial({
+    map: modelGlowTexture(), color: new THREE.Color(0.6, 1.2, 1.7), transparent: true,
+    opacity: 0.8, depthWrite: false, blending: THREE.AdditiveBlending });
+  for (let i = 0; i < 3; i++) {
+    const w = new THREE.Sprite(moteMat);
+    w.name = 'wisp';
+    const a = i * 2.1;
+    w.position.set(Math.cos(a) * 0.5, 0.75 + i * 0.22, Math.sin(a) * 0.5);
+    w.scale.setScalar(0.2);
+    body.add(w);
   }
   return root;
 }
 
 /* ── instancing ───────────────────────────────────────────────────────────── */
-
-const RX_SUFFIX = /\.\d+$/;
-const baseName = (n) => n.replace(RX_SUFFIX, '');
 
 export async function getMonster(id, { tint = null, scale = 1 } = {}) {
   const tpl = await ensureTemplate(id);
@@ -194,21 +393,22 @@ export async function getMonster(id, { tint = null, scale = 1 } = {}) {
   wrapper.name = `monster:${id}`;
   wrapper.add(inner);
 
-  // per-instance material clones for anything we animate (emissive pulse)
-  // or recolor (tint) — everything else keeps sharing the cached material.
+  // per-instance material clones for anything we animate (glow pulse) or
+  // recolor (player tint) — everything else keeps sharing the cached material.
   const ownedMats = [];
   const emissives = [];
   const tintables = [];
   const cloneMap = new Map();
   inner.traverse((o) => {
-    if (!o.isMesh) return;
+    if (!o.isMesh && !o.isSprite) return;
     const mats = Array.isArray(o.material) ? o.material : [o.material];
     let changed = false;
     const out = mats.map((m) => {
       if (!m) return m;
-      const bn = baseName(m.name || '');
-      const glows = m.emissive && (m.emissive.r + m.emissive.g + m.emissive.b) > 0.001;
-      const tintable = bn === 'PlayerTint' || bn === 'cloth';
+      const sprite = !!m.isSpriteMaterial;
+      const glows = sprite || (m.emissive && (m.emissive.r + m.emissive.g + m.emissive.b) > 0.001
+        && m.emissiveIntensity > 0) || (m.isModelMaterial && m.glowKey.w > 0);
+      const tintable = !!m.isModelMaterial && id === 'captain';
       if (!glows && !tintable) return m;
       let c = cloneMap.get(m);
       if (!c) {
@@ -217,9 +417,10 @@ export async function getMonster(id, { tint = null, scale = 1 } = {}) {
         ownedMats.push(c);
         if (glows) {
           emissives.push({
-            mat: c,
-            baseI: c.emissiveIntensity,
-            baseE: c.emissive.clone(),
+            mat: c, sprite,
+            baseI: sprite ? c.opacity : c.emissiveIntensity,
+            baseE: sprite ? null : c.emissive.clone(),
+            baseK: c.isModelMaterial ? c.glowKey.w : 0,
           });
         }
         if (tintable) tintables.push(c);
@@ -239,7 +440,7 @@ export async function getMonster(id, { tint = null, scale = 1 } = {}) {
     tintables,
     phase: (hashStr(id) % 628) / 100 + Math.random() * 2,
     height: tpl.userData.height,
-    float: FLOATERS.has(id),
+    float: FLOATERS.has(id) || !!tpl.userData.float,
     boat: BOATS.has(id),
   };
   if (tint) retint(wrapper, tint);
@@ -247,28 +448,14 @@ export async function getMonster(id, { tint = null, scale = 1 } = {}) {
   return wrapper;
 }
 
+/* Player colour → the captain's neutral-grey cloth (cloak, tunic, crest). */
 export function retint(group, cssColor) {
-  const c = new THREE.Color(cssColor);
   const tintables = group.userData && group.userData.tintables;
-  const apply = (mats, want) => {
-    let hit = false;
-    for (const m of mats) {
-      if (baseName(m.name || '') === want) { m.color.copy(c); hit = true; }
-    }
-    return hit;
-  };
-  if (tintables && tintables.length) {
-    if (!apply(tintables, 'PlayerTint')) apply(tintables, 'cloth');
-    return;
+  if (!tintables || !tintables.length) return;
+  for (const m of tintables) {
+    m.playerTint.set(cssColor);
+    m.finish.w = 1;
   }
-  // group wasn't made by getMonster — best-effort traverse
-  const found = [];
-  group.traverse((o) => {
-    if (!o.isMesh) return;
-    const mats = Array.isArray(o.material) ? o.material : [o.material];
-    for (const m of mats) if (m) found.push(m);
-  });
-  if (!apply(found, 'PlayerTint')) apply(found, 'cloth');
 }
 
 /* ── rig discovery ────────────────────────────────────────────────────────── */
@@ -340,8 +527,20 @@ function resetRig(rig) {
   inn.node.rotation.copy(inn.r);
   inn.node.scale.copy(inn.s);
   for (const e of rig.emissives) {
+    if (e.sprite) { e.mat.opacity = e.baseI; continue; }
     e.mat.emissiveIntensity = e.baseI;
     e.mat.emissive.copy(e.baseE);
+    if (e.baseK) e.mat.glowKey.w = e.baseK;
+  }
+}
+
+/* scale every glowing thing on the creature (baked emissive, painted eyes,
+ * halo sprites) by k — the animator's one knob for "power" */
+function setGlow(rig, k) {
+  for (const e of rig.emissives) {
+    if (e.sprite) { e.mat.opacity = Math.min(1, e.baseI * k); continue; }
+    e.mat.emissiveIntensity = e.baseI * k;
+    if (e.baseK) e.mat.glowKey.w = e.baseK * k;
   }
 }
 
@@ -498,6 +697,12 @@ function poseLocomotion(rig, u, t, ph, walking) {
   if (rig.sail) {
     rig.sail.node.rotation.y = rig.sail.r.y + Math.sin(t * 1.2 + ph) * 0.05;
   }
+  // the boss halo turns slowly and rides a small bob of its own
+  if (rig.crown) {
+    const c = rig.crown;
+    c.node.rotation.y = c.r.y + t * 0.5;
+    c.node.position.y = c.p.y * (1 + Math.sin(t * 1.3 + ph) * 0.006);
+  }
 }
 
 /* attack: coiled windup → jaw-snapping lunge → recover.  t is LOCAL. */
@@ -547,8 +752,7 @@ function poseAttack(rig, u, t, ph) {
     rig.wingR.node.rotation.x = rig.wingR.r.x - f + Math.max(0, drive) * 0.4;
   }
   // emissives spike at the moment of contact
-  const glow = 1 + Math.max(0, drive) * 1.6;
-  for (const e of rig.emissives) e.mat.emissiveIntensity = e.baseI * glow;
+  setGlow(rig, 1 + Math.max(0, drive) * 1.6);
 }
 
 /* flinch: sharp recoil + decaying shudder.  t is LOCAL. */
@@ -569,7 +773,7 @@ function poseHurt(rig, u, t, ph) {
     rig.head.node.rotation.y = rig.head.r.y + shudder * 0.2;
   }
   if (rig.jaw) rig.jaw.node.rotation.z = rig.jaw.r.z - decay * 0.3;
-  for (const e of rig.emissives) e.mat.emissiveIntensity = e.baseI * (1 + decay * 1.2);
+  setGlow(rig, 1 + decay * 1.2);
 }
 
 /* death: crumple, shrink, sink.  t is LOCAL; pose holds at t>=1.2s. */
@@ -582,7 +786,7 @@ function poseDie(rig, u, t) {
   inn.node.rotation.z = inn.r.z + k * 0.5;
   inn.node.rotation.x = inn.r.x + k * 0.25;
   if (rig.jaw) rig.jaw.node.rotation.z = rig.jaw.r.z - clamp01(t / 0.25) * 0.4;
-  for (const e of rig.emissives) e.mat.emissiveIntensity = e.baseI * Math.max(0, 1 - k * 1.4);
+  setGlow(rig, Math.max(0, 1 - k * 1.4));
 }
 
 /* cast / charge: emissive pulse; charge also rears up, burning red. */
@@ -590,9 +794,10 @@ function poseCast(rig, u, t, ph, heavy) {
   const rate = heavy ? 12 : 8;
   const pulse = heavy ? 1.9 + Math.sin(t * rate + ph) * 1.4
                       : 1.5 + Math.sin(t * rate + ph) * 0.9;
-  for (const e of rig.emissives) {
-    e.mat.emissiveIntensity = e.baseI * pulse;
-    if (heavy) e.mat.emissive.lerpColors(e.baseE, _red, 0.55 + Math.sin(t * rate + ph) * 0.25);
+  setGlow(rig, pulse);
+  if (heavy) {
+    const k = 0.55 + Math.sin(t * rate + ph) * 0.25;
+    for (const e of rig.emissives) if (!e.sprite) e.mat.emissive.lerpColors(e.baseE, _red, k);
   }
   const body = rig.body;
   if (heavy && body) {

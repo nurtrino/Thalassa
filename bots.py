@@ -88,7 +88,7 @@ def _target_score(g: G.Game, p, nid: str) -> float:
     return -1
 
 
-def decide_sail(g: G.Game, pid: str, rng: random.Random) -> str:
+def decide_sail(g: G.Game, pid: str, rng: random.Random) -> str | None:
     """Pick a destination worth wanting, then take the reachable node that
     gets closest to it (the map is huge — most turns are passage-making)."""
     p = g.player_by_pid(pid)
@@ -99,11 +99,15 @@ def decide_sail(g: G.Game, pid: str, rng: random.Random) -> str:
          for nid, n in g.board.nodes.items()
          if n.get("owner") in (None, pid)),
         key=lambda t: -t[1])
-    goal, goal_score = targets[0]
-    if goal_score <= 0:                                     # nothing appeals: drift home
+    if not g.reachable:
+        return None                                         # nowhere to go (caller passes)
+    goal, goal_score = targets[0] if targets else ("home", 0)
+    if goal_score <= 0 or goal not in g.board.nodes:        # nothing appeals: drift home
         goal = "home"
     if goal in g.reachable:
         return goal
+    if goal not in g.board.neighbors:                       # a chart with no home port
+        return next(iter(g.reachable))
     dist_to_goal = _distances_from(g.board, goal)
     best, best_d = None, 1e9
     for nid in g.reachable:
@@ -127,9 +131,11 @@ def decide_battle(g: G.Game, pid: str, rng: random.Random) -> str:
     """'attack' | 'magic' | 'flee' | 'planks' for the stance phase. There is
     no guard stance any more — incoming blows are met by the dodge beat."""
     p = g.player_by_pid(pid)
-    m = g.board.alive_monster(g.battle["node"])
+    m = g.board.alive_monster(g.battle["node"]) if g.battle else None
+    alive = [e for e in (m["enemies"] if m else []) if e["hp"] > 0]
+    if not alive:
+        return "attack"            # nothing left standing: any stance ends it
     boss = bool(m.get("boss"))
-    alive = [e for e in m["enemies"] if e["hp"] > 0]
     total_hp = sum(e["hp"] for e in alive)
     power = max(e["power"] for e in alive)
     # patch the hull before choosing a stance if it's getting desperate
@@ -185,7 +191,7 @@ def decide_shop(g: G.Game, pid: str) -> str | None:
 def decide_answer(g: G.Game, skill: Skill, rng: random.Random) -> int:
     correct = g.question["correct"]
     disabled = set(g.question.get("disabled", []))
-    if rng.random() < skill.accuracy(g.qctx["tier"]):
+    if rng.random() < skill.accuracy((g.qctx or {}).get("tier", 2)):
         return correct
     wrong = [i for i in range(len(g.question["options"]))
              if i != correct and i not in disabled]
@@ -194,7 +200,7 @@ def decide_answer(g: G.Game, skill: Skill, rng: random.Random) -> int:
 
 def decide_typed_answer(g: G.Game, skill: Skill, rng: random.Random) -> str:
     """Typed Jeopardy clue: land the real answer at skill odds, else fumble."""
-    if rng.random() < skill.accuracy(g.qctx.get("tier", 2)):
+    if rng.random() < skill.accuracy((g.qctx or {}).get("tier", 2)):
         return g.question["answer"]
     return rng.choice(["pass", "I don't know", "the other one"])
 
@@ -204,4 +210,4 @@ def decide_upgrade(g: G.Game, pid: str) -> str:
     for want in UPGRADE_WISHLIST:
         if want in offer:
             return want
-    return offer[0]
+    return offer[0] if offer else ""

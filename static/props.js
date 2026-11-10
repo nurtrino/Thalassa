@@ -1,72 +1,118 @@
 /*
- * props.js — Meshy-baked island filler props.
+ * props.js — the island filler props and biome flora (static/assets/props).
  *
- * Loads the decoration GLBs (tools/meshy_props.py) once, normalizes each to a
- * unit height sitting on the ground, and hands out clones. propGroup() returns
- * an EMPTY group immediately and drops the model in when the GLB finishes
- * loading, so the synchronous island builder can scatter props without waiting.
+ * Loads each decoration GLB once, gives it its material finish for the HDR
+ * renderer (modelmat.js), normalizes it to its natural WORLD height sitting
+ * on the ground, and hands out clones. propGroup() returns an EMPTY group
+ * immediately and drops the model in when the GLB finishes loading, so the
+ * synchronous island builder can scatter props without waiting.
+ *
+ * docs/MODELS.md is the catalogue: what every kept prop is for, what was
+ * removed in the V2 triage and why, and the remake list.
  */
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import { finishModel, finishOf } from './modelmat.js';
 
+/* every prop file on disk */
 export const PROP_IDS = [
   // core filler props
-  'boulder', 'ruined_column', 'shipwreck', 'crystal_cluster', 'broken_statue',
+  'boulder', 'shipwreck', 'crystal_cluster', 'broken_statue',
   'cairn', 'dead_tree', 'driftwood', 'amphora_pile', 'coral',
   'mushroom_cluster', 'ice_shard', 'bone_pile', 'mossy_idol',
   // environment props
-  'iceberg', 'sand_dune', 'barrel', 'fishing_net', 'brazier', 'stone_well',
+  'barrel', 'fishing_net', 'brazier', 'stone_well',
   'sarcophagus', 'ruined_arch', 'banner_pole', 'campfire', 'lily_pads', 'tide_pool',
-  'buoy', 'ice_floe', 'tomb', 'barrow', 'monster_totem', 'waymarker_stone',
-  'jungle_dungeon',
+  'tomb', 'barrow', 'waymarker_stone', 'jungle_dungeon',
   // biome flora
   'pine_tree', 'pine_snow', 'palm_tree', 'cypress_tree', 'olive_tree',
-  'autumn_tree', 'jungle_tree', 'cactus', 'dead_scrub', 'fern_cluster', 'reeds',
+  'jungle_tree', 'dead_scrub', 'fern_cluster', 'reeds',
 ];
 
-/* Natural WORLD height per prop (units; captain = 1.8). The old flat 1.6
- * normalization made palms shorter than a man and icebergs knee-high —
- * every id is now sized from the scale-review contact sheets
- * (static/scaletest.html + tools sheets in the session log). */
+/* Removed in the V2 model triage — the sculpts were not good enough to ship
+   (docs/MODELS.md has the reasons and the remake notes). propGroup() of one
+   of these is an EMPTY group: nothing is fetched and nothing is logged, so a
+   legacy call site degrades to "no prop here" instead of a 404. */
+export const REMOVED_PROPS = new Set([
+  'ruined_column', 'sand_dune', 'ice_floe', 'iceberg', 'monster_totem',
+  'buoy', 'cactus', 'autumn_tree',
+]);
+
+/* Natural WORLD height per prop (units; the captain is 1.8). */
 const PROP_HEIGHTS = {
   // core filler
-  boulder: 1.4, ruined_column: 1.3, shipwreck: 3.0, crystal_cluster: 1.6,
+  boulder: 1.4, shipwreck: 3.0, crystal_cluster: 1.6,
   broken_statue: 1.6, cairn: 1.4, dead_tree: 2.8, driftwood: 0.8,
   amphora_pile: 1.0, coral: 1.1, mushroom_cluster: 1.0, ice_shard: 1.6,
   bone_pile: 0.7, mossy_idol: 1.6,
   // environment
-  iceberg: 4.5, sand_dune: 1.4, barrel: 0.9, fishing_net: 0.6, brazier: 1.2,
+  barrel: 0.9, fishing_net: 0.6, brazier: 1.2,
   stone_well: 2.0, sarcophagus: 1.4, ruined_arch: 3.0, banner_pole: 2.6,
   campfire: 0.8, lily_pads: 0.35, tide_pool: 0.5,
-  buoy: 1.2, ice_floe: 0.5, tomb: 1.6, barrow: 1.6, monster_totem: 2.2,
-  waymarker_stone: 1.6, jungle_dungeon: 2.4,
+  tomb: 1.6, barrow: 1.6, waymarker_stone: 1.6, jungle_dungeon: 2.4,
   // biome flora
   pine_tree: 3.8, pine_snow: 3.8, palm_tree: 3.6, cypress_tree: 3.6,
-  olive_tree: 2.6, autumn_tree: 3.2, jungle_tree: 3.4, cactus: 2.2,
+  olive_tree: 2.6, jungle_tree: 3.4,
   dead_scrub: 1.0, fern_cluster: 0.9, reeds: 1.5,
+};
+
+/* Material finish per prop (classes in modelmat.js). Stone, timber, cloth and
+   leaves stay matte; ice, crystal, wet rock and glazed caps keep their gloss;
+   iron bands and the gold mask are real metal; fire and crystal light bloom.
+   `side: 'double'` is for foliage, cloth and open shells — everything else is
+   a closed sculpt and renders single-sided (cheaper, cleaner shadows). */
+const FIRE = { key: 0xffa41c, gain: 4.5, tol: 0.93, min: 0.5 };
+const PROP_FINISH = {
+  boulder:          finishOf('stone'),
+  cairn:            finishOf('stone'),
+  mossy_idol:       finishOf('stone'),
+  ruined_arch:      finishOf('stone'),
+  waymarker_stone:  finishOf('stone'),
+  tomb:             finishOf('stone', { rough: [0.74, 1.0] }),
+  barrow:           finishOf('stone'),
+  jungle_dungeon:   finishOf('stone', { rough: [0.70, 1.0] }),
+  stone_well:       finishOf('stone', { side: 'double' }),
+  broken_statue:    finishOf('marble'),
+  bone_pile:        finishOf('marble', { rough: [0.60, 0.95] }),
+  amphora_pile:     finishOf('marble', { rough: [0.58, 0.92] }),
+  shipwreck:        finishOf('wood', { side: 'double' }),
+  dead_tree:        finishOf('wood', { side: 'double' }),
+  driftwood:        finishOf('wood', { rough: [0.62, 0.95] }),
+  barrel:           finishOf('wood', { metal: 0.9, rough: [0.45, 0.95] }),
+  fishing_net:      finishOf('cloth'),
+  banner_pole:      finishOf('cloth'),
+  sarcophagus:      finishOf('metal', { rough: [0.32, 0.92] }),
+  brazier:          finishOf('ember', { eyes: FIRE }),
+  campfire:         finishOf('stone', { side: 'double', eyes: FIRE }),
+  coral:            finishOf('wet', { rough: [0.38, 0.85], glow: 0 }),
+  tide_pool:        finishOf('wet', { rough: [0.16, 0.85], glow: 0 }),
+  lily_pads:        finishOf('foliage', { rough: [0.36, 0.85] }),
+  mushroom_cluster: finishOf('foliage', { rough: [0.34, 0.85], side: 'front' }),
+  crystal_cluster:  finishOf('crystal', { glowGate: 0.5 }),
+  ice_shard:        finishOf('ice', { glowGate: 0 }),
+  pine_tree:        finishOf('foliage'),
+  pine_snow:        finishOf('foliage'),
+  palm_tree:        finishOf('foliage'),
+  cypress_tree:     finishOf('foliage'),
+  olive_tree:       finishOf('foliage'),
+  jungle_tree:      finishOf('foliage'),
+  dead_scrub:       finishOf('foliage', { rough: [0.8, 1.0] }),
+  fern_cluster:     finishOf('foliage'),
+  reeds:            finishOf('foliage'),
 };
 
 const loader = new GLTFLoader();
 const templates = new Map();   // id → Promise<Group|null> (never rejects)
+const _none = Promise.resolve(null);
 
 function ensure(id) {
+  if (REMOVED_PROPS.has(id)) return _none;
   let p = templates.get(id);
   if (p) return p;
   p = loader.loadAsync(`/static/assets/props/${id}.glb`)
     .then((gltf) => {
       const s = gltf.scene;
-      s.traverse((o) => {
-        if (!o.isMesh) return;
-        o.castShadow = true;
-        o.receiveShadow = true;
-        // kill the glossy PBR sheen: Meshy bakes shiny metal/rough maps that
-        // read as glazed plastic beside the flat-shaded world. Force fully
-        // matte and non-metallic so nothing catches a hot specular highlight.
-        if (o.material && 'roughness' in o.material) {
-          o.material.roughness = Math.max(0.95, o.material.roughness);
-          if ('metalness' in o.material) o.material.metalness = 0;
-        }
-      });
+      finishModel(s, PROP_FINISH[id] || finishOf('stone', { side: 'double' }));
       // normalize to the prop's NATURAL height and rest it on the ground
       const box = new THREE.Box3().setFromObject(s);
       const h = Math.max(0.001, box.max.y - box.min.y);
