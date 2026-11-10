@@ -583,8 +583,8 @@ function buildFarTree() {
   const trunk = new THREE.CylinderGeometry(0.8, 1.6, 17, 6, 1, true);
   trunk.translate(0, 8.5, 0);
   parts.push(tint(trunk, 0x3a2a1e));
-  for (const [x, y, z, r, sy, seed] of [[0, 22.5, 0, 7.4, 0.62, 3], [4.6, 20, 1.5, 4.6, 0.7, 5], [-4.4, 20.5, -1.8, 4.8, 0.7, 9]]) {
-    const g = lumpGeometry(1, 1, 0.28, seed, 1.4);
+  for (const [x, y, z, r, sy, seed, det] of [[0, 22.5, 0, 7.4, 0.62, 3, 2], [4.6, 20, 1.5, 4.6, 0.7, 5, 1], [-4.4, 20.5, -1.8, 4.8, 0.7, 9, 1]]) {
+    const g = lumpGeometry(1, det, 0.28, seed, 1.4);
     const pp = g.attributes.position;
     const cc = new Float32Array(pp.count * 3);
     for (let i = 0; i < pp.count; i++) {
@@ -729,10 +729,11 @@ function treeKit() {
   if (_kit) return _kit;
   const lit = litterTextures();
   const trees = VARIANTS.map((_, v) => buildTree(v));
-  const proxy = new THREE.CylinderGeometry(0.95, 1.55, 11, 8, 1, true);
+  // slimmer than the trunk it stands inside, so it never shadows its own bark
+  const proxy = new THREE.CylinderGeometry(0.42, 0.9, 11, 8, 1, true);
   proxy.translate(0, 5.5, 0);
   const crownOpts = { vertexColors: true, roughness: 0.86, metalness: 0,
-    map: clumpTexture(), bumpMap: clumpTexture(), bumpScale: 3.0 };
+    map: clumpTexture(), bumpMap: clumpTexture(), bumpScale: 1.1 };
   _kit = {
     trees,
     far: buildFarTree(),
@@ -894,7 +895,8 @@ export function makeValeField(theme, nodes, segs, rng, heightAt = null) {
     }
     // the long shadows: a short proxy per trunk (see header)
     inst(near, kit.proxy, kit.proxyMat, c.trees,
-      (t) => m4.compose(pp.set(t.x, 0, t.z), q.identity(), sc.set(VARIANTS[t.v].r0 * t.s, 1, VARIANTS[t.v].r0 * t.s)),
+      (t) => m4.compose(pp.set(t.x, 0, t.z), q.identity(),
+        sc.set(VARIANTS[t.v].r0 * t.s, Math.min(1, (VARIANTS[t.v].H * t.sy) / 11.5), VARIANTS[t.v].r0 * t.s)),
       { shadow: true, receive: false });
     const low = (o) => m4.compose(pp.set(o.x, 0, o.z), q.setFromAxisAngle(yAxis, o.yaw), sc.set(o.s, o.s, o.s));
     inst(near, kit.fern, kit.fernMat, c.ferns, low, { color: (o) => col.set(o.col) });

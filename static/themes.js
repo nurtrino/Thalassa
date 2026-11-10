@@ -45,11 +45,12 @@ const THEMES = {
 
   ice: {
     id: 'ice',
-    // The ocean multiplies the body colour by the stage's (low, amber) sunlight,
-    // so these read far darker on screen than they look here: `deep` lands as
-    // cold steel-blue, `shallow`/`seabed` as the turquoise glow of ice seen
-    // through water round every berg and floe (they sit on SHORE_LAYER).
-    water: { deep: 0x5a8ec4, shallow: 0x86f2ff, seabed: 0xbdf6ff, scatter: 0x9fe6ff,
+    // `light` is what the water body is lit by: here the cool polar SKY, not
+    // the amber sun on the horizon (which the ocean's default model would use
+    // and which turned this sea black). `deep` is the cold steel-blue of the
+    // open lead; `shallow`/`seabed` the turquoise glow of ice seen through
+    // water round every berg and floe (they all sit on SHORE_LAYER).
+    water: { deep: 0x4f6a80, shallow: 0x58d6e8, seabed: 0xa8f0f4, scatter: 0x7fd8e8, light: 0xa9bccb,
              sparkle: 1.6, chop: 0.5, foam: 0.85, clarity: 1.25, reflect: 1.1 },
     ground: 'water',
     sky: { zenith: 0x2e4a6e, mid: 0x9cc0d4, horizon: 0xf3ddc4 },
@@ -78,7 +79,8 @@ const THEMES = {
     // golden sand that shades to ochre on the slip faces; stops stand on
     // pale sandstone, not orange rock (sandLee/hardpan are read by realms/desert.js)
     palette: { grass: 0xd2b47c, grass2: 0xc39f66, sand: 0xe6c88e, rock: 0xb8996a,
-               sandLee: 0xb37c44, hardpan: 0xd9c8a0, dry: true, cover: 'rocks' },
+               sandLee: 0xb37c44, hardpan: 0xd9c8a0, pad: 0xdcbd85, pad2: 0xd0af78,
+               dry: true, cover: 'rocks' },
     flora: 'cactus',
     particles: 'dust',
     wall: { rock: 0xa8703e, snow: 0xf3e3b4, glow: 0xe8c27a },
@@ -116,7 +118,7 @@ const THEMES = {
     // swallowing the gate and the horizon whole — only the near woods read.
     // The flat golden trail arrows, landing beacons and barrow beam are all
     // fog-free, so the WAY always shows even when the world beyond it doesn't.
-    fog: { color: 0xe3b184, near: 10, far: 60 },
+    fog: { color: 0xdca878, near: 15, far: 60 },
     sun: { color: 0xffc274, intensity: 1.65, position: [250, 85, 150] },
     hemi: { sky: 0xf3d2a0, ground: 0x6e4a2e, intensity: 0.7 },
     ambient: 0x362619,

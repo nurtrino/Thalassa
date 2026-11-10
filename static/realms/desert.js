@@ -49,7 +49,7 @@ const SYS = [
   // megadunes: long, high, slow — the ridgelines of the middle distance
   { lam: 176, c: 0.72, warp: 0.46, wl: 420, off: 3.7 },
   // the near dunes that ride on and between them
-  { lam: 36, c: 0.74, warp: 0.6, wl: 120, off: 11.1 },
+  { lam: 40, c: 0.74, warp: 0.6, wl: 120, off: 11.1 },
 ];
 const profile = (s, c) => (s < c ? Math.pow(s / c, 1.7) : Math.pow(1 - (s - c) / (1 - c), 1.5));
 
@@ -91,8 +91,8 @@ function makeDuneField(cx, cz, segs) {
     const env0 = 0.4 + 0.6 * fbm(lx / 520 + 7.7, lz / 520 - 3.1);
     const a0 = Math.min((8 + 15 * far) * env0, cap);
     const slip0 = s0 > SYS[0].c ? Math.sin(Math.PI * (s0 - SYS[0].c) / (1 - SYS[0].c)) : 0;
-    const env1 = smooth(0.26, 0.58, fbm(lx / 170 - 11.3, lz / 170 + 4.9));
-    const a1 = Math.min(4.3 * env1 * (1 - 0.75 * slip0), cap);
+    const env1 = 0.4 + 0.6 * smooth(0.22, 0.6, fbm(lx / 170 - 11.3, lz / 170 + 4.9));
+    const a1 = Math.min(5.2 * env1 * (1 - 0.75 * slip0), cap);
     const base = (fbm(lx / 85 + 2.2, lz / 85 + 9.1) - 0.5) * 1.8;
     const h = (base + a0 * profile(s0, SYS[0].c) + a1 * profile(s1, SYS[1].c)) * L;
     out.h = h;
@@ -188,7 +188,7 @@ function sandMaterial(trail, wind) {
         float rLee = clamp(dot(normalize(vWNrm).xz, uWind) * 2.4, 0.0, 1.0);
         float rAmt = (1.0 - rPath) * (1.0 - rScuff * 0.45) * (1.0 - rLee * 0.7);
         float rFineK = rAmt * (1.0 - smoothstep(16.0, 62.0, length(vViewPosition)));
-        float rMegaK = rAmt * 0.5;
+        float rMegaK = rAmt * 0.6 * smoothstep(0.3, 0.75, fkNoise(rWxz * 0.021 + 3.7));
         diffuseColor.rgb *= 1.0 + (rFine.b - 0.5) * 0.17 * rFineK + (rMega.b - 0.5) * 0.12 * rMegaK;`)
       .replace('#include <normal_fragment_maps>', /* glsl */`#include <normal_fragment_maps>
         {
@@ -615,17 +615,54 @@ function flagstones(rng, radius, count, hex = 0xd9c9a2) {
   return m;
 }
 
+/* a traveller's cairn: wind-smoothed stones stacked high, a few fallen at
+   its foot (procedural — a dozen of these cost less than one GLB) */
+export function makeCairn(rng, s = 1) {
+  const parts = [];
+  const cc = new THREE.Color();
+  const n = 5 + Math.floor(rng() * 3);
+  let y = 0, r = (0.5 + rng() * 0.12) * s;
+  for (let i = 0; i < n; i++) {
+    const g = lumpGeometry(1, 1, 0.2, rng() * 99, 1.3);
+    const h = r * (0.42 + rng() * 0.16);
+    g.scale(r * (0.95 + rng() * 0.25), h, r * (0.85 + rng() * 0.2));
+    g.rotateY(rng() * 6.28);
+    g.rotateZ((rng() - 0.5) * 0.14);
+    g.translate((rng() - 0.5) * r * 0.22, y + h * 0.8, (rng() - 0.5) * r * 0.22);
+    cc.set(rng() < 0.3 ? 0xb9a27c : 0xd4c19a).multiplyScalar(0.86 + rng() * 0.2);
+    const yb = y;
+    tint(g, cc.getHex(), (px, py) => 0.72 + clamp01((py - yb) / (h * 1.4)) * 0.3);
+    parts.push(g);
+    y += h * 1.45;
+    r *= 0.8 + rng() * 0.08;
+  }
+  for (let i = 0; i < 3; i++) {
+    const a = rng() * 6.28, d = (0.6 + rng() * 0.5) * s, q = (0.14 + rng() * 0.14) * s;
+    const g = lumpGeometry(1, 1, 0.2, rng() * 99);
+    g.scale(q * 1.3, q * 0.7, q);
+    g.rotateY(rng() * 6.28);
+    g.translate(Math.cos(a) * d, q * 0.25, Math.sin(a) * d);
+    tint(g, 0xc9b58c, (px, py) => 0.75 + clamp01(py * 3) * 0.25);
+    parts.push(g);
+  }
+  const m = new THREE.Mesh(merge(parts), slabMaterial());
+  m.castShadow = true;
+  m.receiveShadow = true;
+  const grp = new THREE.Group();
+  grp.add(m);
+  return grp;
+}
+
 /* an open stop on the trek */
 export function desertWaypoint(rng) {
   const g = new THREE.Group();
   g.add(flagstones(rng, 2.3, 7));
   // the marker stands BESIDE the stop — the captain halts on the stones
   const a = rng() * 6.28;
-  const marker = propGroup(rng() < 0.72 ? 'cairn' : 'bone_pile', 1.05 + rng() * 0.4);
+  const marker = makeCairn(rng, 1.15 + rng() * 0.45);
   marker.position.set(Math.cos(a) * 3.3, 0, Math.sin(a) * 3.3);
-  marker.rotation.y = rng() * 6.28;
   g.add(marker);
-  if (rng() < 0.6) {
+  if (rng() < 0.3) {
     const b = a + 1.6 + rng() * 2.4;
     const scrub = propGroup('dead_scrub', 0.8 + rng() * 0.6);
     scrub.position.set(Math.cos(b) * 4.6, 0, Math.sin(b) * 4.6);
@@ -753,8 +790,8 @@ export function makeOasis(rng, theme, wellAngle = null) {
   }
   // reeds crowd one bank; a well stands on the other
   const bank = wellAngle === null ? rng() * 6.28 : wellAngle + Math.PI;
-  for (let i = 0; i < 5; i++) {
-    const a = bank + (rng() - 0.5) * 2.2;
+  for (let i = 0; i < 2; i++) {
+    const a = bank + (rng() - 0.5) * 1.6;
     const reed = propGroup('reeds', 0.7 + rng() * 0.5);
     const rr = edge(a) * (0.94 + rng() * 0.2);
     reed.position.set(Math.cos(a) * rr, 0, Math.sin(a) * rr);
@@ -842,9 +879,9 @@ export function makeDesertField(theme, nodes, segs, rng, heightAt = null) {
     ribs.rotation.y = rng() * 6.28;
     seat(ribs, p, 0.5 * s);
   }
-  for (let i = 0; i < 7; i++) {
+  for (let i = 0; i < 3; i++) {
     const p = spot(8.5, 16, 10);
-    if (p) prop('bone_pile', 1.0 + rng() * 0.9, p, 0.03);
+    if (p) prop('bone_pile', 1.2 + rng() * 0.9, p, 0.03);
   }
   /* 4 — arches standing alone in the sand */
   for (const [d0, d1, s] of [[26, 48, 1.8], [70, 130, 3.4]]) {
@@ -854,14 +891,14 @@ export function makeDesertField(theme, nodes, segs, rng, heightAt = null) {
   /* 5 — the living margin of the road: cairns, dead trees, dry scrub */
   for (let i = 0; i < 8; i++) {
     const p = spot(8, 13, 14);
-    if (p) prop('cairn', 0.9 + rng() * 0.5, p, 0.02);
+    if (p) seat(makeCairn(rng, 0.9 + rng() * 0.7), p, 0.02);
   }
   for (let i = 0; i < 5; i++) {
     const p = spot(10, 40, 12);
     if (p) prop('dead_tree', 1.0 + rng() * 0.7, p, 0.05, 0.2);
   }
-  for (let i = 0; i < 26; i++) {
-    const p = spot(8, 70, 5);
+  for (let i = 0; i < 9; i++) {
+    const p = spot(8, 30, 5);
     if (p) prop('dead_scrub', 0.8 + rng() * 0.9, p, 0.02);
   }
   return g;

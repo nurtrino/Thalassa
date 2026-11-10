@@ -25,13 +25,13 @@ import { SEA_Y, smooth, lerp, makeNoise3, radialGeo, paint, mergeGeos, xform, tu
 
 const hex = (h) => new THREE.Color(h);
 const C = {
-  leafDark: hex(0x0d2a15), leafMid: hex(0x1e5524), leafLit: hex(0x3f8a2c), leafTip: hex(0x8dbb40),
-  mangDark: hex(0x14331a), mangMid: hex(0x34692a), mangLit: hex(0x6f9c38),
+  leafDark: hex(0x0e2716), leafMid: hex(0x224d26), leafLit: hex(0x47792d), leafTip: hex(0x93a945),
+  mangDark: hex(0x15301a), mangMid: hex(0x35602b), mangLit: hex(0x6e9038),
   bark: hex(0x6d5a44), barkLight: hex(0x8f7c5e), barkWet: hex(0x3a3024), moss: hex(0x4d6a2c),
   mud: hex(0x57482e), mudWet: hex(0x3f3524), litter: hex(0x5b6230), turf: hex(0x3a7a30), turf2: hex(0x24592a),
   pad: hex(0x4c9a3e), padRim: hex(0x2c6c30), padDry: hex(0x7fa84a), lotus: hex(0xf3a9cb), lotusTip: hex(0xfff0f6),
   reed: hex(0x6f9a3c), reedBase: hex(0x3d6a2a), cattail: hex(0x5a3a22),
-  stone: hex(0x6b6e5c), stoneDark: hex(0x3f4638),
+  stone: hex(0x8a8876), stoneDark: hex(0x4a4d42),
 };
 const V3 = (x, y, z) => new THREE.Vector3(x, y, z);
 
@@ -54,12 +54,12 @@ function leafTexture() {
   ctx.fillRect(0, 0, S, S);
   let sd = 77123;
   const rnd = () => ((sd = (sd * 1664525 + 1013904223) >>> 0) / 4294967296);
-  for (let i = 0; i < 1500; i++) {
-    const x = rnd() * S, y = rnd() * S, L = 9 + rnd() * 15, W = L * (0.34 + rnd() * 0.2), a = rnd() * 6.283;
+  for (let i = 0; i < 3200; i++) {
+    const x = rnd() * S, y = rnd() * S, L = 5 + rnd() * 8, W = L * (0.36 + rnd() * 0.22), a = rnd() * 6.283;
     const t = rnd();
-    const v = t < 0.22 ? 70 + rnd() * 40 : t < 0.72 ? 130 + rnd() * 50 : 200 + rnd() * 55;
+    const v = t < 0.22 ? 96 + rnd() * 30 : t < 0.72 ? 138 + rnd() * 40 : 186 + rnd() * 50;
     const warm = t >= 0.72 ? 1.06 : t < 0.22 ? 0.9 : 1.0;
-    ctx.fillStyle = `rgba(${Math.min(255, v * warm) | 0},${Math.min(255, v * 1.04) | 0},${(v * (2 - warm) * 0.86) | 0},0.82)`;
+    ctx.fillStyle = `rgba(${Math.min(255, v * warm) | 0},${Math.min(255, v * 1.04) | 0},${(v * (2 - warm) * 0.86) | 0},0.6)`;
     for (const ox of [-S, 0, S]) for (const oy of [-S, 0, S]) {
       if (x + ox < -40 || x + ox > S + 40 || y + oy < -40 || y + oy > S + 40) continue;
       ctx.beginPath();
@@ -96,14 +96,14 @@ function foliageMaterial() {
                  + texture2D(uLeafTex, lp.xy).rgb * lw.z;
         // bark (red ≥ green) keeps its own colour; leaves take the dabs
         leafK = smoothstep(0.0, 0.05, diffuseColor.g - diffuseColor.r);
-        diffuseColor.rgb *= mix(vec3(1.0), dab * 2.6, leafK);
+        diffuseColor.rgb *= mix(vec3(1.0), dab * 2.9, leafK);
       }`)
       .replace('#include <emissivemap_fragment>', /* glsl */`
       #include <emissivemap_fragment>
       #ifdef USE_FOG
       {
         float leafBack = max(dot(normalize(vNormal), -uAtmoSunView.xyz) * 0.5 + 0.5, 0.0);
-        totalEmissiveRadiance += vec3(0.34, 0.40, 0.05) * diffuseColor.rgb * leafBack * leafBack * 0.5 * leafK;
+        totalEmissiveRadiance += vec3(0.34, 0.40, 0.05) * diffuseColor.rgb * leafBack * leafBack * 0.32 * leafK;
       }
       #endif`);
   };
@@ -126,11 +126,11 @@ function crownBlob(rng, noise, r, sy, detail, cx, cy, cz, pal) {
   const geo = radialGeo(detail, (d, out) => {
     const n = noise.fbm(d.x * 1.7 + ox, d.y * 1.7 + oy, d.z * 1.7 + oz);
     const billow = 1 - Math.abs(2 * noise(d.x * 3.1 + oz, d.y * 3.1 + ox, d.z * 3.1 + oy) - 1);
-    const k = r * (0.74 + 0.32 * n + 0.2 * billow);
-    out.set(d.x * k, d.y * k * (d.y < 0 ? sy * 0.5 : sy), d.z * k);
+    const k = r * (0.62 + 0.46 * n + 0.26 * billow);
+    out.set(d.x * k, d.y * k * (d.y < 0 ? sy * 0.8 : sy), d.z * k);
   });
   paint(geo, (q, n, c) => {
-    const h = smooth(-0.45, 0.95, q.y / (r * sy));
+    const h = smooth(-0.7, 0.95, q.y / (r * sy));
     c.copy(pal[0]).lerp(pal[1], smooth(0.0, 0.5, h));
     c.lerp(pal[2], smooth(0.4, 0.95, h) * 0.9);
     c.lerp(pal[3], smooth(0.55, 0.85, noise(q.x * 0.9 + ox, q.y * 0.9, q.z * 0.9 + oz)) * smooth(0.45, 1, h) * 0.55);
@@ -481,7 +481,7 @@ function bankMesh(geos) {
    it lies calm and silty for the lilies and fades off with no hard edge */
 function shoalGeo(x, z, r) {
   const N = 12, pos = [x, SEA_Y - 0.55, z], idx = [];
-  for (const [k, y] of [[1, SEA_Y - 0.85], [1.7, SEA_Y - 2.4], [2.5, SEA_Y - 8]]) {
+  for (const [k, y] of [[1, SEA_Y - 0.72], [1.3, SEA_Y - 3.6], [2.3, SEA_Y - 9]]) {
     for (let i = 0; i < N; i++) { const a = (i / N) * 6.283; pos.push(x + Math.cos(a) * r * k, y, z + Math.sin(a) * r * k); }
   }
   for (let i = 0; i < N; i++) idx.push(0, 1 + (i + 1) % N, 1 + i);
@@ -499,13 +499,13 @@ function shoalGeo(x, z, r) {
 
 function mossBoulder(rng, noise, r) {
   const ox = rng() * 30, oz = rng() * 30, sy = 0.62 + rng() * 0.3;
-  const geo = radialGeo(1, (d, out) => {
-    const k = r * (0.76 + 0.5 * noise.fbm(d.x * 1.3 + ox, d.y * 1.3, d.z * 1.3 + oz));
+  const geo = radialGeo(2, (d, out) => {
+    const k = r * (0.7 + 0.62 * noise.fbm(d.x * 1.5 + ox, d.y * 1.5, d.z * 1.5 + oz));
     out.set(d.x * k, Math.max(-0.5 * r, d.y * k * sy), d.z * k);
   });
   return paint(geo, (q, n, c) => {
     c.copy(C.stoneDark).lerp(C.stone, noise(q.x * 1.5 + ox, q.y * 1.5, q.z * 1.5));
-    c.lerp(C.moss, smooth(0.25, 0.7, n.y + (noise(q.x * 2.1, q.y, q.z * 2.1 + oz) - 0.5) * 0.5) * 0.85);
+    c.lerp(C.moss, smooth(0.5, 0.85, n.y + (noise(q.x * 2.1, q.y, q.z * 2.1 + oz) - 0.5) * 0.5) * 0.8);
   });
 }
 
@@ -530,10 +530,10 @@ function plantBank(batch, cell, rng, bank, o, massGeos, { crowns, near }) {
   let tries = 0;
   while (spots.length < crowns && tries++ < crowns * 10) {
     const p = bank.at(rng() * 6.283, 0.05 + Math.sqrt(rng()) * 0.6);
-    const r = (2.7 + rng() * 1.5) * scale;
-    if (spots.some((q) => Math.hypot(q.x - p.x, q.z - p.z) < (q.r + r) * 0.52)) continue;
+    const r = (2.2 + rng() * rng() * 2.6) * scale;
+    if (spots.some((q) => Math.hypot(q.x - p.x, q.z - p.z) < (q.r + r) * 0.4)) continue;
     const g0 = bank.heightAt(p.x, p.z);
-    spots.push({ x: p.x, z: p.z, g: g0, r, y: g0 + (3.6 + rng() * 2.6) * scale });
+    spots.push({ x: p.x, z: p.z, g: g0, r, y: g0 + (2.6 + r * 0.55 + rng() * 2.4) * scale });
   }
   canopyMassGeos(rng, noise3(), spots, massGeos);
   const edge = o.edgeTrees ?? (near ? 1 + (rng() < 0.3 ? 1 : 0) : 0);
@@ -600,7 +600,7 @@ export function buildJungleField(theme, nodes, segs, rng) {
     bankGeos[cell].push(bank.geo);
     banks.push({ x, z, r: R });
     plantBank(batch, cell, rng, bank, { treeScale: near ? 1 : 1.35 }, massGeos[cell],
-      { crowns: near ? Math.max(4, Math.min(8, Math.round(R * R * ex * ez / 20))) : 8, near });
+      { crowns: near ? Math.max(5, Math.min(9, Math.round(R * R * ex * ez / 17))) : 9, near });
   };
 
   /* the channel walls: banks marched down both sides of every lane */

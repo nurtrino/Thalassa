@@ -293,6 +293,10 @@ export function makeOcean(theme, look) {
   const light = sunCol.clone().multiplyScalar(0.30 + 0.70 * Math.sin(sunEl))
     .lerp(new THREE.Color(look.sky.zenith).multiplyScalar(1.6), 0.18);
   const w = theme.water;
+  // optional theme override (theme.water.light): a stage whose sun sits on the
+  // horizon has its sea lit by the SKY, which the sun-elevation model above
+  // under-counts (it turned the polar sea black). Unset = unchanged.
+  if (w.light !== undefined) light.set(w.light);
   const uniforms = {
     ...skyUniforms(),
     uFogSunColor: ATMO.uFogSunColor, uFogParams: ATMO.uFogParams,

@@ -31,7 +31,7 @@
 import * as THREE from 'three';
 import { mergeGeometries, mergeVertices } from 'three/addons/utils/BufferGeometryUtils.js';
 import { hashStr, mulberry32, softDiscTexture } from '../util.js';
-import { propGroup } from '../props.js';
+import { propGroup, preloadProps } from '../props.js';
 import { makeTerrain, makeNoise2D, makeGroundMaterial, SHORE_LAYER, GROUND_TILE } from '../gfx/terrain.js';
 import { makeRidge } from '../gfx/mountains.js';
 
@@ -56,6 +56,33 @@ function fbm2(seed) {
 }
 
 const keep = (o) => { o.userData.keep = true; return o; };
+
+/* A few of the GLBs carry vertices with zero-length normals. normalize() turns
+   those into NaN pixels, and the bloom pass smears one NaN over the whole
+   frame (a solid black screen at some resolutions). Every model a set places
+   has its shared geometry healed once: a dead normal becomes straight up. */
+const _healed = new Set();
+function healNormals(root) {
+  if (!root) return;
+  root.traverse((o) => {
+    const geo = o.geometry;
+    if (!geo || geo.userData.healed) return;
+    geo.userData.healed = true;
+    const n = geo.attributes.normal;
+    if (!n) return;
+    let fixed = 0;
+    for (let i = 0; i < n.count; i++) {
+      const x = n.getX(i), y = n.getY(i), z = n.getZ(i);
+      if (x * x + y * y + z * z < 1e-8) { n.setXYZ(i, 0, 1, 0); fixed++; }
+    }
+    if (fixed) n.needsUpdate = true;
+  });
+}
+function healProp(pid) {
+  if (_healed.has(pid)) return;
+  _healed.add(pid);
+  preloadProps([pid])[0].then(healNormals);
+}
 
 /* ── heightfield patch: analytic normals, vertex colour, world-planar uv ─── */
 function heightfield({ cx = 0, cz = 0, hx, hz, nx, nz, warp = 0, height, paint, material, mask = null }) {
@@ -158,10 +185,10 @@ function lumpBase(detail) {
   return g;
 }
 
-/* specs: {x, y, z, sx, sy, sz, ry, seed, detail, facets, rough, base}
-   paint(pos, normal, out, spec) colours each vertex once normals are known */
-function lumps(specs, paint, material) {
-  const pos = [], idx = [], owner = [];
+/* specs: {x, y, z, sx, sy, sz, ry, seed, detail, facets, cut, cutVar, rough, base}
+   paint(pos, normal, out) colours each vertex once normals are known */
+function lumps(specs, paint, material, flatShaded = false) {
+  const pos = [], idx = [];
   for (const sp of specs) {
     const src = lumpBase(sp.detail ?? 4);
     const rng = mulberry32(sp.seed ?? 1);
@@ -170,8 +197,10 @@ function lumps(specs, paint, material) {
                              + n(z + 31, x * 1.3 + y * 0.7)) / 3;
     const planes = [];
     for (let k = 0; k < (sp.facets ?? 0); k++) {
-      const a = rng() * 6.283, e = (rng() - 0.25) * 1.5;
-      planes.push([Math.cos(a) * Math.cos(e), Math.sin(e), Math.sin(a) * Math.cos(e), 0.6 + rng() * 0.4]);
+      // spread round the compass, tilted mostly upward; the first is a top cut
+      const a = (k / sp.facets) * 6.283 * 2.4 + rng() * 0.9, e = k === 0 ? 1.35 : (rng() - 0.2) * 1.35;
+      planes.push([Math.cos(a) * Math.cos(e), Math.sin(e), Math.sin(a) * Math.cos(e),
+        (sp.cut ?? 0.6) + rng() * (sp.cutVar ?? 0.4)]);
     }
     const rough = sp.rough ?? 0.3, base = sp.base ?? -0.45;
     const sp0 = src.attributes.position, off = pos.length / 3;
@@ -187,22 +216,22 @@ function lumps(specs, paint, material) {
              + rough * 0.4 * (n3(x * 4.3 + 5, y * 4.3, z * 4.3) - 0.5) * 2;
       const lx = x * r * (sp.sx ?? 1), ly = Math.max(base, y * r) * (sp.sy ?? 1), lz = z * r * (sp.sz ?? 1);
       pos.push(sp.x + lx * cy + lz * sy, (sp.y ?? 0) + ly, sp.z - lx * sy + lz * cy);
-      owner.push(sp);
     }
     const si = src.index;
     for (let i = 0; i < si.count; i++) idx.push(off + si.getX(i));
   }
-  const geo = new THREE.BufferGeometry();
+  let geo = new THREE.BufferGeometry();
   geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
   geo.setIndex(idx);
+  if (flatShaded) geo = geo.toNonIndexed();    // crisp planes: ice, cut stone
   geo.computeVertexNormals();
-  const nor = geo.attributes.normal;
-  const col = new Float32Array(pos.length), uv = new Float32Array(pos.length / 3 * 2);
+  const gp = geo.attributes.position, nor = geo.attributes.normal;
+  const col = new Float32Array(gp.count * 3), uv = new Float32Array(gp.count * 2);
   const c = new THREE.Color();
-  for (let i = 0; i < pos.length / 3; i++) {
-    _v1.set(pos[i * 3], pos[i * 3 + 1], pos[i * 3 + 2]);
+  for (let i = 0; i < gp.count; i++) {
+    _v1.fromBufferAttribute(gp, i);
     _v2.fromBufferAttribute(nor, i);
-    paint(_v1, _v2, c, owner[i]);
+    paint(_v1, _v2, c);
     col[i * 3] = c.r; col[i * 3 + 1] = c.g; col[i * 3 + 2] = c.b;
     uv[i * 2] = (_v1.x + _v1.y * 0.5) / GROUND_TILE * 2;
     uv[i * 2 + 1] = (_v1.z + _v1.y * 0.5) / GROUND_TILE * 2;
@@ -256,8 +285,12 @@ function canvas(w, h) {
 const SLAB_ROWS = 6;
 function slabRow(r) {                       // slab edges across one tile, 0..1
   const rng = mulberry32(977 + r * 131);
-  const cuts = [rng() * 0.2];
-  while (cuts[cuts.length - 1] < 1) cuts.push(cuts[cuts.length - 1] + 0.2 + rng() * 0.2);
+  // widths normalised to one tile: the last slab wraps round to meet the first
+  const n = 3 + (rng() < 0.5 ? 1 : 0), w = [];
+  let sum = 0;
+  for (let i = 0; i < n; i++) { w.push(0.7 + rng() * 0.6); sum += w[i]; }
+  const cuts = [rng() * 0.25];
+  for (let i = 0; i < n; i++) cuts.push(cuts[i] + w[i] / sum);
   return cuts;
 }
 function flagstoneTexture() {
@@ -324,42 +357,62 @@ function courtMask(R, tile, seed) {
   return t;
 }
 
-/* the lighthouse roof: rings of wedge slabs round an inlaid star */
-function terraceTexture() {
+/* the lighthouse roof, drawn in POLAR space (u = angle, v = radius) so every
+   joint runs along the texel grid and stays crisp under the camera. One
+   quarter-turn per repeat; terraceRings are the ring edges as fractions of R. */
+const TERRACE_RINGS = [0.1, 0.2, 0.31, 0.43, 0.56, 0.70, 0.84, 1.0];
+function terraceTexture(R) {
   return cached('terrace', () => {
-    const S = 1024, [cv, ctx] = canvas(S, S);
+    const W = 1024, H = 512, [cv, ctx] = canvas(W, H);
     const rng = mulberry32(1777);
-    ctx.fillStyle = '#26242a'; ctx.fillRect(0, 0, S, S);
-    const C = S / 2, rings = [0.10, 0.20, 0.31, 0.43, 0.56, 0.70, 0.84, 1.0];
-    for (let r = 0; r < rings.length - 1; r++) {
-      const r0 = rings[r] * C, r1 = rings[r + 1] * C;
-      const n = Math.round(8 + r * 6.5), a0 = rng() * 6.283;
-      for (let k = 0; k < n; k++) {
-        const v = 132 + Math.floor(rng() * 84) - (r === rings.length - 2 ? 34 : 0);
-        ctx.fillStyle = `rgb(${v},${v - 2},${v + 5})`;
-        const pad = 2.6 / ((r0 + r1) / 2);
-        ctx.beginPath();
-        ctx.arc(C, C, r1 - 2.5, a0 + (k / n) * 6.283 + pad, a0 + ((k + 1) / n) * 6.283 - pad);
-        ctx.arc(C, C, r0 + 2.5, a0 + ((k + 1) / n) * 6.283 - pad, a0 + (k / n) * 6.283 + pad, true);
-        ctx.closePath(); ctx.fill();
+    ctx.fillStyle = '#211f25'; ctx.fillRect(0, 0, W, H);
+    const perQuarter = [1, 2, 2, 3, 3, 4, 5];
+    for (let k = 0; k < TERRACE_RINGS.length - 1; k++) {
+      const f0 = TERRACE_RINGS[k], f1 = TERRACE_RINGS[k + 1];
+      const y0 = (1 - f1) * H + 1.5, y1 = (1 - f0) * H - 1.5;
+      const n = perQuarter[k], off = rng();
+      // a joint is ~0.07 world units wide whatever the radius
+      const jw = 0.035 / ((Math.PI / 2) * R * (f0 + f1) / 2 / W);
+      for (let i = 0; i < n; i++) {
+        const v = 128 + Math.floor(rng() * 86) - (k === TERRACE_RINGS.length - 2 ? 36 : 0);
+        const x0 = ((i + off) / n) * W + jw, x1 = ((i + 1 + off) / n) * W - jw;
+        for (const ox of [0, -W]) {
+          ctx.fillStyle = `rgb(${v},${v - 2},${v + 6})`;
+          ctx.fillRect(x0 + ox, y0, x1 - x0, y1 - y0);
+          ctx.fillStyle = 'rgba(255,255,255,0.12)'; ctx.fillRect(x0 + ox, y0, x1 - x0, 2);
+          ctx.fillStyle = 'rgba(0,0,0,0.22)'; ctx.fillRect(x0 + ox, y1 - 3, x1 - x0, 3);
+        }
       }
     }
-    // the star at the heart: ember-red points on dark bronze
-    ctx.fillStyle = '#5a4630'; ctx.beginPath(); ctx.arc(C, C, rings[0] * C - 3, 0, 6.3); ctx.fill();
-    for (let k = 0; k < 8; k++) {
-      const a = (k / 8) * 6.283;
-      ctx.fillStyle = k % 2 ? '#8a2f1c' : '#c08a3c';
-      ctx.beginPath();
-      ctx.moveTo(C + Math.cos(a) * rings[1] * C * (k % 2 ? 0.78 : 0.98), C + Math.sin(a) * rings[1] * C * (k % 2 ? 0.78 : 0.98));
-      ctx.lineTo(C + Math.cos(a + 0.3) * rings[0] * C * 0.5, C + Math.sin(a + 0.3) * rings[0] * C * 0.5);
-      ctx.lineTo(C + Math.cos(a - 0.3) * rings[0] * C * 0.5, C + Math.sin(a - 0.3) * rings[0] * C * 0.5);
-      ctx.closePath(); ctx.fill();
-    }
-    for (let i = 0; i < 7000; i++) {
+    for (let i = 0; i < 5000; i++) {
       const v = rng() < 0.55 ? 20 : 255;
       ctx.fillStyle = `rgba(${v},${v},${v},${0.03 + rng() * 0.06})`;
-      ctx.fillRect(rng() * S, rng() * S, 1 + rng() * 3, 1 + rng() * 3);
+      ctx.fillRect(rng() * W, rng() * H, 1 + rng() * 5, 1 + rng() * 2);
     }
+    const t = new THREE.CanvasTexture(cv);
+    t.wrapS = THREE.RepeatWrapping;
+    t.colorSpace = THREE.SRGBColorSpace;
+    t.anisotropy = 8;
+    return t;
+  });
+}
+/* the star inlaid at the heart of the terrace: ember red and bronze */
+function starTexture() {
+  return cached('star', () => {
+    const S = 256, C = S / 2, [cv, ctx] = canvas(S, S);
+    ctx.fillStyle = '#211f25'; ctx.fillRect(0, 0, S, S);
+    ctx.fillStyle = '#6a5236'; ctx.beginPath(); ctx.arc(C, C, C - 5, 0, 6.3); ctx.fill();
+    ctx.fillStyle = '#3a3038'; ctx.beginPath(); ctx.arc(C, C, C - 16, 0, 6.3); ctx.fill();
+    for (let k = 0; k < 16; k++) {
+      const a = (k / 16) * 6.283, long = k % 2 === 0;
+      ctx.fillStyle = long ? '#c9934a' : '#9a3420';
+      ctx.beginPath();
+      ctx.moveTo(C + Math.cos(a) * (long ? C - 18 : C - 44), C + Math.sin(a) * (long ? C - 18 : C - 44));
+      ctx.lineTo(C + Math.cos(a + 0.42) * 22, C + Math.sin(a + 0.42) * 22);
+      ctx.lineTo(C + Math.cos(a - 0.42) * 22, C + Math.sin(a - 0.42) * 22);
+      ctx.closePath(); ctx.fill();
+    }
+    ctx.fillStyle = '#c9934a'; ctx.beginPath(); ctx.arc(C, C, 15, 0, 6.3); ctx.fill();
     const t = new THREE.CanvasTexture(cv);
     t.colorSpace = THREE.SRGBColorSpace;
     t.anisotropy = 8;
@@ -436,7 +489,7 @@ function shaftTexture() {
 }
 
 /* ── fire: stacked camera-facing tongues in HDR, so the pipeline blooms it ─ */
-function makeFire(anims, { x, y, z, w, h, seed = 1, glow = 1 }) {
+function makeFire(anims, { x, y, z, w, h, seed = 1, glow = 1, halo: haloK = 0.4 }) {
   const g = new THREE.Group();
   g.position.set(x, y, z);
   const rng = mulberry32(seed);
@@ -454,8 +507,8 @@ function makeFire(anims, { x, y, z, w, h, seed = 1, glow = 1 }) {
   }
   const halo = new THREE.Sprite(new THREE.SpriteMaterial({
     map: softDiscTexture(), color: new THREE.Color(1.1 * glow, 0.36 * glow, 0.08 * glow),
-    transparent: true, opacity: 0.5, blending: THREE.AdditiveBlending, depthWrite: false, fog: false }));
-  halo.scale.set(w * 3.4, w * 3.4, 1);
+    transparent: true, opacity: haloK, blending: THREE.AdditiveBlending, depthWrite: false, fog: false }));
+  halo.scale.set(w * 3.0, w * 3.0, 1);
   halo.position.y = h * 0.3;
   g.add(halo);
   anims.push((t) => {
@@ -464,7 +517,7 @@ function makeFire(anims, { x, y, z, w, h, seed = 1, glow = 1 }) {
       f.sp.scale.set(f.w * (1.04 - (k - 0.86) * 0.8), f.h * k, 1);
       f.sp.position.x = Math.sin(t * 6.1 + f.ph) * f.w * 0.07;
     }
-    halo.material.opacity = 0.44 + Math.sin(t * 12.3) * 0.07;
+    halo.material.opacity = haloK * (0.9 + Math.sin(t * 12.3) * 0.14);
   });
   return g;
 }
@@ -687,13 +740,15 @@ export function buildBattleSet(theme, opts = {}, kit = {}) {
   /* placement helpers */
   const prop = (pid, x, y, z, s = 1, ry = rng() * 6.283, parent = g) => {
     const p = propGroup(pid, s);
+    healProp(pid);
+    p.name = 'prop:' + pid;
     p.position.set(x, y, z);
     p.rotation.y = ry;
     parent.add(keep(p));
     return p;
   };
   const landmark = (sid, x, y, z, o, parent = g) => {
-    const s = structure(sid, o);
+    const s = structure(sid, { ...o, onReady: healNormals });
     s.position.set(x, y, z);
     parent.add(keep(s));
     return s;
@@ -724,12 +779,13 @@ export function buildBattleSet(theme, opts = {}, kit = {}) {
     m.position.set(CAM_X, 0, CAM_Z);
     g.add(m);
   };
-  const shaft = (x, y, z, w, h, hex, op, rz, ry = 0.5) => {
-    const m = new THREE.Mesh(new THREE.PlaneGeometry(w, h), new THREE.MeshBasicMaterial({
-      map: shaftTexture(), color: hex, transparent: true, opacity: op, side: THREE.DoubleSide,
+  /* a shaft of light: a soft streak that always faces the camera, leaning `tilt` */
+  const shaft = (x, y, z, w, h, hex, op, tilt) => {
+    const m = new THREE.Sprite(new THREE.SpriteMaterial({
+      map: shaftTexture(), color: hex, transparent: true, opacity: op, rotation: tilt,
       blending: THREE.AdditiveBlending, depthWrite: false, fog: false }));
     m.position.set(x, y, z);
-    m.rotation.set(0, ry, rz);
+    m.scale.set(w, h, 1);
     g.add(m);
     return m;
   };
@@ -787,7 +843,7 @@ export function buildBattleSet(theme, opts = {}, kit = {}) {
   } else if (id === 'ice') {
     /* ── the Frostfang Reach: blue pack ice under a low amber sun ── */
     const ice = new THREE.Color(0x6aa2c2), deepIce = new THREE.Color(0x3d7ea6), snow = new THREE.Color(0xf1f6fa);
-    const edgeIce = new THREE.Color(0x66c0dc);
+    const edgeIce = new THREE.Color(0x66c0dc), paleIce = new THREE.Color(0xcdeaf4);
     const iceMat = new THREE.MeshStandardMaterial({
       vertexColors: true, map: iceTexture(), bumpMap: iceTexture(), bumpScale: 0.7,
       roughness: 0.3, metalness: 0, emissive: 0x0a2b3c, emissiveIntensity: 0.55 });
@@ -844,20 +900,21 @@ export function buildBattleSet(theme, opts = {}, kit = {}) {
       const f = fbm2(seed + 9);
       return (p, n, c) => {
         const k = f(p.x * 0.3 + p.y * 0.25, p.z * 0.3);
-        c.copy(deepIce).lerp(edgeIce, smooth(-0.5, 5, p.y) * 0.8 + k * 0.3);
-        c.lerp(snow, smooth(0.42, 0.78, n.y + (k - 0.5) * 0.3));
+        c.copy(edgeIce).lerp(paleIce, smooth(-0.3, 4.5, p.y) * 0.75 + k * 0.35);
+        c.lerp(snow, smooth(0.38, 0.7, n.y));
       };
     })();
     const B = (d, s, w, h, sd, f = 7) => {
       const [x, z] = P(d, s);
-      return { x, z, y: -1.2, sx: w, sy: h, sz: w * 0.8, seed: sd, detail: 7, facets: f, rough: 0.1, base: -0.5, ry: sd };
+      return { x, z, y: -1.2, sx: w, sy: h, sz: w * 0.8, seed: sd, detail: 7, facets: f + 6, cut: 0.5, cutVar: 0.36,
+        rough: 0, base: -0.5, ry: sd };
     };
     const bergs = lumps([
       B(44, -23, 6.5, 12, 31, 8), B(52, -31, 4.5, 6.5, 32), B(40, 27, 5, 7.5, 33, 6),
       B(84, -8, 9, 15, 34, 9), B(100, 36, 8, 9, 35), B(120, -58, 12, 18, 36, 8),
       { ...B(13, 10.2, 1.6, 2.6, 37, 5), detail: 4 }, { ...B(30, -19, 1.8, 1.6, 38, 5), detail: 4 },
     ], bergPaint, new THREE.MeshStandardMaterial({
-      vertexColors: true, roughness: 0.22, metalness: 0, emissive: 0x0d3a52, emissiveIntensity: 0.6 }));
+      vertexColors: true, roughness: 0.26, metalness: 0, emissive: 0x0d3a52, emissiveIntensity: 0.45 }), true);
     bergs.layers.enable(SHORE_LAYER);
     g.add(bergs);
     const [ix, iz] = P(14.5, 8.2);
@@ -886,7 +943,7 @@ export function buildBattleSet(theme, opts = {}, kit = {}) {
     }));
     // the court: cool slate against warm sand, so sand-coloured beasts stand out
     {
-      const R = 18.5, TILE = 9, CX = 1.5;
+      const R = 18.5, TILE = 7, CX = 1.5;
       const geo = new THREE.CircleGeometry(R, 48);
       geo.rotateX(-Math.PI / 2);
       const p = geo.attributes.position, uv = geo.attributes.uv;
@@ -897,7 +954,7 @@ export function buildBattleSet(theme, opts = {}, kit = {}) {
       }
       geo.setAttribute('uv1', new THREE.BufferAttribute(uv1, 2));
       const court = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({
-        map: flagstoneTexture(), bumpMap: flagstoneTexture(), bumpScale: 2.4, color: 0x7d7684,
+        map: flagstoneTexture(), bumpMap: flagstoneTexture(), bumpScale: 1.6, color: 0x97897a,
         alphaMap: courtMask(R, TILE, seed + 5), alphaTest: 0.5, roughness: 0.74, metalness: 0 }));
       court.position.set(CX, 0.035, 0);
       court.receiveShadow = true;
@@ -905,7 +962,7 @@ export function buildBattleSet(theme, opts = {}, kit = {}) {
       g.add(court);
     }
     const [tx, tz] = P(56, 4);
-    landmark('tomb', tx, height(tx, tz) - 0.4, tz, { h: 10, ry: -Math.PI / 2 - 0.42 });
+    prop('tomb', tx, height(tx, tz) - 0.3, tz, 6.2, -Math.PI / 2 - 0.42);
     for (const [d, s] of [[41, -8.5], [43, 15]]) {
       const [x, z] = P(d, s);
       landmark('obelisk', x, height(x, z) - 0.3, z, { h: 9.5, ry: 0.4 });
@@ -914,7 +971,7 @@ export function buildBattleSet(theme, opts = {}, kit = {}) {
     sit('sarcophagus', 47.5, 0.5, 1.5, -1.9); sit('sarcophagus', 48.5, 8.5, 1.5, -1.9);
     sit('ruined_arch', 37, -21, 2.3, 0.5); sit('bone_pile', 30, -13, 1.8); sit('bone_pile', 20, 13.5, 1.3);
     sit('amphora_pile', 22, -13.5, 1.4); sit('dead_scrub', 33, 17, 1.6); sit('dead_scrub', 17, -12.5, 1.2);
-    sit('palm_tree', 13.2, 9.8, 2.0, 2.2); sit('palm_tree', 16.5, 11.6, 1.5, 0.6); sit('dead_scrub', 12.5, 7.6, 1.1);
+    sit('palm_tree', 14.5, 8.3, 2.0, 2.2); sit('palm_tree', 18.5, 10.6, 1.5, 0.6); sit('dead_scrub', 13.5, 7.0, 1.1);
     sit('palm_tree', 70, -30, 1.9); sit('palm_tree', 73, -26, 1.6); sit('palm_tree', 75, 30, 1.8);
     {
       const [x, z] = P(66, -31);
@@ -927,7 +984,7 @@ export function buildBattleSet(theme, opts = {}, kit = {}) {
       dry: 0xdccd98, wet: 0x8f7d54, accent: 0x6f8a44 }));
     const [tx, tz] = P(55, 4);
     const ruin = isle(tx, tz, 11.5, 1.5, 'flat', 'meadow');
-    landmark('jungle_dungeon', 0, ruin.top - 0.2, 0, { h: 9.5, ry: -Math.PI / 2 - 0.42 }, ruin.group);
+    prop('jungle_dungeon', 0, ruin.top - 0.1, 0, 4.0, -Math.PI / 2 - 0.42, ruin.group);
     ruin.put('mossy_idol', 2.25, 0.74, 2.0, -1.9); ruin.put('mossy_idol', 3.35, 0.74, 2.0, -1.9);
     ruin.put('jungle_tree', 0.4, 0.7, 2.8); ruin.put('jungle_tree', -1.4, 0.72, 3.1);
     ruin.put('fern_cluster', 3.4, 0.86, 1.6);
@@ -1006,7 +1063,7 @@ export function buildBattleSet(theme, opts = {}, kit = {}) {
     {
       const [x, z] = P(23, -11.5);
       prop('campfire', x, height(x, z), z, 1.5);
-      g.add(makeFire(anims, { x, y: height(x, z) + 0.35, z, w: 1.0, h: 1.7, seed: 5, glow: 0.8 }));
+      g.add(makeFire(anims, { x, y: height(x, z) + 0.35, z, w: 1.0, h: 1.7, seed: 5, glow: 0.6, halo: 0.2 }));
     }
     // low sun raking between the trunks; leaves letting go
     shaft(20, 11, -18, 8, 30, new THREE.Color(1.5, 0.95, 0.42), 0.16, -0.5);
@@ -1020,15 +1077,27 @@ export function buildBattleSet(theme, opts = {}, kit = {}) {
     const CX = 2, R = 27, BX = 24, BZ = -3;
     const stone = 0x55525e;
     {
-      const geo = new THREE.CircleGeometry(R, 72);
+      const SEG = 96, RINGS = 14, r0 = TERRACE_RINGS[0] * R;
+      const geo = new THREE.RingGeometry(r0, R, SEG, RINGS);
+      {
+        const p = geo.attributes.position, uv = geo.attributes.uv;
+        for (let i = 0; i < p.count; i++) {
+          uv.setXY(i, ((i % (SEG + 1)) / SEG) * 4, Math.hypot(p.getX(i), p.getY(i)) / R);
+        }
+      }
       geo.rotateX(-Math.PI / 2);
+      const tex = terraceTexture(R);
       const floor = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({
-        map: terraceTexture(), bumpMap: terraceTexture(), bumpScale: 3, color: 0x8f8a9c,
-        roughness: 0.4, metalness: 0.05 }));
+        map: tex, bumpMap: tex, bumpScale: 1.6, color: 0x8f8a9c, roughness: 0.44, metalness: 0.04 }));
       floor.position.set(CX, 0, 0);
       floor.receiveShadow = true;
       floor.name = 'arena';
       g.add(floor);
+      const star = new THREE.Mesh(new THREE.CircleGeometry(r0 + 0.02, 40).rotateX(-Math.PI / 2),
+        new THREE.MeshStandardMaterial({ map: starTexture(), color: 0xa9a2b0, roughness: 0.36, metalness: 0.25 }));
+      star.position.set(CX, 0, 0);
+      star.receiveShadow = true;
+      g.add(star);
       // the drum of the tower falling away below, and the parapet round the far side
       const drum = new THREE.Mesh(
         new THREE.LatheGeometry([new THREE.Vector2(R, 0), new THREE.Vector2(R + 0.6, -0.7),
@@ -1079,18 +1148,36 @@ export function buildBattleSet(theme, opts = {}, kit = {}) {
       bowl.castShadow = true;
       g.add(bowl);
       const coals = new THREE.Mesh(new THREE.CircleGeometry(3.3, 24).rotateX(-Math.PI / 2),
-        new THREE.MeshBasicMaterial({ color: new THREE.Color(4.5, 1.5, 0.3), map: softDiscTexture(), fog: false }));
+        new THREE.MeshBasicMaterial({ color: new THREE.Color(2.4, 0.8, 0.16), map: softDiscTexture(), fog: false }));
       coals.position.set(BX, 4.42, BZ);
       g.add(coals);
-      g.add(makeFire(anims, { x: BX, y: 4.3, z: BZ, w: 7.5, h: 12.5, seed: 2, glow: 1.25 }));
-      const light = new THREE.PointLight(0xff7a30, 520, 90, 2);
+      g.add(makeFire(anims, { x: BX, y: 4.3, z: BZ, w: 6.5, h: 11.5, seed: 2, glow: 0.62, halo: 0.22 }));
+      const light = new THREE.PointLight(0xff7a30, 330, 90, 2);
       light.position.set(BX - 1.5, 9, BZ + 0.5);
       g.add(light);
-      anims.push((t) => { light.intensity = 520 * (0.88 + Math.sin(t * 9.3) * 0.07 + Math.sin(t * 23.1 + 1) * 0.05); });
+      anims.push((t) => { light.intensity = 330 * (0.88 + Math.sin(t * 9.3) * 0.07 + Math.sin(t * 23.1 + 1) * 0.05); });
       g.add(makeDrift(anims, { n: 110, box: [5, 24, 5], origin: [BX, 5, BZ], rise: 2.6, sway: 0.9,
-        size: 0.3, color: new THREE.Color(4.0, 1.4, 0.3), seed: 4 }));
-      // dark obelisks flank the fire
-      for (const s of [-1, 1]) landmark('obelisk', BX - 1 - s * 1.2, 0, BZ + s * 9.5, { h: 13 });
+        size: 0.26, color: new THREE.Color(3.0, 1.0, 0.2), seed: 4 }));
+      // basalt needles flank the fire, their tips still glowing from it
+      const needle = new THREE.LatheGeometry([[0, 0], [1.25, 0], [1.25, 0.9], [0.95, 0.9], [0.62, 11], [0, 11]]
+        .map(([r, y]) => new THREE.Vector2(r, y)), 4).toNonIndexed();
+      needle.computeVertexNormals();
+      const tip = new THREE.ConeGeometry(0.62, 1.5, 4, 1).toNonIndexed();
+      tip.computeVertexNormals();
+      const needleMat = new THREE.MeshStandardMaterial({ color: 0x3b3944, roughness: 0.46, metalness: 0.1 });
+      const tipMat = new THREE.MeshStandardMaterial({ color: 0x2a140a, roughness: 0.5,
+        emissive: new THREE.Color(2.6, 0.7, 0.12) });
+      for (const sd of [-1, 1]) {
+        const ob = new THREE.Mesh(needle, needleMat);
+        ob.position.set(BX - 1 - sd * 1.2, 0, BZ + sd * 9.5);
+        ob.rotation.y = Math.PI / 4 + 0.3;
+        ob.castShadow = true; ob.receiveShadow = true;
+        const cap = new THREE.Mesh(tip, tipMat);
+        cap.position.y = 11.75;
+        cap.rotation.y = Math.PI / 4;
+        ob.add(cap);
+        g.add(ob);
+      }
     }
     // braziers along the fight's flanks: bronze bowls on turned stands
     {
@@ -1104,7 +1191,7 @@ export function buildBattleSet(theme, opts = {}, kit = {}) {
         st.position.set(x, 0, z);
         st.castShadow = true;
         g.add(st);
-        g.add(makeFire(anims, { x, y: 1.85, z, w: 1.25, h: 2.3, seed: 10 + i }));
+        g.add(makeFire(anims, { x, y: 1.85, z, w: 1.2, h: 2.3, seed: 10 + i, glow: 0.6, halo: 0.2 }));
         if (lit) {
           const l = new THREE.PointLight(0xff8a3c, 60, 30, 2);
           l.position.set(x, 3.1, z);

@@ -76,7 +76,7 @@ const FinalShader = {
       return fract((p3.x + p3.y) * p3.z);
     }
     void main() {
-      vec3 c = texture2D(tDiffuse, vUv).rgb;
+      vec3 c = max(texture2D(tDiffuse, vUv).rgb, vec3(0.0));
 
       #ifdef SHAFTS
       if (uShafts > 0.001 && uSunScreen.z > 0.001) {
@@ -116,6 +116,29 @@ const FinalShader = {
       c += (hash(gl_FragCoord.xy + fract(uTime) * 61.0) - 0.5) / 255.0;
       c = mix(c, vec3(0.024, 0.035, 0.05), uFade);
       gl_FragColor = vec4(c, 1.0);
+    }`,
+};
+
+/* One bad pixel must never black out a frame: a NaN/Inf in the HDR buffer
+   (a zero-length normal in an imported model, a degenerate reflection) is
+   smeared across the whole screen by the bloom blur. This pass scrubs the
+   scene buffer before anything reads it, and caps runaway highlights. */
+const SanitizeShader = {
+  name: 'ThalassaSanitize',
+  uniforms: { tDiffuse: { value: null } },
+  vertexShader: /* glsl */`
+    varying vec2 vUv;
+    void main() { vUv = uv; gl_Position = vec4(position.xy, 0.0, 1.0); }`,
+  fragmentShader: /* glsl */`
+    precision highp float;
+    uniform sampler2D tDiffuse;
+    varying vec2 vUv;
+    void main() {
+      vec3 c = texture2D(tDiffuse, vUv).rgb;
+      // comparisons with NaN are false, so this also zeroes NaNs
+      bvec3 ok = bvec3(c.r >= 0.0 && c.r < 1e6, c.g >= 0.0 && c.g < 1e6, c.b >= 0.0 && c.b < 1e6);
+      c = vec3(ok.r ? c.r : 0.0, ok.g ? c.g : 0.0, ok.b ? c.b : 0.0);
+      gl_FragColor = vec4(min(c, vec3(48.0)), 1.0);
     }`,
 };
 
@@ -170,6 +193,7 @@ export function createPipeline(renderer, { quality = null } = {}) {
     composer = new EffectComposer(renderer, rt);
     renderPass = new RenderPass(new THREE.Scene(), new THREE.PerspectiveCamera());
     composer.addPass(renderPass);
+    composer.addPass(new ShaderPass(SanitizeShader));
     bloomPass = null;
     if (tier.bloom) {
       bloomPass = new UnrealBloomPass(new THREE.Vector2(256, 256), 0.35, 0.6, 1.0);

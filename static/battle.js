@@ -54,21 +54,21 @@ const RIGS = {
   // crisp three-quarter sun, sky-blue edge from behind
   hub:    { key: { az: 214, el: 44 }, gain: 1.0,
             rim: { az: -6, el: 24, color: 0xb4d8ff, intensity: 1.3 }, lamp: 5 },
-  // the low amber sun rakes across the ice from behind-left; cold fill in front
-  ice:    { key: { az: -80, el: 15 }, gain: 1.05,
-            rim: { az: 150, el: 34, color: 0x9cc2ff, intensity: 1.0 }, lamp: 8 },
+  // the low amber sun rakes across the ice from the left; cold sky fills the right
+  ice:    { key: { az: 252, el: 14 }, gain: 1.1,
+            rim: { az: 40, el: 30, color: 0x9cc2ff, intensity: 1.0 }, lamp: 8 },
   // noon: hard light, short black shadows that pin every beast to the slate
   desert: { key: { az: 210, el: 56 }, gain: 0.95,
             rim: { az: -18, el: 20, color: 0xffd9a0, intensity: 1.2 }, lamp: 0 },
   // shafted late-morning light through the canopy, green bounce in front
   jungle: { key: { az: -74, el: 40 }, gain: 1.0,
             rim: { az: 150, el: 38, color: 0xb0f2cc, intensity: 0.95 }, lamp: 6 },
-  // golden hour from behind-left: long shadows down the clearing, lilac fill
-  autumn: { key: { az: -82, el: 17 }, gain: 1.0,
-            rim: { az: 146, el: 32, color: 0xc4b4ff, intensity: 0.85 }, lamp: 6 },
+  // golden hour from the left: long shadows across the clearing, lilac fill
+  autumn: { key: { az: 258, el: 17 }, gain: 1.0,
+            rim: { az: 44, el: 30, color: 0xc4b4ff, intensity: 0.85 }, lamp: 6 },
   // midnight: the beacon is the key (behind the foe), moonlight fills the front
-  pharos: { key: { az: -14, el: 23, color: 0xff8438, intensity: 3.6 }, gain: 1.0,
-            rim: { az: 162, el: 44, color: 0x7f9cff, intensity: 1.5 }, lamp: 22,
+  pharos: { key: { az: -14, el: 23, color: 0xff8438, intensity: 3.0 }, gain: 1.0,
+            rim: { az: 166, el: 40, color: 0x7f9cff, intensity: 2.3 }, lamp: 46,
             fog: [46, 230] },
 };
 

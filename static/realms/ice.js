@@ -63,8 +63,8 @@ export function iceMaterial(roughness = 0.38) {
    noise, undercut at the waterline and flared into an underwater foot.
    Local space: y = 0 is the sea surface. */
 const _col = new THREE.Color();
-function glacialLump(rng, noise, { R, H, kind = 'dome', detail = 2, p = 9, ex = 1, ez = 1,
-                                   depth = 6, lumpy = 0.09, foot = 0.8 }) {
+function glacialLump(rng, noise, { R, H, kind = 'crag', detail = 2, p = 14, ex = 1, ez = 1,
+                                   depth = 13, lumpy = 0.05, foot = 0.9 }) {
   const cy = Math.min(H * 0.3, 1.2);              // star centre, just above the sea
   const topH = H - cy;
   const planes = [];
@@ -87,14 +87,15 @@ function glacialLump(rng, noise, { R, H, kind = 'dome', detail = 2, p = 9, ex = 
             -Math.cos(a0) * R * 0.8, topH, -Math.sin(a0) * R * 0.8);
     through(-Math.cos(a0) * 0.6, 1, -Math.sin(a0) * 0.6, -Math.cos(a0) * R * 0.7, topH, -Math.sin(a0) * R * 0.7);
   } else {
-    // 'pinnacle' (steep, 3–4 faces meeting at an off-centre summit) or 'dome'
+    // 'pinnacle' (steep, 3–4 faces meeting at an off-centre summit) or a
+    // 'crag' (a broken crown of six cleaved faces)
     const steep = kind === 'pinnacle';
-    const n = steep ? 3 + (rng() < 0.5 ? 1 : 0) : 5;
+    const n = steep ? 3 + (rng() < 0.5 ? 1 : 0) : 6;
     const ax = (rng() - 0.5) * R * 0.5, az = (rng() - 0.5) * R * 0.5;
     for (let i = 0; i < n; i++) {
       const a = a0 + ((i + (rng() - 0.5) * 0.6) / n) * 6.283;
-      const phi = steep ? Math.atan2(topH, R * (0.5 + rng() * 0.6)) : 0.28 + rng() * 0.45;
-      const jx = steep ? 0 : (rng() - 0.5) * R * 0.5, jz = steep ? 0 : (rng() - 0.5) * R * 0.5;
+      const phi = steep ? Math.atan2(topH, R * (0.5 + rng() * 0.6)) : 0.4 + rng() * 0.6;
+      const jx = steep ? 0 : (rng() - 0.5) * R * 0.7, jz = steep ? 0 : (rng() - 0.5) * R * 0.7;
       through(Math.sin(phi) * Math.cos(a), Math.cos(phi), Math.sin(phi) * Math.sin(a), ax + jx, topH, az + jz);
     }
   }
@@ -140,20 +141,30 @@ function glacialLump(rng, noise, { R, H, kind = 'dome', detail = 2, p = 9, ex = 
   return geo;
 }
 
-/* ── a flat floe: an irregular plate with a rounded lip and a flared keel ──── */
+/* ── a flat floe: an angular, slightly elongated plate with a snow-domed top,
+   a rounded lip, and an underwater apron that slopes away into deep water (so
+   the turquoise halo the ocean paints round it fades instead of stopping) ── */
 function floeGeo(rng, r, { top = 0.26, snowy = true, sides = 0 } = {}) {
-  const n = sides || 6 + Math.floor(rng() * 3);
-  const rad = [];
-  for (let i = 0; i < n; i++) rad.push(r * (0.8 + rng() * 0.28));
-  const a0 = rng() * 6.283;
-  const pos = [0, top + 0.03, 0], col = [];
-  const topC = _col.copy(snowy ? C.snow : C.bare).multiplyScalar(0.94 + rng() * 0.08).clone();
-  col.push(topC.r, topC.g, topC.b);
-  const rings = [[0.84, top, topC], [1.0, top - 0.09, C.snowShade], [1.03, -0.16, C.aqua], [1.3, -1.1, C.aqua], [2.1, -6.5, C.aqua]];
+  const big = r > 1.5;
+  const n = sides || (r > 3.2 ? 13 : big ? 10 : 7);
+  const el = Math.sqrt(1 + rng() * 0.55), ph = rng() * 6.283;
+  const k1 = 2 + Math.floor(rng() * 3), p1 = rng() * 6.283, k2 = 5 + Math.floor(rng() * 3), p2 = rng() * 6.283;
+  const co = Math.cos(ph), si = Math.sin(ph);
+  const ux = [], uz = [];                          // the outline, at unit scale
+  for (let i = 0; i < n; i++) {
+    const a = (i / n) * 6.283;
+    const k = r * (0.84 + 0.12 * Math.cos(k1 * a + p1) + 0.06 * Math.cos(k2 * a + p2) + (rng() - 0.5) * 0.12);
+    const x = Math.cos(a) * k * el, z = Math.sin(a) * k / el;
+    ux.push(x * co - z * si); uz.push(x * si + z * co);
+  }
+  const topC = _col.copy(snowy ? C.snow : C.bare).multiplyScalar(0.95 + rng() * 0.06).clone();
+  const lipC = snowy ? C.snowShade : C.snow;
+  const pos = [0, top + (big ? 0.07 : 0.03), 0], col = [topC.r, topC.g, topC.b];
+  const rings = [[0.86, top, topC], [1.0, top - 0.1, lipC], [1.04, -0.16, C.aqua], [1.32, -1.1, C.aqua], [2.25, -14, C.aqua]];
+  if (big) rings.unshift([0.52, top + 0.05, topC]);
   for (const [k, y, c] of rings) {
     for (let i = 0; i < n; i++) {
-      const a = a0 + (i / n) * 6.283;
-      pos.push(Math.cos(a) * rad[i] * k, y, Math.sin(a) * rad[i] * k);
+      pos.push(ux[i] * k, y, uz[i] * k);
       col.push(c.r, c.g, c.b);
     }
   }
@@ -181,7 +192,7 @@ function ridgeGeos(rng, noise, x0, z0, x1, z1, y, out) {
     const t = (i + rng() * 0.6) / n;
     const s = 0.55 + rng() * 0.75;
     const slab = glacialLump(rng, noise, { R: s, H: s * (0.5 + rng() * 0.5), kind: 'wedge', detail: 1,
-      p: 7, depth: 0.25, foot: 0, lumpy: 0.05, ex: 1.2 + rng() * 0.6, ez: 0.7 });
+      p: 9, depth: 0.25, foot: 0, ex: 1.2 + rng() * 0.6, ez: 0.7 });
     xform(slab, { x: lerp(x0, x1, t) + (rng() - 0.5) * 0.8, y: y - 0.05, z: lerp(z0, z1, t) + (rng() - 0.5) * 0.8,
       ry: rng() * 6.283, rx: (rng() - 0.5) * 0.7, rz: (rng() - 0.5) * 0.7 });
     out.push(slab);
@@ -198,35 +209,35 @@ function bergGeos(rng, noise, s = 1, kind = null) {
   if (kind === 'cathedral') {
     R = (5.2 + rng() * 1.8) * s;
     const H = (13 + rng() * 7) * s;
-    place(glacialLump(rng, noise, { R, H, kind: 'pinnacle', detail: 7, ex: 1.15 }), 0, 0);
+    place(glacialLump(rng, noise, { R, H, kind: 'pinnacle', detail: 7, ex: 1.15, p: 16 }), 0, 0);
     const a = rng() * 6.283;
     place(glacialLump(rng, noise, { R: R * 0.62, H: H * (0.42 + rng() * 0.2), kind: 'pinnacle', detail: 4 }),
       Math.cos(a) * R * 0.95, Math.sin(a) * R * 0.95);
-    place(glacialLump(rng, noise, { R: R * 0.95, H: (0.7 + rng() * 0.5) * s, kind: 'shelf', detail: 3, ex: 1.3, lumpy: 0.05 }),
+    place(glacialLump(rng, noise, { R: R * 0.95, H: (0.7 + rng() * 0.5) * s, kind: 'shelf', detail: 3, ex: 1.3 }),
       Math.cos(a + 2.4) * R * 0.85, Math.sin(a + 2.4) * R * 0.85);
     R *= 1.5;
   } else if (kind === 'tabular') {
     R = (8 + rng() * 4) * s;
     const H = (3.6 + rng() * 2.2) * s;
-    place(glacialLump(rng, noise, { R, H, kind: 'tabular', detail: 7, ex: 1.45, ez: 0.95, p: 12, lumpy: 0.06 }), 0, 0);
+    place(glacialLump(rng, noise, { R, H, kind: 'tabular', detail: 7, ex: 1.45, ez: 0.95, p: 18, lumpy: 0.04 }), 0, 0);
     const a = rng() * 6.283;
-    place(glacialLump(rng, noise, { R: R * 0.36, H: H * 0.7, kind: 'tabular', detail: 4, p: 11 }),
+    place(glacialLump(rng, noise, { R: R * 0.36, H: H * 0.7, kind: 'tabular', detail: 4, p: 16 }),
       Math.cos(a) * R * 1.55, Math.sin(a) * R * 1.2);
     R *= 1.5;
   } else if (kind === 'wedge') {
     R = (7 + rng() * 3) * s;
     const H = (8.5 + rng() * 4.5) * s;
-    place(glacialLump(rng, noise, { R, H, kind: 'wedge', detail: 7, ex: 1.25, p: 10 }), 0, 0);
+    place(glacialLump(rng, noise, { R, H, kind: 'wedge', detail: 7, ex: 1.25, p: 16 }), 0, 0);
     const a = rng() * 6.283;
-    place(glacialLump(rng, noise, { R: R * 0.6, H: (0.6 + rng() * 0.4) * s, kind: 'shelf', detail: 3, ex: 1.4, lumpy: 0.05 }),
+    place(glacialLump(rng, noise, { R: R * 0.6, H: (0.6 + rng() * 0.4) * s, kind: 'shelf', detail: 3, ex: 1.4 }),
       Math.cos(a) * R * 1.0, Math.sin(a) * R * 1.0);
     R *= 1.4;
   } else {                                         // 'twin': two weathered domes on one foot
     R = (5 + rng() * 2) * s;
     const H = (7 + rng() * 4) * s;
-    place(glacialLump(rng, noise, { R, H, kind: 'dome', detail: 6, p: 7 }), -R * 0.5, 0);
-    place(glacialLump(rng, noise, { R: R * 0.8, H: H * 0.66, kind: 'dome', detail: 4, p: 7 }), R * 0.75, R * 0.3);
-    place(glacialLump(rng, noise, { R: R * 1.25, H: 0.6 * s, kind: 'shelf', detail: 3, ex: 1.4, lumpy: 0.05 }), 0.1 * R, 0.1 * R);
+    place(glacialLump(rng, noise, { R, H, kind: 'crag', detail: 6 }), -R * 0.5, 0);
+    place(glacialLump(rng, noise, { R: R * 0.8, H: H * 0.66, kind: 'crag', detail: 4 }), R * 0.75, R * 0.3);
+    place(glacialLump(rng, noise, { R: R * 1.25, H: 0.6 * s, kind: 'shelf', detail: 3, ex: 1.4 }), 0.1 * R, 0.1 * R);
     R *= 1.6;
   }
   // bergy bits calved off it, and a skirt of brash drifting in its lee
@@ -234,7 +245,7 @@ function bergGeos(rng, noise, s = 1, kind = null) {
   for (let i = 0; i < bits; i++) {
     const a = rng() * 6.283, d = R * (0.95 + rng() * 0.5);
     const br = (1.1 + rng() * 1.3) * s;
-    place(glacialLump(rng, noise, { R: br, H: br * (0.7 + rng() * 0.7), kind: rng() < 0.5 ? 'dome' : 'wedge', detail: 2, p: 7, depth: 4 }),
+    place(glacialLump(rng, noise, { R: br, H: br * (0.7 + rng() * 0.7), kind: rng() < 0.5 ? 'crag' : 'wedge', detail: 2, p: 10, depth: 9 }),
       Math.cos(a) * d, Math.sin(a) * d);
   }
   const brash = 5 + Math.floor(rng() * 5);
@@ -299,14 +310,14 @@ function packPatch(rng, noise, tools, cx, cz, rad, geos) {
   };
   const big = 3 + Math.floor(rng() * 3);
   for (let i = 0; i < big; i++) tryPut(4.2 + rng() * 3.4, 24);
-  const med = 9 + Math.floor(rad * 0.3);
+  const med = 7 + Math.floor(rad * 0.25);
   for (let i = 0; i < med; i++) tryPut(2.0 + rng() * 1.8, 20);
-  const small = 16 + Math.floor(rad * 0.9);
+  const small = 12 + Math.floor(rad * 0.7);
   for (let i = 0; i < small; i++) tryPut(0.7 + rng() * 1.1, 14);
   for (const q of placed) {
     const top = 0.18 + Math.min(0.2, q.r * 0.035) + rng() * 0.06;
     const snowy = q.r > 1.6 ? rng() < 0.85 : rng() < 0.45;
-    geos.push(xform(floeGeo(rng, q.r, { top, snowy, sides: q.r > 3.5 ? 9 : 0 }),
+    geos.push(xform(floeGeo(rng, q.r, { top, snowy, }),
       { x: q.x, z: q.z, rx: (rng() - 0.5) * 0.03, rz: (rng() - 0.5) * 0.03 }));
     if (q.r > 4.4 && rng() < 0.7) {               // a pressure ridge across the big floes
       const a = rng() * 6.283, l = q.r * (0.55 + rng() * 0.2);
@@ -359,17 +370,17 @@ export function buildIceField(theme, nodes, segs, rng) {
     taken.push({ x: p.x, z: p.z, r: R * 0.8 });
   };
   for (let i = 0; i < 9; i++) putBerg(8, 30, 0.75 + rng() * 0.4, i);
-  for (let i = 0; i < 9; i++) putBerg(34, 150, 1.5 + rng() * 0.9, i + 2);
-  for (let i = 0; i < 16; i++) {                   // the fill: single weathered lumps
+  for (let i = 0; i < 8; i++) putBerg(34, 150, 1.5 + rng() * 0.9, i + 2);
+  for (let i = 0; i < 13; i++) {                   // the fill: single weathered lumps
     const s = 0.7 + rng() * 0.8;
     const p = pick(12, 110, 9 * s, 80);
     if (!p) continue;
     const R = (3 + rng() * 2) * s;
-    const kind = ['dome', 'pinnacle', 'wedge', 'tabular'][i % 4];
+    const kind = ['pinnacle', 'crag', 'wedge', 'tabular'][i % 4];
     const geos = [glacialLump(rng, noise, { R, H: R * (kind === 'pinnacle' ? 1.9 : kind === 'tabular' ? 0.6 : 1.1) * (0.8 + rng() * 0.5),
-      kind, detail: 4, p: 8, ex: 1 + rng() * 0.4 })];
+      kind, detail: 4, ex: 1 + rng() * 0.4 })];
     const a = rng() * 6.283;
-    geos.push(xform(glacialLump(rng, noise, { R: R * 0.8, H: 0.5 + rng() * 0.4, kind: 'shelf', detail: 2, ex: 1.3, lumpy: 0.05, depth: 4 }),
+    geos.push(xform(glacialLump(rng, noise, { R: R * 0.8, H: 0.5 + rng() * 0.4, kind: 'shelf', detail: 2, ex: 1.3, depth: 9 }),
       { x: Math.cos(a) * R * 0.9, z: Math.sin(a) * R * 0.9, ry: rng() * 6.283 }));
     for (let k = 0; k < 4; k++) {
       const b = rng() * 6.283, d = R * (1.5 + rng() * 0.9);
@@ -385,7 +396,7 @@ export function buildIceField(theme, nodes, segs, rng) {
   /* pack ice: patches that crowd the lane on both sides, so the route reads
      as a lead of open water threading through it */
   let wreckSpot = null;
-  for (let i = 0; i < 10; i++) {
+  for (let i = 0; i < 9; i++) {
     const rad = 15 + rng() * 13;
     const p = pick(i < 6 ? 4 : 16, i < 6 ? 30 : 95, rad * 0.55);
     if (!p) continue;
@@ -402,13 +413,13 @@ export function buildIceField(theme, nodes, segs, rng) {
   {
     const geos = [];
     let n = 0, tries = 0;
-    while (n < 44 && tries++ < 900) {
+    while (n < 30 && tries++ < 900) {
       const x = x0 + rng() * (x1 - x0), z = z0 + rng() * (z1 - z0);
       const sd = tools.segDist(x, z);
       if (sd < 9 || sd > 150 || tools.nodeGap(x, z) < 3 || !freeOf(x, z, 2)) continue;
       const r = 0.8 + rng() * rng() * 2.2;
-      geos.push(xform(glacialLump(rng, noise, { R: r, H: r * (0.55 + rng() * 0.8), kind: rng() < 0.5 ? 'dome' : 'wedge',
-        detail: 2, p: 7, depth: 3.5 }), { x, z, ry: rng() * 6.283 }));
+      geos.push(xform(glacialLump(rng, noise, { R: r, H: r * (0.55 + rng() * 0.8), kind: rng() < 0.5 ? 'crag' : 'wedge',
+        detail: 2, p: 10, depth: 8 }), { x, z, ry: rng() * 6.283 }));
       n++;
     }
     if (geos.length) g.add(iceMesh(geos));
@@ -423,16 +434,16 @@ export function buildIceField(theme, nodes, segs, rng) {
   }
 
   /* crystal spires: the Reach's signature shards, rooted in the pack near the lane */
-  for (let i = 0; i < 5; i++) {
+  for (let i = 0; i < 3; i++) {
     const p = pick(10, 34, 4, 40);
     if (!p) continue;
     const sp = new THREE.Group();
     sp.position.set(p.x, 0, p.z);
-    const shard = propGroup(i % 2 ? 'ice_shard' : 'crystal_cluster', 1.5 + rng() * 1.1);
+    const shard = propGroup('ice_shard', 1.6 + rng() * 1.1);
     shard.position.y = 0.05;
     shard.rotation.y = rng() * 6.283;
     sp.add(shard);
-    const base = iceMesh([floeGeo(rng, 2.6 + rng() * 1.4, { top: 0.3, sides: 8 })], { rough: 0.6, cast: false });
+    const base = iceMesh([floeGeo(rng, 3.4 + rng() * 1.4, { top: 0.3 })], { rough: 0.6, cast: false });
     sp.add(base);
     g.add(sp);
     taken.push({ x: p.x, z: p.z, r: 5 });
@@ -446,7 +457,7 @@ export function iceMooring(node, rng) {
   const noise = sharedNoise();
   const geos = [];
   // pancake ice: thin plates barely proud of the water — a hull shoulders through them
-  const n = 7 + Math.floor(rng() * 6);
+  const n = 6 + Math.floor(rng() * 5);
   for (let i = 0; i < n; i++) {
     const a = rng() * 6.283, d = 6.5 + rng() * 9;
     geos.push(xform(floeGeo(rng, 0.6 + rng() * 1.0, { top: 0.1 + rng() * 0.06, snowy: rng() < 0.5 }),
@@ -457,19 +468,28 @@ export function iceMooring(node, rng) {
     for (let i = 0; i < 2; i++) {
       const a = a0 + i * (1.7 + rng()), d = 8.5 + rng() * 3;
       const r = 1.5 + rng() * 1.3;
-      geos.push(xform(glacialLump(rng, noise, { R: r, H: r * (0.9 + rng() * 0.9), kind: i ? 'wedge' : 'dome',
-        detail: 3, p: 8, depth: 4 }), { x: Math.cos(a) * d, z: Math.sin(a) * d, ry: rng() * 6.283 }));
+      geos.push(xform(glacialLump(rng, noise, { R: r, H: r * (0.9 + rng() * 0.9), kind: i ? 'wedge' : 'crag',
+        detail: 3, p: 12, depth: 9 }), { x: Math.cos(a) * d, z: Math.sin(a) * d, ry: rng() * 6.283 }));
     }
   } else if (node.look === 'islet') {              // a grounded tabular floe, big enough to stand on
     const a = rng() * 6.283, d = 9.5 + rng() * 2;
     const r = 3.4 + rng() * 1.4, h = 1.0 + rng() * 0.7;
     const x = Math.cos(a) * d, z = Math.sin(a) * d;
-    geos.push(xform(glacialLump(rng, noise, { R: r, H: h, kind: 'tabular', detail: 3, p: 11, ex: 1.3, lumpy: 0.05 }),
+    geos.push(xform(glacialLump(rng, noise, { R: r, H: h, kind: 'tabular', detail: 3, p: 16, ex: 1.3, lumpy: 0.04 }),
       { x, z, ry: rng() * 6.283 }));
-    const top = propGroup(rng() < 0.5 ? 'ice_shard' : 'crystal_cluster', 0.9 + rng() * 0.5);
-    top.position.set(x, SEA_Y + h - 0.12, z);
-    top.rotation.y = rng() * 6.283;
-    g.add(top);
+    if (rng() < 0.3) {
+      const top = propGroup('ice_shard', 0.9 + rng() * 0.5);
+      top.position.set(x, SEA_Y + h - 0.12, z);
+      top.rotation.y = rng() * 6.283;
+      g.add(top);
+    } else {                                       // a clutch of frost spires
+      const ns = 2 + Math.floor(rng() * 2);
+      for (let i = 0; i < ns; i++) {
+        const sr = 0.45 + rng() * 0.3;
+        geos.push(xform(glacialLump(rng, noise, { R: sr, H: sr * (3.2 + rng() * 2.2), kind: 'pinnacle', detail: 2, p: 12, depth: 0.3, foot: 0 }),
+          { x: x + (rng() - 0.5) * r * 0.7, y: h - 0.15, z: z + (rng() - 0.5) * r * 0.7, ry: rng() * 6.283, rx: (rng() - 0.5) * 0.3, rz: (rng() - 0.5) * 0.3 }));
+      }
+    }
   }
   g.add(iceMesh(geos, { rough: 0.5 }));
   return g;
@@ -495,7 +515,7 @@ const rockMaterial = () => _rockMat || (_rockMat = new THREE.MeshStandardMateria
 export function dressIceIsland(g, rng, theme, R, terrain) {
   const noise = sharedNoise();
   // pines stand in one or two tight groves off the heart of the isle
-  const groves = 1 + (rng() < 0.45 ? 1 : 0);
+  const groves = 1 + (rng() < 0.3 ? 1 : 0);
   let a0 = rng() * 6.283;
   for (let k = 0; k < groves; k++) {
     const n = 1 + Math.floor(rng() * 2);
@@ -536,10 +556,10 @@ export function dressIceIsland(g, rng, theme, R, terrain) {
   }
   g.add(iceMesh(ice, { rough: 0.6, cast: false }));
   // …and now and then a crystal outcrop
-  if (rng() < 0.5) {
+  if (rng() < 0.35) {
     const p = terrain.place(rng() * 6.283, 0.36 + rng() * 0.2);
     if (p.y >= 0.2) {
-      const pr = propGroup(rng() < 0.5 ? 'crystal_cluster' : 'ice_shard', 0.8 + rng() * 0.5);
+      const pr = propGroup(rng() < 0.3 ? 'crystal_cluster' : 'ice_shard', 0.8 + rng() * 0.5);
       pr.position.set(p.x, p.y - 0.06, p.z);
       pr.rotation.y = rng() * 6.283;
       g.add(pr);

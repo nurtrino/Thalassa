@@ -52,23 +52,6 @@ function placeDock(terrain, angle, len = 5.0) {
 function shallowDisc() { return new THREE.Group(); }
 function foamRing() { return new THREE.Group(); }
 
-/* the desert-trek analogue of the foam ring: wind ripples in the sand */
-function sandRippleRing(R, sandHex) {
-  const g = new THREE.Group();
-  const c = new THREE.Color(sandHex).lerp(new THREE.Color(0xffffff), 0.35);
-  for (let i = 0; i < 3; i++) {
-    const r0 = R * (1.05 + i * 0.16);
-    const ring = new THREE.Mesh(new THREE.RingGeometry(r0, r0 + R * 0.045, 40),
-      new THREE.MeshBasicMaterial({ color: c, transparent: true,
-        opacity: 0.22 - i * 0.05, side: THREE.DoubleSide, depthWrite: false }));
-    ring.rotation.x = -Math.PI / 2;
-    ring.position.y = 0.04 + i * 0.01;
-    if (i === 0) ring.name = 'foam';
-    g.add(ring);
-  }
-  return g;
-}
-
 /* ── flora: five realm sets ─────────────────────────────────────────────── */
 function makeCypress(rng, scale = 1) {
   const g = new THREE.Group();
@@ -125,40 +108,6 @@ function makePine(rng, s = 1) {
   return g;
 }
 
-/* saguaro: ribbed column with elbowed arms and a rare bloom */
-function makeCactus(rng, s = 1) {
-  const g = new THREE.Group();
-  const green = 0x4d8a4f, greenDim = 0x3d7040;
-  const h = (1.4 + rng() * 0.9) * s;
-  const body = new THREE.Mesh(new THREE.CylinderGeometry(0.16 * s, 0.2 * s, h, 7), flat(green));
-  body.position.y = h / 2;
-  body.castShadow = true;
-  const cap = new THREE.Mesh(new THREE.SphereGeometry(0.16 * s, 7, 5), flat(green));
-  cap.position.y = h;
-  g.add(body, cap);
-  const nArms = rng() < 0.25 ? 0 : 1 + Math.floor(rng() * 2);
-  for (let i = 0; i < nArms; i++) {
-    const side = i === 0 ? 1 : -1;
-    const ay = h * (0.4 + rng() * 0.25);
-    const out = new THREE.Mesh(new THREE.CylinderGeometry(0.11 * s, 0.12 * s, 0.42 * s, 6), flat(greenDim));
-    out.rotation.z = side * Math.PI / 2;
-    out.position.set(side * 0.32 * s, ay, 0);
-    const up = new THREE.Mesh(new THREE.CylinderGeometry(0.1 * s, 0.12 * s, (0.5 + rng() * 0.4) * s, 6), flat(green));
-    up.position.set(side * 0.5 * s, ay + 0.32 * s, 0);
-    up.castShadow = true;
-    const knob = new THREE.Mesh(new THREE.SphereGeometry(0.1 * s, 6, 5), flat(green));
-    knob.position.set(side * 0.5 * s, ay + 0.62 * s, 0);
-    g.add(out, up, knob);
-  }
-  if (rng() < 0.3) {
-    const bloom = new THREE.Mesh(new THREE.SphereGeometry(0.09 * s, 6, 5), flat(0xe86a8a));
-    bloom.position.y = h + 0.14 * s;
-    g.add(bloom);
-  }
-  g.rotation.y = rng() * 6.28;
-  return g;
-}
-
 function makeDeadScrub(rng, s = 1) {
   const g = new THREE.Group();
   const wood = 0x9a8262;
@@ -205,27 +154,6 @@ function makeJungleTree(rng, s = 1) {
     const tip = new THREE.Mesh(new THREE.IcosahedronGeometry(0.06 * s, 0), flat(0x4f9a40));
     tip.position.set(Math.cos(a) * 0.5 * s, h - len + 0.1 * s, Math.sin(a) * 0.5 * s);
     g.add(tip);
-  }
-  return g;
-}
-
-/* amber/red broadleaf */
-function makeAutumnTree(rng, s = 1) {
-  const g = new THREE.Group();
-  const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.08 * s, 0.15 * s, 1.05 * s, 5), flat(0x5a4030));
-  trunk.position.y = 0.52 * s;
-  trunk.rotation.z = (rng() - 0.5) * 0.3;
-  trunk.castShadow = true;
-  g.add(trunk);
-  const tones = [0xd07828, 0xb44b2a, 0xe0a030, 0xc96a20];
-  const nP = 3 + Math.floor(rng() * 2);
-  for (let i = 0; i < nP; i++) {
-    const puff = new THREE.Mesh(
-      displace(new THREE.IcosahedronGeometry((0.36 + rng() * 0.18) * s, 0), 0.08 * s, seedFrom(rng)),
-      flat(tones[Math.floor(rng() * tones.length)]));
-    puff.position.set((rng() - 0.5) * 0.6 * s, (1.1 + rng() * 0.45) * s, (rng() - 0.5) * 0.6 * s);
-    puff.castShadow = true;
-    g.add(puff);
   }
   return g;
 }
@@ -600,52 +528,6 @@ function makeFlotsam(rng) {
 }
 
 
-/* desert-trek waypoint: a traveller's cairn with a prayer flag */
-function makeCairn(rng) {
-  const g = new THREE.Group();
-  let y = 0;
-  for (let i = 0; i < 5; i++) {
-    const r = 0.55 - i * 0.09;
-    const stone = new THREE.Mesh(
-      displace(new THREE.DodecahedronGeometry(r, 0), r * 0.4, seedFrom(rng)), flat(0xd8cdb4));
-    stone.scale.y = 0.6;
-    stone.position.set((rng() - 0.5) * 0.12, y + r * 0.4, (rng() - 0.5) * 0.12);
-    stone.castShadow = true;
-    g.add(stone);
-    y += r * 0.66;
-  }
-  const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.04, 1.4, 4), flat(COL.woodDark));
-  pole.position.y = y + 0.5;
-  const flag = new THREE.Mesh(new THREE.PlaneGeometry(0.5, 0.28),
-    flat(0xc0392b, { side: THREE.DoubleSide }));
-  flag.position.set(0.26, y + 1.05, 0);
-  flag.name = 'pennant';
-  g.add(pole, flag);
-  g.rotation.y = rng() * 6.28;
-  return g;
-}
-
-/* desert-trek waypoint: bleached ribs of something enormous */
-function makeRibs(rng) {
-  const g = new THREE.Group();
-  const n = 4 + Math.floor(rng() * 2);
-  for (let i = 0; i < n; i++) {
-    const r = 1.5 - i * 0.22;
-    const rib = new THREE.Mesh(new THREE.TorusGeometry(r, 0.07 + r * 0.02, 5, 10, Math.PI * 0.95), flat(COL.bone));
-    rib.position.set(i * 0.9 - n * 0.45, 0.05, 0);
-    rib.rotation.set(0, Math.PI / 2, 0.12 + (rng() - 0.5) * 0.15);
-    rib.castShadow = true;
-    g.add(rib);
-  }
-  const skull = new THREE.Mesh(
-    displace(new THREE.SphereGeometry(0.6, 8, 6), 0.14, seedFrom(rng)), flat(COL.bone));
-  skull.scale.set(1.3, 0.8, 0.9);
-  skull.position.set(-n * 0.45 - 1.1, 0.35, 0);
-  g.add(skull);
-  g.rotation.y = rng() * 6.28;
-  return g;
-}
-
 /* ── realm wilds: the stuff that fills the water/sand BETWEEN stops ─────── */
 
 /* a drifting iceberg — procedural glacial ice (realms/ice.js); s ≈ 0.5–1.2 */
@@ -662,122 +544,6 @@ export function makeFloe(rng, s = 1) {
    is kept for call-site compatibility; the vine tubes are gone */
 export function makeVineMat(rng, s = 1) {
   return makeLilyRaft(rng, s);
-}
-
-/* a wind-heaped dune — the Meshy dune, at the old ridge footprints
-   (sandHex kept in the signature for call-site compatibility) */
-export function makeDune(rng, sandHex, s = 1) {
-  return propGroup('sand_dune', 0.9 + s * 0.9);
-}
-
-/* the desert tyrant's LAIR: a stepped sandstone tomb half-swallowed by the
-   dunes — mastaba tiers, a black doorway, twin obelisks on the approach */
-export function makeTomb(rng) {
-  const g = new THREE.Group();
-  const stone = flat(0xd9c49a);
-  const stoneDk = flat(0xb99f74);
-  const tiers = [
-    [10.4, 1.2, 8.2, 0.6],
-    [8.6, 1.7, 6.8, 1.95],
-    [6.6, 1.6, 5.2, 3.55],
-    [4.6, 1.5, 3.6, 5.05],
-  ];
-  tiers.forEach(([w, h, d, y], i) => {
-    const t = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), i % 2 ? stoneDk : stone);
-    t.position.y = y;
-    t.castShadow = true;
-    t.receiveShadow = true;
-    g.add(t);
-  });
-  const cap = new THREE.Mesh(new THREE.ConeGeometry(2.9, 1.6, 4), stone);
-  cap.rotation.y = Math.PI / 4;
-  cap.position.y = 6.6;
-  cap.castShadow = true;
-  g.add(cap);
-  // the doorway: a black void in a raised stone frame, facing the trail
-  const frame = new THREE.Mesh(new THREE.BoxGeometry(2.6, 3.0, 0.7), stoneDk);
-  frame.position.set(0, 1.5, 4.15);
-  frame.castShadow = true;
-  const door = new THREE.Mesh(new THREE.BoxGeometry(1.5, 2.2, 0.3),
-    flat(0x14100a, { emissive: 0x000000 }));
-  door.position.set(0, 1.25, 4.45);
-  g.add(frame, door);
-  // twin sandstone obelisks flanking the approach
-  for (const x of [-3.6, 3.6]) {
-    const shaft = new THREE.Mesh(new THREE.CylinderGeometry(0.34, 0.55, 3.4, 4), stone);
-    shaft.rotation.y = Math.PI / 4;
-    shaft.position.set(x, 1.7, 5.4);
-    shaft.castShadow = true;
-    const tip = new THREE.Mesh(new THREE.ConeGeometry(0.4, 0.6, 4),
-      flat(COL.gold, { emissive: 0x7a5a10, emissiveIntensity: 0.5 }));
-    tip.rotation.y = Math.PI / 4;
-    tip.position.set(x, 3.7, 5.4);
-    g.add(shaft, tip);
-  }
-  const bones = makeRibs(rng);
-  bones.scale.setScalar(0.8);
-  bones.position.set(-4.6, 0.05, 3.4);
-  g.add(bones);
-  const glow = new THREE.PointLight(0xffb066, 4, 12, 2);
-  glow.position.set(0, 2.2, 5.2);
-  g.add(glow);
-  return g;
-}
-
-/* the Amber Vale's LAIR: a mossy barrow — an earthen crypt-mound with a
-   megalith door and a ring of leaning standing stones */
-export function makeBarrow(rng) {
-  const g = new THREE.Group();
-  const earth = flat(0x5c5433);
-  const moss = flat(0x51682d);
-  const mound = new THREE.Mesh(
-    displace(new THREE.SphereGeometry(6.2, 10, 8), 0.5, seedFrom(rng)), earth);
-  mound.scale.set(1.15, 0.5, 1);
-  mound.position.y = 0.2;
-  mound.castShadow = true;
-  mound.receiveShadow = true;
-  g.add(mound);
-  for (let i = 0; i < 4; i++) {                 // moss creeping up the mound
-    const patch = new THREE.Mesh(new THREE.SphereGeometry(1.6 + rng() * 1.2, 7, 5), moss);
-    patch.scale.y = 0.3;
-    const a = rng() * 6.28, r = 2.5 + rng() * 2.5;
-    patch.position.set(Math.cos(a) * r, 1.4 + rng() * 0.9, Math.sin(a) * r * 0.8);
-    g.add(patch);
-  }
-  // megalithic portal set into the mound's face
-  const rock = flat(0x6f6a5c);
-  for (const x of [-1.35, 1.35]) {
-    const jamb = new THREE.Mesh(new THREE.BoxGeometry(1.0, 3.0, 1.0), rock);
-    jamb.position.set(x, 1.5, 5.6);
-    jamb.rotation.z = -x * 0.04;
-    jamb.castShadow = true;
-    g.add(jamb);
-  }
-  const lintel = new THREE.Mesh(new THREE.BoxGeometry(4.2, 0.9, 1.2), rock);
-  lintel.position.set(0, 3.2, 5.6);
-  lintel.castShadow = true;
-  const maw = new THREE.Mesh(new THREE.BoxGeometry(1.7, 2.4, 0.4), flat(0x0c0f08));
-  maw.position.set(0, 1.2, 5.75);
-  g.add(lintel, maw);
-  // a ring of leaning stones keeps watch around the mound
-  for (let i = 0; i < 6; i++) {
-    const a = (i / 6) * Math.PI * 2 + 0.5;
-    const st = new THREE.Mesh(
-      new THREE.BoxGeometry(0.8 + rng() * 0.4, 1.7 + rng() * 1.2, 0.6), rock);
-    st.position.set(Math.cos(a) * 8.6, 0.85, Math.sin(a) * 8.0);
-    st.rotation.set((rng() - 0.5) * 0.25, rng() * 6.28, (rng() - 0.5) * 0.25);
-    st.castShadow = true;
-    g.add(st);
-  }
-  const skull = new THREE.Mesh(
-    displace(new THREE.SphereGeometry(0.5, 8, 6), 0.12, seedFrom(rng)), flat(COL.bone));
-  skull.scale.set(1.2, 0.8, 0.9);
-  skull.position.set(2.6, 0.3, 6.4);
-  g.add(skull);
-  const glow = new THREE.PointLight(0x9fd8a0, 3.5, 11, 2);
-  glow.position.set(0, 1.8, 6.4);
-  g.add(glow);
-  return g;
 }
 
 /* The ambient wilds BETWEEN the stops — a berg field, a dune sea, vine-
@@ -858,71 +624,13 @@ export function makeRealmField(theme, nodes, segs, rng, heightAt = null) {
   // can plausibly float or break the surface (wrecks, drift ice, pads,
   // sea-stack boulders); ruins, trees and furniture live on the ISLANDS
   // (see dressIsland). prop(id, s) picks a random member each time.
-  const foot = theme.id === 'desert' || theme.id === 'autumn';
   const prop = (ids, lo, hi) => () =>
     propGroup(ids[(rng() * ids.length) | 0], lo + rng() * (hi - lo));
-
-  // a worn dirt path laid over the trail: crisp ribbon quads down each lane
-  // segment, riding the ground height so it never floats or sinks. The route
-  // reads at a glance and the tree band stands well clear of it either side.
-  // NOT in the Vale: its trails reveal over time (live flagstones do that
-  // job), and a ribbon baked from the few build-time edges would lie.
-  if (foot && theme.id !== 'autumn' && segs.length) {
-    const HW = 2.6;                                 // path half-width
-    const pathCol = theme.id === 'autumn' ? 0x8a6a3e : 0xc7a468;
-    const verts = [];
-    for (const s of segs) {
-      const ax = s[0], az = s[1], bx = s[2], bz = s[3];
-      const dx = bx - ax, dz = bz - az;
-      const len = Math.hypot(dx, dz) || 1e-6;
-      const px = -dz / len * HW, pz = dx / len * HW;   // perpendicular offset
-      const ay = groundY(ax, az) + 0.06, by = groundY(bx, bz) + 0.06;
-      // two triangles: (A+perp, A-perp, B-perp) and (A+perp, B-perp, B+perp)
-      const A1 = [ax + px, ay, az + pz], A2 = [ax - px, ay, az - pz];
-      const B1 = [bx + px, by, bz + pz], B2 = [bx - px, by, bz - pz];
-      verts.push(...A1, ...A2, ...B2, ...A1, ...B2, ...B1);
-    }
-    const pg = new THREE.BufferGeometry();
-    pg.setAttribute('position', new THREE.Float32BufferAttribute(verts, 3));
-    pg.computeVertexNormals();
-    const pathMesh = new THREE.Mesh(pg,
-      new THREE.MeshStandardMaterial({ color: pathCol, roughness: 1, flatShading: true }));
-    pathMesh.receiveShadow = true;
-    pathMesh.renderOrder = 1;
-    g.add(pathMesh);
-  }
-  if (foot && theme.id !== 'autumn') {
-    // ruins + boulders belong to the open desert; the Vale floor stays clear of
-    // rocky bumps — just trees, litter and the odd camp
-    scatter(7, 11, 16, 120, prop(['boulder', 'ruined_column', 'broken_statue', 'cairn', 'ruined_arch'], 0.7, 1.3));
-  } else if (!foot) {
-    scatter(6, 12, 17, 120, prop(['boulder'], 0.7, 1.2));   // sea stacks
-  }
-  // (ice and jungle returned above — see realms/ice.js, realms/jungle.js)
-  if (theme.id === 'desert') {
-    // an OPEN Reach: the ground itself carries the broad dune swells, and the
-    // sand is nearly bare — only cactus, dry scrub and the odd cairn, all
-    // spread far apart (big reach) so the desert feels vast and empty
-    scatter(22, 12, 16, 240, () => propGroup('cactus', 0.8 + rng() * 0.6));
-    scatter(20, 12, 16, 240, () => propGroup('dead_scrub', 0.8 + rng() * 0.6));
-    scatter(9, 22, 24, 240, () => propGroup('cairn', 1.0 + rng() * 0.6));
-  } else if (theme.id === 'autumn') {
-    // the Vale is a wood of TITANS on a FLAT floor: the trees tower so far
-    // over the captain's head they swallow the horizon — pan up and all you
-    // see is canopy and the barrow beacon poking through it. Each keeps a
-    // personal-space bubble so crowns never interpenetrate, standing clear of
-    // the trails and of every POI's clearing. The maze's stops reveal over
-    // time, so the wood fills the WHOLE wedge and the fog does the hiding.
-    // castShadow OFF: at titan scale their sun shadows sprawl across the flat
-    // floor as big soft patches that read as drifting cloud shadows. They keep
-    // receiving shadow, so they still sit in the wood — they just don't throw one.
-    scatter(3000, 8.5, 6, 9999, () => floraFor(theme, rng, 5.8 + rng() * 4.0, false), 0, 12);
-    scatter(46, 6, 7, 9999, prop(['dead_tree', 'mushroom_cluster'], 1.4, 2.4), 0, 3);
-    scatter(26, 6, 7, 9999, prop(['campfire', 'stone_well', 'barrel', 'waymarker_stone'], 0.8, 1.5), 0, 4);
-  } else {
-    // hub / aegean open water: flotsam only — the good stuff is ashore
-    scatter(8, 12, 17, 120, prop(['driftwood', 'fishing_net', 'buoy'], 0.7, 1.1));
-  }
+  // (every realm returned above — ice/jungle in realms/ice.js + jungle.js, the
+  // two foot realms in realms/desert.js + autumn.js; what is left is open sea)
+  scatter(6, 12, 17, 120, prop(['boulder'], 0.7, 1.2));   // sea stacks
+  // hub / aegean open water: flotsam only — the good stuff is ashore
+  scatter(8, 12, 17, 120, prop(['driftwood', 'fishing_net', 'buoy'], 0.7, 1.1));
   return g;
 }
 
@@ -1187,25 +895,6 @@ function makeGatePortal(accentHex, seed, rockHex = 0x8a8f98) {
   return g;
 }
 
-/* a pocket oasis: a still pool ringed with reeds (foot-mode havens). No palms —
-   buildings no longer spawn the little decorative trees around them. */
-function makeOasis(rng, theme) {
-  const g = new THREE.Group();
-  const pool = new THREE.Mesh(new THREE.CircleGeometry(2.4, 18),
-    new THREE.MeshStandardMaterial({ color: theme.water.shallow, flatShading: true,
-      emissive: theme.water.deep, emissiveIntensity: 0.25 }));
-  pool.rotation.x = -Math.PI / 2;
-  pool.position.y = 0.06;
-  g.add(pool);
-  for (let i = 0; i < 6; i++) {
-    const a = rng() * 6.28;
-    const reed = new THREE.Mesh(new THREE.ConeGeometry(0.05, 0.8 + rng() * 0.5, 4), flat(0x6a8a3e));
-    reed.position.set(Math.cos(a) * 2.5, 0.4, Math.sin(a) * 2.5);
-    g.add(reed);
-  }
-  return g;
-}
-
 /* scattered coast dressing so islands feel dense and hand-made */
 /* Meshy props that belong ON LAND, dealt per biome to the island tops */
 const ISLE_PROPS = {
@@ -1277,7 +966,7 @@ export function buildIsland(node, theme, domains) {
   /* waterline dressing appropriate to sea or sand footing */
   const addSkirt = (radius) => {
     if (foot) {
-      g.add(sandApron(radius, pal.sand));          // feather the pad into the dune floor
+      g.add(sandApron(radius, pal.pad ?? pal.sand));   // feather the pad into the dune floor
     } else {
       g.add(shallowDisc(radius * 4.0, theme.water.shallow));
       g.add(foamRing(radius));
@@ -1394,8 +1083,11 @@ export function buildIsland(node, theme, domains) {
   }
 
   // foot-mode isles are outcrops: rockier palettes, no beach-wet band
+  // (pad/pad2: the tones of the realm's own floor, so a stop's pad melts into
+  // it; drift 0 = no per-island hue wander against that shared floor)
   const footPal = foot
-    ? { ...pal, grass: pal.sand, grass2: pal.rock, sandWet: pal.sand }
+    ? { ...pal, grass: pal.pad ?? pal.sand, grass2: pal.pad2 ?? pal.rock,
+        sand: pal.pad ?? pal.sand, sandWet: pal.sand, drift: 0 }
     : pal;
 
   if (node.type === 'home') {

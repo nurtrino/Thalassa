@@ -80,19 +80,19 @@ const HEIGHTS = {
 export const STAND_INS = {
   // Leafshade Wolf / Sea Wolf — the lean jackal, bulked up, in a grey coat
   wolf:        { use: 'jackal', height: 1.45,
-                 finish: { desat: 0.92, tint: [0.62, 0.64, 0.70] } },
+                 finish: { desat: 0.92, tint: [0.70, 0.67, 0.66] } },
   // Frost Wolf / Frostfang Alpha — the same hound bleached to rime
   wolf_frost:  { use: 'jackal', height: 1.5,
-                 finish: { desat: 1.0, tint: [1.75, 1.95, 2.25], rough: [0.4, 0.9] } },
+                 finish: { desat: 1.0, tint: [1.22, 1.38, 1.62], rough: [0.4, 0.9] } },
   // Snow Fox — the jackal at fox size, white
   fox:         { use: 'jackal', height: 0.95,
-                 finish: { desat: 1.0, tint: [2.3, 2.3, 2.35] } },
+                 finish: { desat: 1.0, tint: [1.62, 1.6, 1.58] } },
   // Carrion Crow / Stymphalian Bird — a small vulture in black plumage
   bird:        { use: 'vulture', height: 1.0,
-                 finish: { desat: 0.95, tint: [0.34, 0.35, 0.42] } },
+                 finish: { desat: 0.95, tint: [0.62, 0.62, 0.78] } },
   // Poison Bird — the same, in venom green
   bird_poison: { use: 'vulture', height: 1.0,
-                 finish: { desat: 0.9, tint: [0.42, 1.25, 0.30] } },
+                 finish: { desat: 0.9, tint: [0.62, 1.6, 0.42] } },
   // Jaguar Shade — the stalker in a night-black coat, eyes lit green
   jaguar:      { use: 'stalker', height: 1.4,
                  finish: { desat: 1.0, tint: [0.16, 0.17, 0.22], glowTint: 0x66ff88, glow: 3 } },
@@ -101,13 +101,13 @@ export const STAND_INS = {
                  finish: { desat: 0.55, tint: [0.62, 0.52, 0.42] } },
   // Cyclops Herdsman — the golem's bulk in weathered umber, crystals as embers
   cyclops:     { use: 'golem', height: 2.6,
-                 finish: { desat: 0.85, tint: [0.95, 0.60, 0.42], glowTint: 0xffa040, glow: 2.2 } },
+                 finish: { desat: 0.85, tint: [0.95, 0.60, 0.42], glowTint: 0xff5a10, glow: 5 } },
   // Stag Spirit — the Stag King at herd size, uncrowned
   stag:        { use: 'stag_king', height: 2.0, crown: false, finish: {} },
 };
 /* an id the client has never heard of (a newer server): a nameless shade */
 const UNKNOWN_STAND_IN = { use: 'shade', height: 1.8, float: true,
-  finish: { desat: 0.8, tint: [0.55, 0.5, 0.75] } };
+  finish: { desat: 0.6, tint: [1.7, 1.6, 2.4] } };
 
 export const BOSS_IDS = new Set(['stag_king', 'wyrm', 'colossus', 'matriarch',
   'warden', 'tyrant', 'sphinx', 'kraken']);
@@ -215,6 +215,7 @@ const _v = new THREE.Vector3();
  * facing and normalize to the species height — once, on the shared template. */
 function prepareTemplate(scene, id) {
   const procedural = !!scene.userData.procedural;
+  let crowned = false;
   if (MODEL_YAW[id]) scene.rotation.y = MODEL_YAW[id];
   if (!procedural) {
     const helpers = [];
@@ -225,7 +226,7 @@ function prepareTemplate(scene, id) {
     });
     for (const o of helpers) o.parent.remove(o);
     finishModel(scene, MONSTER_FINISH[id] || finishOf('hide'));
-    if (helpers.some((o) => baseName(o.name) === 'crown')) addCrown(scene);
+    crowned = helpers.some((o) => baseName(o.name) === 'crown');
   }
   scene.updateMatrixWorld(true);
   _box.setFromObject(scene);
@@ -234,6 +235,7 @@ function prepareTemplate(scene, id) {
   if (target && Math.abs(rawH - target) > 0.05) {
     scene.scale.multiplyScalar(target / rawH);   // feet stay on y=0
   }
+  if (crowned) addCrown(scene);                  // after sizing: the crown is not "height"
   scene.userData.height = target || Math.max(0.6, rawH);
   scene.userData.monsterId = id;
   return scene;
@@ -351,8 +353,8 @@ function buildFallback() {
   body.name = 'body';
   root.add(body);
   const robeMat = new THREE.MeshStandardMaterial({
-    color: 0x2a2d4a, roughness: 0.92, metalness: 0, side: THREE.DoubleSide,
-    emissive: 0x1a2460, emissiveIntensity: 0.35 });
+    color: 0x343650, roughness: 0.9, metalness: 0, side: THREE.DoubleSide,
+    emissive: 0x1a2460, emissiveIntensity: 0.1 });
   // robe: a lathe profile, narrow shoulders flaring to a ragged, open hem
   const prof = [];
   const P = [[0.50, 0.00], [0.46, 0.10], [0.36, 0.42], [0.30, 0.78], [0.27, 1.05],

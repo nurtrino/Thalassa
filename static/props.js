@@ -82,7 +82,7 @@ const PROP_FINISH = {
   fishing_net:      finishOf('cloth'),
   banner_pole:      finishOf('cloth'),
   sarcophagus:      finishOf('metal', { rough: [0.32, 0.92] }),
-  brazier:          finishOf('ember', { eyes: FIRE }),
+  brazier:          finishOf('ember', { glow: 1.7 }),
   campfire:         finishOf('stone', { side: 'double', eyes: FIRE }),
   coral:            finishOf('wet', { rough: [0.38, 0.85], glow: 0 }),
   tide_pool:        finishOf('wet', { rough: [0.16, 0.85], glow: 0 }),

@@ -151,7 +151,10 @@ export function makeTerrain({ seed, R, H, mode = 'hill', palette = {}, lobes = 0
              Math.min(1, Math.max(0, hsl.l + dl)));
     return c;
   };
-  const gShift = (rng() - 0.5) * 0.06, sShift = (rng() - 0.5) * 0.03;
+  // palette.drift (default 1) scales the per-island hue wander; a stop that
+  // must match a shared floor (the desert's sand pads) passes 0
+  const driftK = palette.drift ?? 1;
+  const gShift = (rng() - 0.5) * 0.06 * driftK, sShift = (rng() - 0.5) * 0.03 * driftK;
   const P = {
     sand: hueDrift(new THREE.Color(palette.sand ?? COL.sand), sShift, 0, (rng() - 0.5) * 0.06),
     sandWet: new THREE.Color(palette.sandWet ?? COL.sandWet),
