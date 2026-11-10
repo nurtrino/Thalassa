@@ -12,6 +12,10 @@
  */
 import * as THREE from 'three';
 import { makeShip, makeBattleBackdrop } from './islands.js';
+import { applyLook, sunDirection } from './gfx/atmosphere.js';
+import { lookFor } from './gfx/looks.js';
+import { makeSky, bakeEnvironment } from './gfx/sky.js';
+import { makeOcean } from './gfx/ocean.js';
 import { getMonster, animateMonster, preloadMonsters, disposeMonster, BOSS_IDS }
   from './monsters.js';
 import { softDiscTexture, flat } from './util.js';
@@ -34,34 +38,6 @@ const easeIn = (k) => k * k;
 const easeInOut = (k) => (k < 0.5 ? 2 * k * k : 1 - 2 * (1 - k) * (1 - k));
 
 /* ── little scene pieces ──────────────────────────────────────────────────── */
-
-/* gradient sky dome, vertex-colored so one draw call sells the mood */
-function makeDome() {
-  const geo = new THREE.SphereGeometry(170, 24, 12);
-  const colors = new Float32Array(geo.attributes.position.count * 3);
-  geo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
-  const mat = new THREE.MeshBasicMaterial({
-    vertexColors: true, side: THREE.BackSide, fog: false, depthWrite: false });
-  const mesh = new THREE.Mesh(geo, mat);
-  mesh.renderOrder = -10;
-  return mesh;
-}
-
-function tintDome(dome, sky) {
-  const pos = dome.geometry.attributes.position;
-  const col = dome.geometry.attributes.color;
-  const zen = _col.set(sky.zenith).clone();
-  const mid = new THREE.Color(sky.mid);
-  const hor = new THREE.Color(sky.horizon);
-  for (let i = 0; i < pos.count; i++) {
-    const k = clamp01(pos.getY(i) / 170 * 0.5 + 0.5);   // 0 nadir → 1 zenith
-    let c;
-    if (k > 0.55) c = _col.lerpColors(mid, zen, (k - 0.55) / 0.45);
-    else c = _col.lerpColors(hor, mid, clamp01((k - 0.35) / 0.2));
-    col.setXYZ(i, c.r, c.g, c.b);
-  }
-  col.needsUpdate = true;
-}
 
 /* emergency backdrop if islands.js throws — plain themed disc + rocks */
 function fallbackBackdrop(theme) {
@@ -249,7 +225,9 @@ export function createBattleStage(renderer) {
   key.shadow.camera.left = -20; key.shadow.camera.right = 22;
   key.shadow.camera.top = 20; key.shadow.camera.bottom = -14;
   key.shadow.camera.near = 4; key.shadow.camera.far = 70;
-  key.shadow.bias = -0.0015;
+  key.shadow.bias = -0.0004;
+  key.shadow.normalBias = 0.06;
+  key.shadow.radius = 3;
   key.target.position.set(2, 0, 0);
   const rim = new THREE.DirectionalLight(0x9fc8ff, 0.9);
   rim.position.set(17, 9, -15);
@@ -261,8 +239,12 @@ export function createBattleStage(renderer) {
   const chargeLight = new THREE.PointLight(0xff3524, 0, 30, 2);
   scene.add(key, key.target, rim, hemi, amb, heroLamp, flashLight, chargeLight);
 
-  const dome = makeDome();
-  scene.add(dome);
+  /* the real sky (shared atmosphere) + per-theme baked ambient + open sea */
+  scene.add(makeSky());
+  const envCache = new Map();          // theme id → PMREM render target
+  let sea = null;                      // gfx ocean for water arenas
+  const _seaFocus = new THREE.Vector3(0, 0, 0);
+  let look = lookFor('hub');
 
   /* target pulse ring */
   const ring = new THREE.Mesh(
@@ -411,31 +393,45 @@ export function createBattleStage(renderer) {
     st.hero.hurtT0 = -9;
     st.hero.atkT0 = -9;
 
-    /* mood */
-    tintDome(dome, theme.sky);
-    scene.fog = new THREE.Fog(theme.fog.color, 55, 195);
+    /* mood — the stage's look, with the sun swung round to key the diorama
+       from behind the camera's left shoulder (never lower than a raking 22°) */
+    const base = lookFor(theme.id);
+    look = { ...base, sun: { ...base.sun, az: 142, el: Math.max(22, Math.min(52, base.sun.el)) },
+             fog: { ...base.fog, heightFalloff: 0.03, heightBase: 6 } };
+    applyLook(look);
+    let env = envCache.get(theme.id);
+    if (!env) { env = bakeEnvironment(renderer); envCache.set(theme.id, env); }
+    scene.environment = env.texture;
+    scene.environmentIntensity = look.env;
+    scene.fog = new THREE.Fog(look.fog.color, 60, 260);
     scene.background = null;
-    key.color.set(theme.sun.color);
-    key.intensity = st.baseKey = Math.min(2.2, theme.sun.intensity * 1.05);
+    key.position.copy(sunDirection(look.sun.az, look.sun.el)).multiplyScalar(34).add(key.target.position);
+    key.color.set(look.sun.color);
+    key.intensity = st.baseKey = look.sun.intensity * 0.92;
+    if (sea) { scene.remove(sea.mesh); sea.mesh.geometry.dispose(); sea.mesh.material.dispose(); sea = null; }
+    if (theme.ground !== 'sand' && theme.id !== 'desert' && theme.id !== 'pharos') {
+      sea = makeOcean(theme, look);
+      scene.add(sea.mesh);
+    }
     rim.color.set(theme.id === 'ice' ? 0xbfe8ff
       : theme.id === 'desert' ? 0xffd9a0
       : theme.id === 'jungle' ? 0x8fffc9
       : theme.id === 'autumn' ? 0xffb066
       : theme.id === 'pharos' ? 0xff5a3c : 0x9fc8ff);
-    rim.intensity = st.baseRim = 1.0;
-    hemi.color.set(theme.hemi.sky);
-    hemi.groundColor.set(theme.hemi.ground);
-    hemi.intensity = st.baseHemi = theme.hemi.intensity * 0.7;
+    rim.intensity = st.baseRim = 0.7;
+    hemi.color.set(look.fill.sky);
+    hemi.groundColor.set(look.fill.ground);
+    hemi.intensity = st.baseHemi = look.fill.intensity;
     amb.color.set(theme.ambient);
-    amb.intensity = st.baseAmb = 0.55;
+    amb.intensity = st.baseAmb = 0.12;      // the baked sky does the ambient work now
     // the Pharos arena is deliberately storm-dark — but lift the key + fill a
     // touch (and warm them) so the Dark Presence is clearly lit, not a black
     // silhouette. The brazier firelight does the rest.
     if (theme.id === 'pharos') {
       key.color.set(0xffb27a);
-      key.intensity = st.baseKey = 1.5;
+      key.intensity = st.baseKey = 2.2;
       amb.color.set(0x3a2c3a);
-      amb.intensity = st.baseAmb = 0.85;
+      amb.intensity = st.baseAmb = 0.6;
       hemi.intensity = st.baseHemi = 0.5;
     }
 
@@ -947,6 +943,7 @@ export function createBattleStage(renderer) {
     updateBolt(t);
     updateDmg(dmgPool, t);
     updateFlash(flashPool, t);
+    if (sea) sea.update(t, _seaFocus, scene.fog);
 
     // guard shield flare
     const sk = (t - st.shieldT0) / 0.55;
@@ -1016,5 +1013,5 @@ export function createBattleStage(renderer) {
     camera.updateProjectionMatrix();
   }
 
-  return { enter, exit, play, update, scene, camera, resize, setTargeted };
+  return { enter, exit, play, update, scene, camera, resize, setTargeted, look: () => look };
 }

@@ -140,8 +140,13 @@ export function createPipeline(renderer, { quality = null } = {}) {
   const coarse = typeof matchMedia === 'function' && matchMedia('(pointer: coarse)').matches;
   let saved = null;
   try { saved = localStorage.getItem('thalassa_gfx'); } catch { /* private mode */ }
-  let tierName = quality || (ORDER.includes(saved) ? saved : (coarse ? 'medium' : 'high'));
-  let userLocked = !!quality;
+  // ?gfx=low|medium|high pins a tier (testing, or a player's bookmark)
+  let fromUrl = null;
+  try { fromUrl = new URLSearchParams(location.search).get('gfx'); } catch { /* no location */ }
+  if (!ORDER.includes(fromUrl)) fromUrl = null;
+  let tierName = quality || fromUrl
+    || (ORDER.includes(saved) ? saved : (coarse || isSoft ? 'medium' : 'high'));
+  let userLocked = !!(quality || fromUrl);
 
   renderer.toneMapping = THREE.NoToneMapping;       // the final pass tone-maps
   renderer.outputColorSpace = THREE.LinearSRGBColorSpace;   // …and encodes sRGB

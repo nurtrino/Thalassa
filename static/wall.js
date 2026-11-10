@@ -9,6 +9,7 @@
  * so the wall is essentially free at runtime.
  */
 import * as THREE from 'three';
+import { makeRidge } from './gfx/mountains.js';
 import { mulberry32, hashStr, flat, displace, seedFrom, softDiscTexture } from './util.js';
 import { REALM_INFO } from './themes.js';
 
@@ -148,38 +149,15 @@ export function buildMountainWall({ radius = 560, gates = [], theme }) {
   const rockDark = rock.clone().multiplyScalar(0.5);
   const snow = new THREE.Color(theme.wall.snow);
 
-  const haze = new THREE.Color(theme.sky.horizon);
-  const geoms = [];
-  const rows = [
-    // an extra OUTER row seals every sightline — the ring reads SOLID from above
-    { r: radius + 46, n: 44, hMin: 64, hMax: 108, bMin: 48, bMax: 70, snowline: 0.55, haze: 0.6 },
-    { r: radius,      n: 56, hMin: 72, hMax: 122, bMin: 50, bMax: 74, snowline: 0.55, haze: 0.55 },
-    { r: radius - 48, n: 46, hMin: 46, hMax: 86,  bMin: 34, bMax: 54, snowline: 0.62, haze: 0.45 },
-    { r: radius - 86, n: 24, hMin: 14, hMax: 32,  bMin: 16, bMax: 28, snowline: 2.0, haze: 0.4 }, // foothill rubble, no snow
-  ];
-  for (const row of rows) {
-    for (let i = 0; i < row.n; i++) {
-      const a = (i / row.n) * Math.PI * 2 + (rng() - 0.5) * (3.6 / row.n);
-      const baseR = row.bMin + rng() * (row.bMax - row.bMin);
-      // carve the passes: no rock near a gate angle
-      let inGate = false;
-      for (const gt of gates) {
-        if (Math.abs(_d(a, gt.angle)) * row.r < 15 + baseR * 0.85) { inGate = true; break; }
-      }
-      if (inGate) continue;
-      const rr = row.r + (rng() - 0.5) * 26;
-      geoms.push(peakGeometry({
-        baseR,
-        h: row.hMin + rng() * (row.hMax - row.hMin),
-        x: Math.cos(a) * rr, z: Math.sin(a) * rr,
-        rotY: rng() * Math.PI * 2,
-        seed: seedFrom(rng),
-        rock, rockDark, snow, snowline: row.snowline,
-        haze, hazeAmt: row.haze,
-      }));
-    }
-  }
-  group.add(mergeRock(geoms));
+  /* the range itself: one lit heightfield ring with the passes carved through
+     (gfx/mountains.js) — sun, sky ambient and haze treat it like any terrain */
+  group.add(makeRidge({
+    radius: radius - 72, depth: 270, height: 132,
+    gates: gates.map((g) => ({ angle: g.angle, width: 30 })),
+    palette: theme.wall.palette ?? { rock: theme.wall.rock, snow: theme.wall.snow },
+    snowline: theme.wall.snowline ?? 0.74,
+    seed: hashStr('ridge:' + (theme?.id ?? 'hub')),
+  }));
 
   /* the four passes: flanking bastions, carved lintel, braziers, realm haze */
   const flames = [];
@@ -192,23 +170,6 @@ export function buildMountainWall({ radius = 560, gates = [], theme }) {
     // local frame: +x along the channel (outward), +z across it
     gg.position.set(dirX * radius, 0, dirZ * radius);
     gg.rotation.y = -gt.angle;
-
-    const bast = [];
-    for (const side of [-1, 1]) {
-      // a sheer cliff bastion each side of the ~26-unit channel
-      bast.push(peakGeometry({
-        baseR: 18, h: 96 + (side + 1) * 6, x: 0, z: side * 31,
-        rotY: rng() * 6.28, seed: seedFrom(rng),
-        rock, rockDark, snow, snowline: 0.5,
-      }));
-      // a shoulder crag leaning over the channel mouth
-      bast.push(peakGeometry({
-        baseR: 11, h: 52, x: -16, z: side * 25,
-        rotY: rng() * 6.28, seed: seedFrom(rng),
-        rock, rockDark, snow, snowline: 0.6,
-      }));
-    }
-    gg.add(mergeRock(bast));
 
     // carved lintel bridging the pass, with a glowing sigil groove
     const lintel = new THREE.Mesh(
@@ -391,42 +352,24 @@ export function buildRealmBackdrop(theme, { radius = 520, gateAngle = 0 } = {}) 
   const snow = new THREE.Color(theme.wall.snow);
   const updaters = [];
 
-  /* the ridge crescent — the Bleached Reach has NONE: it reads as an endless
-     flat sand plane that just dissolves into its own haze, no ring on the
-     horizon at all. Every other realm keeps its enclosing crescent. */
-  const geoms = [];
+  /* the horizon range — a lit heightfield ring (gfx/mountains.js). The
+     Bleached Reach has NONE: it reads as an endless flat sand plane that just
+     dissolves into its own haze. */
   if (theme.id !== 'desert') {
-    const rows = [
-      { r: radius,      n: 40, hMin: 60, hMax: 110, bMin: 40, bMax: 62, snowline: 0.55 },
-      { r: radius - 44, n: 30, hMin: 36, hMax: 72,  bMin: 26, bMax: 44, snowline: 0.62 },
-    ];
-    for (const row of rows) {
-      for (let i = 0; i < row.n; i++) {
-        const a = (i / row.n) * Math.PI * 2 + (rng() - 0.5) * (3.6 / row.n);
-        const d = Math.abs(_d(a, gateAngle));
-        if (d < 0.05) continue;                          // the pass stays open
-        const keep = 0.3 + 0.7 * (Math.cos(d) + 1) / 2;  // dense near the gate side
-        if (rng() > keep) continue;
-        const baseR = row.bMin + rng() * (row.bMax - row.bMin);
-        const rr = row.r + (rng() - 0.5) * 30;
-        geoms.push(peakGeometry({
-          baseR,
-          h: row.hMin + rng() * (row.hMax - row.hMin),
-          x: Math.cos(a) * rr, z: Math.sin(a) * rr,
-          rotY: rng() * Math.PI * 2,
-          seed: seedFrom(rng),
-          rock, rockDark, snow,
-          snowline: row.snowline,
-          // dissolve the crescent toward the REALM'S FOG, hard: the material
-          // ignores true fog (the baked-painting trick), so without this the
-          // ridge floats over the murk as raw saturated slabs — worst in the
-          // jungle, whose fog sits at 24 wu while the ridge stands at ~500
-          haze: new THREE.Color(theme.fog.color), hazeAmt: 0.78,
-        }));
-      }
-    }
+    const RANGE = {
+      ice:    { height: 150, jag: 1, snowline: 0.34,
+                palette: { rock: 0x6f86a0, rockDark: 0x3d5068, strata: 0x9fb4c8, foot: 0xdfe9f0, snow: 0xffffff } },
+      jungle: { height: 105, jag: 0.4, snowline: 2,
+                palette: { rock: 0x4f6a4a, rockDark: 0x2c4530, strata: 0x7a8a5a, foot: 0x2f7a3c, snow: 0xcfe3c2 } },
+      autumn: { height: 70, jag: 0, snowline: 2,
+                palette: { rock: 0x8a6a52, rockDark: 0x5a4234, strata: 0xb08a5a, foot: 0xb8692a, snow: 0xf6e9d2 } },
+    }[theme.id] || { height: 120, jag: 1, snowline: 0.74,
+                     palette: { rock: theme.wall.rock, snow: theme.wall.snow } };
+    group.add(makeRidge({
+      radius: radius - 20, depth: 260, ...RANGE,
+      seed: hashStr('range:' + theme.id), segsPerUnit: 0.16, rows: 26,
+    }));
   }
-  if (geoms.length) group.add(mergeRock(geoms));
 
   /* a welcoming pair of braziers on the realm side of the pass */
   {
@@ -455,56 +398,6 @@ export function buildRealmBackdrop(theme, { radius = 520, gateAngle = 0 } = {}) 
         lightArr[i].intensity = 20 + Math.sin(t * 12 + i * 2.2) * 4;
       }
     });
-  }
-
-  /* theme flavor */
-  if (theme.id === 'ice') {
-    const aurora = makeAurora(radius, gateAngle, rng);
-    group.add(aurora);
-    updaters.push(aurora.userData.update);
-    const aurora2 = makeAurora(radius * 0.8, gateAngle + 0.5, rng);
-    aurora2.material.opacity = 0.35;
-    group.add(aurora2);
-    updaters.push(aurora2.userData.update);
-    const sun = glowSprite(0xffe3b8, 55);
-    sun.material.opacity = 0.35;
-    sun.material.fog = false;
-    sun.position.set(Math.cos(gateAngle + Math.PI) * radius * 0.9, 40,
-                     Math.sin(gateAngle + Math.PI) * radius * 0.9);
-    group.add(sun);
-  } else if (theme.id === 'desert') {
-    // NOTHING on the Reach's horizon: no false sun disc, no additive
-    // heat-shimmer banners — just bare sand fading into the sky. The empty
-    // haze IS the look (see the skipped ridge crescent above).
-  } else if (theme.id === 'jungle') {
-    group.add(makeCanopyWall(radius, gateAngle, rng, theme));
-    // god-light: a warm gleam low over the canopy
-    const gleam = glowSprite(0xffe9ac, 60);
-    gleam.material.opacity = 0.32;
-    gleam.material.fog = false;
-    gleam.position.set(Math.cos(gateAngle + Math.PI) * radius * 0.8, 80,
-                       Math.sin(gateAngle + Math.PI) * radius * 0.8);
-    group.add(gleam);
-    updaters.push((t) => { gleam.material.opacity = 0.28 + Math.sin(t * 0.8) * 0.05; });
-  } else if (theme.id === 'autumn') {
-    group.add(makeAmberHills(radius, gateAngle, rng, theme));
-    const sun = glowSprite(0xffc274, 75);
-    sun.material.opacity = 0.42;
-    sun.material.fog = false;
-    sun.position.set(Math.cos(gateAngle + Math.PI) * radius * 0.9, 62,
-                     Math.sin(gateAngle + Math.PI) * radius * 0.9);
-    group.add(sun);
-    updaters.push((t) => {
-      const w = 1 + Math.sin(t * 0.9) * 0.03;
-      sun.scale.set(75 * w, 75, 1);
-    });
-  } else {
-    // hub theme passed defensively: just a sun gleam over the ridge
-    const sun = glowSprite(theme.sun.color, 80);
-    sun.material.fog = false;
-    sun.position.set(Math.cos(gateAngle + Math.PI) * radius * 0.85, 70,
-                     Math.sin(gateAngle + Math.PI) * radius * 0.85);
-    group.add(sun);
   }
 
   group.userData.update = (t) => {

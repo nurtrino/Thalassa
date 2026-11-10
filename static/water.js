@@ -1,103 +1,10 @@
 /*
- * water.js — themed sea + desert sand ground (owner: Agent A).
- * makeWater ports the legacy vertex-wave shader, parameterized by
- * theme.water (deep/shallow/sparkle/chop) and theme.sky, with manual linear
- * fog matching THREE.Fog so the sea vanishes with the islands.
+ * water.js — the walked-on floors: desert sand and the Vale's forest floor.
+ * (The sea itself lives in gfx/ocean.js.)
  */
 import * as THREE from 'three';
 import { mulberry32, hashStr } from './util.js';
-import { paintedGroundTexture, groundBumpTexture } from './islands.js';
-
-export function makeWater(theme, size = 3000) {
-  const SEG = 190;
-  const geo = new THREE.PlaneGeometry(size, size, SEG, SEG);
-  geo.rotateX(-Math.PI / 2);
-
-  const sunDir = new THREE.Vector3(...theme.sun.position).normalize();
-  const skyCol = new THREE.Color(theme.sky.mid)
-    .lerp(new THREE.Color(theme.sky.horizon), 0.35);
-
-  const uniforms = {
-    t:        { value: 0 },
-    deep:     { value: new THREE.Color(theme.water.deep) },
-    shallow:  { value: new THREE.Color(theme.water.shallow) },
-    sky:      { value: skyCol },
-    sunDir:   { value: sunDir },
-    sunCol:   { value: new THREE.Color(theme.sun.color) },
-    chop:     { value: theme.water.chop },
-    sparkle:  { value: theme.water.sparkle },
-    fogColor: { value: new THREE.Color(theme.fog.color) },
-    fogNear:  { value: theme.fog.near },
-    fogFar:   { value: theme.fog.far * 1.15 },   // sea outlives isles a touch
-  };
-
-  const mat = new THREE.ShaderMaterial({
-    uniforms,
-    vertexShader: /* glsl */`
-      uniform float t; uniform float chop;
-      varying vec3 vN; varying vec3 vW;
-      void main() {
-        vec3 p = position;
-        float w1 = sin(p.x*0.14 + t*1.05), w2 = cos(p.z*0.17 + t*0.8),
-              w3 = sin((p.x+p.z)*0.075 + t*0.5),
-              w4 = sin(p.x*0.42 - t*1.7) * cos(p.z*0.36 + t*1.3);
-        p.y += (w1*0.34 + w2*0.30 + w3*0.28 + w4*0.09) * chop;
-        float dx = (0.14*cos(p.x*0.14 + t*1.05)*0.34
-                  + 0.075*cos((p.x+p.z)*0.075 + t*0.5)*0.28
-                  + 0.42*cos(p.x*0.42 - t*1.7)*cos(p.z*0.36 + t*1.3)*0.09) * chop;
-        float dz = (-0.17*sin(p.z*0.17 + t*0.8)*0.30
-                  + 0.075*cos((p.x+p.z)*0.075 + t*0.5)*0.28
-                  - 0.36*sin(p.x*0.42 - t*1.7)*sin(p.z*0.36 + t*1.3)*0.09) * chop;
-        vN = normalize(vec3(-dx, 1.0, -dz));
-        vW = (modelMatrix * vec4(p, 1.0)).xyz;
-        gl_Position = projectionMatrix * viewMatrix * vec4(vW, 1.0);
-      }`,
-    fragmentShader: /* glsl */`
-      uniform vec3 deep; uniform vec3 shallow; uniform vec3 sky;
-      uniform vec3 sunDir; uniform vec3 sunCol;
-      uniform float t; uniform float sparkle; uniform float chop;
-      uniform vec3 fogColor; uniform float fogNear; uniform float fogFar;
-      varying vec3 vN; varying vec3 vW;
-      void main() {
-        vec3 V = normalize(cameraPosition - vW);
-        vec3 N = normalize(vN);
-        // micro-ripple: per-fragment normal detail far finer than the mesh —
-        // three incommensurate frequencies so it never tiles into a weave
-        N.x += (sin(vW.x*1.93 + t*2.2) + sin((vW.x+vW.z)*0.71 - t*1.4)
-              + sin(vW.x*0.37 + vW.z*1.51 + t*0.9)) * 0.016 * chop;
-        N.z += (sin(vW.z*2.27 - t*1.8) + sin((vW.x-vW.z)*0.83 + t*1.1)
-              + sin(vW.z*0.41 - vW.x*1.13 - t*1.2)) * 0.014 * chop;
-        N = normalize(N);
-        // wave-normal shading, but with a raised FLOOR and a gentler swing so
-        // troughs don't sink to the dark deep-colour — that trough darkening,
-        // sweeping past as the camera/boat moves, read as drifting "cloud
-        // shadows" on the open sea (nothing actually casts a shadow there).
-        float lift = clamp(0.70 + N.x*0.9 + N.z*0.58, 0.4, 1.0);
-        vec3 c = mix(deep, shallow, lift * 0.75);
-        float fres = pow(1.0 - max(dot(N, V), 0.0), 3.0);
-        c = mix(c, sky, fres * 0.60);
-        vec3 R = reflect(-sunDir, N);
-        float spec = pow(max(dot(R, V), 0.0), 120.0);
-        c += sunCol * spec * 1.1;
-        // sun glitter riding the chop — sparse moving glints on two fields
-        // rotated ~36° apart (incommensurate axes: axis-aligned + 45° made
-        // the interference peaks line up into a checkerboard sheet)
-        float gu = vW.x*0.809 - vW.z*0.588, gv = vW.x*0.588 + vW.z*0.809;
-        float g1 = sin(gu*0.9 + t*1.3) * sin(gv*1.1 - t*1.1);
-        float g2 = sin((vW.x+vW.z)*0.53 + t*0.7) * sin((vW.x-vW.z)*0.61 + t*1.9);
-        float sp = pow(max(0.0, g1*g2), 32.0);
-        c += sunCol * sp * (0.5 + fres) * 1.2 * sparkle;
-        float fogF = clamp((length(vW - cameraPosition) - fogNear) / (fogFar - fogNear), 0.0, 1.0);
-        c = mix(c, fogColor, fogF);
-        gl_FragColor = vec4(c, 1.0);
-      }`,
-  });
-
-  const mesh = new THREE.Mesh(geo, mat);
-  mesh.position.y = -0.62;
-  mesh.name = 'water';
-  return { mesh, update(t) { uniforms.t.value = t; }, heightAt: () => 0 };
-}
+import { makeGroundMaterial, GROUND_TILE } from './gfx/terrain.js';
 
 /*
  * makeGround — the desert trek floor: a gently noise-displaced sand plane
@@ -205,15 +112,10 @@ export function makeGround(theme, size = 3000, opts = {}) {
   const GY = isFlat ? 0 : -0.35;
   // the floor tiles the same neutral mottle + bump the islands wear, so a
   // vast sand/leaf-litter plane has grain instead of reading as one flat fill
-  const tile = paintedGroundTexture().clone();
-  tile.repeat.set(size / 9, size / 9);
-  tile.needsUpdate = true;
-  const bump = groundBumpTexture().clone();
-  bump.repeat.set(size / 9, size / 9);
-  bump.needsUpdate = true;
-  const mesh = new THREE.Mesh(geo,
-    new THREE.MeshStandardMaterial({ vertexColors: true, flatShading: true,
-      roughness: 0.98, map: tile, bumpMap: bump, bumpScale: 0.45 }));
+  const mesh = new THREE.Mesh(geo, makeGroundMaterial({ bump: 0.8, tide: false }));
+  // the floor uses the terrain's world-scale grain
+  const uv = geo.attributes.uv;
+  for (let i = 0; i < pos.count; i++) uv.setXY(i, pos.getX(i) / GROUND_TILE, pos.getZ(i) / GROUND_TILE);
   mesh.position.y = GY;
   mesh.receiveShadow = true;
   mesh.name = 'ground';

@@ -107,12 +107,13 @@ export function groundReliefTexture() {
 /* ── the ground material: standard PBR + tide line + creases ─────────────── */
 export const GROUND_TILE = 14;         // world units per grain repeat
 
-export function makeGroundMaterial({ bump = 0.6, extra = {} } = {}) {
+export function makeGroundMaterial({ bump = 0.6, tide = true, extra = {} } = {}) {
   const mat = new THREE.MeshStandardMaterial({
     vertexColors: true, roughness: 0.93, metalness: 0,
     map: groundGrainTexture(), bumpMap: groundReliefTexture(), bumpScale: bump,
     ...extra,
   });
+  if (!tide) return mat;                 // dry floors (desert, forest) skip the tide line
   mat.onBeforeCompile = (shader) => {
     bindAtmosphere(shader);
     shader.vertexShader = shader.vertexShader
@@ -133,7 +134,9 @@ export function makeGroundMaterial({ bump = 0.6, extra = {} } = {}) {
 }
 
 /* ── the island ──────────────────────────────────────────────────────────── */
-export function makeTerrain({ seed, R, H, mode = 'hill', palette = {}, lobes = 0, shelf = true }) {
+export function makeTerrain({ seed, R, H, mode = 'hill', palette = {}, lobes = 0, shelf = null, cover = null }) {
+  const dry = !!palette.dry;             // stands on sand / forest floor, not in the sea
+  if (shelf === null) shelf = !dry;
   const rng = mulberry32(seed);
   const noise = makeNoise2D((seed ^ 0x9e3779) >>> 0);
   const fbm = (x, z) => (noise(x, z) + 0.5 * noise(x * 2.13 + 37.7, z * 2.13 - 19.1)
@@ -166,9 +169,9 @@ export function makeTerrain({ seed, R, H, mode = 'hill', palette = {}, lobes = 0
                         * fbm(Math.cos(a) * 2.3 + eoff, Math.sin(a) * 2.3 + eoff))
                       * (1 + lobes * Math.sin(2 * a + ephase));
   const profile = (rr) => {
-    if (mode === 'mesa') return H * (1 - smooth(0.52, 0.88, rr));
+    if (mode === 'mesa') return H * (1 - smooth(0.60, 0.93, rr));
     if (mode === 'peak') return H * Math.pow(Math.max(0, 1 - rr), 1.35);
-    if (mode === 'flat') return H * (1 - smooth(0.7, 0.97, rr));
+    if (mode === 'flat') return H * (1 - smooth(0.74, 0.98, rr));
     if (mode === 'atoll') return H * (smooth(0.14, 0.4, rr) - smooth(0.55, 0.92, rr));
     return H * (1 - smooth(0.15, 0.95, rr)) * (0.75 + 0.25 * Math.cos(rr * 3));
   };
@@ -182,7 +185,7 @@ export function makeTerrain({ seed, R, H, mode = 'hill', palette = {}, lobes = 0
     const ax = x / ex, az = z / ez;
     return Math.hypot(ax, az) / (R * edge(Math.atan2(az, ax)) || 1);
   };
-  const BEACH = 0.16;                    // land height at the nominal coast (rr = 1)
+  const BEACH = dry ? 0.03 : 0.16;       // land height at the nominal coast (rr = 1)
   // full surface: land inside rr<1, beach + shelf beyond
   const surface = (x, z) => {
     const rr = radiusOf(x, z);
@@ -209,7 +212,7 @@ export function makeTerrain({ seed, R, H, mode = 'hill', palette = {}, lobes = 0
   /* ── mesh: regular grid, trimmed to the shelf's footprint ── */
   const reach = shelf ? 1.95 : 1.06;
   const ext = R * 1.32 * Math.max(ex, ez) * reach;       // edge() tops out ≈ 1.3
-  const N = Math.max(36, Math.min(112, Math.round(ext * 2 / 0.42)));
+  const N = Math.max(28, Math.min(76, Math.round(ext * 2 / 0.72)));
   const step = (ext * 2) / N;
   const W = N + 1;
   const hgt = new Float32Array(W * W);
@@ -240,9 +243,9 @@ export function makeTerrain({ seed, R, H, mode = 'hill', palette = {}, lobes = 0
       const n = fbm(x * 0.42 + 11.3, z * 0.42 - 23.9);
       const n2 = fbm(x * 1.3 - 4.7, z * 1.3 + 9.2);
       const dither = (n - 0.5) * 0.24;
-      const beachTop = Math.min(0.5, 0.26 + H * 0.12) + dither * Math.min(1, H * 0.55);
+      const beachTop = Math.min(0.36, 0.20 + H * 0.06) + dither * Math.min(0.6, H * 0.3);
       const hFrac = y / Math.max(H, 0.001);
-      if (y < BEACH * 0.4 || rr > 1.0) {
+      if (!dry && (y < BEACH * 0.4 || rr > 1.0)) {
         c.copy(P.sandWet).lerp(P.sand, smooth(SEA, BEACH, y) * 0.6);
         if (y < SEA - 0.3) c.lerp(P.rockDark, smooth(SEA - 0.5, SEA - 6, y) * 0.5);
       } else {
@@ -251,7 +254,7 @@ export function makeTerrain({ seed, R, H, mode = 'hill', palette = {}, lobes = 0
         c.lerp(P.sand, smooth(0.62, 0.92, n) * 0.16);
         c.multiplyScalar(0.92 + n2 * 0.16);
         // beach → meadow, dithered so the shore is never a hard ring
-        const k = smooth(beachTop, beachTop + Math.min(0.42, 0.18 + H * 0.2), y);
+        const k = smooth(beachTop, beachTop + Math.min(0.34, 0.14 + H * 0.12), y);
         c2.copy(P.sand).multiplyScalar(0.96 + n2 * 0.08);
         c.lerpColors(c2, c, k);
         // rock: wherever it's steep, plus mode accents
@@ -292,11 +295,126 @@ export function makeTerrain({ seed, R, H, mode = 'hill', palette = {}, lobes = 0
   geo.setIndex(idx);
   geo.computeBoundingSphere();
 
-  const mesh = new THREE.Mesh(geo, makeGroundMaterial());
+  const mesh = new THREE.Mesh(geo, makeGroundMaterial({ tide: !dry }));
   mesh.receiveShadow = true;
   mesh.castShadow = H > 2.2;            // only real hills throw a shadow
-  mesh.layers.enable(SHORE_LAYER);
+  if (!dry) mesh.layers.enable(SHORE_LAYER);
   mesh.name = 'terrain';
 
+  /* ── ground cover: grass tufts, low bushes, beach pebbles (instanced) ── */
+  const coverKind = cover ?? palette.cover ?? 'meadow';
+  if (coverKind !== 'none') {
+    const crng = mulberry32((seed ^ 0x51ed27) >>> 0);
+    const area = Math.PI * R * R * ex * ez;
+    const tufts = [], bushes = [], stones = [];
+    const tries = R < 3 ? 0 : Math.min(420, Math.round(area * 1.6));
+    const beachTop = Math.min(0.36, 0.20 + H * 0.06);
+    const m4 = new THREE.Matrix4(), q = new THREE.Quaternion(), sc = new THREE.Vector3(), pp = new THREE.Vector3();
+    const yAxis = new THREE.Vector3(0, 1, 0);
+    for (let i = 0; i < tries; i++) {
+      const x = (crng() * 2 - 1) * ext / reach * 1.08, z = (crng() * 2 - 1) * ext / reach * 1.08;
+      const rr = radiusOf(x, z);
+      if (rr > 1.02) continue;
+      const y = surface(x, z);
+      const sl = Math.hypot(surface(x + 0.3, z) - surface(x - 0.3, z), surface(x, z + 0.3) - surface(x, z - 0.3)) / 0.6;
+      const n = fbm(x * 0.5 - 31.7, z * 0.5 + 47.3);
+      const roll = crng();
+      const heart = rr < 0.3 && mode !== 'peak' && mode !== 'hill';   // keep building floors clear
+      if (y > beachTop + 0.22 && sl < 0.5 && !heart && coverKind === 'meadow') {
+        if (roll < 0.05 && rr > 0.34 && bushes.length < 12) {
+          bushes.push([x, y, z, 0.45 + crng() * 0.5, crng() * 6.28, n]);
+        } else if (roll < 0.8 && tufts.length < 170) {
+          tufts.push([x, y, z, 0.6 + crng() * 0.8, crng() * 6.28, n]);
+        }
+      } else if (roll < 0.09 && stones.length < 26 && y > SEA - 0.1 && (y < beachTop + 0.1 || sl >= 0.5 || coverKind === 'rocks')) {
+        stones.push([x, y, z, 0.12 + crng() * crng() * 0.5, crng() * 6.28, n]);
+      }
+    }
+    const put = (list, geo, mat, colorOf, sy = 1) => {
+      if (!list.length) return;
+      const im = new THREE.InstancedMesh(geo, mat, list.length);
+      const cc = new THREE.Color();
+      list.forEach(([x, y, z, s, ry, n], i) => {
+        q.setFromAxisAngle(yAxis, ry);
+        m4.compose(pp.set(x, y - 0.03 * s, z), q, sc.set(s, s * sy, s));
+        im.setMatrixAt(i, m4);
+        im.setColorAt(i, colorOf(cc, n));
+      });
+      im.instanceMatrix.needsUpdate = true;
+      if (im.instanceColor) im.instanceColor.needsUpdate = true;
+      im.receiveShadow = true;
+      im.castShadow = false;
+      im.name = 'cover';
+      mesh.add(im);
+    };
+    put(tufts, tuftGeometry(), coverMaterial(), (cc, n) =>
+      cc.copy(P.grass).lerp(P.grass2, n * 0.7).multiplyScalar(1.0 + crng() * 0.3));
+    put(bushes, bushGeometry(), coverMaterial(), (cc, n) =>
+      cc.copy(P.grass2).lerp(P.grass, n * 0.5).multiplyScalar(0.72 + crng() * 0.22), 0.72);
+    put(stones, stoneGeometry(), stoneMaterial(), (cc, n) =>
+      cc.copy(P.rock).lerp(P.sand, 0.25 + n * 0.35).multiplyScalar(0.85 + crng() * 0.25), 0.62);
+  }
+
   return { mesh, heightAt, place, surfaceY, rng };
+}
+
+/* ── ground-cover geometry (shared, built once) ──────────────────────────── */
+let _tuftGeo = null, _bushGeo = null, _stoneGeo = null, _coverMat = null, _stoneMat = null;
+function tuftGeometry() {
+  if (_tuftGeo) return _tuftGeo;
+  // four curved blades fanned from one root; vertex colour darkens the base
+  const pos = [], col = [], nor = [], idx = [];
+  const rnd = mulberry32(991);
+  for (let b = 0; b < 4; b++) {
+    const a = (b / 4) * Math.PI * 2 + rnd() * 0.6;
+    const lean = 0.16 + rnd() * 0.26, h = 0.24 + rnd() * 0.2, w = 0.08 + rnd() * 0.04;
+    const dx = Math.cos(a), dz = Math.sin(a), px = -dz, pz = dx;
+    const base = pos.length / 3;
+    for (let k = 0; k <= 2; k++) {
+      const t = k / 2, off = lean * t * t, ww = w * (1 - t * 0.85);
+      const cx = dx * (0.05 + off), cz = dz * (0.05 + off), y = h * t;
+      pos.push(cx - px * ww, y, cz - pz * ww, cx + px * ww, y, cz + pz * ww);
+      const shade = 0.72 + 0.28 * t;
+      col.push(shade, shade, shade, shade, shade, shade);
+      nor.push(dx * 0.3, 0.95, dz * 0.3, dx * 0.3, 0.95, dz * 0.3);   // up-facing: lit like the meadow
+    }
+    for (let k = 0; k < 2; k++) {
+      const o = base + k * 2;
+      // both windings, same up-facing normals: a blade is lit alike from either side
+      idx.push(o, o + 1, o + 2, o + 1, o + 3, o + 2, o, o + 2, o + 1, o + 1, o + 2, o + 3);
+    }
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  g.setAttribute('normal', new THREE.Float32BufferAttribute(nor, 3));
+  g.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
+  g.setIndex(idx);
+  _tuftGeo = g;
+  return g;
+}
+function lumpGeometry(seed, detail, jitter) {
+  const g = new THREE.IcosahedronGeometry(1, detail);
+  const p = g.attributes.position;
+  const col = new Float32Array(p.count * 3);
+  for (let i = 0; i < p.count; i++) {
+    const x = p.getX(i), y = p.getY(i), z = p.getZ(i);
+    const h = Math.sin(x * 12.9898 + y * 78.233 + z * 37.719 + seed) * 43758.5453;
+    const k = 1 + ((h - Math.floor(h)) - 0.5) * jitter;
+    p.setXYZ(i, x * k, Math.max(-0.25, y * k), z * k);
+    const shade = 0.7 + 0.3 * Math.max(0, y);
+    col[i * 3] = col[i * 3 + 1] = col[i * 3 + 2] = shade;
+  }
+  g.setAttribute('color', new THREE.BufferAttribute(col, 3));
+  g.computeVertexNormals();
+  return g;
+}
+function bushGeometry() { return _bushGeo || (_bushGeo = lumpGeometry(3.1, 1, 0.38)); }
+function stoneGeometry() { return _stoneGeo || (_stoneGeo = lumpGeometry(8.7, 0, 0.5)); }
+function coverMaterial() {
+  return _coverMat || (_coverMat = new THREE.MeshStandardMaterial({
+    vertexColors: true, roughness: 0.88, metalness: 0 }));
+}
+function stoneMaterial() {
+  return _stoneMat || (_stoneMat = new THREE.MeshStandardMaterial({
+    vertexColors: true, roughness: 0.82, metalness: 0, flatShading: true }));
 }

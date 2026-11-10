@@ -1178,6 +1178,8 @@ export function createWorld(container, handlers = {}) {
     });
     const w = container.clientWidth || 1, h = container.clientHeight || 1;
     battleStage.resize(w, h);
+    pipe.setLook(battleStage.look());     // the diorama's exposure, bloom and grade
+    litStage = null;
   }
 
   function applyTarget(tgt) {

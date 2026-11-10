@@ -8,7 +8,7 @@ import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { hashStr, mulberry32, flat, displace, seedFrom, softDiscTexture } from './util.js';
 import { DOMAIN_COLORS, REALM_INFO } from './themes.js';
 import { propGroup } from './props.js';
-import { makeTerrain, makeNoise2D, groundGrainTexture, groundReliefTexture, SHORE_LAYER } from './gfx/terrain.js';
+import { makeTerrain, makeNoise2D, makeGroundMaterial, groundGrainTexture, groundReliefTexture, SHORE_LAYER, GROUND_TILE } from './gfx/terrain.js';
 
 /* ground grain/relief textures now live with the terrain engine (gfx/terrain.js);
    re-exported under their old names for the sand floors in water.js */
@@ -1872,27 +1872,9 @@ export function makeParticles(kind) {
 }
 
 /* ── battle diorama backdrops — the game's showpiece view ───────────────── */
-function dioramaWaterDisc(theme, R = 36) {
-  // radial vertex-colored disc: shallow sparkle near center, deep at rim
-  const geo = new THREE.CircleGeometry(R, 40, 0, Math.PI * 2);
-  geo.rotateX(-Math.PI / 2);
-  const pos = geo.attributes.position;
-  const col = new Float32Array(pos.count * 3);
-  const deep = new THREE.Color(theme.water.deep);
-  const shallow = new THREE.Color(theme.water.shallow);
-  const c = new THREE.Color();
-  for (let i = 0; i < pos.count; i++) {
-    const r = Math.hypot(pos.getX(i), pos.getZ(i)) / R;
-    c.copy(shallow).lerp(deep, Math.min(1, r * 1.25));
-    col[i * 3] = c.r; col[i * 3 + 1] = c.g; col[i * 3 + 2] = c.b;
-  }
-  geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
-  const m = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({
-    vertexColors: true, flatShading: true, roughness: 0.55, metalness: 0.1 }));
-  m.position.y = -0.08;
-  m.receiveShadow = true;
-  return m;
-}
+/* water arenas: battle.js lays the real ocean (gfx/ocean.js) under the diorama,
+   so the backdrop only needs a placeholder floor */
+function dioramaWaterDisc() { return new THREE.Group(); }
 
 // world-space height of the diorama sand surface at a point. Props on the sand
 // seat on this so none float over a trough or sink into a crest (the disc
@@ -1902,8 +1884,9 @@ function sandDiscHeight(x, z) {
   return SAND_DISC_Y0 + Math.sin(x * 0.22 + z * 0.3) * 0.25 + Math.sin(z * 0.12) * 0.2;
 }
 
-function dioramaSandDisc(theme, R = 36) {
-  const geo = new THREE.CircleGeometry(R, 40);
+function dioramaSandDisc(theme, R = 150) { return dioramaSandPlane(theme, R); }
+function dioramaSandPlane(theme, R) {
+  const geo = new THREE.PlaneGeometry(R * 2, R * 2, 120, 120);
   geo.rotateX(-Math.PI / 2);
   const pos = geo.attributes.position;
   const col = new Float32Array(pos.count * 3);
@@ -1920,8 +1903,9 @@ function dioramaSandDisc(theme, R = 36) {
   }
   geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
   geo.computeVertexNormals();
-  const m = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({
-    vertexColors: true, flatShading: true, roughness: 1 }));
+  const uv = geo.attributes.uv;
+  for (let i = 0; i < pos.count; i++) uv.setXY(i, pos.getX(i) / GROUND_TILE, pos.getZ(i) / GROUND_TILE);
+  const m = new THREE.Mesh(geo, makeGroundMaterial({ tide: false, bump: 0.8 }));
   m.position.y = SAND_DISC_Y0;
   m.receiveShadow = true;
   return m;
@@ -2014,13 +1998,6 @@ export function makeBattleBackdrop(theme) {
     rk.position.set(Math.cos(a) * (30 + rng() * 4), -0.5, Math.sin(a) * (30 + rng() * 4));
     g.add(rk);
   }
-
-  // sun / sky glow behind the enemies — a soft accent, never a blowout
-  const sun = glowSprite(theme.sun.color, id === 'desert' ? 18 : 14);
-  sun.material.opacity = id === 'ice' ? 0.22 : 0.3;
-  sun.material.fog = false;
-  sun.position.set(44, id === 'ice' || id === 'autumn' ? 14 : 22, -30);
-  g.add(sun);
 
   if (id === 'hub') {
     // a low marble shelf behind the foe with a few broken columns — the Meshy
