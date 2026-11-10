@@ -630,7 +630,7 @@ export function makeRealmField(theme, nodes, segs, rng, heightAt = null) {
   // two foot realms in realms/desert.js + autumn.js; what is left is open sea)
   scatter(6, 12, 17, 120, prop(['boulder'], 0.7, 1.2));   // sea stacks
   // hub / aegean open water: flotsam only — the good stuff is ashore
-  scatter(8, 12, 17, 120, prop(['driftwood', 'fishing_net', 'buoy'], 0.7, 1.1));
+  scatter(8, 12, 17, 120, prop(['driftwood', 'fishing_net'], 0.7, 1.1));
   return g;
 }
 

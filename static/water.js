@@ -1,6 +1,12 @@
 /*
  * water.js — the walked-on floors: desert sand and the Vale's forest floor.
  * (The sea itself lives in gfx/ocean.js.)
+ *
+ * makeGround() is the one entry point scene.js calls for a stage whose theme
+ * has ground:'sand'. Each foot realm builds its own floor:
+ *   desert → realms/desert.js  makeDesertGround  (the dune sea)
+ *   autumn → realms/autumn.js  makeValeGround    (the leaf-litter forest floor)
+ * Both return { mesh, update(t, target, fog), heightAt(wx, wz) }.
  */
 import * as THREE from 'three';
 import { mulberry32, hashStr } from './util.js';

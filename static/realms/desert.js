@@ -187,7 +187,7 @@ function sandMaterial(trail, wind) {
         vec4 rMega = texture2D(uRipple, rUv / 61.0 + 0.37);
         float rLee = clamp(dot(normalize(vWNrm).xz, uWind) * 2.4, 0.0, 1.0);
         float rAmt = (1.0 - rPath) * (1.0 - rScuff * 0.45) * (1.0 - rLee * 0.7);
-        float rFineK = rAmt * (1.0 - smoothstep(16.0, 62.0, length(vViewPosition)));
+        float rFineK = rAmt * (1.0 - smoothstep(12.0, 44.0, length(vViewPosition)));
         float rMegaK = rAmt * 0.6 * smoothstep(0.3, 0.75, fkNoise(rWxz * 0.021 + 3.7));
         diffuseColor.rgb *= 1.0 + (rFine.b - 0.5) * 0.17 * rFineK + (rMega.b - 0.5) * 0.12 * rMegaK;`)
       .replace('#include <normal_fragment_maps>', /* glsl */`#include <normal_fragment_maps>

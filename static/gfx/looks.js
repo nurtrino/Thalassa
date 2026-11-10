@@ -29,7 +29,7 @@ const LOOKS = {
 
   ice: {
     sun: { az: -17, el: 12, color: 0xffcf96, intensity: 3.0 },
-    sky: { zenith: 0x16305e, ground: 0x2c4f66, curve: 0.50, glow: 0.9, disc: 22, aurora: 0.55, stars: 0.25,
+    sky: { zenith: 0x16305e, ground: 0x2c4f66, curve: 0.44, glow: 0.9, disc: 22, aurora: 0.85, stars: 0.3,
            clouds: { cover: 0.30, scale: 0.8, speed: 0.006, soft: 0.34, lit: 0xffe2c2, shade: 0x6c84a6 } },
     fog: { color: 0xb4cadb, sunColor: 0xf8c690, sunGlow: 0.5, heightFalloff: 0.014, heightBase: 5, heightAmount: 0.9 },
     // snow and ice throw the sky back up at everything: a strong ambient
@@ -71,11 +71,11 @@ const LOOKS = {
     fog: { color: 0xdca878, sunColor: 0xffc878, sunGlow: 1.1, heightFalloff: 0.030, heightBase: 9, heightAmount: 0.7 },
     // the shade under the trees is COOL (lavender fill against the amber sun) —
     // that contrast is what makes the light pools on the floor read as gold
-    env: 1.0, fill: { sky: 0xc9b6d6, ground: 0x7a5a40, intensity: 0.42 },
+    env: 1.15, fill: { sky: 0xc9b6d6, ground: 0x7a5a40, intensity: 0.5 },
     shadow: { strength: 0.82, radius: 3.5 },
     exposure: 1.0, bloom: { strength: 0.46, radius: 0.8, threshold: 1.0 },
     shafts: 1.0, shaftColor: 0xffc27a,
-    grade: { contrast: 1.06, saturation: 1.08, shadows: 0xf3eeff, highlights: 0xfff1d8, vignette: 0.34 },
+    grade: { contrast: 1.1, saturation: 1.08, shadows: 0xf3eeff, highlights: 0xfff1d8, vignette: 0.34 },
   },
 
   pharos: {

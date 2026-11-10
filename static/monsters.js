@@ -144,7 +144,7 @@ const MONSTER_FINISH = {
   raider:        finishOf('hide', { metal: 1, rough: [0.42, 0.98] }),
   captain:       finishOf('metal', { rough: [0.34, 0.96] }),
   warden:        finishOf('metal', { rough: [0.36, 0.92] }),
-  tyrant:        finishOf('metal', { rough: [0.30, 0.90], eyes: eyes(0xff3a10, 4, 0.955, 0.4) }),
+  tyrant:        finishOf('metal', { rough: [0.30, 0.90], eyes: eyes(0xff3a10, 3.2, 0.955, 0.4) }),
   colossus:      finishOf('stone', { rough: [0.70, 1.0], eyes: eyes(0xff2a12, 4, 0.96, 0.3) }),
   golem:         finishOf('stone', { rough: [0.62, 1.0], glow: 3.0 }),
   golem_tomb:    finishOf('stone', { rough: [0.66, 1.0], glow: 3.0 }),

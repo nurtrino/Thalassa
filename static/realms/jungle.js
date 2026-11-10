@@ -5,9 +5,11 @@
  * banks crowded with canopy trees, mangroves wading out on stilt roots, reeds
  * and lily rafts in the slack water, and the odd ruin going under. Hand-sculpted
  * GLB trees are far too heavy to plant by the hundred (≈10k triangles each), so
- * the mass of the forest is procedural and INSTANCED — a few tree, mangrove,
- * fern, reed and lily shapes drawn many times — and the GLB heroes are spent
- * only where the eye lands (island tops, the ruins by the lane).
+ * the mass of the forest is procedural: every bank wears ONE merged canopy of
+ * overlapping leaf domes (a dozen crowns for the price of two trees), the
+ * trees, mangroves, ferns, reeds and lilies that break its edge are INSTANCED,
+ * and the GLB heroes are spent only where the eye lands (island tops, the
+ * ruins by the lane). Leaves are a painted dab texture projected triplanar.
  *
  *   buildJungleField(theme, nodes, segs, rng)   banks, tree lines, shoals, ruins
  *   jungleMooring(node, rng)                    a lily raft / islet at a water stop
@@ -31,7 +33,7 @@ const C = {
   mud: hex(0x57482e), mudWet: hex(0x3f3524), litter: hex(0x5b6230), turf: hex(0x3a7a30), turf2: hex(0x24592a),
   pad: hex(0x4c9a3e), padRim: hex(0x2c6c30), padDry: hex(0x7fa84a), lotus: hex(0xf3a9cb), lotusTip: hex(0xfff0f6),
   reed: hex(0x6f9a3c), reedBase: hex(0x3d6a2a), cattail: hex(0x5a3a22),
-  stone: hex(0x8a8876), stoneDark: hex(0x4a4d42),
+  stone: hex(0xa49c88), stoneDark: hex(0x5a5a4e),
 };
 const V3 = (x, y, z) => new THREE.Vector3(x, y, z);
 
@@ -39,7 +41,7 @@ let _noise = null;
 const noise3 = () => _noise || (_noise = makeNoise3(9173));
 
 /* ── materials ───────────────────────────────────────────────────────────── */
-let _foliage = null, _card = null, _wood = null, _stone = null, _bank = null;
+let _foliage = null, _card = null, _stone = null, _bank = null;
 /* a tiling sheet of painted leaf-dabs: light, mid and dark strokes laid over
    one another. Projected triplanar onto every canopy so the leaf masses read
    as foliage, not as smooth green balloons. */
@@ -126,7 +128,8 @@ function crownBlob(rng, noise, r, sy, detail, cx, cy, cz, pal) {
   const geo = radialGeo(detail, (d, out) => {
     const n = noise.fbm(d.x * 1.7 + ox, d.y * 1.7 + oy, d.z * 1.7 + oz);
     const billow = 1 - Math.abs(2 * noise(d.x * 3.1 + oz, d.y * 3.1 + ox, d.z * 3.1 + oy) - 1);
-    const k = r * (0.62 + 0.46 * n + 0.26 * billow);
+    const k = detail > 1 ? r * (0.62 + 0.46 * n + 0.26 * billow)
+                         : r * (0.8 + 0.34 * noise(d.x * 1.1 + ox, d.y * 1.1 + oy, d.z * 1.1 + oz));
     out.set(d.x * k, d.y * k * (d.y < 0 ? sy * 0.8 : sy), d.z * k);
   });
   paint(geo, (q, n, c) => {
@@ -183,11 +186,11 @@ function canopyTreeGeo(seed, near) {
 /* ── a whole bank's canopy as ONE mesh: overlapping leaf domes on bare trunks.
    This is what makes the forest read as a wall — a dozen crowns for the price
    of two trees. spots: [{x, y, z, r}] crown centres in world space. */
-function canopyMassGeos(rng, noise, spots, out) {
+function canopyMassGeos(rng, noise, spots, out, fine = false) {
   const pal = [C.leafDark, C.leafMid, C.leafLit, C.leafTip];
   spots.forEach((sp, i) => {
     const tint = 0.86 + rng() * 0.28;
-    const blob = crownBlob(rng, noise, sp.r, 0.72 + rng() * 0.12, i === 0 && spots.length > 3 ? 2 : 1, sp.x, sp.y, sp.z, pal);
+    const blob = crownBlob(rng, noise, sp.r, 0.72 + rng() * 0.12, sp.fine || (fine && i < 2) ? 2 : 1, sp.x, sp.y, sp.z, pal);
     const col = blob.attributes.color;
     for (let v = 0; v < col.count; v++) col.setXYZ(v, col.getX(v) * tint * (0.95 + rng() * 0.1), col.getY(v) * tint, col.getZ(v) * tint * 0.92);
     out.push(blob);
@@ -406,7 +409,7 @@ function makeBatch() {
 const greenTint = (rng) => { const v = 0.84 + rng() * 0.3; return [v * (0.92 + rng() * 0.2), v, v * (0.82 + rng() * 0.22)]; };
 
 /* ── a mud bank / shoal: low mound, wet margin, underwater apron ───────────── */
-const RINGS = [0, 0.22, 0.42, 0.6, 0.76, 0.88, 0.96, 1.03, 1.14, 1.3, 1.62];
+const RINGS = [0, 0.3, 0.56, 0.78, 0.96, 1.03, 1.14, 1.3, 1.62];
 function bankGeo(rng, noise, { R, H, ex = 1, ez = 1, ry = 0, x = 0, z = 0, segs = 18 }) {
   const ox = rng() * 60, oz = rng() * 60;
   const co = Math.cos(ry), si = Math.sin(ry);
@@ -509,7 +512,7 @@ function mossBoulder(rng, noise, r) {
   });
   return paint(geo, (q, n, c) => {
     c.copy(C.stoneDark).lerp(C.stone, noise(q.x * 1.5 + ox, q.y * 1.5, q.z * 1.5));
-    c.lerp(C.moss, smooth(0.5, 0.85, n.y + (noise(q.x * 2.1, q.y, q.z * 2.1 + oz) - 0.5) * 0.5) * 0.8);
+    c.lerp(C.moss, smooth(0.62, 0.9, n.y + (noise(q.x * 2.1, q.y, q.z * 2.1 + oz) - 0.5) * 0.4) * 0.75);
   });
 }
 
@@ -539,14 +542,14 @@ function plantBank(batch, cell, rng, bank, o, massGeos, { crowns, near }) {
     const g0 = bank.heightAt(p.x, p.z);
     spots.push({ x: p.x, z: p.z, g: g0, r, y: g0 + (2.6 + r * 0.55 + rng() * 2.4) * scale });
   }
-  canopyMassGeos(rng, noise3(), spots, massGeos);
+  canopyMassGeos(rng, noise3(), spots, massGeos, near && !o.sparse);
   const edge = o.edgeTrees ?? (near && rng() < 0.7 ? 1 : 0);
   for (let i = 0; i < edge; i++) {
     const p = bank.at(rng() * 6.283, 0.66 + rng() * 0.2);
     const kind = near && !o.lod ? 'treeNear' + Math.floor(rng() * 3) : 'treeFar' + Math.floor(rng() * 2);
     batch.add(kind, cell, p.x, bank.heightAt(p.x, p.z) - 0.1, p.z, (0.8 + rng() * 0.45) * scale, rng() * 6.283, greenTint(rng), 0.92 + rng() * 0.25);
   }
-  const nb = o.sparse ? 2 : near ? 2 + Math.floor(rng() * 2) : 2;
+  const nb = near && !o.sparse ? 1 + Math.floor(rng() * 2) : 1;
   for (let i = 0; i < nb; i++) {
     const p = bank.at(rng() * 6.283, 0.7 + rng() * 0.22);
     batch.add('bush', cell, p.x, bank.heightAt(p.x, p.z), p.z, (1.0 + rng() * 0.9) * scale, rng() * 6.283, greenTint(rng), 0.8 + rng() * 0.4);
@@ -604,7 +607,7 @@ export function buildJungleField(theme, nodes, segs, rng) {
     bankGeos[cell].push(bank.geo);
     banks.push({ x, z, r: R });
     plantBank(batch, cell, rng, bank, { treeScale: near ? 1 : 1.35 }, massGeos[cell],
-      { crowns: near ? Math.max(6, Math.min(12, Math.round(R * R * ex * ez / 11))) : 12, near });
+      { crowns: near ? Math.max(6, Math.min(10, Math.round(R * R * ex * ez / 12))) : 9, near });
   };
 
   /* the channel walls: banks marched down both sides of every lane */
@@ -728,7 +731,7 @@ export function jungleMooring(node, rng) {
     const rocks = [];
     const n = 2 + Math.floor(rng() * 2);
     for (let i = 0; i < n; i++) {
-      const a = a0 + 0.9 + i * 0.5 + rng() * 0.3, d = 6.5 + rng() * 2.5, r = 0.9 + rng() * 1.0;
+      const a = a0 + 0.9 + i * 0.5 + rng() * 0.3, d = 6.5 + rng() * 2.5, r = 0.6 + rng() * 0.75;
       rocks.push(xform(mossBoulder(rng, noise, r), { x: Math.cos(a) * d, y: SEA_Y + r * 0.1, z: Math.sin(a) * d, ry: rng() * 6.283 }));
       geos.push(shoalGeo(Math.cos(a) * d, Math.sin(a) * d, r + 1.6));
     }
@@ -759,13 +762,13 @@ export function dressJungleIsland(g, rng, theme, R, terrain, node) {
   // forest rings the back and flanks as one canopy; one side stays open so
   // the landmark shows, and a couple of free-standing trees break the edge
   const open = rng() * 6.283;
-  const n = 6 + Math.floor(rng() * 3);
+  const n = 5 + Math.floor(rng() * 2);
   const spots = [];
   for (let i = 0; i < n; i++) {
-    const a = open + 0.95 + (i / (n - 1)) * (6.283 - 1.9) + (rng() - 0.5) * 0.25;
-    const p = terrain.place(a, 0.6 + rng() * 0.2);
+    const a = open + 1.6 + (i / (n - 1)) * (6.283 - 3.2) + (rng() - 0.5) * 0.25;
+    const p = terrain.place(a, 0.66 + rng() * 0.18);
     if (p.y < 0.2) continue;
-    spots.push({ x: p.x, z: p.z, g: p.y, r: 2.1 + rng() * 1.1, y: p.y + 3.0 + rng() * 2.2 });
+    spots.push({ x: p.x, z: p.z, g: p.y, r: 1.7 + rng() * 0.8, y: p.y + 2.4 + rng() * 1.5, fine: true });
     if (rng() < 0.6) {
       const q = terrain.place(a + (rng() - 0.5) * 0.4, 0.74 + rng() * 0.16);
       if (q.y > 0.15) batch.add('bush', 0, q.x, q.y, q.z, 0.7 + rng() * 0.6, rng() * 6.283, greenTint(rng));
@@ -777,9 +780,9 @@ export function dressJungleIsland(g, rng, theme, R, terrain, node) {
     g.add(massMesh(mass));
   }
   for (let i = 0; i < 2; i++) {
-    const p = terrain.place(open + (i ? 1.0 : -1.0) + (rng() - 0.5) * 0.3, 0.62 + rng() * 0.12);
+    const p = terrain.place(open + (i ? 1.25 : -1.25) + (rng() - 0.5) * 0.3, 0.68 + rng() * 0.12);
     if (p.y < 0.2) continue;
-    batch.add('treeNear' + Math.floor(rng() * 3), 0, p.x, p.y - 0.15, p.z, 0.6 + rng() * 0.2, rng() * 6.283, greenTint(rng), 0.9 + rng() * 0.2);
+    batch.add('treeNear' + Math.floor(rng() * 3), 0, p.x, p.y - 0.15, p.z, 0.46 + rng() * 0.14, rng() * 6.283, greenTint(rng), 0.9 + rng() * 0.2);
   }
   for (let i = 0; i < 7; i++) {
     const p = terrain.place(rng() * 6.283, 0.4 + rng() * 0.5);

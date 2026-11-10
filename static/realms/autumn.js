@@ -255,23 +255,23 @@ function litterTextures() {
   const [cv, ctx] = makeCanvas(S, S);
   const [hv, hctx] = makeCanvas(S, S);
   const rnd = mulberry32(60217);
-  ctx.fillStyle = '#463627';
+  ctx.fillStyle = '#5a5248';
   ctx.fillRect(0, 0, S, S);
   hctx.fillStyle = '#202020';
   hctx.fillRect(0, 0, S, S);
   for (let i = 0; i < 260; i++) {          // humus mottling
     const x = rnd() * S, y = rnd() * S, r = 20 + rnd() * 70;
-    ctx.fillStyle = rnd() < 0.5 ? 'rgba(20,12,6,0.16)' : 'rgba(90,62,36,0.14)';
+    ctx.fillStyle = rnd() < 0.5 ? 'rgba(30,26,22,0.16)' : 'rgba(120,110,96,0.14)';
     for (const ox of [-S, 0, S]) for (const oy of [-S, 0, S]) {
       ctx.beginPath(); ctx.arc(x + ox, y + oy, r, 0, TAU); ctx.fill();
     }
   }
   const pal = jitterPal([
-    ['#cfa45a', 3], ['#dcb964', 3], ['#e8cf7c', 3], ['#c48a4c', 2], ['#a8683c', 1],
-    ['#a08258', 3], ['#80664a', 2], ['#b8ad62', 1], ['#d6935a', 1]], rnd);
+    ['#d9c690', 3], ['#e6d6a0', 3], ['#efe2b4', 3], ['#cdb486', 2], ['#c09a78', 1],
+    ['#b6a88a', 3], ['#9a8c74', 2], ['#c8c490', 1], ['#d8b890', 1]], rnd);
   // old brown leaves first (the mat), the bright fresh fall on top
-  paintLeaves(ctx, hctx, S, rnd, 5200, jitterPal([['#806446', 3], ['#6b5038', 3], ['#94744e', 2], ['#5a4330', 2]], rnd), 12, 24, 'rgba(30,20,12,0.4)');
-  paintLeaves(ctx, hctx, S, rnd, 6200, pal, 11, 25, 'rgba(60,28,10,0.42)');
+  paintLeaves(ctx, hctx, S, rnd, 5200, jitterPal([['#9c8e78', 3], ['#857862', 3], ['#aa9c82', 2], ['#6e6252', 2]], rnd), 12, 24, 'rgba(40,34,28,0.4)');
+  paintLeaves(ctx, hctx, S, rnd, 6200, pal, 11, 25, 'rgba(70,56,40,0.4)');
   _litter = { map: asTexture(cv), bump: asTexture(hv, false) };
   return _litter;
 }
@@ -283,7 +283,7 @@ function barkTexture() {
   const W = 256, H = 512;
   const [cv, ctx] = makeCanvas(W, H);
   const rnd = mulberry32(8123);
-  ctx.fillStyle = '#6d5646';
+  ctx.fillStyle = '#8c867e';
   ctx.fillRect(0, 0, W, H);
   const furrow = (x0, width, style, amp) => {
     const k1 = 1 + ((rnd() * 3) | 0), k2 = 2 + ((rnd() * 5) | 0), p1 = rnd() * TAU, p2 = rnd() * TAU;
@@ -298,12 +298,12 @@ function barkTexture() {
       ctx.stroke();
     }
   };
-  for (let i = 0; i < 46; i++) furrow(rnd() * W, 5 + rnd() * 9, `rgba(128,104,84,${0.25 + rnd() * 0.3})`, 7);   // plates
-  for (let i = 0; i < 60; i++) furrow(rnd() * W, 2 + rnd() * 4, `rgba(40,27,20,${0.3 + rnd() * 0.3})`, 6);      // furrows
-  for (let i = 0; i < 70; i++) furrow(rnd() * W, 1, `rgba(170,146,120,${0.2 + rnd() * 0.25})`, 6);              // lit edges
+  for (let i = 0; i < 46; i++) furrow(rnd() * W, 5 + rnd() * 9, `rgba(172,166,156,${0.25 + rnd() * 0.3})`, 7);   // plates
+  for (let i = 0; i < 60; i++) furrow(rnd() * W, 2 + rnd() * 4, `rgba(58,52,48,${0.3 + rnd() * 0.3})`, 6);      // furrows
+  for (let i = 0; i < 70; i++) furrow(rnd() * W, 1, `rgba(208,202,190,${0.2 + rnd() * 0.25})`, 6);              // lit edges
   for (let i = 0; i < 300; i++) {            // cross cracks
     const x = rnd() * W, y = rnd() * H;
-    ctx.fillStyle = 'rgba(30,20,14,0.35)';
+    ctx.fillStyle = 'rgba(50,44,40,0.35)';
     ctx.fillRect(x, y, 4 + rnd() * 12, 1 + rnd() * 1.5);
   }
   _barkTex = asTexture(cv);
@@ -388,7 +388,7 @@ export function makeValeGround(theme, size = 3000, opts = {}) {
         float fPath = 1.0 - smoothstep(1.5, 2.9, fTD + (fGrain - 0.5) * 1.7 + fLeaf * 0.9);
         float fScuff = 1.0 - smoothstep(2.4, 6.5, fTD + (fGrain - 0.5) * 2.6);
         diffuseColor.rgb *= mix(vec3(1.0), vec3(0.74, 0.70, 0.66), fScuff * 0.6);
-        vec3 fEarth = vec3(0.21, 0.155, 0.105) * (0.75 + fGrain * 0.5);
+        vec3 fEarth = vec3(0.150, 0.125, 0.105) * (0.75 + fGrain * 0.5);
         diffuseColor.rgb = mix(diffuseColor.rgb, fEarth, fPath * 0.9);`)
       .replace('#include <roughnessmap_fragment>', /* glsl */`#include <roughnessmap_fragment>
         roughnessFactor = mix(roughnessFactor, 0.78, fPath);`)
@@ -475,13 +475,13 @@ const VARIANTS = [
 ];
 const CROWN_TONES = [[1, 1, 1], [1.0, 0.86, 0.68], [0.9, 0.72, 0.6], [1.08, 1.02, 0.8]];
 /* whole-tree tints (instance colour): amber, gold, russet, deep red, orange, olive-gold */
-const TREE_TINTS = [0xe0a04a, 0xe0a04a, 0xecc45a, 0xecc45a, 0xc87238, 0xb04e2e, 0xe0863c, 0xe0863c, 0xb8aa48];
+const TREE_TINTS = [0xe6c070, 0xe6c070, 0xf0d888, 0xf0d888, 0xd89858, 0xc87850, 0xdca860, 0xd89858, 0xb8b470];
 
 function buildTree(v) {
   const P = VARIANTS[v];
   const rnd = mulberry32(977 + v * 131);
   const SEG = 12;
-  const TS = [0, 0.03, 0.07, 0.12, 0.19, 0.31, 0.5, 0.72, 1.0];
+  const TS = [0, 0.02, 0.045, 0.075, 0.11, 0.15, 0.2, 0.27, 0.36, 0.5, 0.72, 1.0];
   const Y0 = -0.8;
   const p1 = rnd() * TAU, p2 = rnd() * TAU, mossA = rnd() * TAU;
   const roots = [];
@@ -508,7 +508,7 @@ function buildTree(v) {
       // damp and dark at the foot, moss up the shaded side of the roots
       const k = 0.6 + 0.4 * smooth(0, 5, y);
       const moss = (1 - smooth(0.2, 4.5, y)) * Math.pow(Math.max(0, Math.cos(a - mossA)), 2) * 0.85;
-      col.push(k * (1 - moss) + 0.50 * moss, k * (1 - moss) + 0.66 * moss, k * (1 - moss) + 0.26 * moss);
+      col.push(k * (1 - moss) + 0.52 * moss, k * (1 - moss) + 0.74 * moss, k * (1 - moss) + 0.40 * moss);
     }
   }
   for (let i = 0; i < TS.length - 1; i++) {
@@ -582,7 +582,7 @@ function buildFarTree() {
   const parts = [];
   const trunk = new THREE.CylinderGeometry(0.8, 1.6, 17, 6, 1, true);
   trunk.translate(0, 8.5, 0);
-  parts.push(tint(trunk, 0x3a2a1e));
+  parts.push(tint(trunk, 0x4a4642));
   for (const [x, y, z, r, sy, seed, det] of [[0, 22.5, 0, 7.4, 0.62, 3, 1], [4.6, 20, 1.5, 4.6, 0.7, 5, 1], [-4.4, 20.5, -1.8, 4.8, 0.7, 9, 1]]) {
     const g = lumpGeometry(1, det, 0.28, seed, 1.4);
     const pp = g.attributes.position;
@@ -647,7 +647,7 @@ function buildShrooms() {
     const cap = new THREE.SphereGeometry(0.3 * s, 9, 5, 0, TAU, 0, Math.PI * 0.55);
     cap.scale(1, 0.62, 1);
     cap.translate(x, h - 0.02, z);
-    parts.push(tint(cap, rnd() < 0.5 ? 0xb5482a : 0xc77a3a, (xx, y) => 0.8 + clamp01((y - h) / (0.2 * s)) * 0.35));
+    parts.push(tint(cap, rnd() < 0.5 ? 0xc86848 : 0xd8a070, (xx, y) => 0.8 + clamp01((y - h) / (0.2 * s)) * 0.35));
   }
   return merge(parts);
 }
@@ -683,7 +683,7 @@ function shaftMaterial() {
   const look = lookFor('autumn');
   return new THREE.ShaderMaterial({
     uniforms: {
-      uColor: { value: new THREE.Color(look.shaftColor ?? 0xffc27a).multiplyScalar(0.4) },
+      uColor: { value: new THREE.Color(look.shaftColor ?? 0xffc27a).multiplyScalar(0.3) },
       uValeT: U.uValeT,
       uPort: U.uPort,
     },
@@ -748,7 +748,7 @@ function treeKit() {
     shaft: buildShaft(),
     bark: valePatch(new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.95, metalness: 0,
       map: barkTexture(), bumpMap: barkTexture(), bumpScale: 1.8 }), 'bark-v1',
-      { dapple: 0.9, port: [0.15, 0.30, 0.70, 0.90], portMinY: 1.6 }),
+      { dapple: 0.9, port: [0.28, 0.52, 0.70, 0.90], portMinY: 1.6 }),
     crown: valePatch(new THREE.MeshStandardMaterial(crownOpts), 'crown-v1',
       { port: [0.62, 1.0, 0.92, 1.36], glow: 1.5 }),
     proxyMat: new THREE.MeshBasicMaterial({ colorWrite: false, depthWrite: false }),
@@ -764,6 +764,7 @@ function treeKit() {
 
 const CELL = 52;
 const NEAR_R = 82;                     // cells whose centre is nearer wear full detail
+const PROP_R = 78;                     // GLB set pieces draw only this close (the fog ends at 60)
 
 export function makeValeField(theme, nodes, segs, rng, heightAt = null) {
   const g = new THREE.Group();
@@ -838,7 +839,7 @@ export function makeValeField(theme, nodes, segs, rng, heightAt = null) {
     for (let i = 0; i < nF; i++) {
       const a = rng() * TAU, d = r0 * 1.6 + 0.8 + rng() * 3.2;
       c.ferns.push({ x: t.x + Math.cos(a) * d, z: t.z + Math.sin(a) * d, s: 0.75 + rng() * 0.8, yaw: rng() * TAU, t,
-                     col: rng() < 0.3 ? 0x9aa644 : rng() < 0.6 ? 0xd6a23a : 0xc9772c });
+                     col: rng() < 0.3 ? 0xa8b060 : rng() < 0.6 ? 0xe0c878 : 0xd8a868 });
     }
     if (rng() < 0.55) {
       const a = rng() * TAU, d = r0 * 1.9 + rng() * 1.2;
@@ -853,7 +854,7 @@ export function makeValeField(theme, nodes, segs, rng, heightAt = null) {
   /* shafts of low sun: a few per cell, each landing in a pool of light */
   for (const c of cells.values()) {
     let found = 0;
-    for (let i = 0; i < 26 && found < 3; i++) {
+    for (let i = 0; i < 26 && found < 2; i++) {
       const x = c.cx + (rng() - 0.5) * CELL, z = c.cz + (rng() - 0.5) * CELL;
       if (dap.at(x, z) < 0.92 || crowded(x, z, 5)) continue;
       c.shafts.push({ x, z, w: 2.6 + rng() * 2.4, len: 34 + rng() * 16 });
@@ -943,10 +944,10 @@ export function makeValeField(theme, nodes, segs, rng, heightAt = null) {
       const x = minX + rng() * (maxX - minX), z = minZ + rng() * (maxZ - minZ);
       if (laneD(x, z) < laneClear || nearNode(x, z, isleClear) || crowded(x, z, 5.5)) continue;
       if (placed.some((p) => Math.hypot(p.x - x, p.z - z) < gap)) continue;
-      placed.push({ x, z });
       const o = make();
       o.position.set(x, 0, z);
       o.rotation.y = rng() * TAU;
+      placed.push({ x, z, o });
       g.add(o);
       done++;
     }
@@ -990,6 +991,8 @@ export function makeValeField(theme, nodes, segs, rng, heightAt = null) {
       const isNear = Math.hypot(c.cx - camPos.x, c.cz - camPos.z) < NEAR_R;
       if (c.near.visible !== isNear) { c.near.visible = isNear; c.far.visible = !isNear; }
     }
+    // set pieces deep in the murk are not worth their triangles
+    for (const p of placed) p.o.visible = Math.hypot(p.x - camPos.x, p.z - camPos.z) < PROP_R;
     if (dirty.size) {
       for (const im of dirty) im.instanceMatrix.needsUpdate = true;
       dirty.clear();
@@ -1079,7 +1082,7 @@ export function dressValeIsland(g, rng, theme, R, terrain, node = null) {
     im.receiveShadow = true;
     g.add(im);
   };
-  ringOf(kit.fern, kit.fernMat, 9, 0.8, 1.05, 0.8, 1.5, [0x9aa644, 0xd6a23a, 0xc9772c]);
+  ringOf(kit.fern, kit.fernMat, 9, 0.8, 1.05, 0.8, 1.5, [0xa8b060, 0xe0c878, 0xd8a868]);
   ringOf(kit.drift, kit.driftMat, 6, 0.7, 1.0, 1.4, 2.6, null);
   ringOf(kit.shrooms, kit.shroomMat, 3, 0.55, 0.9, 0.9, 1.6, null);
   const put = (id, s, a, rr) => {

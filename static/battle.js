@@ -68,7 +68,7 @@ const RIGS = {
             rim: { az: 44, el: 30, color: 0xc4b4ff, intensity: 0.85 }, lamp: 6 },
   // midnight: the beacon is the key (behind the foe), moonlight fills the front
   pharos: { key: { az: -14, el: 23, color: 0xff8438, intensity: 3.0 }, gain: 1.0,
-            rim: { az: 166, el: 40, color: 0x7f9cff, intensity: 2.3 }, lamp: 46,
+            rim: { az: 168, el: 27, color: 0x86a2ff, intensity: 3.1 }, lamp: 46,
             fog: [46, 230] },
 };
 

@@ -85,7 +85,7 @@ function healProp(pid) {
 }
 
 /* ── heightfield patch: analytic normals, vertex colour, world-planar uv ─── */
-function heightfield({ cx = 0, cz = 0, hx, hz, nx, nz, warp = 0, height, paint, material, mask = null }) {
+function heightfield({ cx = 0, cz = 0, hx, hz, nx, nz, warp = 0, height, paint, material, mask = null, place = null }) {
   const W = nx + 1, H = nz + 1;
   const pos = [], nor = [], col = [], uv = [];
   const remap = new Int32Array(W * H).fill(-1);
@@ -97,8 +97,9 @@ function heightfield({ cx = 0, cz = 0, hx, hz, nx, nz, warp = 0, height, paint, 
   let count = 0;
   for (let j = 0; j < H; j++) {
     for (let i = 0; i < W; i++) {
-      const x = cx + axis(i, nx, hx), z = cz + axis(j, nz, hz);
+      let x = cx + axis(i, nx, hx), z = cz + axis(j, nz, hz);
       if (mask && !mask(x, z)) continue;
+      if (place) { const q = place(x, z); x = q[0]; z = q[1]; }   // e.g. snap a rim onto its outline
       const y = height(x, z);
       const e = 0.3;
       const gx = (height(x - e, z) - height(x + e, z)) / (2 * e);
@@ -889,11 +890,20 @@ export function buildBattleSet(theme, opts = {}, kit = {}) {
         const rr = rrOf(x, z);
         const drift = smooth(0.62, 0.92, f(x * 0.22 + 1.5, z * 0.22 - 6)) * (bare ? smooth(0.5, 0.85, rr) : 1);
         const ridge = smooth(0.7, 0.96, rr) * 0.16 * f(x * 0.9, z * 0.9);
-        return top + drift * 0.22 + ridge - 3.4 * smooth(1.0, 1.05, rr);
+        return rr > 1 ? top - 1.1 : top + drift * 0.22 + ridge;
+      };
+      // grid points beyond the rim are pulled back ONTO the outline and dropped
+      // below the water, so the floe ends in a clean ice edge, not stair-steps
+      const _q = [0, 0];
+      const place = (x, z) => {
+        const rr = rrOf(x, z);
+        const k = rr > 1 ? 1.004 / rr : 1;
+        _q[0] = cx + (x - cx) * k; _q[1] = cz + (z - cz) * k;
+        return _q;
       };
       return heightfield({
         cx, cz, hx: rx * 1.3, hz: rz * 1.3, nx: Math.round(rx * 2.6 / cell), nz: Math.round(rz * 2.6 / cell),
-        height, mask: (x, z) => rrOf(x, z) < 1.14,
+        height, place, mask: (x, z) => rrOf(x, z) < 1.3,
         paint: (x, z, y, ny, c) => {
           const rr = rrOf(x, z), n = f(x * 0.35 - 3, z * 0.35 + 2);
           c.copy(deepIce).lerp(ice, 0.35 + n * 0.75);
@@ -912,7 +922,7 @@ export function buildBattleSet(theme, opts = {}, kit = {}) {
     for (const [x, z, r, sd] of [[-3, -12, 3.2, 1], [-12, -9, 2.2, 2], [-6, 9.5, 2.6, 3], [3, 21, 3.4, 4],
       [-14, 14, 2.4, 5], [22, 21, 4.2, 6], [26, -17, 3.6, 7], [9, -24, 4.4, 8], [34, 4, 3.0, 9],
       [-22, -20, 3.0, 10], [44, -30, 5, 11], [48, 16, 4.2, 12], [16, 30, 3, 13], [-9, 22, 2, 14]]) {
-      floeGeos.push(plate(x, z, r, r * (0.75 + (sd % 3) * 0.2), -0.1, seed + 20 + sd, 0.55, false));
+      floeGeos.push(plate(x, z, r, r * (0.75 + (sd % 3) * 0.2), -0.1, seed + 20 + sd, 0.4, false));
     }
     const floes = new THREE.Mesh(mergeGeometries(floeGeos), iceMat);
     floes.receiveShadow = true;
@@ -1018,7 +1028,6 @@ export function buildBattleSet(theme, opts = {}, kit = {}) {
     ruin.put('mossy_idol', 2.25, 0.74, 2.0, -1.9); ruin.put('mossy_idol', 3.35, 0.74, 2.0, -1.9);
     ruin.put('jungle_tree', 0.4, 0.7, 2.8); ruin.put('jungle_tree', -1.4, 0.72, 3.1);
     // (the jungle tree is an 11k-triangle model: a dozen of them is the budget)
-    ruin.put('fern_cluster', 3.4, 0.86, 1.6);
     const wall = (d, s, R, trees) => {
       const [x, z] = P(d, s);
       const b = isle(x, z, R, 1.2, 'flat', 'meadow');
@@ -1026,10 +1035,10 @@ export function buildBattleSet(theme, opts = {}, kit = {}) {
       return b;
     };
     wall(36, -27, 9, [[0.3, 0.3, 3.0], [3.4, 0.5, 3.3]]).put('fern_cluster', 1.2, 0.8, 1.8);
-    wall(70, -37, 12, [[0.6, 0.4, 3.6], [3.6, 0.4, 3.9]]).put('fern_cluster', 2.2, 0.7, 2.4);
-    wall(36, 27, 8.5, [[1.0, 0.3, 3.1], [4.2, 0.5, 2.9]]).put('fern_cluster', 3.9, 0.82, 1.7);
+    wall(70, -37, 12, [[0.6, 0.4, 3.6], [3.6, 0.4, 3.9]]);
+    wall(36, 27, 8.5, [[1.0, 0.3, 3.1], [4.2, 0.5, 2.9]]);
     wall(74, 30, 11, [[0.2, 0.4, 3.5], [3.1, 0.45, 3.8]]);
-    wall(100, -6, 13, [[0.5, 0.4, 4.0], [3.0, 0.4, 4.3]]).put('fern_cluster', 1.6, 0.6, 2.6);
+    wall(100, -6, 13, [[0.5, 0.4, 4.0], [3.0, 0.4, 4.3]]);
     // foreground: reeds and fern on a mud lip, lilies on the slack water
     const [bx, bz] = P(13.5, 9.4);
     const paint = rockPaint(seed + 2, 0x6a5a40, 0x4f6a34, 0.5);
@@ -1042,9 +1051,8 @@ export function buildBattleSet(theme, opts = {}, kit = {}) {
     g.add(mud);
     g.add(shelfMesh([[bx, bz, 6], [20.5, 13.5, 4.5], [20, -15.5, 4.5]]));
     prop('reeds', bx - 0.6, 0.25, bz + 0.6, 1.7); prop('fern_cluster', bx + 1.3, 0.3, bz - 0.2, 1.5);
-    prop('reeds', 20.8, 0.3, 13.8, 1.5); prop('fern_cluster', 20, 0.5, -15.5, 1.4);
-    prop('lily_pads', -2.5, SEA + 0.05, -7.5, 2.4); prop('lily_pads', 2.5, SEA + 0.05, 17.5, 2.0);
-    prop('lily_pads', 24, SEA + 0.05, -6, 2.2);
+    prop('fern_cluster', 20, 0.5, -15.5, 1.4);
+    prop('lily_pads', -2.5, SEA + 0.05, -7.5, 2.4); prop('lily_pads', 24, SEA + 0.05, -6, 2.2);
     if (!afloat) prop('driftwood', 14, -0.02, -9.5, 1.4);
     // sun through the canopy
     shaft(18, 13, -16, 7, 34, new THREE.Color(1.3, 1.2, 0.72), 0.16, 0.4);

@@ -126,10 +126,13 @@ export function buildRealmBackdrop(theme, { radius = 520, gateAngle = 0 } = {}) 
      dissolves into its own haze. */
   if (theme.id !== 'desert') {
     const RANGE = {
-      ice:    { height: 150, jag: 1, snowline: 0.34,
-                palette: { rock: 0x6f86a0, rockDark: 0x3d5068, strata: 0x9fb4c8, foot: 0xdfe9f0, snow: 0xffffff } },
-      jungle: { height: 105, jag: 0.4, snowline: 2,
-                palette: { rock: 0x4f6a4a, rockDark: 0x2c4530, strata: 0x7a8a5a, foot: 0x2f7a3c, snow: 0xcfe3c2 } },
+      // the Frostfangs: tall, hard-edged, snow to the waterline, slate-blue rock
+      // showing only where the faces are too steep to hold it
+      ice:    { height: 172, jag: 1, snowline: 0.28,
+                palette: { rock: 0x657e9a, rockDark: 0x34475f, strata: 0x93aac2, foot: 0xe4edf3, snow: 0xffffff } },
+      // forested karst: steeper, humped ridges, rock only on the sheer faces
+      jungle: { height: 118, jag: 0.55, snowline: 2,
+                palette: { rock: 0x54705a, rockDark: 0x2a4534, strata: 0x7d9068, foot: 0x2c6e40, snow: 0xcfe3c2 } },
       autumn: { height: 70, jag: 0, snowline: 2,
                 palette: { rock: 0x8a6a52, rockDark: 0x5a4234, strata: 0xb08a5a, foot: 0xb8692a, snow: 0xf6e9d2 } },
     }[theme.id] || { height: 120, jag: 1, snowline: 0.74,

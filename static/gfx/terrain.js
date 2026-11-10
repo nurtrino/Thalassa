@@ -194,13 +194,16 @@ export function makeTerrain({ seed, R, H, mode = 'hill', palette = {}, lobes = 0
     const rr = radiusOf(x, z);
     if (rr <= 1) {
       // the land, easing onto a low beach berm at the coast (no lip, no cliff edge)
-      return Math.max(0, profile(rr)) * relief(x, z, rr) + BEACH * smooth(0.55, 1.0, rr);
+      // …then down the foreshore so the WATERLINE sits at the nominal coast
+      // (rr = 1): the isle's footprint is exactly the radius gameplay expects
+      return Math.max(0, profile(rr)) * relief(x, z, rr) + BEACH * smooth(0.55, 0.9, rr)
+             - (BEACH + 0.36) * smooth(0.9, 1.0, rr);
     }
     // foreshore → shelf → drop-off, with a little wander so the shallows aren't a ring
     const w = (fbm(x * 0.11 + 3.3, z * 0.11 - 6.1) - 0.5);
     const s1 = smooth(1.0, 1.42 + w * 0.22, rr);
     const s2 = smooth(1.3 + w * 0.2, 1.92, rr);
-    return BEACH - 2.6 * s1 - 24 * s2 * s2;
+    return -0.36 - 2.3 * s1 - 24 * s2 * s2;
   };
   const surfaceY = (x, z) => {
     const rr = Math.min(1, radiusOf(x, z));

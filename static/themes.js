@@ -91,7 +91,7 @@ const THEMES = {
     // silt-green river water — the Verdigris Deep runs slow and murky: olive
     // in the channels, green-gold over the mud shoals, hardly a sparkle on it
     water: { deep: 0x3c5942, shallow: 0x6f8a52, seabed: 0x74683f, scatter: 0x9aa858,
-             sparkle: 0.45, chop: 0.36, foam: 0.3, clarity: 0.5, reflect: 1.0 },
+             sparkle: 0.45, chop: 0.36, foam: 0.12, clarity: 0.5, reflect: 1.0 },
     ground: 'water',
     sky: { zenith: 0x1f7fae, mid: 0x7cc4ad, horizon: 0xdcecb4 },
     // lifted ~8% (was 0x86b294): green fog on green islands collapsed the
@@ -104,7 +104,7 @@ const THEMES = {
     // against the dark water, dark enough to sit under the green-gold haze
     // cover 'rocks': the isles are roofed by canopy and dressed with ferns
     // (realms/jungle.js) — the instanced meadow tufts would only cost triangles
-    palette: { grass: 0x2f8a38, grass2: 0x1b5a2a, sand: 0xa89a68, sandWet: 0x5c5032, rock: 0x596a48, cover: 'rocks' },
+    palette: { grass: 0x3b7a34, grass2: 0x22542a, sand: 0xa89a68, sandWet: 0x5c5032, rock: 0x596a48, cover: 'rocks' },
     flora: 'jungle',
     particles: 'motes',
     wall: { rock: 0x46584a, snow: 0xcfe3c2, glow: 0x6fd490 },
