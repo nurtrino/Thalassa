@@ -5,6 +5,8 @@
 import * as THREE from 'three';
 import { mulberry32, hashStr } from './util.js';
 import { makeGroundMaterial, GROUND_TILE } from './gfx/terrain.js';
+import { makeDesertGround } from './realms/desert.js';
+import { makeValeGround } from './realms/autumn.js';
 
 /*
  * makeGround — the desert trek floor: a gently noise-displaced sand plane
@@ -12,6 +14,10 @@ import { makeGroundMaterial, GROUND_TILE } from './gfx/terrain.js';
  * islands/props sit cleanly, rolling dunes toward the horizon.
  */
 export function makeGround(theme, size = 3000, opts = {}) {
+  // each foot realm builds its own floor (realms/*.js); what follows is the
+  // generic fallback plane for any other theme that asks for solid ground
+  if (theme.id === 'desert') return makeDesertGround(theme, size, opts);
+  if (theme.id === 'autumn') return makeValeGround(theme, size, opts);
   const SEG = 260;
   const geo = new THREE.PlaneGeometry(size, size, SEG, SEG);
   geo.rotateX(-Math.PI / 2);

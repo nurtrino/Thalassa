@@ -10,8 +10,8 @@
  *               eyes) and the hue-keyed "painted glow" in modelmat.js light
  *               the real eyes and cores on the sculpt itself, in HDR, so they
  *               bloom;
- *   crown       rebuilt as a thin gold halo floating over the boss's highest
- *               point; the animator turns and bobs it.
+ *   crown       rebuilt as a small gold circlet hovering over the boss's
+ *               highest point; the animator turns and bobs it.
  *
  * THE ANIMATOR drives creatures procedurally BY NAMED PART (body/head/jaw/
  * legXX/armX/wingX/tail0..N/vine0..N/weapon/shield/crown/wisp/tatter...). A
@@ -151,10 +151,10 @@ const MONSTER_FINISH = {
   golem_jade:    finishOf('marble', { rough: [0.34, 0.9], glow: 3.0 }),
   shambler:      finishOf('wood'),
   briar:         finishOf('wood', { rough: [0.6, 0.98], eyes: eyes(0x3cff5a, 4, 0.955, 0.45) }),
-  matriarch:     finishOf('wet', { rough: [0.42, 0.92] }),
-  skiff:         finishOf('wood', { side: 'double' }),
+  matriarch:     finishOf('wet', { rough: [0.42, 0.92], tint: [1.6, 1.7, 1.5] }),
+  skiff:         finishOf('wood', { side: 'double', tint: [1.55, 1.45, 1.35] }),
   wraith:        finishOf('cloth', { glow: 3.2 }),
-  shade:         finishOf('cloth', { eyes: eyes(0xa24dff, 5, 0.95, 0.3) }),
+  shade:         finishOf('cloth', { rough: [0.5, 0.92], tint: [2.3, 2.2, 2.7], eyes: eyes(0xa24dff, 5, 0.95, 0.3) }),
   siren:         finishOf('wet', { glow: 1.1 }),
   drowned:       finishOf('wet', { rough: [0.34, 0.9], eyes: eyes(0xff8a14, 4, 0.97, 0.55) }),
   serpent:       finishOf('wet'),
@@ -239,14 +239,40 @@ function prepareTemplate(scene, id) {
   return scene;
 }
 
-/* The boss halo: a thin gold ring with a soft glow, floating over the
- * sculpt's HIGHEST point (antler tips, horns, crest — wherever the eye goes),
- * parented to `body` so it rides every bob and lunge. Named 'crown': the
- * animator turns and bobs it. */
+/* The boss crown: a small gold circlet with points, softly lit, hovering
+ * over the sculpt's HIGHEST point (antler tips, horns, crest — wherever the
+ * eye goes) and parented to `body` so it rides every bob and lunge. Named
+ * 'crown': the animator turns and bobs it. Set BOSS_CROWNS to false to drop
+ * the marker entirely (bosses are already staged 2.2× larger in battle). */
+const BOSS_CROWNS = true;
+let _crownGeo = null, _crownMat = null;
+function crownParts() {
+  if (_crownGeo) return;
+  // an open band whose top edge rises into eight points; unit radius
+  const SEG = 32;
+  const geo = new THREE.CylinderGeometry(1, 0.9, 0.5, SEG, 2, true);
+  const pos = geo.getAttribute('position');
+  for (let i = 0; i < pos.count; i++) {
+    if (pos.getY(i) > 0.2) {
+      const a = Math.atan2(pos.getZ(i), pos.getX(i));
+      const k = Math.abs(((a / (Math.PI * 2)) * 8 + 8.5) % 1 - 0.5) * 2;   // 0 at a point, 1 between
+      pos.setY(i, 0.25 + (1 - k) * 0.62);
+      const r = 1.0 + (1 - k) * 0.06;
+      pos.setX(i, Math.cos(a) * r); pos.setZ(i, Math.sin(a) * r);
+    }
+  }
+  geo.computeVertexNormals();
+  _crownGeo = geo;
+  _crownMat = new THREE.MeshStandardMaterial({
+    color: 0xffc64a, metalness: 1, roughness: 0.3, side: THREE.DoubleSide,
+    emissive: 0xff9a1a, emissiveIntensity: 0.9 });
+}
 function addCrown(scene) {
+  if (!BOSS_CROWNS) return;
   let body = null;
   scene.traverse((o) => { if (!body && o.isMesh && baseName(o.name || '') === 'body') body = o; });
   if (!body) return;
+  crownParts();
   const pos = body.geometry.getAttribute('position');
   body.geometry.computeBoundingBox();
   const bb = body.geometry.boundingBox;
@@ -257,24 +283,20 @@ function addCrown(scene) {
   for (let i = 0; i < pos.count; i++) {
     if (pos.getY(i) >= yCut) { sx += pos.getX(i); sz += pos.getZ(i); n++; }
   }
-  const cx = n ? sx / n : 0, cz = n ? sz / n : 0;
-  const R = H * 0.085;
+  const R = H * 0.07;
   const crown = new THREE.Group();
   crown.name = 'crown';
-  crown.position.set(cx, bb.max.y + H * 0.075, cz);
-  const ring = new THREE.Mesh(
-    new THREE.TorusGeometry(R, R * 0.075, 8, 36),
-    new THREE.MeshStandardMaterial({
-      color: 0xffc64a, metalness: 1, roughness: 0.28,
-      emissive: 0xffa41c, emissiveIntensity: 1.5 }));
-  ring.rotation.x = Math.PI / 2;
-  ring.castShadow = false;
+  crown.position.set(n ? sx / n : 0, bb.max.y + H * 0.07, n ? sz / n : 0);
+  const band = new THREE.Mesh(_crownGeo, _crownMat);
+  band.scale.setScalar(R);
+  band.castShadow = false;
   const halo = new THREE.Sprite(new THREE.SpriteMaterial({
-    map: modelGlowTexture(), color: new THREE.Color(1.0, 0.72, 0.28),
-    transparent: true, opacity: 0.4, depthWrite: false,
+    map: modelGlowTexture(), color: new THREE.Color(1.0, 0.7, 0.26),
+    transparent: true, opacity: 0.32, depthWrite: false,
     blending: THREE.AdditiveBlending }));
-  halo.scale.setScalar(R * 4.6);
-  crown.add(ring, halo);
+  halo.position.y = R * 0.35;
+  halo.scale.setScalar(R * 5);
+  crown.add(band, halo);
   body.add(crown);
 }
 
@@ -700,7 +722,7 @@ function poseLocomotion(rig, u, t, ph, walking) {
   if (rig.sail) {
     rig.sail.node.rotation.y = rig.sail.r.y + Math.sin(t * 1.2 + ph) * 0.05;
   }
-  // the boss halo turns slowly and rides a small bob of its own
+  // the boss crown turns slowly and rides a small bob of its own
   if (rig.crown) {
     const c = rig.crown;
     c.node.rotation.y = c.r.y + t * 0.5;

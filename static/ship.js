@@ -18,7 +18,7 @@
  *
  *   makeShip(colorHex) → THREE.Group, +x is forward, y = 0 sits 0.15 above
  *   the waterline (callers scale ×1.7–2 and float the group at world y≈0, the
- *   sea surface being y = −0.3). About 5k triangles in 6 draw calls.
+ *   sea surface being y = −0.3). About 5k triangles in 7 draw calls.
  *
  * Geometry and textures are cached and shared between ships (flagged
  * userData.shared); disposing a ship's meshes is still safe — three simply
@@ -39,7 +39,7 @@ const NU = 34;                    // hull stations
 const C = {
   wood: new THREE.Color(0xa06c3e), pitch: new THREE.Color(0x2a221f),
   deck: new THREE.Color(0xc9a672), gang: new THREE.Color(0xdcbf90),
-  trim: new THREE.Color(0x543722), rope: new THREE.Color(0x3b2c1f),
+  trim: new THREE.Color(0x7a5230), rope: new THREE.Color(0x4a3826),
   cream: new THREE.Color(0xeadfc4), rim: new THREE.Color(0x7c5a2a),
   boss: new THREE.Color(0xd9b45c), white: new THREE.Color(0xffffff),
 };
@@ -322,6 +322,40 @@ function eyeTexture() {
   return (_eye = tex);
 }
 
+/* the waterline: a dark contact shadow hugging the hull inside a fringe of
+   froth — without it a ship reads as hovering over the sea */
+let _wash = null;
+function washTexture() {
+  if (_wash) return _wash;
+  const W = 256, H = 128;
+  const cv = document.createElement('canvas');
+  cv.width = W; cv.height = H;
+  const ctx = cv.getContext('2d');
+  const hull = (grow) => {                    // the waterline plan, bow to the right
+    ctx.beginPath();
+    ctx.moveTo(46 - grow, 64);
+    ctx.bezierCurveTo(70, 64 - 30 - grow, 150, 64 - 34 - grow, 214 + grow, 64);
+    ctx.bezierCurveTo(150, 64 + 34 + grow, 70, 64 + 30 + grow, 46 - grow, 64);
+    ctx.closePath();
+  };
+  ctx.shadowColor = 'rgba(6,24,40,0.75)'; ctx.shadowBlur = 16;
+  ctx.fillStyle = 'rgba(6,24,40,0.55)'; hull(4); ctx.fill();
+  ctx.shadowColor = 'rgba(255,255,255,0.9)'; ctx.shadowBlur = 7;
+  ctx.strokeStyle = 'rgba(255,255,255,0.75)'; ctx.lineWidth = 3.5; hull(3); ctx.stroke();
+  ctx.shadowBlur = 0;
+  const rnd = lcg(4242);
+  for (let i = 0; i < 90; i++) {              // broken lace along the fringe
+    const a = rnd() * Math.PI * 2, k = 1.02 + rnd() * 0.16;
+    const x = 130 + Math.cos(a) * 84 * k, y = 64 + Math.sin(a) * 30 * k * (1 - 0.35 * Math.abs(Math.cos(a)));
+    ctx.fillStyle = `rgba(255,255,255,${0.25 + rnd() * 0.5})`;
+    ctx.beginPath(); ctx.arc(x, y, 1 + rnd() * 2.6, 0, 6.3); ctx.fill();
+  }
+  const tex = new THREE.CanvasTexture(cv);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.userData.shared = true;
+  return (_wash = tex);
+}
+
 /* each of the six captain colours flies its own device; any other colour
    falls back to a hash, so the mapping is stable for a given colour */
 const DEVICES = ['bands', 'pales', 'sun', 'chevron', 'quarter', 'lozenge'];
@@ -425,16 +459,20 @@ function materials() {
     map: wood, bumpMap: wood, bumpScale: 1.4, vertexColors: true,
     roughness: 0.72, metalness: 0 });
   const bronze = new THREE.MeshStandardMaterial({
-    color: 0xc08a45, roughness: 0.36, metalness: 0.85 });
+    color: 0xb07e3c, roughness: 0.4, metalness: 0.85 });
   const eye = new THREE.MeshStandardMaterial({
     map: eyeTexture(), transparent: true, alphaTest: 0.45, roughness: 0.6,
     polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 });
   // the lantern flame is brighter than white, so it blooms
   const lamp = new THREE.MeshBasicMaterial({ color: new THREE.Color(3.2, 1.9, 0.62) });
   const glow = new THREE.SpriteMaterial({
-    map: softDiscTexture(), color: 0xffb060, transparent: true, opacity: 0.55,
+    map: softDiscTexture(), color: 0xffb060, transparent: true, opacity: 0.32,
     blending: THREE.AdditiveBlending, depthWrite: false });
-  _mats = { body, bronze, eye, lamp, glow, sails: new Map() };
+  // froth and a soft contact shadow where the hull meets the sea
+  const wash = new THREE.MeshStandardMaterial({
+    map: washTexture(), transparent: true, depthWrite: false, roughness: 1, metalness: 0 });
+  for (const m of [body, bronze, eye, lamp, glow, wash]) m.userData.shared = true;
+  _mats = { body, bronze, eye, lamp, glow, wash, sails: new Map() };
   return _mats;
 }
 
@@ -459,6 +497,7 @@ function sailMaterial(colorHex) {
         #endif`);
   };
   mat.customProgramCacheKey = () => 'thalassa-sail';
+  mat.userData.shared = true;
   M.sails.set(key, mat);
   return mat;
 }
@@ -470,6 +509,7 @@ const _unitBox = new THREE.BoxGeometry(1, 1, 1);
 function buildBody(paint) {
   const B = new Builder();
   const paintIn = paint.clone().multiplyScalar(0.6);
+  const gangTop = paint.clone().lerp(C.gang, 0.25);
   const P = new THREE.Vector3(), N = new THREE.Vector3();
 
   /* hull skin, both sides */
@@ -528,7 +568,7 @@ function buildBody(paint) {
     o.p.set(frame(u).x, deckY(u) + GH, (j ? 1 : -1) * half);
     o.n.set(0, 1, 0);
     o.u = o.p.x * 2.2; o.v = j * 0.24 + 0.03;
-    o.c = C.gang;
+    o.c = gangTop;                                       // a painted runner: the colour reads from above
   });
 
   /* thwarts, oars and shields share the rowing stations */
@@ -636,7 +676,7 @@ function bronzeGeometry() {
   if (_bronzeGeo) return _bronzeGeo;
   const B = new Builder();
   // the ram: sheathed forefoot, three-finned at the waterline
-  const root = V(1.30, WL - 0.05, 0), tip = V(2.04, WL + 0.07, 0);
+  const root = V(1.30, WL - 0.13, 0), tip = V(2.02, WL - 0.02, 0);
   const M = span(root, tip);
   B.lathe([[0.15, 0], [0.125, 0.3], [0.085, 0.68], [0.045, 0.93], [0.001, 1]], 8,
     M.clone().multiply(_m.makeScale(0.92, 1, 0.7)));
@@ -713,7 +753,7 @@ function sailGeometry() {
   return (_sailGeo = B.build(false));
 }
 
-let _flameGeo = null;
+let _flameGeo = null, _washGeo = null;
 const _bodyGeo = new Map();
 
 /* ── the ship ────────────────────────────────────────────────────────────── */
@@ -747,8 +787,18 @@ export function makeShip(colorHex) {
   flame.userData.noShadow = true;
   const halo = new THREE.Sprite(M.glow);
   halo.position.copy(flame.position);
-  halo.scale.setScalar(0.62);
+  halo.scale.setScalar(0.46);
 
-  g.add(body, bronze, sail, eyes, flame, halo);
+  if (!_washGeo) {
+    _washGeo = new THREE.PlaneGeometry(4.55, 2.2).rotateX(-Math.PI / 2);
+    _washGeo.userData.shared = true;
+  }
+  const wash = new THREE.Mesh(_washGeo, M.wash);
+  wash.name = 'wash';
+  wash.position.set(0.12, WL + 0.035, 0);
+  wash.renderOrder = -1;
+  wash.userData.noShadow = true;
+
+  g.add(body, bronze, sail, eyes, flame, halo, wash);
   return g;
 }

@@ -7,6 +7,10 @@ import * as THREE from 'three';
 import { hashStr, mulberry32, flat, displace, seedFrom, softDiscTexture } from './util.js';
 import { DOMAIN_COLORS, REALM_INFO } from './themes.js';
 import { propGroup } from './props.js';
+import { buildIceField, iceMooring, dressIceIsland, makeIceberg, makeIceFloe } from './realms/ice.js';
+import { buildJungleField, jungleMooring, dressJungleIsland, makeLilyRaft } from './realms/jungle.js';
+import { makeDesertField, desertWaypoint, sandApron, makeOasis as makeReachOasis } from './realms/desert.js';
+import { makeValeField, valeWaystone } from './realms/autumn.js';
 import { glbProp, preloadStructures } from './structures.js';
 import { makeTerrain, makeNoise2D, makeGroundMaterial, groundGrainTexture, groundReliefTexture, SHORE_LAYER, GROUND_TILE } from './gfx/terrain.js';
 
@@ -644,33 +648,20 @@ function makeRibs(rng) {
 
 /* ── realm wilds: the stuff that fills the water/sand BETWEEN stops ─────── */
 
-/* a drifting iceberg — the Meshy berg, scaled by the old berg sizes */
+/* a drifting iceberg — procedural glacial ice (realms/ice.js); s ≈ 0.5–1.2 */
 export function makeBerg(rng, s = 1) {
-  return propGroup('iceberg', s);
+  return makeIceberg(rng, s);
 }
 
-/* drift chunks between the bergs — small crystalline shards awash */
+/* drift ice between the bergs — a small raft of floes awash */
 export function makeFloe(rng, s = 1) {
-  return propGroup('ice_shard', 0.4 + s * 0.45);
+  return makeIceFloe(rng, s);
 }
 
-/* a floating tangle on the brown water: the Meshy lily pads, ringed by
-   snaking procedural vines so the channels still read vine-choked */
+/* a raft of lily pads on the green water (realms/jungle.js) — the old name
+   is kept for call-site compatibility; the vine tubes are gone */
 export function makeVineMat(rng, s = 1) {
-  const g = new THREE.Group();
-  g.add(propGroup('lily_pads', 1.1 + s * 0.9));
-  const vine = flat(0x3f6d2a);
-  for (let i = 0; i < 3; i++) {
-    const arc = new THREE.Mesh(
-      new THREE.TorusGeometry((1.3 + rng() * 1.6) * s, 0.07, 5, 10, Math.PI * (0.6 + rng() * 0.5)),
-      vine);
-    const a = rng() * 6.28;
-    arc.position.set(Math.cos(a) * 1.6 * s, 0.1, Math.sin(a) * 1.6 * s);
-    arc.rotation.set(Math.PI / 2, 0, rng() * 6.28);
-    g.add(arc);
-  }
-  g.name = 'bob';
-  return g;
+  return makeLilyRaft(rng, s);
 }
 
 /* a wind-heaped dune — the Meshy dune, at the old ridge footprints
@@ -796,6 +787,12 @@ export function makeBarrow(rng) {
 export function makeRealmField(theme, nodes, segs, rng, heightAt = null) {
   const g = new THREE.Group();
   if (!nodes.length) return g;
+  // the two WATER realms build their wilds in their own modules (static/realms/)
+  if (theme.id === 'ice') { g.add(buildIceField(theme, nodes, segs, rng)); return g; }
+  if (theme.id === 'jungle') { g.add(buildJungleField(theme, nodes, segs, rng)); return g; }
+  // …and so do the two realms crossed on foot
+  if (theme.id === 'desert') return makeDesertField(theme, nodes, segs, rng, heightAt);
+  if (theme.id === 'autumn') return makeValeField(theme, nodes, segs, rng, heightAt);
   const groundY = heightAt || (() => 0);           // seat props on the dunes
   let minX = 1e9, maxX = -1e9, minZ = 1e9, maxZ = -1e9;
   for (const n of nodes) {
@@ -901,17 +898,8 @@ export function makeRealmField(theme, nodes, segs, rng, heightAt = null) {
   } else if (!foot) {
     scatter(6, 12, 17, 120, prop(['boulder'], 0.7, 1.2));   // sea stacks
   }
-  if (theme.id === 'ice') {
-    // bergs live OUT in the open water, well off the sailing lane; the crystals
-    // ride low on the surface and are flung far and wide
-    scatter(38, 36, 28, 280, () => makeBerg(rng, 0.5 + rng() * 0.6));
-    scatter(30, 32, 26, 280, () => makeFloe(rng, 0.8 + rng() * 0.9));
-    scatter(16, 30, 24, 280, prop(['ice_shard', 'crystal_cluster', 'ice_floe'], 0.7, 1.2), -0.35);
-    scatter(4, 22, 24, 200, prop(['shipwreck', 'driftwood'], 0.9, 1.4));
-  } else if (theme.id === 'jungle') {
-    scatter(80, 13, 20, 115, () => makeVineMat(rng, 0.65 + rng() * 0.7));
-    scatter(18, 12, 18, 115, prop(['lily_pads', 'lily_pads', 'coral', 'driftwood'], 0.8, 1.4));
-  } else if (theme.id === 'desert') {
+  // (ice and jungle returned above — see realms/ice.js, realms/jungle.js)
+  if (theme.id === 'desert') {
     // an OPEN Reach: the ground itself carries the broad dune swells, and the
     // sand is nearly bare — only cactus, dry scrub and the odd cairn, all
     // spread far apart (big reach) so the desert feels vast and empty
@@ -1230,7 +1218,10 @@ const ISLE_PROPS = {
   autumn: ['mushroom_cluster', 'campfire', 'barrel', 'dead_tree'],
 };
 
-function dressIsland(g, rng, theme, R, terrain) {
+function dressIsland(g, rng, theme, R, terrain, node = null) {
+  // the water realms dress their own isles (static/realms/)
+  if (theme.id === 'ice') return dressIceIsland(g, rng, theme, R, terrain, node);
+  if (theme.id === 'jungle') return dressJungleIsland(g, rng, theme, R, terrain, node);
   // props ride the ACTUAL surface via terrain.place(a, rr) — no more trees
   // hovering over the noise bumps or sinking through them. Kept in the solid
   // interior (rr ≤ ~0.6) so nothing perches on the wavy coastline.
@@ -1286,7 +1277,7 @@ export function buildIsland(node, theme, domains) {
   /* waterline dressing appropriate to sea or sand footing */
   const addSkirt = (radius) => {
     if (foot) {
-      g.add(sandRippleRing(radius, pal.sand));
+      g.add(sandApron(radius, pal.sand));          // feather the pad into the dune floor
     } else {
       g.add(shallowDisc(radius * 4.0, theme.water.shallow));
       g.add(foamRing(radius));
@@ -1298,40 +1289,21 @@ export function buildIsland(node, theme, domains) {
       if (theme.id === 'autumn') {
         // a waypoint on the forest track: a single large flat stepping
         // stone set into the path — no dirt splotch, no grove.
-        const stone = makeRock(rng0, 1.7, 0x9b938a);
-        stone.scale.y = 0.34;                       // a flattened slab, walk-on
-        stone.position.y = 0.12;
-        stone.castShadow = true;
-        stone.receiveShadow = true;
-        g.add(stone);
+        g.add(valeWaystone(rng0));                  // realms/autumn.js
         g.position.set(node.x, 0, node.z);
         return { group: g, R: 1.9, plateauY: 0 };
       }
-      // an open waypoint on the trek: just a cairn, maybe a lone cactus or
-      // dry bush — the sand stays flat and empty (no heaped dune mounds)
-      const marker = propGroup(rng0() < 0.7 ? 'cairn' : 'bone_pile',
-        1.0 + rng0() * 0.4);
-      g.add(marker);
-      if (rng0() < 0.7) {
-        const fl = propGroup(rng0() < 0.5 ? 'dead_tree' : 'dead_scrub', 0.8 + rng0() * 0.5);
-        const a = rng0() * 6.28;
-        fl.position.set(Math.cos(a) * 3.4, 0, Math.sin(a) * 3.4);
-        g.add(fl);
-      }
-      g.add(sandRippleRing(2.2, pal.sand));
+      // an open waypoint on the trek: a worn ring of flagstones to stand on,
+      // a cairn beside it — the sand around stays flat (realms/desert.js)
+      g.add(desertWaypoint(rng0));
       g.position.set(node.x, 0, node.z);
       return { group: g, R: 3, plateauY: 0 };
     }
     if (theme.id === 'ice' && node.region) {
       // Frostfang water: the mooring is OPEN water — bergs live far out in the
-      // field (see makeRealmField), not crowding the stop. Only a couple of low
-      // drift-floes ring the berth so the ship never parks against a wall.
-      for (let i = 0; i < 2; i++) {
-        const f = makeFloe(rng0, 0.6 + rng0() * 0.4);
-        const a = rng0() * 6.28, r = 10 + rng0() * 4;
-        f.position.set(Math.cos(a) * r, -0.3, Math.sin(a) * r);
-        g.add(f);
-      }
+      // field (see realms/ice.js), not crowding the stop. Only brash and pancake
+      // ice ring the berth so the ship never parks against a wall.
+      g.add(iceMooring(node, rng0));
       // the pale shoal marks the mooring; the ship berths in its MIDDLE (see
       // slotFor), so it reads as a stop the boat settles into — not a patch it
       // plows across.
@@ -1340,18 +1312,9 @@ export function buildIsland(node, theme, domains) {
       return { group: g, R: 4.4, plateauY: 0 };
     }
     if (theme.id === 'jungle' && node.region) {
-      // Verdigris water: vine tangles knot the channels between the isles
-      g.add(makeVineMat(rng0, 1.0 + rng0() * 0.5));
-      if (node.look === 'islet') {
-        const t = mt({ seed, R: 3.6 + rng0() * 1.6, H: 0.9, mode: 'hill',
-          palette: { ...pal } });
-        const zoff = -2 + rng0() * 4;
-        t.mesh.position.set(4.5, 0, zoff);
-        g.add(t.mesh);
-        const fl = floraFor(theme, rng0, 0.9);
-        fl.position.set(4.5, Math.max(0.3, t.heightAt(0.15)), zoff);
-        g.add(fl);
-      }
+      // Verdigris water: lily rafts in the slack water off the berth, and now
+      // and then a wooded islet or mossy rocks (see realms/jungle.js)
+      g.add(jungleMooring(node, rng0));
       g.add(shallowDisc(16, theme.water.shallow));
       g.position.set(node.x, 0, node.z);
       return { group: g, R: 3.2, plateauY: 0 };
@@ -1483,7 +1446,7 @@ export function buildIsland(node, theme, domains) {
       t.position.y = terrain.heightAt(0.2);
       g.add(t);
     } else if (foot) {
-      const oasis = makeOasis(rng0, theme);
+      const oasis = makeReachOasis(rng0, theme, 3.75);
       oasis.position.y = terrain.heightAt(0.15) + 0.02;
       g.add(oasis);
       const t = makeTents(rng0);
@@ -1580,7 +1543,8 @@ export function buildIsland(node, theme, domains) {
         g.add(bone);
       }
     }
-    for (let i = 0; i < 3; i++) {
+    // (the water realms scatter their own smooth boulders in dressIsland)
+    for (let i = 0; i < (theme.id === 'ice' || theme.id === 'jungle' ? 0 : 3); i++) {
       const rk = makeRock(rng0, 0.4 + rng0() * 0.4, dark ? COL.basalt : pal.rock);
       const a = rng0() * 6.28;
       rk.position.set(Math.cos(a) * R * 0.7, terrain.heightAt(0.7) + 0.15, Math.sin(a) * R * 0.7);
@@ -1610,7 +1574,7 @@ export function buildIsland(node, theme, domains) {
   }
 
   // the home port is hand-composed (dock, tower, palms) — no random set pieces
-  if (node.type !== 'pharos' && node.type !== 'home') dressIsland(g, rng0, theme, R, terrain);
+  if (node.type !== 'pharos' && node.type !== 'home') dressIsland(g, rng0, theme, R, terrain, node);
 
   // In the Amber Vale the POIs stand DIRECTLY on the shared forest floor — no
   // raised pad at all, so nothing floats and nothing z-fights the ground.
@@ -1729,345 +1693,13 @@ export function makeParticles(kind) {
   return { points, update };
 }
 
-/* ── battle diorama backdrops — the game's showpiece view ───────────────── */
-/* water arenas: battle.js lays the real ocean (gfx/ocean.js) under the diorama,
-   so the backdrop only needs a placeholder floor */
-function dioramaWaterDisc() { return new THREE.Group(); }
-
-// world-space height of the diorama sand surface at a point. Props on the sand
-// seat on this so none float over a trough or sink into a crest (the disc
-// undulates ±0.45). Kept in lock-step with dioramaSandDisc's vertex displacement.
-const SAND_DISC_Y0 = -0.08;
-function sandDiscHeight(x, z) {
-  return SAND_DISC_Y0 + Math.sin(x * 0.22 + z * 0.3) * 0.25 + Math.sin(z * 0.12) * 0.2;
-}
-
-function dioramaSandDisc(theme, R = 150) { return dioramaSandPlane(theme, R); }
-function dioramaSandPlane(theme, R) {
-  const geo = new THREE.PlaneGeometry(R * 2, R * 2, 120, 120);
-  geo.rotateX(-Math.PI / 2);
-  const pos = geo.attributes.position;
-  const col = new Float32Array(pos.count * 3);
-  const sand = new THREE.Color(theme.palette.sand);
-  const dark = new THREE.Color(theme.palette.grass2 ?? 0xa8905a);
-  const c = new THREE.Color();
-  for (let i = 0; i < pos.count; i++) {
-    const x = pos.getX(i), z = pos.getZ(i);
-    // displacement relative to the mesh's own -0.08 offset (added below)
-    pos.setY(i, sandDiscHeight(x, z) - SAND_DISC_Y0);
-    const stripe = 0.5 + 0.5 * Math.sin(x * 0.5 + z * 0.8);
-    c.copy(dark).lerp(sand, 0.5 + stripe * 0.5);
-    col[i * 3] = c.r; col[i * 3 + 1] = c.g; col[i * 3 + 2] = c.b;
-  }
-  geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
-  geo.computeVertexNormals();
-  const uv = geo.attributes.uv;
-  for (let i = 0; i < pos.count; i++) uv.setXY(i, pos.getX(i) / GROUND_TILE, pos.getZ(i) / GROUND_TILE);
-  const m = new THREE.Mesh(geo, makeGroundMaterial({ tide: false, bump: 0.8 }));
-  m.position.y = SAND_DISC_Y0;
-  m.receiveShadow = true;
-  return m;
-}
-
-function hazePlane(hex, w, h, opacity, x = 0, y = 0, z = 0) {
-  // soft radial falloff — an additive plane with hard edges reads as a
-  // white band across the sky; the disc texture melts it into the air
-  const m = new THREE.Mesh(new THREE.PlaneGeometry(w, h),
-    new THREE.MeshBasicMaterial({ map: softDiscTexture(), color: hex,
-      transparent: true, opacity,
-      blending: THREE.AdditiveBlending, depthWrite: false,
-      side: THREE.DoubleSide, fog: false }));
-  m.position.set(x, y, z);
-  return m;
-}
-
-/* an iron brazier crowned with a live, flickering flame — layered additive
-   flame tongues that dance, a warm point light that gutters, an ember halo.
-   Pushes its per-frame animation into `anims` (the backdrop's update loop). */
-function makeBrazierFire(rng, x, z, anims) {
-  const g = new THREE.Group();
-  g.position.set(x, 0, z);
-  const stem = new THREE.Mesh(new THREE.CylinderGeometry(0.16, 0.26, 1.5, 6), flat(0x1a1a20));
-  stem.position.y = 0.75; stem.castShadow = true; g.add(stem);
-  const bowl = new THREE.Mesh(new THREE.CylinderGeometry(0.66, 0.34, 0.5, 8), flat(0x26242e));
-  bowl.position.y = 1.6; bowl.castShadow = true; g.add(bowl);
-  const flameMat = (hex, op) => new THREE.MeshBasicMaterial({
-    color: hex, transparent: true, opacity: op,
-    blending: THREE.AdditiveBlending, depthWrite: false, fog: false });
-  const flames = [];
-  // outer red → mid orange → inner white-gold, each a tapered tongue
-  for (const [r, h, hex, op] of [[0.52, 1.9, 0xd6381a, 0.5],
-                                 [0.38, 1.5, 0xff7a2a, 0.66],
-                                 [0.24, 1.05, 0xffe49a, 0.82]]) {
-    const fl = new THREE.Mesh(new THREE.ConeGeometry(r, h, 6, 1), flameMat(hex, op));
-    fl.position.y = 1.85 + h / 2;
-    g.add(fl);
-    flames.push({ mesh: fl, ph: rng() * 6.28 });
-  }
-  const light = new THREE.PointLight(0xff8a3a, 2.6, 24, 2);
-  light.position.set(0, 2.5, 0);
-  g.add(light);
-  const halo = glowSprite(0xff7a2a, 2.8);
-  halo.material.opacity = 0.55; halo.material.fog = false;
-  halo.position.y = 2.3; g.add(halo);
-  anims.push((t) => {
-    for (const f of flames) {
-      const k = 0.82 + Math.sin(t * 9 + f.ph) * 0.15 + Math.sin(t * 24 + f.ph * 2) * 0.06;
-      f.mesh.scale.set(0.9 + (k - 0.9) * 0.5, k, 0.9 + (k - 0.9) * 0.5);
-      f.mesh.position.x = Math.sin(t * 7 + f.ph) * 0.06;
-      f.mesh.position.z = Math.cos(t * 6.3 + f.ph) * 0.06;
-    }
-    light.intensity = 2.3 + Math.sin(t * 11) * 0.5 + Math.sin(t * 27 + 1.3) * 0.25;
-    halo.material.opacity = 0.5 + Math.sin(t * 13) * 0.12;
-  });
-  return g;
-}
-
-export function makeBattleBackdrop(theme) {
-  const g = new THREE.Group();
-  const rng = mulberry32(hashStr('battle:' + theme.id));
-  const id = theme.id;
-  const anims = [];                 // per-frame animators (fire, etc.)
-  let brazierSpots = null;          // keep scattered props clear of the flames
-
-  // floor — desert and the Pharos arena stand on solid ground, not water
-  const onSand = id === 'desert' || id === 'pharos';
-  const floor = onSand ? dioramaSandDisc(theme) : dioramaWaterDisc(theme);
-  g.add(floor);
-  // true surface height at a point: raycast the ACTUAL floor mesh. The disc is a
-  // coarse flat-shaded fan, so the smooth height function misses the triangles by
-  // up to ~0.3 — enough to float a prop. Rays hit the real triangulated surface.
-  floor.updateMatrixWorld(true);
-  const _ray = new THREE.Raycaster();
-  const _dn = new THREE.Vector3(0, -1, 0);
-  const _from = new THREE.Vector3();
-  const groundY = (x, z) => {
-    if (!onSand) return 0;                    // water arenas: props float at y=0
-    _ray.set(_from.set(x, 30, z), _dn);
-    const hit = _ray.intersectObject(floor, false);
-    return hit.length ? hit[0].point.y : sandDiscHeight(x, z);
-  };
-
-  // horizon rim: broken ring of dark rock so the disc never ends in nothing
-  for (let i = 0; i < 9; i++) {
-    const a = (i / 9) * Math.PI * 2 + rng() * 0.3;
-    if (Math.cos(a) < -0.55) continue;               // keep the camera side open
-    const rk = makeRock(rng, 1.6 + rng() * 2.4, theme.wall.rock);
-    rk.position.set(Math.cos(a) * (30 + rng() * 4), -0.5, Math.sin(a) * (30 + rng() * 4));
-    g.add(rk);
-  }
-
-  if (id === 'hub') {
-    // a low marble shelf behind the foe with a few broken columns — the Meshy
-    // 'ruined_column' props, NOT the old boxy procedural colonnade + lintel
-    // (which read as a strange white table on a post)
-    const shelf = makeRock(rng, 3.4, 0xd8d4c8);
-    shelf.position.set(20, -0.9, -10);
-    g.add(shelf);
-    for (const [dx, dz, s] of [[-2.4, 1.4, 1.5], [1.2, -1.6, 2.1], [3.6, 1.6, 1.3]]) {
-      const col = propGroup('ruined_column', s);
-      col.position.set(20 + dx, 1.1, -10 + dz);
-      col.rotation.y = rng() * 6.28;
-      g.add(col);
-    }
-    for (const [x, z, s] of [[16, 10, 1.2], [24, 4, 1.0], [-16, -14, 1.1]]) {
-      const isle = makeRock(rng, 2.2 * s, theme.palette.rock);
-      isle.position.set(x, -0.6, z);
-      g.add(isle);
-      // the Meshy flora (not the old geometric cypress/olive) so the battle
-      // banks match the isles the fight left
-      const fl = rng() < 0.5 ? propGroup('cypress_tree', 0.72 * s)
-                             : propGroup('olive_tree', 0.8 * s);
-      fl.position.set(x, 0.7 * s, z);
-      g.add(fl);
-    }
-    const palm = propGroup('palm_tree', 0.95);
-    palm.position.set(-8, 0, 21);
-    g.add(palm);
-  } else if (id === 'ice') {
-    // a snowfield: plenty of drift ice underfoot and low snow banks on the
-    // horizon — NO towering ice spire (it loomed like a grey pyramid)
-    for (let i = 0; i < 15; i++) {
-      const a = rng() * 6.28, r = 10 + rng() * 20;
-      const floe = new THREE.Mesh(
-        displace(new THREE.CylinderGeometry(1 + rng() * 2.2, 1.2 + rng() * 2.2, 0.4, 7), 0.3, seedFrom(rng)),
-        flat(0xe8f2f8));
-      floe.position.set(Math.cos(a) * r, -0.05, Math.sin(a) * r);
-      g.add(floe);
-    }
-    // low, wide snow banks (flattened mounds) — snow heaped on the shore, not
-    // a spike
-    for (const [x, z, s] of [[26, -8, 1.3], [20, 15, 1.0], [-19, -13, 1.1], [12, 20, 0.9]]) {
-      const bank = new THREE.Mesh(
-        displace(new THREE.SphereGeometry(3.4 * s, 8, 5), 0.55 * s, seedFrom(rng)),
-        flat(0xeef4f8));
-      bank.scale.y = 0.38;
-      bank.position.set(x, -0.4, z);
-      bank.castShadow = true;
-      bank.receiveShadow = true;
-      g.add(bank);
-    }
-    // soft snow patches drifting over the ground
-    for (let i = 0; i < 9; i++) {
-      const patch = new THREE.Mesh(
-        new THREE.CircleGeometry(1.4 + rng() * 2.2, 7), flat(0xf3f8fc));
-      patch.rotation.x = -Math.PI / 2;
-      const a = rng() * 6.28, r = 6 + rng() * 16;
-      patch.position.set(Math.cos(a) * r, 0.01, Math.sin(a) * r);
-      g.add(patch);
-    }
-    const floePine = makePine(rng, 1.2);
-    floePine.position.set(-15, 0, -12);
-    g.add(floePine);
-    g.add(hazePlane(0xbfe0f0, 70, 16, 0.1, 20, 6, -22));
-  } else if (id === 'desert') {
-    // the ruined aqueduct arches + Meshy saguaro carry the horizon, old bones
-    // half-buried — no sandstone bluffs (they read as out of place here)
-    for (const [x, z] of [[15, 12], [-10, 19], [19, 2]]) {
-      const cac = propGroup('cactus', 1.0 + rng() * 0.4);
-      cac.position.set(x, groundY(x, z), z);
-      g.add(cac);
-    }
-    const ribs = makeRibs(rng);
-    ribs.scale.setScalar(1.5);
-    ribs.position.set(6, 0, -16);
-    g.add(ribs);
-    g.add(hazePlane(0xf9e3ae, 80, 12, 0.12, 24, 4, -20));
-  } else if (id === 'jungle') {
-    // canopy walls close in on both flanks; light shafts rake the water. the
-    // Meshy jungle_tree (not the old low-poly puff tree) forms the wall
-    for (let i = 0; i < 7; i++) {
-      const a = -0.9 + (i / 6) * 1.8;                 // arc behind the foe
-      const t = propGroup('jungle_tree', 1.6 + rng() * 0.7);
-      t.position.set(Math.cos(a) * 26 + 4, -0.4, Math.sin(a) * 26);
-      g.add(t);
-    }
-    for (const [x, z, s] of [[-16, -14, 1.7], [-27, 17, 1.4]]) {
-      const t = propGroup('jungle_tree', s);
-      t.position.set(x, -0.3, z);
-      g.add(t);
-    }
-    for (let i = 0; i < 3; i++) {
-      const shaft = hazePlane(0xfff2c0, 3.5, 26, 0.14);
-      shaft.position.set(8 + i * 6, 12, -6 + i * 5);
-      shaft.rotation.set(0.15, 0.5, -0.35);
-      g.add(shaft);
-    }
-    const stone = makeRock(rng, 2.2, 0x5a6b4a);
-    stone.position.set(14, -0.6, 13);
-    g.add(stone);
-  } else if (id === 'autumn') {
-    // amber groves on rocky banks, low gold sun, a leaf-strewn bronze mirror.
-    // the Meshy autumn_tree everywhere (not the old geometric puff-ball), each
-    // seated on its bank's measured top so none float
-    for (const [x, z, s] of [[20, -10, 1.8], [24, 6, 1.4], [16, 14, 1.2], [-16, -12, 1.5], [-27, 17, 1.2]]) {
-      const bank = makeRock(rng, 1.8 * s, theme.palette.rock);
-      bank.position.set(x, -0.7, z);
-      g.add(bank);
-      const bb = new THREE.Box3().setFromObject(bank);
-      const tree = propGroup('autumn_tree', 0.5 * s + 0.25);
-      tree.position.set(x, bb.max.y - 0.2, z);
-      g.add(tree);
-    }
-    // a few floating leaves caught on the water
-    for (let i = 0; i < 10; i++) {
-      const leaf = new THREE.Mesh(new THREE.CircleGeometry(0.16 + rng() * 0.1, 6),
-        flat([0xd07828, 0xb44b2a, 0xe0a030][i % 3]));
-      leaf.rotation.x = -Math.PI / 2;
-      const a = rng() * 6.28, r = 4 + rng() * 20;
-      leaf.position.set(Math.cos(a) * r, 0.02, Math.sin(a) * r);
-      g.add(leaf);
-    }
-    g.add(hazePlane(0xf8ce74, 70, 14, 0.14, 26, 6, -16));
-  } else if (id === 'pharos') {
-    // the crown of the lighthouse: a ring of shattered parapet columns, iron
-    // braziers throwing the only warm light, the great beacon smouldering red
-    // high behind the foe, and a storm pressing black against the rail.
-    for (let i = 0; i < 11; i++) {
-      const a = (i / 11) * Math.PI * 2 + rng() * 0.12;
-      if (Math.cos(a) < -0.5) continue;              // leave the camera side open
-      const col = makeColumn(2.2 + rng() * 2.8, 0.26);
-      col.traverse((o) => { if (o.isMesh) o.material = flat(0x24242c, { roughness: 0.9 }); });
-      col.position.set(Math.cos(a) * 22, 0.4, Math.sin(a) * 22);
-      col.rotation.z = (rng() - 0.5) * 0.14;
-      g.add(col);
-    }
-    // live braziers ring the crown — real flickering flame, warm light on the
-    // Dark Presence (replaces the old static glow-sprite "lamps")
-    brazierSpots = [[10, -12], [20, 2], [-12, -12], [6, 16]];
-    for (const [x, z] of brazierSpots) {
-      const bz = makeBrazierFire(rng, x, z, anims);
-      bz.position.y = groundY(x, z);                   // stand on the sand, not mid-air
-      g.add(bz);
-    }
-    const beacon = glowSprite(0xff5626, 26);
-    beacon.material.opacity = 0.5; beacon.material.fog = false;
-    beacon.position.set(30, 22, -34);
-    g.add(beacon);
-    for (const [x, z, s] of [[24, -8, 1.4], [-18, -14, 1.2]]) {
-      const rk = makeRock(rng, 2.0 * s, 0x1e1f26);
-      rk.position.set(x, -0.5, z);
-      g.add(rk);
-    }
-    g.add(hazePlane(0x5a1020, 80, 20, 0.22, 20, 8, -24));
-    g.add(hazePlane(0x1c1030, 92, 28, 0.3, 0, 16, -30));
-  }
-
-  // Meshy prop dressing: a handful of the good GLB props scattered on the
-  // far banks so battles share the realms' set dressing. Water themes float
-  // the floatable props and stand the rest on rock shelves; desert sits
-  // everything straight on the sand.
-  const BATTLE_PROPS = {
-    hub: ['ruined_column', 'amphora_pile', 'broken_statue', 'olive_tree', 'cypress_tree'],
-    // no amethyst 'crystal_cluster' here — its magenta clashed with the icy
-    // cyan/white palette; a frozen cairn keeps the far bank appropriate
-    ice: ['iceberg', 'ice_shard', 'pine_snow', 'cairn'],
-    desert: ['ruined_arch', 'bone_pile', 'cactus', 'sarcophagus'],
-    jungle: ['jungle_tree', 'mossy_idol', 'fern_cluster', 'mushroom_cluster', 'ruined_arch'],
-    autumn: ['autumn_tree', 'dead_tree', 'mushroom_cluster', 'campfire', 'boulder'],
-    pharos: ['ruined_column', 'ruined_column', 'sarcophagus', 'bone_pile'],
-  };
-  const FLOATS = new Set(['iceberg', 'ice_shard', 'lily_pads', 'driftwood']);
-  // rocks/boulders/cairns/bones are ground features themselves — never perch
-  // them on ANOTHER rock (that put a mossy boulder up on a spike); sit them
-  // straight on the floor
-  const GROUNDED = new Set(['boulder', 'cairn', 'sand_dune', 'bone_pile']);
-  const picks = BATTLE_PROPS[id] || BATTLE_PROPS.hub;
-  const n = picks.length + 2;                        // every pick shows at least once
-  for (let i = 0; i < n; i++) {
-    // spread along the arc BEHIND the foe; ±1.35 keeps the arc's ends from
-    // looming into the camera's flanks (the camera sits past ±1.93 on -x)
-    const a = -1.35 + (i / (n - 1)) * 2.7 + (rng() - 0.5) * 0.24;
-    const r = 17 + rng() * 10;
-    const pid = picks[i % picks.length];
-    const p = propGroup(pid, 0.9 + rng() * 0.5);
-    let x = Math.cos(a) * r, z = Math.sin(a) * r;
-    // never drop a prop right against a brazier flame — shove it out along its
-    // radial until it's clear
-    if (brazierSpots) {
-      let guard = 0;
-      while (guard++ < 12 && brazierSpots.some(([bx, bz]) => Math.hypot(bx - x, bz - z) < 9)) {
-        x *= 1.25; z *= 1.25;                           // shove it clear, further back
-      }
-    }
-    if (onSand) {
-      // seat on the ACTUAL sand surface (raycast) so nothing hovers over a trough
-      p.position.set(x, groundY(x, z), z);
-    } else if (FLOATS.has(pid) || GROUNDED.has(pid)) {
-      p.position.set(x, 0, z);
-    } else {
-      // seat the prop on the rock's MEASURED top (a fixed offset floated the
-      // small idols and sank the big ones)
-      const base = makeRock(rng, 1.3 + rng() * 0.7, theme.palette.rock);
-      base.position.set(x, -0.7, z);
-      g.add(base);
-      const bb = new THREE.Box3().setFromObject(base);
-      p.position.set(x, bb.max.y - 0.18, z);
-    }
-    g.add(p);
-  }
-
-  // the battle stage calls this each frame (see battle.js) — drive the flames
-  if (anims.length) g.userData.update = (t) => { for (const a of anims) a(t); };
-  return g;
+/* ── battle diorama backdrops — the game's showpiece view ─────────────────
+   The six sets (hub ice desert jungle autumn pharos) are composed in
+   realms/battle_sets.js; this is the hook battle.js calls. opts.afloat: the
+   enemies swim or sail, so a water arena keeps its shoal under the surface.
+   The returned group carries userData.update(t) (fire, embers, leaves) and
+   userData.shore ({x, z, size} for the ocean's shore map, null on land). */
+import { buildBattleSet } from './realms/battle_sets.js';
+export function makeBattleBackdrop(theme, opts = {}) {
+  return buildBattleSet(theme, opts, { structure: glbProp });
 }

@@ -69,7 +69,7 @@ scrolls, so nobody is ever just waiting.
 | Bots | `bots.py` | Philosopher captains: sail/wager/shop/guard heuristics + per-tier answer accuracy. |
 | Server | `server.py` | FastAPI + WebSockets: one shared table, d3 dice, timers, bot driver. |
 | World | `static/scene.js` + `themes.js`, `islands.js`, `wall.js`, `water.js` | Five themed stages (Aegean hub + four realms), the mountain wall, close chase camera, animated sailing, on-foot desert trek. |
-| Monsters | `tools/make_monsters.py` → `static/assets/monsters/*.glb` | 32 low-poly creatures and bosses **generated with Blender** (headless `bpy`), procedurally animated by named parts (`static/monsters.js`). |
+| Models | `static/assets/{monsters,props,structures}/*.glb` → `static/monsters.js`, `props.js`, `structures.js`, `modelmat.js` | 32 creature/boss sculpts, 36 props, 14 landmarks (AI-sculpted, see `tools/MESHY-PIPELINE.md`), finished per material class for the HDR renderer and animated procedurally by named part. `docs/MODELS.md` is the catalogue (kept / removed / stand-ins / to remake); `/static/modeltest.html` is the contact sheet. |
 | Battles | `static/battle.js` | Cinematic diorama per realm: lunges, spell bolts, guard flashes, damage numbers, telegraphed heavies. |
 | UI | `static/index.html`, `style.css`, `app.js`, `ui.js` | "Aegean bronze" design system — Cinzel/Alegreya, parchment cards, engraved bronze buttons, SVG icons, compass HUD. |
 | Audio | `static/audio.js` | Web Audio SFX + looping soundtrack with battle/puzzle/endgame scenes. |
@@ -86,8 +86,9 @@ TRIVIA_OFFLINE=1 .venv/bin/uvicorn server:app --port 5070
 
 Dev loop: `tools/serve_dev.sh` starts a server with offline questions, fast
 bots, and the dev-cheat hook; `tools/shoot.py` drives a headless Chromium
-through every game state and screenshots it; `tools/make_monsters.py`
-regenerates the Blender creature models (`pip install bpy`).
+through every game state and screenshots it; `/static/modeltest.html` shows
+every model under any stage's lighting and `/static/battletest.html` stages
+any enemy in the real battle scene.
 
 ## Env vars
 

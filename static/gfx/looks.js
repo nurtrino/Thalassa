@@ -17,9 +17,9 @@
 const LOOKS = {
   hub: {
     sun: { az: 38, el: 46, color: 0xfff1d8, intensity: 2.5 },
-    sky: { zenith: 0x1b5fc4, ground: 0x2d7fa6, curve: 0.40, glow: 0.55, disc: 30,
+    sky: { zenith: 0x1856bd, ground: 0x2d7fa6, curve: 0.52, glow: 0.5, disc: 30,
            clouds: { cover: 0.34, scale: 1.0, speed: 0.010, soft: 0.26, lit: 0xffffff, shade: 0x8fa3bd } },
-    fog: { color: 0x9cc8e6, sunColor: 0xffecc8, sunGlow: 0.45, heightFalloff: 0.024, heightBase: 5, heightAmount: 0.94 },
+    fog: { color: 0x7fb4e0, sunColor: 0xffe4b4, sunGlow: 0.36, heightFalloff: 0.024, heightBase: 5, heightAmount: 0.94 },
     env: 0.6, fill: { sky: 0xcfe6ff, ground: 0x4a7f72, intensity: 0.12 },
     shadow: { strength: 0.9, radius: 2.5 },
     exposure: 0.9, bloom: { strength: 0.30, radius: 0.55, threshold: 1.05 },
@@ -55,7 +55,7 @@ const LOOKS = {
     sun: { az: -35, el: 38, color: 0xffe6a6, intensity: 3.2 },
     sky: { zenith: 0x2a86b0, ground: 0x3c5a34, curve: 0.52, glow: 1.0, disc: 24,
            clouds: { cover: 0.55, scale: 1.1, speed: 0.008, soft: 0.36, lit: 0xfff6dc, shade: 0x7d9a88 } },
-    fog: { color: 0x9cc4a4, sunColor: 0xf6e9a4, sunGlow: 1.0, heightFalloff: 0.020, heightBase: 4, heightAmount: 0.9 },
+    fog: { color: 0xa9c79c, sunColor: 0xf6e9a4, sunGlow: 1.0, heightFalloff: 0.020, heightBase: 4, heightAmount: 0.9 },
     env: 0.9, fill: { sky: 0xbfe4c8, ground: 0x2c6440, intensity: 0.28 },
     shadow: { strength: 0.88, radius: 3.0 },
     exposure: 1.04, bloom: { strength: 0.42, radius: 0.75, threshold: 1.0 },

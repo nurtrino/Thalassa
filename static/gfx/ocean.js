@@ -273,7 +273,8 @@ void main() {
   float lap = sin(depth * 4.2 - t * 1.5 + fn * 5.0) * 0.5 + 0.5;
   float lapBand = smoothstep(0.72, 0.98, lap) * smoothstep(3.2, 0.5, depth) * smoothstep(0.42, 0.62, fn + 0.12);
   // crests: only the steepest tops break
-  float crest = smoothstep(0.62, 1.0, vCrest + (fn - 0.5) * 0.7) * smoothstep(0.50, 0.66, fn) * 0.55 * shallow;
+  float fine = texture2D(uDetail, xz * 0.33 + vec2(t * 0.03, -t * 0.02)).a;
+  float crest = smoothstep(0.78, 1.05, vCrest + (fine - 0.5) * 0.5) * smoothstep(0.52, 0.64, fine) * 0.4 * shallow;
   float foam = clamp((shoreBand * 0.95 + lapBand * 0.7) * step(-0.5, depth) + crest, 0.0, 1.0) * uOpts.y;
   vec3 foamCol = vec3(0.95, 0.98, 1.0) * (uLight * 0.9 + 0.12);
   col = mix(col, foamCol, foam);

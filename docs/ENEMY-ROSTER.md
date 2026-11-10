@@ -1,5 +1,15 @@
 # THALASSA — Enemy Roster & Modeling Brief
 
+> **Status (V2 art pass).** This is the original modeling brief; the roster and
+> the named-part contract below still hold. The *current* state of the model
+> files — which sculpts are kept, which were cut and what stands in for them,
+> and the prioritised remake list — is **`docs/MODELS.md`**. Two things in
+> this brief are superseded there: the style (V2 wants smooth, hand-painted
+> sculpts lit by the HDR renderer, **not** faceted flat-shaded low-poly), and
+> the model ids `wolf`, `wolf_frost`, `fox`, `stag`, `jaguar`, `bird`,
+> `bird_poison`, `monkey` and `cyclops`, which currently have **no model
+> file** and are played by stand-ins (`STAND_INS` in `static/monsters.js`).
+
 Every creature in the game, described for a Blender modeler. There are **32
 distinct models** (one GLB each). Many are reused across several named
 enemies and realms — e.g. one `wolf` model serves Leafshade Wolves, Frost
@@ -285,22 +295,22 @@ segments trailing back; ≥4 segments makes it slither. Optional `fins`.
 | tyrant | The Dark Lord | the Pharos | FINAL BOSS | 14·3 |
 | warden | (former final boss — asset, unused) | — | — | — |
 | captain | the player, on foot | desert | hero | — |
-| wolf | Leafshade/Frost Wolves, Frostfang Alphas | autumn/ice | grunt/elite | 2·1 / 5·2 |
-| fox | Snow Foxes | ice | grunt | 1·1 |
+| wolf *(cut — stand-in: `jackal`, grey / frost-white)* | Leafshade/Frost Wolves, Frostfang Alphas, Sea Wolves | autumn/ice/hub | grunt/elite | 2·1 / 5·2 |
+| fox *(cut — stand-in: `jackal`, small, white)* | Snow Foxes | ice | grunt | 1·1 |
 | jackal | Salt Jackals | desert | grunt | 1·1 |
 | boar | Dire Boars, Great Boar (Old Sounder) | autumn | mid/elite | 3·2 / 5·2 |
-| stag | Stag Spirits | autumn | mid | 2·2 |
-| jaguar | Jaguar Shades | jungle | mid | 2·2 |
+| stag *(cut — stand-in: `stag_king` at herd size, no halo)* | Stag Spirits | autumn | mid | 2·2 |
+| jaguar *(cut — stand-in: `stalker`, night-black)* | Jaguar Shades | jungle | mid | 2·2 |
 | stalker | Floe Stalkers | ice | mid | 3·2 |
 | shambler | Wickerwood Shamblers | autumn | elite | 4·2 |
 | drake | River Drakes, Canopy Tyrants | jungle | grunt/elite | 2·1 / 4·2 |
-| bird | Carrion Crows, Poison Birds, Stymphalian Birds | autumn/jungle | grunt | 1·1 |
+| bird *(cut — stand-in: `vulture`, small, black / venom-green)* | Carrion Crows, Poison Birds, Stymphalian Birds | autumn/jungle/hub | grunt | 1·1 |
 | vulture | Bone Vultures | desert | grunt | 1·1 |
 | harpy | Rime Harpies, Storm Harpies | ice | grunt | 1·1 / 2·2 |
 | raider | Sand Raiders, Satyr Brigands, Laestrygonians | desert | grunt | 2·1 |
 | faun | Thistle Fauns | autumn | grunt | 1·1 |
-| monkey | Thorn Monkeys | jungle | grunt | 1·1 |
-| cyclops | Cyclops Herdsmen | (lore) | heavy | 3·2 |
+| monkey *(cut — stand-in: `faun`, small, dark)* | Thorn Monkeys | jungle | grunt | 1·1 |
+| cyclops *(cut — stand-in: `golem`, umber)* | Cyclops Herdsmen | hub sea | heavy | 3·2 |
 | drowned | Drowned Sailors | (lore) | heavy | 2·2 |
 | wraith | Ice Wraiths, Mirage Dancers, Pale Court | ice/desert | mid/elite | 2·2 / 3·3 |
 | shade | Horned Shades, Bleached Choir | autumn/desert | elite | 3·3 |
@@ -315,6 +325,8 @@ segments trailing back; ≥4 segments makes it slither. Optional `fins`.
 *(HP·Power are the base per-unit values; packs field 1–3 of them, and deeper
 in a realm the same model appears in tougher variants.)*
 
-The current programmatically-generated placeholders live in
-`static/assets/monsters/<model>.glb`, built by `tools/make_monsters.py` —
-useful as scale/proportion reference for the hand-modeled replacements.
+The shipped models live in `static/assets/monsters/<model>.glb` (AI-sculpted
+via `tools/MESHY-PIPELINE.md`; `tools/make_monsters.py` is the older Blender
+placeholder generator and is no longer the source of these files). See
+`docs/MODELS.md` for the per-model status and `/static/modeltest.html` for a
+live contact sheet.

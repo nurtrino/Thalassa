@@ -45,14 +45,22 @@ const THEMES = {
 
   ice: {
     id: 'ice',
-    water: { deep: 0x16384e, shallow: 0x7fc4d4, sparkle: 1.35, chop: 0.5 },
+    // The ocean multiplies the body colour by the stage's (low, amber) sunlight,
+    // so these read far darker on screen than they look here: `deep` lands as
+    // cold steel-blue, `shallow`/`seabed` as the turquoise glow of ice seen
+    // through water round every berg and floe (they sit on SHORE_LAYER).
+    water: { deep: 0x5a8ec4, shallow: 0x86f2ff, seabed: 0xbdf6ff, scatter: 0x9fe6ff,
+             sparkle: 1.6, chop: 0.5, foam: 0.85, clarity: 1.25, reflect: 1.1 },
     ground: 'water',
     sky: { zenith: 0x2e4a6e, mid: 0x9cc0d4, horizon: 0xf3ddc4 },
-    fog: { color: 0xb9cfdb, near: 42, far: 270 },
+    fog: { color: 0xb9cfdb, near: 55, far: 340 },
     sun: { color: 0xffdfae, intensity: 1.1, position: [260, 70, -80] },
     hemi: { sky: 0xcfe4f2, ground: 0x54718a, intensity: 0.65 },
     ambient: 0x24333f,
-    palette: { grass: 0xe3ecf2, grass2: 0xbccddb, sand: 0xdfe9ef, rock: 0x8ba4ba, cover: 'rocks' },
+    // snow over slate: white drift (grass), blue-shadowed snow (grass2), an icy
+    // shingle beach (sand) and dark slate wherever the ground is too steep to
+    // hold snow — the dark rock is what makes the white read in the low sun
+    palette: { grass: 0xf1f6fa, grass2: 0xc9dbea, sand: 0xd3e2ec, sandWet: 0x8fb0c4, rock: 0x5d7088, cover: 'rocks' },
     flora: 'pine',
     particles: 'snow',
     wall: { rock: 0x5c7590, snow: 0xffffff, glow: 0x7fd4ef },
@@ -75,17 +83,21 @@ const THEMES = {
 
   jungle: {
     id: 'jungle',
-    // silt-brown river water — the Verdigris Deep runs muddy, not blue
-    water: { deep: 0x4a3a1c, shallow: 0x8a7440, sparkle: 0.4, chop: 0.7 },
+    // silt-green river water — the Verdigris Deep runs slow and murky: olive
+    // in the channels, green-gold over the mud shoals, hardly a sparkle on it
+    water: { deep: 0x3c5942, shallow: 0x8aa060, seabed: 0x8c7f4e, scatter: 0x9aa858,
+             sparkle: 0.45, chop: 0.36, foam: 0.3, clarity: 0.5, reflect: 1.0 },
     ground: 'water',
     sky: { zenith: 0x1f7fae, mid: 0x7cc4ad, horizon: 0xdcecb4 },
     // lifted ~8% (was 0x86b294): green fog on green islands collapsed the
     // stage's value separation — the murk needs to sit lighter than the isles
-    fog: { color: 0x93bfa0, near: 24, far: 260 },
+    fog: { color: 0xa9c79c, near: 28, far: 270 },
     sun: { color: 0xffe9ac, intensity: 1.85, position: [140, 220, -100] },
     hemi: { sky: 0xbfe4c8, ground: 0x2c6440, intensity: 0.9 },
     ambient: 0x1e3226,
-    palette: { grass: 0x2e8a3a, grass2: 0x1c5c2c, sand: 0xd8cb96, rock: 0x5a6b4a },
+    // river-silt banks (not a bright beach): pale enough to rim every isle
+    // against the dark water, dark enough to sit under the green-gold haze
+    palette: { grass: 0x2f8a38, grass2: 0x1b5a2a, sand: 0xa89a68, sandWet: 0x5c5032, rock: 0x596a48 },
     flora: 'jungle',
     particles: 'motes',
     wall: { rock: 0x46584a, snow: 0xcfe3c2, glow: 0x6fd490 },

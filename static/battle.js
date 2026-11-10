@@ -2,10 +2,14 @@
  * battle.js — Agent C (the battle diorama)
  *
  * A separate cinematic scene scene.js renders while room.battle exists.
- * Over-the-shoulder camera with slow sway, themed backdrop from islands.js,
- * key/rim stage lighting, the hero (galley at anchor or the tinted captain
- * on foot), enemies ranked and scaled by max_hp, floating canvas damage
- * numbers, and every beat from the contract list.
+ * Over-the-shoulder camera with slow sway, a composed set per stage
+ * (realms/battle_sets.js via islands.makeBattleBackdrop), a key / rim / fill
+ * rig scripted per look (RIGS below), the hero (galley riding the swell, or
+ * the tinted captain on foot), enemies ranked and scaled by max_hp, floating
+ * canvas damage numbers, and every beat from the contract list.
+ *
+ * The frame is HDR (gfx/pipeline.js): additive beat colours are pushed above
+ * 1.0 on purpose so hits, bolts and the guard flare bloom — see GLOW.
  *
  * Cross-module calls (per FRONTEND-CONTRACTS.md): islands.makeBattleBackdrop,
  * islands.makeShip, monsters.getMonster/animateMonster, util.softDiscTexture.
@@ -15,10 +19,11 @@ import { makeShip, makeBattleBackdrop } from './islands.js';
 import { applyLook, sunDirection } from './gfx/atmosphere.js';
 import { lookFor } from './gfx/looks.js';
 import { makeSky, bakeEnvironment } from './gfx/sky.js';
-import { makeOcean } from './gfx/ocean.js';
+import { makeOcean, WATER_Y } from './gfx/ocean.js';
+import { makeShoreMap } from './gfx/shoremap.js';
 import { getMonster, animateMonster, preloadMonsters, disposeMonster, BOSS_IDS }
   from './monsters.js';
-import { softDiscTexture, flat } from './util.js';
+import { softDiscTexture } from './util.js';
 
 /* module-scope temps — zero per-frame allocation */
 const _v1 = new THREE.Vector3();
@@ -31,6 +36,44 @@ const GOLD = 0xffd76a;
 const ARCANE = 0x9a7bff;
 const BACKFIRE = 0xc44dff;
 const HURT_RED = 0xff6a52;
+
+/* HDR gains for the additive beat effects (1 = plain LDR colour). Tuned so a
+   hit pops through the bloom threshold without washing the creature out. */
+const GLOW = { flash: 1.7, bolt: 2.4, ring: 1.5, shield: 1.8, aura: 1.5, dmg: 1.25 };
+
+/* The lighting script per look. The stage's own look (gfx/looks.js) supplies
+   colour, haze and grade; the diorama re-aims the light for ITS camera:
+     key   the sun — a shadow-casting directional, also the atmosphere's sun
+     rim   a second, shadowless directional from the far side of the key: an
+           edge light when the key is frontal, a cool front fill when the key
+           is behind the creatures
+   Azimuths are world degrees (0 = +x, 90 = +z). The camera sits at ≈157°
+   looking toward ≈-23°, so 200–250 is "over the camera's left shoulder" and
+   -100…-60 is "behind the enemy line, off the left edge of frame". */
+const RIGS = {
+  // crisp three-quarter sun, sky-blue edge from behind
+  hub:    { key: { az: 214, el: 44 }, gain: 1.0,
+            rim: { az: -6, el: 24, color: 0xb4d8ff, intensity: 1.3 }, lamp: 5 },
+  // the low amber sun rakes across the ice from behind-left; cold fill in front
+  ice:    { key: { az: -80, el: 15 }, gain: 1.05,
+            rim: { az: 150, el: 34, color: 0x9cc2ff, intensity: 1.0 }, lamp: 8 },
+  // noon: hard light, short black shadows that pin every beast to the slate
+  desert: { key: { az: 210, el: 56 }, gain: 0.95,
+            rim: { az: -18, el: 20, color: 0xffd9a0, intensity: 1.2 }, lamp: 0 },
+  // shafted late-morning light through the canopy, green bounce in front
+  jungle: { key: { az: -74, el: 40 }, gain: 1.0,
+            rim: { az: 150, el: 38, color: 0xb0f2cc, intensity: 0.95 }, lamp: 6 },
+  // golden hour from behind-left: long shadows down the clearing, lilac fill
+  autumn: { key: { az: -82, el: 17 }, gain: 1.0,
+            rim: { az: 146, el: 32, color: 0xc4b4ff, intensity: 0.85 }, lamp: 6 },
+  // midnight: the beacon is the key (behind the foe), moonlight fills the front
+  pharos: { key: { az: -14, el: 23, color: 0xff8438, intensity: 3.6 }, gain: 1.0,
+            rim: { az: 162, el: 44, color: 0x7f9cff, intensity: 1.5 }, lamp: 22,
+            fog: [46, 230] },
+};
+
+/* enemies that belong IN the water: how far the model sinks, per unit scale */
+const SWIMMERS = { skiff: 0.1, serpent: 0.13, serpent_bloom: 0.13, kraken: 0.16, siren: 0 };
 
 const clamp01 = (k) => (k < 0 ? 0 : k > 1 ? 1 : k);
 const easeOut = (k) => 1 - (1 - k) * (1 - k);
@@ -45,13 +88,13 @@ function fallbackBackdrop(theme) {
   const groundCol = theme.ground === 'sand'
     ? theme.palette.sand : theme.water.shallow;
   const disc = new THREE.Mesh(new THREE.CircleGeometry(46, 40),
-    flat(groundCol, { roughness: 1 }));
+    new THREE.MeshStandardMaterial({ color: groundCol, roughness: 1 }));
   disc.rotation.x = -Math.PI / 2;
   disc.receiveShadow = true;
   g.add(disc);
-  const rockMat = flat(theme.palette.rock);
+  const rockMat = new THREE.MeshStandardMaterial({ color: theme.palette.rock, roughness: 0.9 });
   for (let i = 0; i < 5; i++) {
-    const r = new THREE.Mesh(new THREE.IcosahedronGeometry(2 + (i % 3), 0), rockMat);
+    const r = new THREE.Mesh(new THREE.IcosahedronGeometry(2 + (i % 3), 2), rockMat);
     const a = -0.6 + i * 0.85;
     r.position.set(Math.cos(a) * 34, 0.5, Math.sin(a) * 34);
     g.add(r);
@@ -59,15 +102,19 @@ function fallbackBackdrop(theme) {
   return g;
 }
 
+/* free what a set or a ship owned. GLB clones, cached canvases and shared
+   ship/prop buffers are flagged (userData.keep on a subtree, userData.shared
+   on a geometry/material/texture) and left alone — they are reused next fight. */
 function disposeDeep(obj) {
-  obj.traverse((o) => {
-    if (o.geometry) o.geometry.dispose();
-    const mats = Array.isArray(o.material) ? o.material : (o.material ? [o.material] : []);
-    for (const m of mats) {
-      if (m.map && m.map !== softDiscTexture()) m.map.dispose();
-      m.dispose();
-    }
-  });
+  if (obj.userData.keep) return;
+  if (obj.geometry && !obj.geometry.userData.shared) obj.geometry.dispose();
+  const mats = Array.isArray(obj.material) ? obj.material : (obj.material ? [obj.material] : []);
+  for (const m of mats) {
+    if (m.userData.shared) continue;
+    if (m.alphaMap && !m.alphaMap.userData.shared) m.alphaMap.dispose();
+    m.dispose();
+  }
+  for (const c of obj.children) disposeDeep(c);
 }
 
 /* ── damage numbers: pooled canvas sprites ───────────────────────────────── */
@@ -81,7 +128,8 @@ function makeDmgPool(scene, n = 10) {
     const tex = new THREE.CanvasTexture(canvas);
     tex.colorSpace = THREE.SRGBColorSpace;
     const mat = new THREE.SpriteMaterial({
-      map: tex, transparent: true, depthWrite: false, opacity: 0 });
+      map: tex, transparent: true, depthWrite: false, depthTest: false, opacity: 0, fog: false });
+    mat.color.setScalar(GLOW.dmg);               // a touch over white: the digits glow
     const spr = new THREE.Sprite(mat);
     spr.visible = false;
     spr.renderOrder = 50;
@@ -132,7 +180,7 @@ function makeFlashPool(scene, n = 14) {
   for (let i = 0; i < n; i++) {
     const mat = new THREE.SpriteMaterial({
       map: softDiscTexture(), color: 0xffffff, transparent: true,
-      blending: THREE.AdditiveBlending, depthWrite: false, opacity: 0 });
+      blending: THREE.AdditiveBlending, depthWrite: false, opacity: 0, fog: false });
     const spr = new THREE.Sprite(mat);
     spr.visible = false;
     spr.renderOrder = 40;
@@ -146,7 +194,7 @@ function spawnFlash(pool, t, x, y, z, color, size, dur = 0.35, vx = 0, vy = 0, v
   let f = pool.find((e) => !e.active) || pool[0];
   f.active = true; f.t0 = t; f.dur = dur; f.size = size;
   f.x = x; f.y = y; f.z = z; f.vx = vx; f.vy = vy; f.vz = vz;
-  f.spr.material.color.set(color);
+  f.spr.material.color.set(color).multiplyScalar(GLOW.flash);
   f.spr.visible = true;
   return f;
 }
@@ -222,19 +270,22 @@ export function createBattleStage(renderer) {
   key.position.set(-14, 20, 13);
   key.castShadow = true;
   key.shadow.mapSize.set(2048, 2048);
-  key.shadow.camera.left = -20; key.shadow.camera.right = 22;
-  key.shadow.camera.top = 20; key.shadow.camera.bottom = -14;
-  key.shadow.camera.near = 4; key.shadow.camera.far = 70;
+  // one box round the whole arena, wide enough that a low sun's long shadows
+  // (and the set's trees and columns) land inside it
+  key.shadow.camera.left = -30; key.shadow.camera.right = 32;
+  key.shadow.camera.top = 30; key.shadow.camera.bottom = -26;
+  key.shadow.camera.near = 4; key.shadow.camera.far = 130;
   key.shadow.bias = -0.0004;
-  key.shadow.normalBias = 0.06;
+  key.shadow.normalBias = 0.08;
   key.shadow.radius = 3;
   key.target.position.set(2, 0, 0);
   const rim = new THREE.DirectionalLight(0x9fc8ff, 0.9);
   rim.position.set(17, 9, -15);
   const hemi = new THREE.HemisphereLight(0xd6ecff, 0x3e5a4a, 0.5);
   const amb = new THREE.AmbientLight(0x28394a, 0.55);
-  const heroLamp = new THREE.PointLight(0xffca7a, 0.65, 18, 2);
-  heroLamp.position.set(-9, 4, 3);
+  // physical units (candela): a soft warm lift on the hero, set per look
+  const heroLamp = new THREE.PointLight(0xffca7a, 0, 18, 2);
+  heroLamp.position.set(-10, 4.5, 4);
   const flashLight = new THREE.PointLight(0xffffff, 0, 26, 2);
   const chargeLight = new THREE.PointLight(0xff3524, 0, 30, 2);
   scene.add(key, key.target, rim, hemi, amb, heroLamp, flashLight, chargeLight);
@@ -243,6 +294,8 @@ export function createBattleStage(renderer) {
   scene.add(makeSky());
   const envCache = new Map();          // theme id → PMREM render target
   let sea = null;                      // gfx ocean for water arenas
+  let shore = null;                    // the arena's own shore map (lazy)
+  let rig = RIGS.hub;
   const _seaFocus = new THREE.Vector3(0, 0, 0);
   let look = lookFor('hub');
 
@@ -250,7 +303,8 @@ export function createBattleStage(renderer) {
   const ring = new THREE.Mesh(
     new THREE.RingGeometry(1.15, 1.5, 40),
     new THREE.MeshBasicMaterial({
-      color: GOLD, transparent: true, opacity: 0.7, depthWrite: false,
+      color: new THREE.Color(GOLD).multiplyScalar(GLOW.ring), transparent: true, opacity: 0.7,
+      depthWrite: false, fog: false,
       blending: THREE.AdditiveBlending, side: THREE.DoubleSide }));
   ring.rotation.x = -Math.PI / 2;
   ring.position.y = 0.06;
@@ -262,11 +316,13 @@ export function createBattleStage(renderer) {
   const shieldDisc = new THREE.Mesh(
     new THREE.CircleGeometry(2.3, 36),
     new THREE.MeshBasicMaterial({
-      color: GOLD, transparent: true, opacity: 0, depthWrite: false,
+      color: new THREE.Color(GOLD).multiplyScalar(GLOW.shield), transparent: true, opacity: 0,
+      depthWrite: false, fog: false,
       blending: THREE.AdditiveBlending, side: THREE.DoubleSide }));
   shieldDisc.rotation.y = Math.PI / 2;
   const shieldGlow = new THREE.Sprite(new THREE.SpriteMaterial({
-    map: softDiscTexture(), color: GOLD, transparent: true, opacity: 0,
+    map: softDiscTexture(), color: new THREE.Color(GOLD).multiplyScalar(GLOW.shield),
+    transparent: true, opacity: 0, fog: false,
     blending: THREE.AdditiveBlending, depthWrite: false }));
   shieldGlow.scale.set(7, 7, 1);
   shield.add(shieldDisc, shieldGlow);
@@ -276,7 +332,8 @@ export function createBattleStage(renderer) {
 
   /* charge telegraph aura */
   const aura = new THREE.Sprite(new THREE.SpriteMaterial({
-    map: softDiscTexture(), color: 0xff3524, transparent: true, opacity: 0,
+    map: softDiscTexture(), color: new THREE.Color(0xff3524).multiplyScalar(GLOW.aura),
+    transparent: true, opacity: 0, fog: false,
     blending: THREE.AdditiveBlending, depthWrite: false }));
   aura.visible = false;
   aura.renderOrder = 30;
@@ -284,7 +341,7 @@ export function createBattleStage(renderer) {
 
   /* one magic bolt + trail */
   const bolt = new THREE.Sprite(new THREE.SpriteMaterial({
-    map: softDiscTexture(), color: ARCANE, transparent: true, opacity: 0,
+    map: softDiscTexture(), color: ARCANE, transparent: true, opacity: 0, fog: false,
     blending: THREE.AdditiveBlending, depthWrite: false }));
   bolt.scale.set(1.6, 1.6, 1);
   bolt.visible = false;
@@ -331,7 +388,7 @@ export function createBattleStage(renderer) {
     camGoal: new THREE.Vector3(-17, 5, 7),
     camLook: new THREE.Vector3(0.5, 2.0, -0.3),
     camLookGoal: new THREE.Vector3(0.5, 2.0, -0.3),
-    baseKey: 1.6, baseRim: 0.9, baseHemi: 0.5, baseAmb: 0.55,
+    baseKey: 1.6, baseRim: 0.9, baseHemi: 0.5, baseAmb: 0.55, baseLamp: 0, baseEnv: 1,
   };
 
   /* ── scene teardown ───────────────────────────────────────────────────── */
@@ -374,8 +431,15 @@ export function createBattleStage(renderer) {
       if (!s.dead && h > maxH) maxH = h;
     }
     const f = clamp01((maxH - 2.6) / 8);          // 0 grunts → 1 colossus
-    st.camGoal.set(-17 - f * 7.5, 4.6 + f * 4.2, 7 + f * 3.4);
-    st.camLookGoal.set(0.5 + f * 2.4, 1.9 + f * 2.2, -0.3);
+    // a pack of small beasts: come down and in, so they are not specks
+    let tall = 0;
+    for (const s of st.slots) {
+      if (s.dead) continue;
+      tall = Math.max(tall, (s.mon ? s.mon.userData.height : 1.8) * s.scl);
+    }
+    const near = tall > 0 ? clamp01((2.5 - tall) / 1.5) : 0;
+    st.camGoal.set(-17 - f * 7.5 + near * 1.9, 4.6 + f * 4.2 - near * 0.8, 7 + f * 3.4 - near * 0.5);
+    st.camLookGoal.set(0.5 + f * 2.4 + near * 0.7, 1.9 + f * 2.2 - near * 0.5, -0.3);
   }
 
   /* ── enter / exit ─────────────────────────────────────────────────────── */
@@ -393,55 +457,63 @@ export function createBattleStage(renderer) {
     st.hero.hurtT0 = -9;
     st.hero.atkT0 = -9;
 
-    /* mood — the stage's look, with the sun swung round to key the diorama
-       from behind the camera's left shoulder (never lower than a raking 22°) */
+    /* mood — the stage's look, re-aimed for the diorama's fixed camera (RIGS) */
+    rig = RIGS[theme.id] || RIGS.hub;
     const base = lookFor(theme.id);
-    look = { ...base, sun: { ...base.sun, az: 142, el: Math.max(22, Math.min(52, base.sun.el)) },
+    look = { ...base,
+             sun: { ...base.sun, az: rig.key.az, el: rig.key.el,
+                    color: rig.key.color ?? base.sun.color,
+                    intensity: rig.key.intensity ?? base.sun.intensity },
              fog: { ...base.fog, heightFalloff: 0.03, heightBase: 6 } };
     applyLook(look);
     let env = envCache.get(theme.id);
     if (!env) { env = bakeEnvironment(renderer); envCache.set(theme.id, env); }
     scene.environment = env.texture;
-    scene.environmentIntensity = look.env;
-    scene.fog = new THREE.Fog(look.fog.color, 60, 260);
+    scene.environmentIntensity = st.baseEnv = look.env;
+    scene.fog = new THREE.Fog(look.fog.color, rig.fog ? rig.fog[0] : 60, rig.fog ? rig.fog[1] : 260);
     scene.background = null;
-    key.position.copy(sunDirection(look.sun.az, look.sun.el)).multiplyScalar(34).add(key.target.position);
+    key.position.copy(sunDirection(look.sun.az, look.sun.el)).multiplyScalar(60).add(key.target.position);
     key.color.set(look.sun.color);
-    key.intensity = st.baseKey = look.sun.intensity * 0.92;
-    if (sea) { scene.remove(sea.mesh); sea.mesh.geometry.dispose(); sea.mesh.material.dispose(); sea = null; }
-    if (theme.ground !== 'sand' && theme.id !== 'desert' && theme.id !== 'pharos') {
-      sea = makeOcean(theme, look);
-      scene.add(sea.mesh);
-    }
-    rim.color.set(theme.id === 'ice' ? 0xbfe8ff
-      : theme.id === 'desert' ? 0xffd9a0
-      : theme.id === 'jungle' ? 0x8fffc9
-      : theme.id === 'autumn' ? 0xffb066
-      : theme.id === 'pharos' ? 0xff5a3c : 0x9fc8ff);
-    rim.intensity = st.baseRim = 0.7;
+    key.intensity = st.baseKey = look.sun.intensity * rig.gain;
+    key.shadow.radius = look.shadow?.radius ?? 3;
+    if ('intensity' in key.shadow) key.shadow.intensity = look.shadow?.strength ?? 0.9;
+    rim.position.copy(sunDirection(rig.rim.az, rig.rim.el)).multiplyScalar(40).add(key.target.position);
+    rim.color.set(rig.rim.color);
+    rim.intensity = st.baseRim = rig.rim.intensity;
     hemi.color.set(look.fill.sky);
     hemi.groundColor.set(look.fill.ground);
     hemi.intensity = st.baseHemi = look.fill.intensity;
     amb.color.set(theme.ambient);
     amb.intensity = st.baseAmb = 0.12;      // the baked sky does the ambient work now
-    // the Pharos arena is deliberately storm-dark — but lift the key + fill a
-    // touch (and warm them) so the Dark Presence is clearly lit, not a black
-    // silhouette. The brazier firelight does the rest.
-    if (theme.id === 'pharos') {
-      key.color.set(0xffb27a);
-      key.intensity = st.baseKey = 2.2;
-      amb.color.set(0x3a2c3a);
-      amb.intensity = st.baseAmb = 0.6;
-      hemi.intensity = st.baseHemi = 0.5;
+    heroLamp.intensity = st.baseLamp = rig.lamp;
+    if (sea) { scene.remove(sea.mesh); sea.mesh.geometry.dispose(); sea.mesh.material.dispose(); sea = null; }
+    if (theme.ground !== 'sand' && theme.id !== 'desert' && theme.id !== 'pharos') {
+      sea = makeOcean(theme, look);
+      scene.add(sea.mesh);
     }
 
-    /* backdrop */
+    /* who is out there? a pack that swims or sails keeps the water under it */
+    const enemies = (battle && battle.enemies) || [];
+    const afloat = !!sea && enemies.length > 0
+      && enemies.every((e) => (e.model || e.name || '') in SWIMMERS);
+
+    /* the set */
     let bd;
-    try { bd = makeBattleBackdrop(theme); }
+    try { bd = makeBattleBackdrop(theme, { afloat }); }
     catch (err) { console.warn('battle: backdrop failed, using fallback', err); bd = fallbackBackdrop(theme); }
-    bd.traverse((o) => { if (o.isMesh) o.receiveShadow = true; });
     st.backdrop = bd;
     scene.add(bd);
+    /* tell the ocean where the set stands in it: shallows, surf, calmed swell */
+    if (sea) {
+      if (bd.userData.shore) {
+        if (!shore) shore = makeShoreMap(renderer, { res: 1024 });
+        bd.updateMatrixWorld(true);
+        shore.bake(scene, bd.userData.shore);
+        sea.setShoreMap(shore);
+      } else {
+        sea.setShoreMap(null);
+      }
+    }
 
     /* hero */
     const h = st.hero;
@@ -453,10 +525,8 @@ export function createBattleStage(renderer) {
     if (h.kind === 'ship') {
       const ship = makeShip(heroColor || '#e4572e');
       ship.scale.setScalar(1.7);
-      // float the hull ON the diorama water (disc sits at y≈-0.08) instead
-      // of letting the keel sink through it
-      ship.position.y = 0.92;
-      ship.traverse((o) => { if (o.isMesh) o.castShadow = true; });
+      // the model's waterline is 0.15 below its origin: seat it on the sea
+      ship.position.y = WATER_Y + 0.15 * 1.7;
       h.group = ship;
       h.holder.add(ship);
     } else {
@@ -469,14 +539,15 @@ export function createBattleStage(renderer) {
     }
 
     /* enemies — index-aligned with battle.enemies for beats/targeting */
-    const enemies = (battle && battle.enemies) || [];
     preloadMonsters(enemies.map((e) => e.model || e.name || 'wolf'));
     const scales = enemies.map(sizeFor);
     const layout = computeLayout(scales);
     enemies.forEach((e, i) => {
       const id = e.model || e.name || 'wolf';
       const holder = new THREE.Group();
-      holder.position.set(layout[i].x, 0, layout[i].z);
+      // swimmers sit IN the water (coil or keel under the surface), not on it
+      const swim = afloat ? (SWIMMERS[id] ?? 0) * scales[i] * 2 : 0;
+      holder.position.set(layout[i].x, swim > 0 ? WATER_Y - swim : 0, layout[i].z);
       holder.rotation.y = Math.PI + (i % 2 ? 0.07 : -0.07);
       holder.scale.setScalar(scales[i]);
       scene.add(holder);
@@ -487,6 +558,7 @@ export function createBattleStage(renderer) {
         hurtT0: -9, atkT0: -9, lunge: null, castMode: null,
         ox: 0, oy: 0, oz: 0, rz: 0,
         phase: Math.random() * 6,
+        swim: afloat && swim > 0,
       };
       st.slots.push(slot);
       getMonster(id).then((mon) => {
@@ -542,7 +614,7 @@ export function createBattleStage(renderer) {
     if (dmg != null) spawnDmg(dmgPool, st.t, String(dmg), p.x, p.y + 0.9 * slot.scl, p.z, '#ffd76a', dmg >= 4);
     flashLight.color.set(color);
     flashLight.position.set(p.x, p.y + 0.5, p.z + 1.5);
-    flashLight.intensity = 3.2;
+    flashLight.intensity = 46;
     st.shake = Math.max(st.shake, 0.16);
   }
 
@@ -554,7 +626,7 @@ export function createBattleStage(renderer) {
     if (dmg != null) spawnDmg(dmgPool, st.t, String(dmg), HERO_HOME.x, y + 1.6, HERO_HOME.z, '#ff8a70', !!heavy);
     flashLight.color.set(HURT_RED);
     flashLight.position.set(HERO_HOME.x + 1, y + 1, 2);
-    flashLight.intensity = heavy ? 4.5 : 3;
+    flashLight.intensity = heavy ? 70 : 44;
     st.shake = Math.max(st.shake, heavy ? 0.55 : 0.28);
     st.kick = Math.max(st.kick, heavy ? 1.5 : 0.75);
   }
@@ -604,8 +676,8 @@ export function createBattleStage(renderer) {
       ctrl: fromV.clone().lerp(toV, 0.5).add(_v2.set(0, 3.5 + Math.abs(toV.x - fromV.x) * 0.18, 0)),
       t0: st.t, dur, onHit,
     };
-    bolt.material.color.set(color);
-    for (const tr of trail) tr.material.color.set(color);
+    bolt.material.color.set(color).multiplyScalar(GLOW.bolt);
+    for (const tr of trail) tr.material.color.set(color).multiplyScalar(GLOW.bolt * 0.7);
     bolt.visible = true;
   }
 
@@ -659,7 +731,7 @@ export function createBattleStage(renderer) {
           spawnFlash(flashPool, st.t, to.x, to.y + 0.5, to.z, BACKFIRE, 3.4, 0.45);
           flashLight.color.set(BACKFIRE);
           flashLight.position.set(to.x, to.y + 1.5, 2);
-          flashLight.intensity = 3.5;
+          flashLight.intensity = 50;
           st.hero.hurtT0 = st.t;
           st.shake = Math.max(st.shake, 0.22);
         });
@@ -787,7 +859,7 @@ export function createBattleStage(renderer) {
             spawnFlash(flashPool, t, shield.position.x, shield.position.y, shield.position.z, GOLD, 4.5, 0.45);
             flashLight.color.set(GOLD);
             flashLight.position.set(shield.position.x, shield.position.y + 1, 2);
-            flashLight.intensity = 3.5;
+            flashLight.intensity = 55;
             st.shake = Math.max(st.shake, b.heavy ? 0.3 : 0.16);
           } else if (b.mode === 'miss') {
             st.shake = Math.max(st.shake, 0.08);   // wind of the passing blow
@@ -832,11 +904,18 @@ export function createBattleStage(renderer) {
     const h = st.hero;
     if (!h.holder) return;
     h.ox = 0; h.oy = 0; h.oz = 0; h.rx = 0; h.ry = 0; h.rz = 0;
-    // at-anchor bob
+    // the galley rides the real swell: heave, pitch and roll from the sea itself
     if (h.kind === 'ship') {
-      h.oy += Math.sin(t * 1.7) * 0.09;
-      h.rz += Math.sin(t * 1.25) * 0.02;
-      h.rx += Math.sin(t * 0.9 + 1.2) * 0.012;
+      if (sea) {
+        const x = HERO_HOME.x, z = HERO_HOME.z;
+        h.oy += (sea.waveHeight(x, z, t) - WATER_Y) * 0.75;
+        h.rz += Math.atan2(sea.waveHeight(x + 2.6, z, t) - sea.waveHeight(x - 2.6, z, t), 5.2) * 0.8;
+        h.rx += Math.atan2(sea.waveHeight(x, z + 1, t) - sea.waveHeight(x, z - 1, t), 2) * 0.7;
+      } else {
+        h.oy += Math.sin(t * 1.7) * 0.09;
+        h.rz += Math.sin(t * 1.25) * 0.02;
+        h.rx += Math.sin(t * 0.9 + 1.2) * 0.012;
+      }
     }
     // flinch
     const hk = (t - h.hurtT0) / 0.55;
@@ -876,7 +955,8 @@ export function createBattleStage(renderer) {
       // beat accumulators reset; updateBeats re-adds while a lunge is live
       const hadLunge = s.lunge;
       if (!hadLunge) { s.ox = 0; s.oy = 0; s.oz = 0; s.rz = 0; }
-      s.holder.position.set(s.home.x + s.ox, s.home.y + s.oy, s.home.z + s.oz);
+      s.holder.position.set(s.home.x + s.ox,
+        s.home.y + s.oy + (s.swim ? Math.sin(t * 1.3 + s.phase) * 0.07 : 0), s.home.z + s.oz);
       s.holder.rotation.z = s.rz;
       if (s.dead && t - s.deadT0 > 1.45) s.holder.visible = false;
       if (!s.mon) continue;
@@ -974,9 +1054,9 @@ export function createBattleStage(renderer) {
     if (st.chargeIdx != null) {
       const slot = st.slots[st.chargeIdx];
       if (slot && !slot.dead) {
-        const pulse = 0.24 + Math.sin(t * 9) * 0.14;
+        const pulse = 0.26 + Math.sin(t * 9) * 0.14;
         aura.material.opacity = pulse;
-        chargeLight.intensity = 1.6 + Math.sin(t * 9) * 1.1;
+        chargeLight.intensity = 34 + Math.sin(t * 9) * 20;
         aura.position.x = slot.home.x + slot.ox;
         aura.position.z = slot.home.z + slot.oz;
       } else {
@@ -995,7 +1075,8 @@ export function createBattleStage(renderer) {
       rim.intensity = st.baseRim * (1 - st.dim * 0.5);
       hemi.intensity = st.baseHemi * d;
       amb.intensity = st.baseAmb * d;
-      heroLamp.intensity = 0.65 * (1 - st.dim);
+      heroLamp.intensity = st.baseLamp * (1 - st.dim);
+      scene.environmentIntensity = st.baseEnv * (1 - st.dim * 0.7);
     }
     if (st.victory) {
       // warm the key light as the dust settles
@@ -1010,6 +1091,10 @@ export function createBattleStage(renderer) {
 
   function resize(w, h) {
     camera.aspect = w / Math.max(1, h);
+    // the staging is composed for a wide frame; on a tall phone screen open the
+    // lens instead of cropping the hero or the enemy line off the sides
+    const half = Math.tan(THREE.MathUtils.degToRad(22));
+    camera.fov = Math.min(78, THREE.MathUtils.radToDeg(2 * Math.atan(half * Math.max(1, 1.25 / camera.aspect))));
     camera.updateProjectionMatrix();
   }
 

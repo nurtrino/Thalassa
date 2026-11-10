@@ -254,7 +254,10 @@ export function makeTerrain({ seed, R, H, mode = 'hill', palette = {}, lobes = 0
         c.lerp(P.sand, smooth(0.62, 0.92, n) * 0.16);
         c.multiplyScalar(0.92 + n2 * 0.16);
         // beach → meadow, dithered so the shore is never a hard ring
-        const k = smooth(beachTop, beachTop + Math.min(0.34, 0.14 + H * 0.12), y);
+        // the beach is the outer rim of the island (and anything barely above
+        // the tide), whatever the height profile — never half the isle
+        const k = Math.min(smooth(0.03, 0.03 + Math.min(0.3, 0.1 + H * 0.1), y),
+                           1 - smooth(0.80 + dither * 0.5, 0.93 + dither * 0.5, rr));
         c2.copy(P.sand).multiplyScalar(0.96 + n2 * 0.08);
         c.lerpColors(c2, c, k);
         // rock: wherever it's steep, plus mode accents
@@ -320,13 +323,13 @@ export function makeTerrain({ seed, R, H, mode = 'hill', palette = {}, lobes = 0
       const n = fbm(x * 0.5 - 31.7, z * 0.5 + 47.3);
       const roll = crng();
       const heart = rr < 0.3 && mode !== 'peak' && mode !== 'hill';   // keep building floors clear
-      if (y > beachTop + 0.22 && sl < 0.5 && !heart && coverKind === 'meadow') {
+      if (y > 0.2 && rr < 0.84 && sl < 0.5 && !heart && coverKind === 'meadow') {
         if (roll < 0.05 && rr > 0.34 && bushes.length < 12) {
           bushes.push([x, y, z, 0.45 + crng() * 0.5, crng() * 6.28, n]);
         } else if (roll < 0.8 && tufts.length < 170) {
           tufts.push([x, y, z, 0.6 + crng() * 0.8, crng() * 6.28, n]);
         }
-      } else if (roll < 0.09 && stones.length < 26 && y > SEA - 0.1 && (y < beachTop + 0.1 || sl >= 0.5 || coverKind === 'rocks')) {
+      } else if (roll < 0.09 && stones.length < 26 && y > SEA - 0.1 && (rr > 0.86 || sl >= 0.5 || coverKind === 'rocks')) {
         stones.push([x, y, z, 0.12 + crng() * crng() * 0.5, crng() * 6.28, n]);
       }
     }

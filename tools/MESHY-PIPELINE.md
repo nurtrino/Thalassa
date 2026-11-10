@@ -18,7 +18,8 @@ tools/
 Output (staging, never overwrites the procedural GLBs):
 ```
 static/assets/monsters/_meshy/     # raw generated creature meshes
-static/assets/monsters/_rigged/    # rigged, game-ready creatures
+static/assets/monsters/_rigged/    # rigged, game-ready creatures (STAGING — not committed;
+                                   #   promote a keeper to monsters/<id>.glb, then delete)
 static/assets/structures/          # generated map landmarks
 tools/samples/gallery.png          # visual contact sheet
 ```
@@ -105,9 +106,12 @@ with glowing eyes/core/crown. It does **not** slice the fused mesh into separate
 moving legs/jaw/wings/tail; per-limb articulation is a hand-rig / retopo step. The
 `PLAN` map in `meshy_rig.py` is where that hooks in.
 
-**To ship a rigged model:** copy `_rigged/<id>.glb` over
-`static/assets/monsters/<id>.glb` (back up the procedural one first — it stays the
-animation-ready fallback until a model is promoted).
+**To ship a rigged model:** copy `_rigged/<id>.glb` to
+`static/assets/monsters/<id>.glb`, add the id to `MONSTER_IDS`, `HEIGHTS` and
+`MONSTER_FINISH` in `static/monsters.js` (and delete its row from `STAND_INS`
+if it replaces a stand-in), then check it on `/static/modeltest.html`.
+`docs/MODELS.md` lists what is kept, what was cut and the remake notes; the
+`_rigged/` staging folder itself is not kept in the repo.
 
 ---
 
@@ -154,8 +158,9 @@ npx @gltf-transform/cli optimize static/assets/props/<id>.glb static/assets/prop
 ```
 
 Quantize + WebP load natively in three's GLTFLoader (KHR_mesh_quantization /
-EXT_texture_webp) — no extra decoders. Verify with `static/scaletest.html`
-after crunching; heights must still match props.js / islands.js targets.
+EXT_texture_webp) — no extra decoders. Verify with `static/modeltest.html`
+(the live contact sheet: real loaders, real lighting, true heights in the
+labels) after crunching; heights must still match props.js / structures.js.
 
 Wiring (already in the frontend):
 - `static/props.js` loads the prop GLBs; `islands.js` scatters them across the
@@ -163,8 +168,9 @@ Wiring (already in the frontend):
 - `islands.js` `makeTerrain` UV-maps the biome texture onto the terrain,
   multiplied by the existing height-based vertex colours (MirroredRepeat hides
   seams). Textures come from Meshy ground tiles via `meshy_ground_bake.py`.
-- `static/islandtest.html` is a standalone harness that renders one island per
-  biome for quick visual checks (served by the app at `/static/islandtest.html`).
+- `static/modeltest.html` is the standalone contact sheet for every model
+  (`?set=monsters|standins|captains|props|structures&look=<stage>`), and
+  `static/battletest.html` stages any enemy in the real battle scene.
 
 ## Credits & cost
 
