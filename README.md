@@ -46,9 +46,9 @@ storm the Pharos.
    its target and one perfectly-timed tap nulls **half** the blow — miss
    the window (it's tight) and it lands full. Foes take turns attacking
    from a visible **turn rail**; no foe swings more than twice in a row.
-   Bosses counter **every** exchange, telegraph a **heavy blow** every
-   third round (dodge it or eat double damage), and **enrage** at half
-   strength. You do not beat one without preparation: hull fittings, aegis
+   Bosses counter **every** exchange and telegraph a **heavy blow** every
+   third round (dodge it or eat double damage). You do not beat one without
+   preparation: hull fittings, aegis
    charms, **pitch & planks** (patch 3 Health mid-battle), a war horn, and
    a steady dodge hand.
 6. **Win.** Shipwreck sends seals back to their lairs — bank them at Home
@@ -64,17 +64,17 @@ scrolls, so nobody is ever just waiting.
 | Piece | File | Role |
 |---|---|---|
 | Board | `board.py` | Procedural chart: three safe rings + four realm spines with dungeon depth, d3-tuned lane lengths. |
-| Engine | `game.py` | Pure rules state machine — phases, wagers, battles (heavies/enrage/guard), economy, relics. No IO; 59 unit tests. |
-| Questions | `questions.py` | The Trivia API v2 client with per-domain pools and an offline fallback set. |
+| Engine | `game.py` | Pure rules state machine — phases, wagers, battles (heavies/enrage/guard), economy, relics. No IO; covered by the unit suite and the fuzzing simulator (`tools/sim.py`). |
+| Questions | `questions.py`, `data/trivia.json`, `data/jeopardy.json` | 2,252 audited multiple-choice questions tagged by difficulty (shrine tiers and STRIKE/MAGIC draw different pools, no repeats until a pool is spent) and a 54k-clue typed-answer deck with a lenient-on-typos, strict-on-guessing matcher. `tools/clean_jeopardy.py` rebuilds the deck. |
 | Bots | `bots.py` | Philosopher captains: sail/wager/shop/guard heuristics + per-tier answer accuracy. |
-| Server | `server.py` | FastAPI + WebSockets: one shared table, d3 dice, timers, bot driver. |
-| World | `static/scene.js` + `themes.js`, `islands.js`, `wall.js`, `water.js` | Five themed stages (Aegean hub + four realms), the mountain wall, close chase camera, animated sailing, on-foot desert trek. |
+| Server | `server.py` | FastAPI + WebSockets: one shared table, d3 dice, timers tied to what they time, an idle-turn clock so an absent captain never freezes the table, bot driver, per-socket send queues and rate limits. |
+| World | `static/gfx/*` + `scene.js`, `islands.js`, `realms/*`, `wall.js`, `themes.js` | The V2 renderer: HDR pipeline (bloom, sun shafts, ACES, film grade), one shared sky/sun/haze model with sky-baked ambient, view-following sun shadows, a real ocean with shallows and surf from a baked shore map, heightfield islands and lit mountain ranges. Five stages (Aegean hub + four realms), each with its own lighting script. See `docs/GRAPHICS.md`. |
 | Models | `static/assets/{monsters,props,structures}/*.glb` → `static/monsters.js`, `props.js`, `structures.js`, `modelmat.js` | 32 creature/boss sculpts, 36 props, 14 landmarks (AI-sculpted, see `tools/MESHY-PIPELINE.md`), finished per material class for the HDR renderer and animated procedurally by named part. `docs/MODELS.md` is the catalogue (kept / removed / stand-ins / to remake); `/static/modeltest.html` is the contact sheet. |
-| Battles | `static/battle.js` | Cinematic diorama per realm: lunges, spell bolts, guard flashes, damage numbers, telegraphed heavies. |
+| Battles | `static/battle.js`, `static/realms/battle_sets.js`, `static/ship.js` | A composed diorama set per stage with its own key/rim rig; lunges, spell bolts, damage numbers, telegraphed heavies; the player's procedural Greek galley with a sail device per colour. |
 | UI | `static/index.html`, `style.css`, `app.js`, `ui.js` | "Aegean bronze" design system — Cinzel/Alegreya, parchment cards, engraved bronze buttons, SVG icons, compass HUD. |
 | Audio | `static/audio.js` | Web Audio SFX + looping soundtrack with battle/puzzle/endgame scenes. |
 
-No build step — plain ES modules; Three.js r160 vendored.
+No build step — plain ES modules; three.js r187 vendored in `static/vendor/`.
 
 ## Run locally
 
@@ -94,13 +94,18 @@ any enemy in the real battle scene.
 
 | Var | Default | Purpose |
 |---|---|---|
-| `TRIVIA_API_KEY` | unset | the-trivia-api.com key (keyed rate limits). |
+| `TRIVIA_API_KEY` | unset | Optional the-trivia-api.com key for live battle questions. Read only from the environment — never commit one. |
 | `TRIVIA_OFFLINE` | unset | `1` = never call the API; use built-in questions. |
 | `QUESTION_SECS` | `35` | Answer window per question. |
 | `REVEAL_SECS` | `5` | How long the answer reveal stays up. |
 | `ABANDON_RESET_SECS` | `300` | Deserted mid-game table resets after this long. |
 | `BOT_TEMPO` | `1.0` | Bot thinking-time multiplier (0.2 = speed chess). |
 | `DEV_CHEATS` | unset | `1` = enable the test harness teleport hook. Never in production. |
+| `IDLE_TURN_SECS` | `120` | Seconds a connected captain may sit on a decision before the server takes a safe default for them (`0` = wait forever; off when `DEV_CHEATS=1` unless set). |
+| `GONE_TURN_SECS` | `30` | The same clock for a captain whose socket has dropped. |
+| `AWAY_TURN_SECS` | `20` | The clock for a captain already on autopilot. |
+| `WS_MAX_SOCKETS` | `200` | Cap on simultaneous connections. |
+| `DEV_CODE` | `783` | Code for the in-game dev panel; set it empty to disable the panel in production. |
 
 ## Tests
 

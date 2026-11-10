@@ -663,7 +663,7 @@ export function buildJungleField(theme, nodes, segs, rng) {
 
   /* ruins going under: an arch, a toppled colossus, drowned columns — each on
      its own mud shoal beside the lane where the captain sails right past */
-  const RUINS = [['ruined_arch', 2.3, 0.75], ['broken_statue', 2.4, 0.5], ['ruined_arch', 1.9, 0.9], ['ruined_column', 2.6, 0.6], ['mossy_idol', 2.2, 0.35]];
+  const RUINS = [['ruined_arch', 2.3, 0.75], ['broken_statue', 2.4, 0.5], ['ruined_arch', 1.9, 0.9], ['broken_statue', 2.0, 0.55], ['mossy_idol', 2.2, 0.35]];
   {
     let placed = 0, tries = 0;
     const M = 10;
@@ -815,6 +815,6 @@ export function dressJungleIsland(g, rng, theme, R, terrain, node) {
   };
   if (type === 'lair') hero('jungle_tree', 1.8 + rng() * 0.3, open + 3.14, 0.52);
   if (type === 'haven') { hero('palm_tree', 1.2, open + 0.7, 0.5); hero('palm_tree', 1.4, open - 0.75, 0.55); }
-  if (type === 'monster') hero(['mossy_idol', 'mushroom_cluster', 'ruined_arch', 'broken_statue', 'ruined_column'][Math.floor(rng() * 5)], 0.9 + rng() * 0.3, open + (rng() - 0.5) * 0.9, 0.42);
+  if (type === 'monster') hero(['mossy_idol', 'mushroom_cluster', 'ruined_arch', 'broken_statue', 'mossy_idol'][Math.floor(rng() * 5)], 0.9 + rng() * 0.3, open + (rng() - 0.5) * 0.9, 0.42);
   if (type === 'shrine' || type === 'puzzle' || type === 'shop') hero(rng() < 0.5 ? 'mushroom_cluster' : 'mossy_idol', 0.8, open + 0.6, 0.5);
 }

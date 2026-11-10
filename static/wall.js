@@ -1,19 +1,16 @@
 /*
  * wall.js — the mountain wall that pens in the Isles of Peace, and the realm
- * backdrops beyond it (owner: Agent A). Replaces the legacy storm shader
- * entirely: jagged noise-displaced rock, snow caps, four carved passes with
- * braziers burning in each realm's accent color.
+ * horizons beyond it. The rock itself is a lit heightfield range from
+ * gfx/mountains.js; this file places it, carves the four passes, and dresses
+ * each pass with its lintel, sigil groove and braziers in the realm's accent.
  *
  * Conventions: an "angle" here is atan2(z, x) of the thing's board position.
- * All peak rock is merged into ONE geometry per group (a single draw call)
- * so the wall is essentially free at runtime.
  */
 import * as THREE from 'three';
 import { makeRidge } from './gfx/mountains.js';
 import { mulberry32, hashStr, flat, displace, seedFrom, softDiscTexture } from './util.js';
 import { REALM_INFO } from './themes.js';
 
-/* deterministic per-vertex jitter (same recipe as util.displace) */
 const _d = (a, b) => Math.atan2(Math.sin(a - b), Math.cos(a - b)); // wrapped delta
 
 function glowSprite(color, scale) {
