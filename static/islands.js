@@ -240,9 +240,9 @@ function makeRock(rng, r, color = COL.rock) {
 function floraFor(theme, rng, s = 1, castShadow = true) {
   const kind = theme.flora;
   if (kind === 'pine') return propGroup(rng() < 0.3 ? 'pine_tree' : 'pine_snow', s, castShadow);
-  if (kind === 'cactus') return propGroup(rng() < 0.5 ? 'cactus' : 'dead_scrub', s, castShadow);
+  if (kind === 'cactus') return propGroup(rng() < 0.5 ? 'dead_tree' : 'dead_scrub', s, castShadow);
   if (kind === 'jungle') return propGroup(rng() < 0.72 ? 'jungle_tree' : 'palm_tree', s, castShadow);
-  if (kind === 'autumn') return propGroup('autumn_tree', s, castShadow);
+  if (kind === 'autumn') return propGroup(rng() < 0.78 ? 'amber_tree' : 'dead_tree', s, castShadow);
   // aegean
   const r = rng();
   if (r < 0.5) return propGroup('palm_tree', s, castShadow);
@@ -494,18 +494,78 @@ function makeCheckpointBeacon() {
   return g;
 }
 
+/* The sea-lane marker: a turned spar buoy in Aegean red and white with a
+   small storm lantern on its mast. Smooth lathe forms, wet-paint gloss, and a
+   lamp bright enough to bloom at dusk. Geometry and materials are built once
+   and shared by every waypoint (two draw calls each). scene.js rides the
+   group named 'bob' on the swell, so the hull is offset inside it to sit at
+   the waterline (sea level is y = -0.3). */
+let _buoyParts = null;
+function buoyParts() {
+  if (_buoyParts) return _buoyParts;
+  const col = new THREE.Color();
+  const paint = (geo, fn) => {
+    const pos = geo.getAttribute('position');
+    const c = new Float32Array(pos.count * 3);
+    for (let i = 0; i < pos.count; i++) {
+      col.set(fn(pos.getY(i)));
+      c[i * 3] = col.r; c[i * 3 + 1] = col.g; c[i * 3 + 2] = col.b;
+    }
+    geo.setAttribute('color', new THREE.BufferAttribute(c, 3));
+    return geo.toNonIndexed();
+  };
+  // float: keel → belly at the waterline (y = 0) → shoulder → collar
+  // (paired rings at 0.03/0.07 and 0.29/0.31 keep the paint bands crisp)
+  const prof = [[0.0, -0.62], [0.16, -0.56], [0.36, -0.36], [0.47, -0.12], [0.5, 0.03],
+                [0.498, 0.07], [0.47, 0.2], [0.425, 0.29], [0.415, 0.31], [0.36, 0.38],
+                [0.2, 0.56], [0.12, 0.66], [0.1, 0.74], [0.0, 0.76]]
+    .map(([r, y]) => new THREE.Vector2(r, y));
+  const hull = paint(new THREE.LatheGeometry(prof, 20), (y) =>
+    (y < -0.2 ? 0x4a2a24 : y < 0.05 ? 0x33201c : y < 0.3 ? 0xf2ead8 : 0xc23b2e));
+  const tarred = () => 0x2c2622, iron = () => 0x23252b;
+  const mast = paint(new THREE.CylinderGeometry(0.03, 0.045, 0.82, 7).translate(0, 1.15, 0), tarred);
+  const yard = paint(new THREE.CylinderGeometry(0.02, 0.02, 0.36, 5).rotateZ(Math.PI / 2).translate(0, 1.42, 0), tarred);
+  const cage = paint(new THREE.CylinderGeometry(0.105, 0.105, 0.035, 10).translate(0, 1.58, 0), iron);
+  const cap = paint(new THREE.ConeGeometry(0.13, 0.14, 10).translate(0, 1.86, 0), iron);
+  const finial = paint(new THREE.SphereGeometry(0.03, 8, 6).translate(0, 1.95, 0), iron);
+  const parts = [hull, mast, yard, cage, cap, finial];
+  let n = 0;
+  for (const g of parts) n += g.getAttribute('position').count;
+  const P = new Float32Array(n * 3), N = new Float32Array(n * 3), C = new Float32Array(n * 3);
+  let o = 0;
+  for (const g of parts) {
+    P.set(g.getAttribute('position').array, o);
+    N.set(g.getAttribute('normal').array, o);
+    C.set(g.getAttribute('color').array, o);
+    o += g.getAttribute('position').count * 3;
+    g.dispose();
+  }
+  const body = new THREE.BufferGeometry();
+  body.setAttribute('position', new THREE.BufferAttribute(P, 3));
+  body.setAttribute('normal', new THREE.BufferAttribute(N, 3));
+  body.setAttribute('color', new THREE.BufferAttribute(C, 3));
+  _buoyParts = {
+    body,
+    bodyMat: new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.46, metalness: 0 }),
+    lamp: new THREE.SphereGeometry(0.085, 12, 9).scale(1, 1.3, 1).translate(0, 1.7, 0),
+    lampMat: new THREE.MeshStandardMaterial({ color: 0x3a2a10, roughness: 0.3,
+      emissive: 0xffb648, emissiveIntensity: 2.6 }),
+  };
+  return _buoyParts;
+}
+
 function makeBuoy(rng) {
+  const parts = buoyParts();
   const g = new THREE.Group();
-  const float_ = new THREE.Mesh(new THREE.CylinderGeometry(0.5, 0.38, 0.42, 8), flat(0xd9534f));
-  float_.position.y = 0.28;
-  const stripe = new THREE.Mesh(new THREE.CylinderGeometry(0.52, 0.52, 0.14, 8), flat(0xf7f4ec));
-  stripe.position.y = 0.34;
-  const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.045, 0.045, 1.1, 5), flat(COL.woodDark));
-  pole.position.y = 1.0;
-  const lamp = new THREE.Mesh(new THREE.SphereGeometry(0.11, 6, 5),
-    flat(0xffd97a, { emissive: 0x9a7a1a }));
-  lamp.position.y = 1.6;
-  g.add(float_, stripe, pole, lamp);
+  const hull = new THREE.Mesh(parts.body, parts.bodyMat);
+  hull.castShadow = true;
+  hull.receiveShadow = true;
+  const lamp = new THREE.Mesh(parts.lamp, parts.lampMat);
+  const inner = new THREE.Group();          // waterline (profile y = 0) → sea level
+  inner.position.y = -0.3 / 1.7;            // callers scale the buoy ×1.7
+  inner.rotation.z = (rng() - 0.5) * 0.12;  // each one lists a little differently
+  inner.add(hull, lamp);
+  g.add(inner);
   g.rotation.y = rng() * 6.28;
   g.name = 'bob';
   return g;
@@ -883,10 +943,15 @@ function makeMonsterTotem(rng, m) {
   const g = new THREE.Group();
   const hp = Math.min(10, m?.max_hp ?? 4);
   const s = 1 + hp * 0.12;
-  // the Meshy carved totem (dark stone, red eyes) marks the lurking foe;
-  // the ember light + haze below are the gameplay "danger here" signal and
-  // stand in until the model streams in
-  g.add(propGroup('monster_totem', s * 0.85));
+  // a rune-cut standing stone leaning over a heap of picked bones marks the
+  // lurking foe; the ember light + haze below are the gameplay "danger here"
+  // signal and stand in until the models stream in
+  const stone = propGroup('waymarker_stone', s * 1.25);
+  stone.rotation.set(0.07, rng() * 6.28, -0.09);
+  const bones = propGroup('bone_pile', s * 1.5);
+  bones.position.set(0.5 * s, 0, 0.75 * s);
+  bones.rotation.y = rng() * 6.28;
+  g.add(stone, bones);
   const ember = new THREE.PointLight(0xff5030, 3 + hp, 7 + hp);
   ember.position.y = 2.2 * s;
   const haze = glowSprite(0xff4a26, 3.4 * s);
@@ -1156,12 +1221,12 @@ function makeOasis(rng, theme) {
 /* scattered coast dressing so islands feel dense and hand-made */
 /* Meshy props that belong ON LAND, dealt per biome to the island tops */
 const ISLE_PROPS = {
-  hub: ['amphora_pile', 'banner_pole', 'brazier', 'tide_pool', 'ruined_column',
+  hub: ['amphora_pile', 'banner_pole', 'brazier', 'tide_pool', 'ruined_arch',
         'broken_statue', 'olive_tree', 'cypress_tree', 'reeds'],
   ice: ['crystal_cluster', 'pine_snow', 'ice_shard', 'cairn'],
   jungle: ['mossy_idol', 'mushroom_cluster', 'fern_cluster', 'ruined_arch',
-           'stone_well', 'jungle_tree', 'ruined_column'],
-  desert: ['bone_pile', 'amphora_pile', 'cactus', 'sarcophagus'],
+           'stone_well', 'jungle_tree'],
+  desert: ['bone_pile', 'amphora_pile', 'dead_scrub', 'sarcophagus'],
   autumn: ['mushroom_cluster', 'campfire', 'barrel', 'dead_tree'],
 };
 
@@ -1248,7 +1313,7 @@ export function buildIsland(node, theme, domains) {
         1.0 + rng0() * 0.4);
       g.add(marker);
       if (rng0() < 0.7) {
-        const fl = propGroup(rng0() < 0.5 ? 'cactus' : 'dead_scrub', 0.8 + rng0() * 0.5);
+        const fl = propGroup(rng0() < 0.5 ? 'dead_tree' : 'dead_scrub', 0.8 + rng0() * 0.5);
         const a = rng0() * 6.28;
         fl.position.set(Math.cos(a) * 3.4, 0, Math.sin(a) * 3.4);
         g.add(fl);

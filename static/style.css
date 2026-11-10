@@ -519,6 +519,13 @@ body.touring #gfxBtn { display: none !important; }
     linear-gradient(180deg, rgba(35, 52, 71, .97), rgba(17, 28, 40, .97));
 }
 .pchip.gone { opacity: .5; filter: saturate(.4); }
+.tocap.away { opacity: .6; }
+.tocap .toaway {
+  margin-left: 5px; padding: 0 5px; font-size: 10px; letter-spacing: .08em; text-transform: uppercase;
+  color: #0e1822; background: #8fa1b3; border-radius: 6px;
+}
+.tocap .toclock { margin-left: 6px; font: 700 12px/1 var(--disp); color: var(--gilt); font-variant-numeric: tabular-nums; }
+.tocap .toclock.hot { color: #ff8a6a; }
 .pchip.dead { opacity: .65; filter: saturate(.15); }
 .pchip.me::before {
   background:

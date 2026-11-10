@@ -12,7 +12,7 @@
  */
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
-import { finishModel, finishOf } from './modelmat.js';
+import { finishModel, finishOf, setModelColor } from './modelmat.js';
 
 /* every prop file on disk */
 export const PROP_IDS = [
@@ -101,6 +101,17 @@ const PROP_FINISH = {
   reeds:            finishOf('foliage'),
 };
 
+/* Recoloured variants of kept sculpts — a new id that shares another prop's
+   geometry and textures but gets its own colour (desat + tint, see modelmat.js)
+   and height. Used where a
+   realm needs a tree the kept set doesn't have yet (docs/MODELS.md):
+     amber_tree   the gnarled olive in autumn copper — the Amber Vale's tree
+                  until a real autumn oak/beech is generated */
+const PROP_VARIANTS = {
+  amber_tree: { use: 'olive_tree', height: 3.0, desat: 0.9, tint: [3.4, 1.55, 0.42] },
+};
+export const PROP_VARIANT_IDS = Object.keys(PROP_VARIANTS);
+
 const loader = new GLTFLoader();
 const templates = new Map();   // id → Promise<Group|null> (never rejects)
 const _none = Promise.resolve(null);
@@ -109,6 +120,32 @@ function ensure(id) {
   if (REMOVED_PROPS.has(id)) return _none;
   let p = templates.get(id);
   if (p) return p;
+  const variant = PROP_VARIANTS[id];
+  if (variant) {
+    // same geometry + textures as the source prop, its own recoloured material
+    p = ensure(variant.use).then((src) => {
+      if (!src) return null;
+      const s = src.clone(true);
+      const mats = new Map();
+      s.traverse((o) => {
+        if (!o.isMesh || !o.material || !o.material.isModelMaterial) return;
+        let m = mats.get(o.material);
+        if (!m) {
+          m = o.material.clone();
+          if (variant.desat != null) m.finish.z = variant.desat;
+          if (variant.tint != null) setModelColor(m.tint, variant.tint);
+          mats.set(o.material, m);
+        }
+        o.material = m;
+      });
+      const k = variant.height / (PROP_HEIGHTS[variant.use] || 1.6);
+      s.scale.multiplyScalar(k);
+      s.position.y *= k;
+      return s;
+    });
+    templates.set(id, p);
+    return p;
+  }
   p = loader.loadAsync(`/static/assets/props/${id}.glb`)
     .then((gltf) => {
       const s = gltf.scene;

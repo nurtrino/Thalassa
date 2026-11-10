@@ -1312,6 +1312,35 @@ def test_a_disconnected_captain_does_not_freeze_the_table(fast, monkeypatch):
     run(main())
 
 
+def test_timed_phases_keep_their_own_clock_unless_away_and_gone(fast, monkeypatch):
+    monkeypatch.setattr(S, "IDLE_TURN_SECS", 60.0)
+    g, a, b = _question_table()
+    g.set_question({"text": "Q?", "options": list("abcd"), "correct": 0},
+                   deadline=time.time() + 35)
+    seat = object()                                   # stands in for a's live socket
+    S.table.sockets[seat] = a
+    assert S.idle_deadline() is None                  # present: the question's own 35 s
+    S.table.away.add(a)
+    assert S.idle_deadline() is None                  # away but connected: the clock the
+    S.table.sockets.clear()                           # client draws still stands
+    now = time.time()
+    assert now <= S.idle_deadline() <= now + S.AUTO_STEP_SECS + 0.5   # away AND gone
+    S.table.away.clear()
+    assert S.idle_deadline() is None                  # just dropped: give them the 35 s
+    # an untimed phase always has a deadline, sized by who is (not) there
+    g.timeout_question()
+    g.advance_after_reveal()
+    assert g.phase == "trade"
+    now = time.time()
+    assert now + 1 > S.idle_deadline() - S.GONE_TURN_SECS > now - 1
+    S.table.sockets[seat] = a
+    assert S.idle_deadline() > now + 100              # first decision: 2 × 60 s
+    S.table.seen.add(a)
+    assert now + 55 < S.idle_deadline() < now + 65
+    S.table.away.add(a)
+    assert S.idle_deadline() < now + S.AWAY_TURN_SECS + 1
+
+
 def test_idle_clock_can_be_switched_off(fast, monkeypatch):
     monkeypatch.setattr(S, "IDLE_TURN_SECS", 0.0)
     g, (a, b) = _solo_table()

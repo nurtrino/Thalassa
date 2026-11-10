@@ -26,7 +26,7 @@
  *
  *   /static/modeltest.html?set=monsters&page=0&look=hub
  *     set   monsters | standins | captains | props | structures   (default monsters)
- *     page  0..n                      per=12 models a page (cols=4)
+ *     page  0..n                      per=12 models a page (cols=6)
  *     look  hub | ice | desert | jungle | autumn | pharos         (lighting script)
  *     gfx   low | medium | high       mode=idle|walk|cast|charge  (creature animation)
  *     ids=a,b,c  show exactly these ids from the set · fit=0 shows true game scale
@@ -45,7 +45,7 @@ import { makeSky, bakeEnvironment } from '/static/gfx/sky.js';
 import { makeLightRig } from '/static/gfx/lighting.js';
 import { createPipeline } from '/static/gfx/pipeline.js';
 import { getMonster, animateMonster, MONSTER_IDS, STAND_INS, BOSS_IDS } from '/static/monsters.js';
-import { propGroup, PROP_IDS, preloadProps } from '/static/props.js';
+import { propGroup, PROP_IDS, PROP_VARIANT_IDS, preloadProps } from '/static/props.js';
 import { glbProp, STRUCTURE_IDS, structTemplate } from '/static/structures.js';
 
 const q = new URLSearchParams(location.search);
@@ -54,14 +54,14 @@ const SETS = {
   standins: [...Object.keys(STAND_INS), '_unknown_id', '_spectre'],
   captains: ['captain:#e4572e', 'captain:#3f88c5', 'captain:#44af69', 'captain:#f2c14e',
              'captain:#9b5de5', 'captain:#f8f9fa', 'captain:#222831', 'captain'],
-  props: PROP_IDS,
+  props: [...PROP_IDS, ...PROP_VARIANT_IDS],
   structures: STRUCTURE_IDS,
 };
 const SET_NAMES = Object.keys(SETS);
 const LOOKS = ['hub', 'ice', 'desert', 'jungle', 'autumn', 'pharos'];
 const setName = SETS[q.get('set')] ? q.get('set') : 'monsters';
 const per = Math.max(1, +(q.get('per') || 12));
-const cols = Math.max(1, +(q.get('cols') || 4));
+const cols = Math.max(1, +(q.get('cols') || 6));
 const page = Math.max(0, +(q.get('page') || 0));
 const lookName = LOOKS.includes(q.get('look')) ? q.get('look') : 'hub';
 const mode = q.get('mode') || 'idle';
@@ -101,7 +101,7 @@ floor.receiveShadow = true;
 scene.add(floor);
 
 /* ── the grid ────────────────────────────────────────────────────────────── */
-const CELL = 5.2, ROW = 7.0, FIT = 3.7;
+const CELL = 5.2, ROW = 7.6, FIT = 3.7;
 const rows = Math.ceil(ids.length / cols);
 const cells = [];
 const tags = [];
@@ -156,7 +156,7 @@ async function place(id, i) {
   tag.className = 'tag';
   tag.innerHTML = `${id}<small>${isFinite(trueH) ? trueH.toFixed(1) + 'u' : 'EMPTY'}${note ? ' · ' + note : ''}</small>`;
   document.body.appendChild(tag);
-  tags.push({ tag, pos: new THREE.Vector3(cx, 0, cz + ROW * 0.36) });
+  tags.push({ tag, pos: new THREE.Vector3(cx, 0, cz + 2.4) });
   cells.push({ id, holder, obj });
 }
 
@@ -165,20 +165,37 @@ const camera = new THREE.PerspectiveCamera(26, 1, 0.5, 2000);
 const controls = new OrbitControls(camera, renderer.domElement);
 controls.enableDamping = true;
 function frameGrid() {
-  const w = cols * CELL, d = rows * ROW;
-  const aspect = innerWidth / innerHeight;
-  const vfov = THREE.MathUtils.degToRad(camera.fov);
-  const hfov = 2 * Math.atan(Math.tan(vfov / 2) * aspect);
-  const el = THREE.MathUtils.degToRad(+(q.get('el') || 30));
-  const distW = (w / 2 + 0.6) / Math.tan(hfov / 2);
-  const distH = ((d * Math.sin(el) + FIT * 1.25 * Math.cos(el)) / 2 + 0.4) / Math.tan(vfov / 2);
-  const dist = Math.max(distW, distH) + d * 0.5 * Math.cos(el);
+  const w = cols * CELL, d = (rows - 1) * ROW;
+  const el = THREE.MathUtils.degToRad(+(q.get('el') || 26));
   const az = THREE.MathUtils.degToRad(+(q.get('az') || 0));
-  controls.target.set(0, FIT * 0.42, 0.4);
-  camera.position.set(Math.sin(az) * Math.cos(el) * dist, FIT * 0.42 + Math.sin(el) * dist,
-                      0.4 + Math.cos(az) * Math.cos(el) * dist);
+  const dir = new THREE.Vector3(Math.sin(az) * Math.cos(el), Math.sin(el), Math.cos(az) * Math.cos(el));
+  // the box that must be on screen: models (to FIT high) plus the label strip in front
+  const lo = new THREE.Vector3(-w / 2, 0, -d / 2 - CELL * 0.4);
+  const hi = new THREE.Vector3(w / 2, FIT * 1.12, d / 2 + 3.4);
+  const corner = new THREE.Vector3(), right = new THREE.Vector3(), up = new THREE.Vector3();
+  let dist = 60;
+  controls.target.copy(lo).add(hi).multiplyScalar(0.5);
+  for (let it = 0; it < 6; it++) {
+    camera.position.copy(controls.target).addScaledVector(dir, dist);
+    camera.lookAt(controls.target);
+    camera.updateMatrixWorld(true);
+    let x0 = 9, x1 = -9, y0 = 9, y1 = -9;
+    for (let i = 0; i < 8; i++) {
+      corner.set(i & 1 ? hi.x : lo.x, i & 2 ? hi.y : lo.y, i & 4 ? hi.z : lo.z).project(camera);
+      x0 = Math.min(x0, corner.x); x1 = Math.max(x1, corner.x);
+      y0 = Math.min(y0, corner.y); y1 = Math.max(y1, corner.y);
+    }
+    // re-centre along the screen axes, then pull in/out until the box fills ~94%
+    const halfH = Math.tan(THREE.MathUtils.degToRad(camera.fov) / 2) * dist;
+    right.setFromMatrixColumn(camera.matrixWorld, 0);
+    up.setFromMatrixColumn(camera.matrixWorld, 1);
+    controls.target.addScaledVector(right, (x0 + x1) / 2 * halfH * camera.aspect)
+                   .addScaledVector(up, (y0 + y1) / 2 * halfH);
+    dist *= Math.max((x1 - x0) / 2, (y1 - y0) / 2) / 0.94;
+  }
+  camera.position.copy(controls.target).addScaledVector(dir, dist);
   controls.update();
-  rig.follow(controls.target, dist * 0.6);
+  rig.follow(controls.target, Math.max(w, d + CELL) * 0.42);
 }
 function resize() {
   pipe.setSize(innerWidth, innerHeight);

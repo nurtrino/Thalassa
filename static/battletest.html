@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<title>battle stage tester</title>
+<title>Thalassa — battle stage tester</title>
 <script type="importmap">{ "imports": { "three": "/static/vendor/three.module.min.js", "three/addons/": "/static/vendor/addons/" } }</script>
 <style>
   html,body{margin:0;height:100%;background:#0a1420;overflow:hidden}
@@ -15,53 +15,80 @@
 <div id="world"></div>
 <div id="label"></div>
 <script type="module">
-/* BATTLE TESTER: stages any enemy in the REAL battle scene (same stage,
- * camera, lighting, backdrop, hero and enemy pipeline as live battles) so
- * facing, scale and float can be sanity-checked per model.
- *   window.__showBattle(model, {hp, region, hero}) → stages 1 enemy
- *   window.__ids → every monster id
- * The stage runs its normal idle animation loop, so floaters hover and
- * grounded beasts breathe exactly as in game. */
+/* BATTLE TESTER: stages any enemy in the REAL battle scene — same stage,
+ * camera, backdrop, hero and enemy pipeline as live battles, rendered
+ * through the game's HDR frame (gfx/pipeline.js) with the diorama's own look
+ * — so facing, scale, float, stand-ins and glow can be checked per model.
+ *
+ *   /static/battletest.html?model=wolf_frost,wolf_frost,harpy&region=ice&hero=ship&hp=4
+ *     model   one or more model ids (comma list → a pack), incl. stand-in ids
+ *     region  hub | ice | desert | jungle | autumn | pharos
+ *     hero    ship | captain          play=attack|hurt|cast|charge (looped beat on the enemies)
+ *   window.__showBattle(models, {hp, region, hero}) restages without a reload
+ *   window.__ids → every creature file id · window.__standIns → the stand-in ids
+ */
 import * as THREE from 'three';
 import { createBattleStage } from '/static/battle.js';
-import { MONSTER_IDS } from '/static/monsters.js';
+import { MONSTER_IDS, STAND_INS, BOSS_IDS, preloadMonsters } from '/static/monsters.js';
 import { themeFor } from '/static/themes.js';
+import { installAtmosphere, updateAtmosphere } from '/static/gfx/atmosphere.js';
+import { createPipeline } from '/static/gfx/pipeline.js';
 
+const q = new URLSearchParams(location.search);
 const el = document.getElementById('world');
 const label = document.getElementById('label');
-const renderer = new THREE.WebGLRenderer({ antialias: true });
-renderer.setPixelRatio(1);
-renderer.setSize(innerWidth, innerHeight);
+installAtmosphere();
+const renderer = new THREE.WebGLRenderer({ antialias: false, powerPreference: 'high-performance' });
 renderer.shadowMap.enabled = true;
-renderer.outputColorSpace = THREE.SRGBColorSpace;
+renderer.shadowMap.type = THREE.PCFShadowMap;
 el.appendChild(renderer.domElement);
+const pipe = createPipeline(renderer);
 
 const stage = createBattleStage(renderer);
-stage.resize(innerWidth, innerHeight);
+function resize() {
+  pipe.setSize(innerWidth, innerHeight);
+  stage.resize(innerWidth, innerHeight);
+}
+addEventListener('resize', resize);
+resize();
 
-window.__showBattle = (model, { hp = 4, region = 'hub', hero = 'ship' } = {}) => {
+window.__showBattle = (models, { hp = 4, region = 'hub', hero = 'ship' } = {}) => {
+  const list = Array.isArray(models) ? models : String(models).split(',');
   stage.exit();
   stage.enter({
-    battle: { enemies: [{ name: model, hp, max_hp: hp, power: 1, model }] },
+    battle: { enemies: list.map((model) => {
+      const h = BOSS_IDS.has(model) ? 12 : hp;
+      return { name: model, hp: h, max_hp: h, power: 1, model };
+    }) },
     room: {}, you: 'p1',
     theme: themeFor(region),
     heroColor: '#e4572e',
     heroKind: hero,
   });
-  label.textContent = `battle:${model}  (region=${region}, hero=${hero}, hp=${hp})`;
+  pipe.setLook(stage.look());
+  label.textContent = `battle: ${list.join(', ')}  (region=${region}, hero=${hero})`;
+  return Promise.all(preloadMonsters([...list, 'captain']));
 };
 window.__ids = MONSTER_IDS;
+window.__standIns = Object.keys(STAND_INS);
 
-const clock = new THREE.Clock();
-let tPrev = 0;
+const clock = new THREE.Timer();
+let frames = 0, staged = false;
 renderer.setAnimationLoop(() => {
-  const t = clock.getElapsedTime();
-  const dt = Math.min(0.1, t - tPrev);
-  tPrev = t;
+  clock.update();
+  const t = clock.getElapsed();
+  const dt = Math.min(0.1, clock.getDelta());
   stage.update(t, dt);
-  renderer.render(stage.scene, stage.camera);
+  updateAtmosphere(stage.camera, t);
+  pipe.render(stage.scene, stage.camera, dt);
+  if (staged && ++frames === 6) window.__ready = true;
 });
-window.__ready = true;
+window.__err = [];
+addEventListener('error', (e) => window.__err.push(String(e.message)));
+await window.__showBattle(q.get('model') || 'wolf,bird,fox', {
+  hp: +(q.get('hp') || 4), region: q.get('region') || 'hub', hero: q.get('hero') || 'ship',
+});
+staged = true;
 </script>
 </body>
 </html>

@@ -327,7 +327,9 @@ function lockDev() {
   }
 })();
 
-world.showTitle();        // the living sea behind the title card
+// the living sea behind the title card — deferred so every module-level
+// binding the stage-change handler touches exists first
+setTimeout(() => { if (!room) world.showTitle(); }, 0);
 
 $('nameInput').value = localStorage.getItem('thalassa_name') || '';
 
@@ -514,7 +516,7 @@ function handle(msg) {
 /* ── stage accent + realm banner ────────────────────────────────────────── */
 let lastStage = null;
 // realms with their own overworld soundtrack (static/music/<realm>.mp3); the
-// open-sea scene plays the current realm's theme, falling back to game.mp3.
+// open-sea scene plays the current realm's theme, falling back to hub.mp3.
 const REALM_MUSIC = new Set(['hub', 'ice', 'desert', 'jungle', 'autumn']);
 let curRealm = 'hub';
 
@@ -1468,6 +1470,16 @@ function showInspector(pid) {
 }
 
 
+/* the idle clock: the server acts for a captain who sits on their turn too
+   long (room.turn_deadline, epoch seconds). Show the last half-minute. */
+setInterval(() => {
+  const el = document.getElementById('turnClock');
+  if (!el || !room?.turn_deadline) return;
+  const left = Math.ceil(room.turn_deadline - Date.now() / 1000);
+  el.textContent = left > 0 && left <= 30 ? `${left}s` : '';
+  el.classList.toggle('hot', left > 0 && left <= 10);
+}, 500);
+
 function renderTurnBanner() {
   const el = $('turnBanner');
   const players = room.players || [];
@@ -1482,14 +1494,17 @@ function renderTurnBanner() {
   const short = (s) => (s.length > 10 ? esc(s.slice(0, 9)) + '…' : esc(s));
   el.innerHTML = '<div class="turnorder">' + order.map((p, i) => {
     const me = p.pid === you;
+    const away = (room.away || []).includes(p.pid);
     const cls = ['tocap', i === 0 ? 'active' : '', me ? 'me' : '',
-                 p.connected === false ? 'gone' : ''].filter(Boolean).join(' ');
+                 p.connected === false ? 'gone' : '', away ? 'away' : ''].filter(Boolean).join(' ');
     const name = i === 0 && me ? 'You' : short(p.name);
     return `<span class="${cls}" title="${esc(p.name)}${me ? ' (you)' : ''}` +
       `${i === 0 ? " — now" : i === 1 ? ' — next' : ''}">` +
       `<span class="dot" style="background:${p.color}"></span>` +
       `<span class="toname">${name}</span>` +
-      (p.bot ? icon('bot', 11) : '') + '</span>';
+      (p.bot ? icon('bot', 11) : '') +
+      (away ? '<span class="toaway">away</span>' : '') +
+      (i === 0 && room.turn_deadline ? '<span class="toclock" id="turnClock"></span>' : '') + '</span>';
   }).join('<span class="toarrow">›</span>') + '</div>';
 }
 

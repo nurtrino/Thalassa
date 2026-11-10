@@ -291,7 +291,7 @@ class ThalassaAudio {
     if (t.failed) {                       // missing file → sensible fallback
       const base = name.replace(/\d+$/, '');   // desert2 → desert before game
       if (base !== name) { this.setSceneForce(base); return; }
-      if (name !== 'game') this.setSceneForce('game');
+      if (name !== 'hub') this.setSceneForce('hub');   // hub.mp3 is the general overworld theme
       else this._musicFallback();
       return;
     }
