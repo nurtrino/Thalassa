@@ -819,7 +819,8 @@ export function buildBattleSet(theme, opts = {}, kit = {}) {
     return m;
   };
 
-  const ARENA = { cx: 9.5, cz: 0, rx: 11, rz: 16 };
+  // the shoal stops just short of where the galley's ram ends its surge (x ≈ 0)
+  const ARENA = { cx: 10.6, cz: 0, rx: 10, rz: 16 };
   let shore = { x: 14, z: -6, size: 170 };
 
   if (id === 'hub') {
@@ -855,7 +856,7 @@ export function buildBattleSet(theme, opts = {}, kit = {}) {
     const rocks = lumps([
       { x: wx, z: wz, y: -0.5, sx: 4.4, sy: 1.5, sz: 3.2, seed: 11, detail: 5, rough: 0.34 },
       { x: wx + 3.6, z: wz - 2.2, y: -0.4, sx: 1.7, sy: 2.4, sz: 1.5, seed: 12, facets: 5, rough: 0.2 },
-      { x: sx, z: sz, y: -0.5, sx: 2.3, sy: 3.4, sz: 2.0, seed: 13, detail: 5, facets: 6, rough: 0.22 },
+      { x: sx, z: sz, y: -0.5, sx: 1.9, sy: 2.9, sz: 1.7, seed: 13, detail: 7, facets: 9, cut: 0.55, rough: 0.3 },
       { x: sx + 2.4, z: sz + 1.6, y: -0.5, sx: 1.6, sy: 1.5, sz: 1.9, seed: 14, rough: 0.3 },
       { x: sx - 2.6, z: sz + 2.4, y: -0.6, sx: 1.2, sy: 0.9, sz: 1.0, seed: 15, rough: 0.3 },
       { x: 21, z: 12.5, y: -0.5, sx: 1.6, sy: 0.9, sz: 1.3, seed: 16, rough: 0.3 },
@@ -902,7 +903,7 @@ export function buildBattleSet(theme, opts = {}, kit = {}) {
         },
       });
     };
-    const sheet = new THREE.Mesh(plate(ARENA.cx, ARENA.cz, 12, 17, -0.03, seed + 3, 0.5, true), iceMat);
+    const sheet = new THREE.Mesh(plate(ARENA.cx + 0.6, ARENA.cz, 10.4, 17, -0.03, seed + 3, 0.5, true), iceMat);
     sheet.receiveShadow = true;
     sheet.layers.enable(SHORE_LAYER);
     sheet.name = 'arena';
@@ -1016,6 +1017,7 @@ export function buildBattleSet(theme, opts = {}, kit = {}) {
     prop('jungle_dungeon', 0, ruin.top - 0.1, 0, 4.0, -Math.PI / 2 - 0.42, ruin.group);
     ruin.put('mossy_idol', 2.25, 0.74, 2.0, -1.9); ruin.put('mossy_idol', 3.35, 0.74, 2.0, -1.9);
     ruin.put('jungle_tree', 0.4, 0.7, 2.8); ruin.put('jungle_tree', -1.4, 0.72, 3.1);
+    // (the jungle tree is an 11k-triangle model: a dozen of them is the budget)
     ruin.put('fern_cluster', 3.4, 0.86, 1.6);
     const wall = (d, s, R, trees) => {
       const [x, z] = P(d, s);
@@ -1023,11 +1025,11 @@ export function buildBattleSet(theme, opts = {}, kit = {}) {
       trees.forEach(([a, rr, sc]) => b.put('jungle_tree', a, rr, sc));
       return b;
     };
-    wall(36, -27, 9, [[0.3, 0.3, 3.0], [2.4, 0.5, 2.6], [4.4, 0.45, 3.3]]).put('fern_cluster', 1.2, 0.8, 1.8);
-    wall(70, -37, 12, [[0.6, 0.4, 3.4], [2.8, 0.5, 3.0], [4.8, 0.3, 3.6], [1.8, 0.75, 2.8]]);
-    wall(36, 27, 8.5, [[1.0, 0.3, 3.1], [3.2, 0.5, 2.7], [5.2, 0.45, 2.9]]).put('fern_cluster', 3.9, 0.82, 1.7);
-    wall(74, 30, 11, [[0.2, 0.4, 3.3], [2.2, 0.45, 3.5], [4.1, 0.5, 3.0]]);
-    wall(100, -6, 13, [[0.5, 0.4, 3.6], [2.0, 0.3, 3.9], [3.4, 0.55, 3.3], [5.0, 0.5, 3.6]]);
+    wall(36, -27, 9, [[0.3, 0.3, 3.0], [3.4, 0.5, 3.3]]).put('fern_cluster', 1.2, 0.8, 1.8);
+    wall(70, -37, 12, [[0.6, 0.4, 3.6], [3.6, 0.4, 3.9]]).put('fern_cluster', 2.2, 0.7, 2.4);
+    wall(36, 27, 8.5, [[1.0, 0.3, 3.1], [4.2, 0.5, 2.9]]).put('fern_cluster', 3.9, 0.82, 1.7);
+    wall(74, 30, 11, [[0.2, 0.4, 3.5], [3.1, 0.45, 3.8]]);
+    wall(100, -6, 13, [[0.5, 0.4, 4.0], [3.0, 0.4, 4.3]]).put('fern_cluster', 1.6, 0.6, 2.6);
     // foreground: reeds and fern on a mud lip, lilies on the slack water
     const [bx, bz] = P(13.5, 9.4);
     const paint = rockPaint(seed + 2, 0x6a5a40, 0x4f6a34, 0.5);

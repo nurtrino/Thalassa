@@ -190,10 +190,11 @@ vec4 skyClouds(vec3 d, int oct) {
   float s = max(dot(d, uSunDir), 0.0);
   vec3 col = mix(uCloudShade, uCloudLit, lit);
   col += uSunColor * pow(s, 10.0) * 0.55 * (1.0 - dens * 0.6);   // silver lining
-  float horizonFade = smoothstep(0.0, 0.2, d.y);
-  // distant cloud sinks into the haze
+  // toward the horizon the deck foreshortens into an even white veil — thin
+  // it out there so the horizon keeps the haze's own colour
+  float horizonFade = smoothstep(0.03, 0.34, d.y);
   col = mix(skyAir(vec3(d.x, 0.0, d.z)), col, horizonFade * 0.85 + 0.15);
-  return vec4(col, dens * horizonFade);
+  return vec4(col, dens * horizonFade * horizonFade);
 }
 vec3 skyStars(vec3 d) {
   if (uSkyFx.x <= 0.001 || d.y < 0.0) return vec3(0.0);

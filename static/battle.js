@@ -39,7 +39,7 @@ const HURT_RED = 0xff6a52;
 
 /* HDR gains for the additive beat effects (1 = plain LDR colour). Tuned so a
    hit pops through the bloom threshold without washing the creature out. */
-const GLOW = { flash: 1.7, bolt: 2.4, ring: 1.5, shield: 1.8, aura: 1.5, dmg: 1.25 };
+const GLOW = { flash: 1.6, bolt: 2.4, ring: 1.5, shield: 1.0, aura: 1.5, dmg: 1.25 };
 
 /* The lighting script per look. The stage's own look (gfx/looks.js) supplies
    colour, haze and grade; the diorama re-aims the light for ITS camera:
@@ -134,12 +134,12 @@ function makeDmgPool(scene, n = 10) {
     spr.visible = false;
     spr.renderOrder = 50;
     scene.add(spr);
-    pool.push({ spr, ctx, tex, active: false, t0: 0, dur: 1.1, x: 0, y: 0, z: 0, big: false });
+    pool.push({ spr, ctx, tex, active: false, t0: 0, dur: 1.1, x: 0, y: 0, z: 0, big: false, mul: 1 });
   }
   return pool;
 }
 
-function spawnDmg(pool, t, text, x, y, z, cssColor, big) {
+function spawnDmg(pool, t, text, x, y, z, cssColor, big, mul = 1) {
   let d = pool.find((e) => !e.active);
   if (!d) { d = pool[0]; }                       // steal the oldest slot
   const ctx = d.ctx;
@@ -154,7 +154,7 @@ function spawnDmg(pool, t, text, x, y, z, cssColor, big) {
   ctx.fillStyle = cssColor;
   ctx.fillText(text, 128, 68);
   d.tex.needsUpdate = true;
-  d.active = true; d.t0 = t; d.big = !!big;
+  d.active = true; d.t0 = t; d.big = !!big; d.mul = mul;
   d.x = x; d.y = y; d.z = z;
   d.spr.visible = true;
   return d;
@@ -166,7 +166,7 @@ function updateDmg(pool, t) {
     const k = (t - d.t0) / d.dur;
     if (k >= 1) { d.active = false; d.spr.visible = false; continue; }
     const pop = k < 0.12 ? easeOut(k / 0.12) : 1;
-    const s = (d.big ? 3.6 : 2.5) * (0.6 + 0.4 * pop) * (1 + k * 0.15);
+    const s = (d.big ? 3.6 : 2.5) * d.mul * (0.6 + 0.4 * pop) * (1 + k * 0.15);
     d.spr.scale.set(s, s * 0.5, 1);
     d.spr.position.set(d.x, d.y + easeOut(k) * 2.3, d.z);
     d.spr.material.opacity = k < 0.6 ? 1 : 1 - (k - 0.6) / 0.4;
@@ -180,7 +180,8 @@ function makeFlashPool(scene, n = 14) {
   for (let i = 0; i < n; i++) {
     const mat = new THREE.SpriteMaterial({
       map: softDiscTexture(), color: 0xffffff, transparent: true,
-      blending: THREE.AdditiveBlending, depthWrite: false, opacity: 0, fog: false });
+      // no depth test: a hit lights the creature up instead of sparking inside it
+      blending: THREE.AdditiveBlending, depthWrite: false, depthTest: false, opacity: 0, fog: false });
     const spr = new THREE.Sprite(mat);
     spr.visible = false;
     spr.renderOrder = 40;
@@ -614,7 +615,11 @@ export function createBattleStage(renderer) {
     const p = enemyChest(slot);
     spawnFlash(flashPool, st.t, p.x - 0.6, p.y, p.z, color, 2.6 * slot.scl, 0.32);
     spawnFlash(flashPool, st.t, p.x - 0.2, p.y + 0.5, p.z + 0.3, 0xffffff, 1.3 * slot.scl, 0.22);
-    if (dmg != null) spawnDmg(dmgPool, st.t, String(dmg), p.x, p.y + 0.9 * slot.scl, p.z, '#ffd76a', dmg >= 4);
+    // a colossus is framed from further off: its numbers grow with it
+    if (dmg != null) {
+      spawnDmg(dmgPool, st.t, String(dmg), p.x, p.y + 0.9 * slot.scl, p.z, '#ffd76a', dmg >= 4,
+        0.75 + slot.scl * 0.25);
+    }
     flashLight.color.set(color);
     flashLight.position.set(p.x, p.y + 0.5, p.z + 1.5);
     flashLight.intensity = 46;
@@ -820,9 +825,11 @@ export function createBattleStage(renderer) {
         slot.lunge = b;
         const windEnd = b.heavy ? 0.42 : 0.32;
         const hitK = b.heavy ? 0.58 : 0.52;
-        const stopX = b.mode === 'block' ? -4.2
+        // a giant stops short: its reach does the rest (it must not stand ON the hero)
+        const bulk = Math.max(0, slot.scl - 1.6) * 1.7;
+        const stopX = b.mode === 'block' ? -4.2 + bulk
           : b.mode === 'miss' ? HERO_HOME.x - 5.5
-          : HERO_HOME.x + 1.6;
+          : HERO_HOME.x + 1.6 + bulk;
         const dx = stopX - slot.home.x;
         if (k < windEnd) {
           // windup: rear back; heavies tremble with intent
@@ -859,10 +866,10 @@ export function createBattleStage(renderer) {
           else if (b.mode === 'block') {
             st.shieldT0 = t;
             shield.visible = true;
-            spawnFlash(flashPool, t, shield.position.x, shield.position.y, shield.position.z, GOLD, 4.5, 0.45);
+            spawnFlash(flashPool, t, shield.position.x, shield.position.y, shield.position.z, GOLD, 3.2, 0.45);
             flashLight.color.set(GOLD);
             flashLight.position.set(shield.position.x, shield.position.y + 1, 2);
-            flashLight.intensity = 55;
+            flashLight.intensity = 40;
             st.shake = Math.max(st.shake, b.heavy ? 0.3 : 0.16);
           } else if (b.mode === 'miss') {
             st.shake = Math.max(st.shake, 0.08);   // wind of the passing blow
@@ -1034,7 +1041,7 @@ export function createBattleStage(renderer) {
       shield.visible = true;
       const o = (1 - sk);
       shieldDisc.material.opacity = o * 0.8;
-      shieldGlow.material.opacity = o * 0.7;
+      shieldGlow.material.opacity = o * 0.55;
       const s = 0.7 + easeOut(sk) * 0.6;
       shieldDisc.scale.set(s, s, s);
     } else if (shield.visible) {

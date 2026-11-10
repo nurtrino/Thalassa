@@ -65,15 +65,17 @@ const LOOKS = {
   },
 
   autumn: {
-    sun: { az: 31, el: 15, color: 0xffb060, intensity: 3.5 },
+    sun: { az: 31, el: 16, color: 0xffc080, intensity: 3.4 },
     sky: { zenith: 0x35488a, ground: 0x6b4a2c, curve: 0.55, glow: 1.2, disc: 20,
            clouds: { cover: 0.42, scale: 0.9, speed: 0.007, soft: 0.32, lit: 0xffc890, shade: 0x8a6a72 } },
     fog: { color: 0xdca878, sunColor: 0xffc878, sunGlow: 1.1, heightFalloff: 0.030, heightBase: 9, heightAmount: 0.7 },
-    env: 0.9, fill: { sky: 0xf3d2a0, ground: 0x6e4a2e, intensity: 0.30 },
-    shadow: { strength: 0.85, radius: 3.5 },
+    // the shade under the trees is COOL (lavender fill against the amber sun) —
+    // that contrast is what makes the light pools on the floor read as gold
+    env: 1.0, fill: { sky: 0xc9b6d6, ground: 0x7a5a40, intensity: 0.42 },
+    shadow: { strength: 0.82, radius: 3.5 },
     exposure: 1.0, bloom: { strength: 0.46, radius: 0.8, threshold: 1.0 },
     shafts: 1.0, shaftColor: 0xffc27a,
-    grade: { contrast: 1.07, saturation: 1.10, shadows: 0xf6efff, highlights: 0xfff1d8, vignette: 0.34 },
+    grade: { contrast: 1.06, saturation: 1.08, shadows: 0xf3eeff, highlights: 0xfff1d8, vignette: 0.34 },
   },
 
   pharos: {

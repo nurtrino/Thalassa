@@ -56,7 +56,7 @@ function sunInfo() {
 const U = {
   uDapple: { value: null },
   uSunH: { value: new THREE.Vector4(1, 0, 3.7, 0.2) },   // xy sun heading, z cot(elevation), w shade floor
-  uPort: { value: new THREE.Vector4(23, 0.445, 0, 0) },  // x focus distance, y tan(fov/2)
+  uPort: { value: new THREE.Vector4(23, 0.445, 0.6, 0) },  // x focus distance, y tan(fov/2), z how steeply the camera looks down
   uValeT: { value: 0 },
 };
 
@@ -255,7 +255,7 @@ function litterTextures() {
   const [cv, ctx] = makeCanvas(S, S);
   const [hv, hctx] = makeCanvas(S, S);
   const rnd = mulberry32(60217);
-  ctx.fillStyle = '#35261a';
+  ctx.fillStyle = '#463627';
   ctx.fillRect(0, 0, S, S);
   hctx.fillStyle = '#202020';
   hctx.fillRect(0, 0, S, S);
@@ -267,10 +267,10 @@ function litterTextures() {
     }
   }
   const pal = jitterPal([
-    ['#c9842a', 3], ['#dba035', 3], ['#e6b848', 3], ['#b96a2a', 2], ['#9c5226', 1],
-    ['#8a6038', 3], ['#6b4a2c', 2], ['#b09c44', 1], ['#d27a34', 1]], rnd);
+    ['#cfa45a', 3], ['#dcb964', 3], ['#e8cf7c', 3], ['#c48a4c', 2], ['#a8683c', 1],
+    ['#a08258', 3], ['#80664a', 2], ['#b8ad62', 1], ['#d6935a', 1]], rnd);
   // old brown leaves first (the mat), the bright fresh fall on top
-  paintLeaves(ctx, hctx, S, rnd, 5200, jitterPal([['#6e4a2b', 3], ['#59391f', 3], ['#85582e', 2], ['#4a2f1a', 2]], rnd), 12, 24, 'rgba(30,16,8,0.4)');
+  paintLeaves(ctx, hctx, S, rnd, 5200, jitterPal([['#806446', 3], ['#6b5038', 3], ['#94744e', 2], ['#5a4330', 2]], rnd), 12, 24, 'rgba(30,20,12,0.4)');
   paintLeaves(ctx, hctx, S, rnd, 6200, pal, 11, 25, 'rgba(60,28,10,0.42)');
   _litter = { map: asTexture(cv), bump: asTexture(hv, false) };
   return _litter;
@@ -365,7 +365,7 @@ export function makeValeGround(theme, size = 3000, opts = {}) {
   const trail = makeTrailField({ cx, cz, half: 640, res: 1024, reach: 12 });
 
   const mat = new THREE.MeshStandardMaterial({
-    map: lit.map, bumpMap: lit.bump, bumpScale: 2.2, roughness: 0.94, metalness: 0 });
+    map: lit.map, bumpMap: lit.bump, bumpScale: 1.1, roughness: 0.94, metalness: 0 });
   mat.onBeforeCompile = (shader) => {
     addWorldVaryings(shader);
     Object.assign(shader.uniforms, trail.uniforms);
@@ -381,14 +381,14 @@ export function makeValeGround(theme, size = 3000, opts = {}) {
         vec3 fBig = texture2D(map, vMapUv * 0.23 + vec2(0.31, 0.77)).rgb;
         diffuseColor.rgb *= 0.72 + 0.9 * dot(fBig, vec3(0.33));
         // golden drifts where the leaves have heaped, dark damp hollows between
-        diffuseColor.rgb *= mix(vec3(0.58, 0.52, 0.50), vec3(1.16, 1.07, 0.92), smoothstep(0.30, 0.68, fDrift));
+        diffuseColor.rgb *= mix(vec3(0.64, 0.60, 0.60), vec3(1.14, 1.08, 0.96), smoothstep(0.30, 0.68, fDrift));
         // the trail: bare trodden earth, leaves kicked to its edges
         float fTD = trailDist(fXz);
         float fLeaf = dot(sampledDiffuseColor.rgb, vec3(0.5, 0.4, 0.1));
         float fPath = 1.0 - smoothstep(1.5, 2.9, fTD + (fGrain - 0.5) * 1.7 + fLeaf * 0.9);
         float fScuff = 1.0 - smoothstep(2.4, 6.5, fTD + (fGrain - 0.5) * 2.6);
         diffuseColor.rgb *= mix(vec3(1.0), vec3(0.74, 0.70, 0.66), fScuff * 0.6);
-        vec3 fEarth = vec3(0.150, 0.092, 0.050) * (0.75 + fGrain * 0.5);
+        vec3 fEarth = vec3(0.21, 0.155, 0.105) * (0.75 + fGrain * 0.5);
         diffuseColor.rgb = mix(diffuseColor.rgb, fEarth, fPath * 0.9);`)
       .replace('#include <roughnessmap_fragment>', /* glsl */`#include <roughnessmap_fragment>
         roughnessFactor = mix(roughnessFactor, 0.78, fPath);`)
@@ -475,7 +475,7 @@ const VARIANTS = [
 ];
 const CROWN_TONES = [[1, 1, 1], [1.0, 0.86, 0.68], [0.9, 0.72, 0.6], [1.08, 1.02, 0.8]];
 /* whole-tree tints (instance colour): amber, gold, russet, deep red, orange, olive-gold */
-const TREE_TINTS = [0xd98a2a, 0xd98a2a, 0xe6b032, 0xe6b032, 0xb5521f, 0x9c3a1e, 0xd96c22, 0xd96c22, 0xa8962f];
+const TREE_TINTS = [0xe0a04a, 0xe0a04a, 0xecc45a, 0xecc45a, 0xc87238, 0xb04e2e, 0xe0863c, 0xe0863c, 0xb8aa48];
 
 function buildTree(v) {
   const P = VARIANTS[v];
@@ -583,7 +583,7 @@ function buildFarTree() {
   const trunk = new THREE.CylinderGeometry(0.8, 1.6, 17, 6, 1, true);
   trunk.translate(0, 8.5, 0);
   parts.push(tint(trunk, 0x3a2a1e));
-  for (const [x, y, z, r, sy, seed, det] of [[0, 22.5, 0, 7.4, 0.62, 3, 2], [4.6, 20, 1.5, 4.6, 0.7, 5, 1], [-4.4, 20.5, -1.8, 4.8, 0.7, 9, 1]]) {
+  for (const [x, y, z, r, sy, seed, det] of [[0, 22.5, 0, 7.4, 0.62, 3, 1], [4.6, 20, 1.5, 4.6, 0.7, 5, 1], [-4.4, 20.5, -1.8, 4.8, 0.7, 9, 1]]) {
     const g = lumpGeometry(1, det, 0.28, seed, 1.4);
     const pp = g.attributes.position;
     const cc = new Float32Array(pp.count * 3);
@@ -685,6 +685,7 @@ function shaftMaterial() {
     uniforms: {
       uColor: { value: new THREE.Color(look.shaftColor ?? 0xffc27a).multiplyScalar(0.4) },
       uValeT: U.uValeT,
+      uPort: U.uPort,
     },
     vertexShader: /* glsl */`
       varying vec2 vUv;
@@ -704,6 +705,7 @@ function shaftMaterial() {
     fragmentShader: /* glsl */`
       uniform vec3 uColor;
       uniform float uValeT;
+      uniform vec4 uPort;
       varying vec2 vUv;
       varying vec3 vView;
       varying float vFace;
@@ -716,7 +718,9 @@ function shaftMaterial() {
         float fade = smoothstep(5.0, 13.0, dist) * (1.0 - smoothstep(36.0, 64.0, dist));
         float streak = 0.72 + 0.28 * sin(vUv.x * 21.0 + vSeed * 5.0);
         float breathe = 0.82 + 0.18 * sin(uValeT * 0.6 + vSeed);
-        float a = across * along * fade * streak * breathe * smoothstep(0.12, 0.55, vFace);
+        // seen from straight above a shaft is just a pale band on the floor: let it go
+        float a = across * along * fade * streak * breathe * smoothstep(0.12, 0.55, vFace)
+                * (1.0 - smoothstep(0.62, 0.9, uPort.z));
         gl_FragColor = vec4(uColor * a, 1.0);
       }`,
     transparent: true, depthWrite: false, blending: THREE.AdditiveBlending,
@@ -751,7 +755,7 @@ function treeKit() {
     fernMat: valePatch(new THREE.MeshStandardMaterial({ vertexColors: true, map: fernTexture(), alphaTest: 0.45,
       side: THREE.DoubleSide, roughness: 0.8, metalness: 0 }), 'fern-v1', { dapple: 0.8 }),
     shroomMat: valePatch(new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.55, metalness: 0 }), 'shroom-v1', { dapple: 0.8 }),
-    driftMat: valePatch(new THREE.MeshStandardMaterial({ vertexColors: true, map: lit.map, bumpMap: lit.bump, bumpScale: 2.2,
+    driftMat: valePatch(new THREE.MeshStandardMaterial({ vertexColors: true, map: lit.map, bumpMap: lit.bump, bumpScale: 1.1,
       roughness: 0.92, metalness: 0 }), 'drift-v1', { dapple: 1.0 }),
     shaftMat: shaftMaterial(),
   };
@@ -980,7 +984,7 @@ export function makeValeField(theme, nodes, segs, rng, heightAt = null) {
     // focus = where the view axis meets the captain's height
     let focus = -fwd.y > 0.04 ? (camPos.y - 1.2) / -fwd.y : 26;
     focus = Math.min(34, Math.max(14, focus));
-    U.uPort.value.set(focus, Math.tan(THREE.MathUtils.degToRad(camera.fov) * 0.5), 0, 0);
+    U.uPort.value.set(focus, Math.tan(THREE.MathUtils.degToRad(camera.fov) * 0.5), -fwd.y, 0);
     U.uValeT.value = performance.now() / 1000;
     for (const c of cellList) {
       const isNear = Math.hypot(c.cx - camPos.x, c.cz - camPos.z) < NEAR_R;
