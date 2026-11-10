@@ -177,7 +177,10 @@ const _warned = new Set();
 function ensureTemplate(id) {
   let p = templates.get(id);
   if (p) return p;
-  if (HAVE.has(id)) {
+  if (id === '_spectre') {
+    // preview hook for static/modeltest.html: the last-resort fallback itself
+    p = Promise.resolve(prepareTemplate(buildFallback(), id));
+  } else if (HAVE.has(id)) {
     p = loader.loadAsync(`/static/assets/monsters/${id}.glb`)
       .then((gltf) => prepareTemplate(gltf.scene, id))
       .catch((err) => {

@@ -1,0 +1,286 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Thalassa — model contact sheet</title>
+<script type="importmap">{ "imports": { "three": "/static/vendor/three.module.min.js", "three/addons/": "/static/vendor/addons/" } }</script>
+<style>
+  html,body{margin:0;height:100%;background:#0b1622;overflow:hidden;font:13px/1.25 system-ui,sans-serif}
+  #world{position:fixed;inset:0}
+  .tag{position:fixed;transform:translate(-50%,0);color:#fff;text-align:center;white-space:nowrap;
+       text-shadow:0 1px 3px #000,0 0 6px #000;pointer-events:none;font-weight:600}
+  .tag small{display:block;font-weight:400;opacity:.85}
+  #bar{position:fixed;left:10px;top:8px;color:#ffe9b0;text-shadow:0 1px 3px #000;white-space:pre}
+  #bar a{color:#9fd6ff;margin-right:8px;text-decoration:none}
+</style>
+</head>
+<body>
+<div id="world"></div>
+<div id="bar"></div>
+<script type="module">
+/*
+ * MODEL CONTACT SHEET — every kept GLB, loaded through the game's real
+ * pipeline: monsters.js / props.js / structures.js (material finish, stand-ins,
+ * halos), the gfx core (HDR, bloom, tone map, grade), the stage's sun, sky
+ * and image-based ambient. What you see here is what the game renders.
+ *
+ *   /static/modeltest.html?set=monsters&page=0&look=hub
+ *     set   monsters | standins | captains | props | structures   (default monsters)
+ *     page  0..n                      per=12 models a page (cols=4)
+ *     look  hub | ice | desert | jungle | autumn | pharos         (lighting script)
+ *     gfx   low | medium | high       mode=idle|walk|cast|charge  (creature animation)
+ *     ids=a,b,c  show exactly these ids from the set · fit=0 shows true game scale
+ *   keys: ←/→ page · ↑/↓ set · L next look · drag to orbit
+ *
+ * Models are scaled to fit their cell (the label gives the true in-game
+ * height). window.__ready flips when everything on the page has loaded and
+ * settled; window.__audit() returns per-model triangle counts, texture sizes
+ * and the open-edge ratio (0 = watertight → safe to render single-sided).
+ */
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { installAtmosphere, applyLook, updateAtmosphere } from '/static/gfx/atmosphere.js';
+import { lookFor } from '/static/gfx/looks.js';
+import { makeSky, bakeEnvironment } from '/static/gfx/sky.js';
+import { makeLightRig } from '/static/gfx/lighting.js';
+import { createPipeline } from '/static/gfx/pipeline.js';
+import { getMonster, animateMonster, MONSTER_IDS, STAND_INS, BOSS_IDS } from '/static/monsters.js';
+import { propGroup, PROP_IDS, preloadProps } from '/static/props.js';
+import { glbProp, STRUCTURE_IDS, structTemplate } from '/static/structures.js';
+
+const q = new URLSearchParams(location.search);
+const SETS = {
+  monsters: MONSTER_IDS,
+  standins: [...Object.keys(STAND_INS), '_unknown_id', '_spectre'],
+  captains: ['captain:#e4572e', 'captain:#3f88c5', 'captain:#44af69', 'captain:#f2c14e',
+             'captain:#9b5de5', 'captain:#f8f9fa', 'captain:#222831', 'captain'],
+  props: PROP_IDS,
+  structures: STRUCTURE_IDS,
+};
+const SET_NAMES = Object.keys(SETS);
+const LOOKS = ['hub', 'ice', 'desert', 'jungle', 'autumn', 'pharos'];
+const setName = SETS[q.get('set')] ? q.get('set') : 'monsters';
+const per = Math.max(1, +(q.get('per') || 12));
+const cols = Math.max(1, +(q.get('cols') || 4));
+const page = Math.max(0, +(q.get('page') || 0));
+const lookName = LOOKS.includes(q.get('look')) ? q.get('look') : 'hub';
+const mode = q.get('mode') || 'idle';
+const fit = q.get('fit') !== '0';
+const all = q.get('ids') ? q.get('ids').split(',') : SETS[setName];
+const ids = q.get('ids') ? all : all.slice(page * per, page * per + per);
+const pages = Math.ceil(all.length / per);
+
+/* ── the real renderer ───────────────────────────────────────────────────── */
+installAtmosphere();
+const el = document.getElementById('world');
+const renderer = new THREE.WebGLRenderer({ antialias: false, powerPreference: 'high-performance' });
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFShadowMap;
+el.appendChild(renderer.domElement);
+const pipe = createPipeline(renderer);
+renderer.info.autoReset = false;   // count the whole composed frame
+
+const look = lookFor(lookName);
+const scene = new THREE.Scene();
+scene.fog = new THREE.Fog(look.fog.color, 140, 900);
+scene.add(makeSky());
+const rig = makeLightRig(look);
+scene.add(rig.group);
+scene.environmentIntensity = look.env;
+applyLook(look);
+pipe.setLook(look);
+const env = bakeEnvironment(renderer);
+scene.environment = env.texture;
+
+/* a plain matte stage floor in the realm's ground tone */
+const FLOOR = { hub: 0xcdbd98, ice: 0xdfe8f0, desert: 0xdcc089, jungle: 0x6f7f52, autumn: 0x9a7a4c, pharos: 0x3a3440 };
+const floor = new THREE.Mesh(new THREE.CircleGeometry(400, 64),
+  new THREE.MeshStandardMaterial({ color: FLOOR[lookName], roughness: 1, metalness: 0 }));
+floor.rotation.x = -Math.PI / 2;
+floor.receiveShadow = true;
+scene.add(floor);
+
+/* ── the grid ────────────────────────────────────────────────────────────── */
+const CELL = 5.2, ROW = 7.0, FIT = 3.7;
+const rows = Math.ceil(ids.length / cols);
+const cells = [];
+const tags = [];
+const monsters = [];
+const FACE = -Math.PI / 2 + 0.55;      // creatures face +X → turn them to camera, 3/4 view
+
+const STRUCT_H = { pharos: 31.2, lighthouse: 4.6, temple: 4.6, temple_ice: 4.6, temple_desert: 4.6,
+  temple_jungle: 4.6, temple_autumn: 4.6, ice_temple: 9.0, market: 5.0, obelisk: 5.4, tents: 2.3,
+  ship: 3.0, gate_portal: 12 };
+
+function measure(obj) {
+  obj.updateMatrixWorld(true);
+  const box = new THREE.Box3();
+  obj.traverse((o) => { if (o.isMesh && o.visible) box.expandByObject(o); });
+  return box;
+}
+
+async function place(id, i) {
+  const holder = new THREE.Group();
+  const cx = ((i % cols) - (cols - 1) / 2) * CELL;
+  const cz = (Math.floor(i / cols) - (rows - 1) / 2) * ROW;
+  holder.position.set(cx, 0, cz);
+  scene.add(holder);
+  let obj, note = '';
+  if (setName === 'monsters' || setName === 'standins' || setName === 'captains') {
+    const [mid, tint] = id.split(':');
+    obj = await getMonster(mid, { tint: tint || null });
+    obj.rotation.y = FACE;
+    monsters.push(obj);
+    note = STAND_INS[mid] ? `stand-in: ${STAND_INS[mid].use}` : BOSS_IDS.has(mid) ? 'boss' : (tint || '');
+  } else if (setName === 'props') {
+    obj = propGroup(id, 1);
+    await Promise.all(preloadProps([id]));
+    await new Promise((r) => setTimeout(r, 0));
+    obj.rotation.y = 0.5;
+  } else {
+    const h = STRUCT_H[id];
+    obj = glbProp(id, h ? { h } : { len: 5.6 });
+    await structTemplate(id);
+    await new Promise((r) => setTimeout(r, 0));
+    obj.rotation.y = 0.5;
+  }
+  holder.add(obj);
+  const box = measure(holder);
+  const size = box.getSize(new THREE.Vector3());
+  const trueH = size.y;
+  if (fit && isFinite(size.x)) {
+    const k = FIT / Math.max(size.x, size.y * 1.05, size.z, 0.01);
+    holder.scale.setScalar(k);
+  }
+  const tag = document.createElement('div');
+  tag.className = 'tag';
+  tag.innerHTML = `${id}<small>${isFinite(trueH) ? trueH.toFixed(1) + 'u' : 'EMPTY'}${note ? ' · ' + note : ''}</small>`;
+  document.body.appendChild(tag);
+  tags.push({ tag, pos: new THREE.Vector3(cx, 0, cz + ROW * 0.36) });
+  cells.push({ id, holder, obj });
+}
+
+/* ── camera ──────────────────────────────────────────────────────────────── */
+const camera = new THREE.PerspectiveCamera(26, 1, 0.5, 2000);
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.enableDamping = true;
+function frameGrid() {
+  const w = cols * CELL, d = rows * ROW;
+  const aspect = innerWidth / innerHeight;
+  const vfov = THREE.MathUtils.degToRad(camera.fov);
+  const hfov = 2 * Math.atan(Math.tan(vfov / 2) * aspect);
+  const el = THREE.MathUtils.degToRad(+(q.get('el') || 30));
+  const distW = (w / 2 + 0.6) / Math.tan(hfov / 2);
+  const distH = ((d * Math.sin(el) + FIT * 1.25 * Math.cos(el)) / 2 + 0.4) / Math.tan(vfov / 2);
+  const dist = Math.max(distW, distH) + d * 0.5 * Math.cos(el);
+  const az = THREE.MathUtils.degToRad(+(q.get('az') || 0));
+  controls.target.set(0, FIT * 0.42, 0.4);
+  camera.position.set(Math.sin(az) * Math.cos(el) * dist, FIT * 0.42 + Math.sin(el) * dist,
+                      0.4 + Math.cos(az) * Math.cos(el) * dist);
+  controls.update();
+  rig.follow(controls.target, dist * 0.6);
+}
+function resize() {
+  pipe.setSize(innerWidth, innerHeight);
+  camera.aspect = innerWidth / innerHeight;
+  camera.updateProjectionMatrix();
+}
+addEventListener('resize', () => { resize(); });
+resize();
+frameGrid();
+
+/* ── nav ─────────────────────────────────────────────────────────────────── */
+const go = (o) => {
+  const n = new URLSearchParams(location.search);
+  for (const k in o) n.set(k, o[k]);
+  n.delete('ids');
+  location.search = n.toString();
+};
+document.getElementById('bar').innerHTML =
+  `<b>${setName}</b> ${page + 1}/${pages} · look: ${lookName} · gfx: ${pipe.quality} · ${mode}\n` +
+  SET_NAMES.map((s) => `<a href="?set=${s}&look=${lookName}">${s}</a>`).join('') + '\n' +
+  LOOKS.map((l) => `<a href="?set=${setName}&page=${page}&look=${l}">${l}</a>`).join('');
+addEventListener('keydown', (e) => {
+  if (e.key === 'ArrowRight') go({ page: (page + 1) % pages });
+  else if (e.key === 'ArrowLeft') go({ page: (page + pages - 1) % pages });
+  else if (e.key === 'ArrowDown') go({ set: SET_NAMES[(SET_NAMES.indexOf(setName) + 1) % SET_NAMES.length], page: 0 });
+  else if (e.key === 'ArrowUp') go({ set: SET_NAMES[(SET_NAMES.indexOf(setName) + SET_NAMES.length - 1) % SET_NAMES.length], page: 0 });
+  else if (e.key === 'l' || e.key === 'L') go({ look: LOOKS[(LOOKS.indexOf(lookName) + 1) % LOOKS.length] });
+});
+
+/* ── audit ───────────────────────────────────────────────────────────────── */
+function openEdgeRatio(geo) {
+  const pos = geo.getAttribute('position');
+  const idx = geo.index;
+  geo.computeBoundingBox();
+  const size = geo.boundingBox.getSize(new THREE.Vector3());
+  const q = Math.max(size.x, size.y, size.z) / 20000 || 1e-6;
+  const weld = new Map(); const vid = new Int32Array(pos.count);
+  for (let i = 0; i < pos.count; i++) {
+    const k = `${Math.round(pos.getX(i) / q)},${Math.round(pos.getY(i) / q)},${Math.round(pos.getZ(i) / q)}`;
+    let v = weld.get(k);
+    if (v === undefined) { v = weld.size; weld.set(k, v); }
+    vid[i] = v;
+  }
+  const edges = new Map();
+  const n = idx ? idx.count : pos.count;
+  const at = (i) => vid[idx ? idx.getX(i) : i];
+  for (let i = 0; i < n; i += 3) {
+    const t = [at(i), at(i + 1), at(i + 2)];
+    for (let e = 0; e < 3; e++) {
+      const a = t[e], b = t[(e + 1) % 3];
+      if (a === b) continue;
+      const k = a < b ? a * 1e7 + b : b * 1e7 + a;
+      edges.set(k, (edges.get(k) || 0) + 1);
+    }
+  }
+  let open = 0;
+  for (const c of edges.values()) if (c === 1) open++;
+  return edges.size ? open / edges.size : 0;
+}
+window.__audit = () => cells.map(({ id, holder }) => {
+  let tris = 0, tex = 0, open = 0, meshes = 0, side = '';
+  holder.traverse((o) => {
+    if (!o.isMesh || !o.material?.isModelMaterial) return;
+    meshes++;
+    tris += (o.geometry.index ? o.geometry.index.count : o.geometry.getAttribute('position').count) / 3;
+    tex = Math.max(tex, o.material.map?.image?.width || 0);
+    open = Math.max(open, openEdgeRatio(o.geometry));
+    side = o.material.side === THREE.DoubleSide ? 'double' : 'front';
+  });
+  return { id, tris: Math.round(tris), tex, open: +open.toFixed(4), side, meshes };
+});
+
+/* ── run ─────────────────────────────────────────────────────────────────── */
+const clock = new THREE.Timer();
+let frames = 0, loaded = false, tAct = 0;
+const _p = new THREE.Vector3();
+renderer.setAnimationLoop(() => {
+  clock.update();
+  const t = clock.getElapsed();
+  const dt = Math.min(0.1, clock.getDelta());
+  for (const m of monsters) {
+    if (mode === 'attack' || mode === 'hurt' || mode === 'die') animateMonster(m, (t - tAct) % 2.2, mode);
+    else animateMonster(m, q.get('freeze') ? 1.0 : t, mode);
+  }
+  controls.update();
+  updateAtmosphere(camera, t);
+  renderer.info.reset();
+  pipe.render(scene, camera, dt);
+  for (const { tag, pos } of tags) {
+    _p.copy(pos).project(camera);
+    tag.style.left = `${(_p.x * 0.5 + 0.5) * innerWidth}px`;
+    tag.style.top = `${(-_p.y * 0.5 + 0.5) * innerHeight}px`;
+  }
+  if (loaded && ++frames === 4) {
+    window.__info = { calls: renderer.info.render.calls, tris: renderer.info.render.triangles };
+    window.__ready = true;
+  }
+});
+window.__err = [];
+addEventListener('error', (e) => window.__err.push(String(e.message)));
+await Promise.all(ids.map((id, i) => place(id, i).catch((e) => { window.__err.push(`${id}: ${e.message}`); })));
+loaded = true;
+</script>
+</body>
+</html>

@@ -500,7 +500,7 @@ function buildBody(paint) {
       hullPoint(u, 1, side, P);
       pts.push(V(P.x, P.y + 0.012, P.z - side * 0.02));
     }
-    B.tube(new THREE.CatmullRomCurve3(pts), 40, 5, () => 0.036, C.trim, 9);
+    B.tube(new THREE.CatmullRomCurve3(pts), 30, 5, () => 0.036, C.trim, 9);
   }
 
   /* deck: two side decks and a raised gangway down the middle */
@@ -555,10 +555,8 @@ function buildBody(paint) {
     for (const side of [1, -1]) {
       hullPoint(u, 0.9, side, P);
       hullNormal(u, 0.9, side, N);
-      const face = k % 2 ? C.cream : paint;
       // the wale is painted the captain's colour, so shields on it go pale/dark
       const fc = k % 2 ? C.cream : _col.copy(paint).multiplyScalar(0.45).clone();
-      void face;
       B.lathe([[0.128, -0.02, C.rim], [0.122, 0.012, C.rim], [0.122, 0.012, fc], [0.05, 0.036, fc],
                [0.05, 0.036, C.boss], [0.001, 0.058, C.boss]],
         8, facing(P.addScaledVector(N, 0.03), N), fc);
@@ -666,13 +664,15 @@ let _eyeGeo = null;
 function eyeGeometry() {
   if (_eyeGeo) return _eyeGeo;
   const B = new Builder();
-  const U0 = 0.83, U1 = 0.925, S0 = 0.52, S1 = 0.93;
+  const U0 = 0.80, U1 = 0.925, S0 = 0.6, S1 = 0.87;
   for (const side of [1, -1]) {
     B.grid(4, 3, (i, j, o) => {
       const u = U0 + (U1 - U0) * (i / 4), s = S0 + (S1 - S0) * (j / 3);
+      const y0 = hullPoint(u, S0, side, _d).y, y1 = hullPoint(u, S1, side, _d).y;
       hullNormal(u, s, side, o.n);
       hullPoint(u, s, side, o.p).addScaledVector(o.n, 0.006);
-      o.u = i / 4; o.v = j / 3;                // the iris sits toward the bow on both sides
+      o.u = i / 4;                             // the iris sits toward the bow on both sides
+      o.v = (o.p.y - y0) / Math.max(1e-4, y1 - y0);
     });
   }
   return (_eyeGeo = B.build(false));
