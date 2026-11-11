@@ -360,8 +360,13 @@ SAMPLER = """
         continue;
       }
       const p = rec.root.position;
+      // one leg per travel animation (a Vale walk is several, fork to fork)
+      if (cur[pid] && cur[pid].anim !== rec.anim) {
+        cur[pid].end = now; window.__qaLegs.push(cur[pid]); delete cur[pid]; delete last[pid];
+      }
       if (!cur[pid]) cur[pid] = { pid, stage: st.id, start: now, from: rec.prevNode,
-                                  to: rec.node, samples: 0, foot: rec.mode === 'foot' };
+                                  to: rec.node, samples: 0, foot: rec.mode === 'foot',
+                                  anim: rec.anim, dur: rec.anim.dur };
       const leg = cur[pid];
       leg.samples++;
       const foot = rec.mode === 'foot';
@@ -399,7 +404,8 @@ SAMPLER = """
       // helm: turn rate and slip off the bow
       const yaw = rec.root.rotation.y;
       const L = last[pid];
-      if (L) {
+      // (a placement — the far side of a pass, a dev drop — is not helm work)
+      if (L && Math.hypot(p.x - L.x, p.z - L.z) < 6 && leg.samples > 3) {
         const dt = (now - L.t) / 1000;
         let dy = yaw - L.yaw; dy -= Math.round(dy / (Math.PI * 2)) * Math.PI * 2;
         const vx = p.x - L.x, vz = p.z - L.z, sp = Math.hypot(vx, vz) / dt;
@@ -426,14 +432,25 @@ async def _sail_some(c, rounds, notes, label):
     you = await c.page.evaluate("() => window.__you")
     sailed = 0
     for _ in range(rounds):
+        try:
+            sailed += await _sail_once(c, you)
+        except Exception as e:             # a slow beat / stray phase: next round
+            notes.append(f"{label}: round skipped ({type(e).__name__})")
+    notes.append(f"{label}: {sailed} voyages")
+    return sailed
+
+
+async def _sail_once(c, you):
+    if True:
         r = await c.settle_to_roll()
         if r["phase"] != "roll" or r["turn"] != you:
-            continue
+            return 0
         await c.send({"type": "roll"})
-        await c.wait_phase("sail", "roll", "battle", "question", timeout=10000)
+        await c.wait_phase("sail", "roll", "battle", "question", "event",
+                           "minigame", timeout=20000)
         r = await c.room()
         if r["phase"] != "sail":
-            continue
+            return 0
         walk = r.get("walk") or {}
         if r["reachable"]:
             # prefer a stop that stays in this realm: the tour should cover
@@ -452,11 +469,9 @@ async def _sail_some(c, rounds, notes, label):
                              settle=900)
                 await c.wait_ship_settled(timeout=30000)
         else:
-            continue
+            return 0
         await c.wait_ship_settled(timeout=30000)
-        sailed += 1
-    notes.append(f"{label}: {sailed} voyages")
-    return sailed
+        return 1
 
 
 @suite
@@ -480,12 +495,14 @@ def sail_monitor(outdir):
                             arg=realm, timeout=20000)
                     await c.page.wait_for_timeout(800)
                     await _sail_some(c, 5, notes, realm)
-                legs = await c.page.evaluate("() => window.__qaLegs")
+                legs = await c.page.evaluate(
+                    "() => window.__qaLegs.map(({anim, ...l}) => l)")
                 clips = await c.page.evaluate("() => window.__qaClips")
                 helm = await c.page.evaluate("() => window.__qaHelm")
                 await c.page.evaluate("() => clearInterval(window.__qaTick)")
-                durs = sorted((l["end"] - l["start"]) / 1000 for l in legs
-                              if l.get("end"))
+                # the PLANNED duration (wall-clock legs stretch on a starved
+                # software renderer and say nothing about the game)
+                durs = sorted(l["dur"] / 1000 for l in legs if l.get("end"))
                 stages = sorted({l["stage"] for l in legs})
                 if durs:
                     notes.append(

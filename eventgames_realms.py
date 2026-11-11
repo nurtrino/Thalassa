@@ -335,7 +335,7 @@ def _drum_round(rng, level):
 def gen_drums(rng, params):
     rounds = max(1, min(5, int(params.get("rounds", 3))))
     st = {"kind": "drums", "rounds": rounds, "need": int(params.get("need", 2)),
-          "round": 1, "correct": 0, "history": [], "done": False, "result": None,
+          "round": 1, "right": 0, "history": [], "done": False, "result": None,
           "score": 0, "secret": {}}
     rd, ans, rule = _drum_round(rng, 0)
     st.update(rd)
@@ -349,11 +349,11 @@ def move_drums(st, payload, rng):
     _need(0 <= i < len(st["choices"]), "Pick one of the four patterns.")
     ans = st["secret"]["ans"]
     right = i == ans
-    st["correct"] += right
+    st["right"] += right
     st["history"].append({"seq": st["seq"], "pick": st["choices"][i],
-                          "answer": st["choices"][ans], "right": right})
+                          "was": st["choices"][ans], "right": right})
     if st["round"] >= st["rounds"]:
-        _end(st, "win" if st["correct"] >= st["need"] else "lose", st["correct"])
+        _end(st, "win" if st["right"] >= st["need"] else "lose", st["right"])
         return
     st["round"] += 1
     rd, ans, rule = _drum_round(rng, st["round"] - 1)

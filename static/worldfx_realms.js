@@ -167,7 +167,7 @@ function whaleGeo() {
     const glowCol = (x, y, z, nx, ny, nz, c) => {
       const u = (x + 1.6) / 3.2;
       c.setRGB(0.25, 1.0, 0.62).lerp(new THREE.Color(0.75, 0.42, 1.0), smooth(0.25, 0.9, 1 - u));
-      c.multiplyScalar(0.55 + 0.6 * Math.pow(Math.abs(nz), 1.5) + 0.25 * smooth(-0.2, -0.9, ny));
+      c.multiplyScalar(0.22 + 0.4 * Math.pow(Math.abs(nz), 1.5) + 0.15 * smooth(-0.2, -0.9, ny));
     };
     p.add(loft((u) => {
       const r = 0.07 + 0.62 * Math.pow(Math.sin(Math.min(1, u * 1.03) * Math.PI * 0.93), 1.05)
@@ -246,7 +246,7 @@ function makeAuroraWhale() {
   return animate(g, (t) => {
     const a = t * 0.12;
     const R = 4.0;
-    whale.position.set(Math.cos(a) * R, 6.0 + Math.sin(t * 0.5) * 0.6, Math.sin(a) * R);
+    whale.position.set(Math.cos(a) * R, 8.5 + Math.sin(t * 0.5) * 0.6, Math.sin(a) * R);
     whale.rotation.set(0, -a - Math.PI / 2, Math.sin(t * 0.5 + 1.2) * 0.12);
     fluke.rotation.z = Math.sin(t * 0.9) * 0.35;
     body.rotation.z = Math.sin(t * 0.9 - 0.8) * 0.05;

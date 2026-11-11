@@ -39,7 +39,7 @@ const _v = new THREE.Vector3();
      face   — turns to face where it is travelling */
 const LOOK = {
   merchant: { ride: true, beacon: 0xffc860, face: true },
-  dolphins: { beacon: 0x9fe8ff },
+  dolphins: { beacon: 0x9fe8ff, off: 3 },
   whirlpool: { beacon: 0xb48cff, centre: true, r: 9 },
   fog: { beacon: 0xdfe8ec, centre: true, r: 8, h: 10 },
   wreck: { ride: true, beacon: 0xffd070, off: 1 },
@@ -173,7 +173,7 @@ export function createWorldFx() {
     switch (w.model) {
       case 'merchant': { const s = makeMerchantShip(); s.scale.setScalar(1.9); return s; }
       case 'dolphins': return dolphinPod();
-      case 'whirlpool': return makeWhirlpool({ r: 7.5 });
+      case 'whirlpool': return makeWhirlpool({ r: 9 });
       case 'fog': return makeFogBank({ w: 24, d: 12, h: 6, seed: w.wid });
       case 'wreck': { const s = makeWreck({ seed: w.wid }); s.scale.setScalar(1.25); return s; }
       case 'festival': return festival(ctx.islandR(stageOf(n), w.node));

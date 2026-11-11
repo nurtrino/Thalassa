@@ -21,7 +21,7 @@ import { makeRock as procRock, makeFlotsam as procFlotsam } from './models/props
 import { onShore } from './models/kit.js';
 import { warningStake } from './realms/footkit.js';
 import { makeTerrain, makeNoise2D, makeGroundMaterial, groundGrainTexture, groundReliefTexture, SHORE_LAYER, GROUND_TILE } from './gfx/terrain.js';
-import { ISLE_FOOT, FOOT_K, isleShape } from './isleshape.js';
+import { ISLE_FOOT, FOOT_K, MIN_R, isleShape } from './isleshape.js';
 
 /* ground grain/relief textures now live with the terrain engine (gfx/terrain.js);
    re-exported under their old names for the sand floors in water.js */
@@ -489,7 +489,9 @@ export function buildIsland(node, theme, domains) {
   const solid = node.type !== 'sea' && node.type !== 'gate';
   const maxR = (ISLE_R[node.type] ?? 4.8) * (solid && foot ? FOOT_K : 1);
   let R = maxR * (solid ? 0.84 + rng0() * 0.16 : 1);
-  if (solid && node.room != null) R = Math.max(maxR * 0.45, Math.min(R, node.room));
+  if (solid && node.room != null) {
+    R = Math.max(foot ? maxR * 0.45 : (MIN_R[node.type] ?? maxR * 0.45), Math.min(R, node.room));
+  }
   // silhouette: harbour cove toward the lane, lobes, stack, terraces, cliffs
   const shape = solid ? isleShape(node, node.dockA ?? null, foot) : null;
   const pal = theme.palette;

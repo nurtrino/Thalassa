@@ -2376,6 +2376,12 @@ class Game:
                     d["veiled"] = True
                 if not shown(d["checkpoint"]):
                     d["checkpoint"] = gate
+                # your OWN lantern's map of the Vale (the chart's fog of war
+                # and the 3D woods read the same list); never a rival's
+                if p.pid == viewer_pid:
+                    d["vale_seen"] = sorted(
+                        nid for nid in p.seen
+                        if self.board.nodes.get(nid, {}).get("region") == "autumn")
             players.append(d)
         # a battle fought inside a private labyrinth: spectators get the fight
         # (the diorama needs no chart), but the stop id itself stays veiled

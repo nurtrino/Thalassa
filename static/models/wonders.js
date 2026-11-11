@@ -54,7 +54,7 @@ function loftX(prof, NX = 20, NR = 12) {
   for (let i = 0; i < NX; i++) {
     for (let j = 0; j < NR; j++) {
       const a = i * (NR + 1) + j, b = a + 1, c = a + NR + 1, d = c + 1;
-      idx.push(a, b, c, b, d, c);
+      idx.push(a, c, b, b, c, d);              // outward-facing
     }
   }
   const g = new THREE.BufferGeometry();
@@ -494,7 +494,8 @@ export function makeGhostShip(opts = {}) {
     color: 0x9fd8c0, emissive: 0x2aff9a, emissiveIntensity: 0.55, roughness: 0.6, transparent: true,
     opacity: 0.5, depthWrite: false, side: THREE.DoubleSide }));
   ship.traverse((o) => {
-    if (o.isMesh) { o.material = ghost; o.castShadow = false; }
+    if (o.isMesh && o.name === 'wash') o.visible = false;
+    else if (o.isMesh) { o.material = ghost; o.castShadow = false; }
     else if (o.isSprite || o.isPoints) o.visible = false;
   });
   ship.scale.setScalar(opts.scale ?? 1.9);
@@ -552,7 +553,7 @@ export function makeWhales(opts = {}) {
   for (let i = 0; i < 2; i++) {
     const w = new THREE.Mesh(whaleGeo(), m);
     w.castShadow = true;
-    w.scale.setScalar(i ? 1.0 : 1.25);
+    w.scale.setScalar(i ? 1.3 : 1.6);
     g.add(w);
     whales.push(w);
   }

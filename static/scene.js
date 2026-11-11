@@ -1748,7 +1748,7 @@ export function createWorld(container, handlers = {}) {
     // drops you straight back at your ship — no fly-over, no loading curtain
     // over a live question. Only a voyage seen starting (lobby → play, or a
     // rematch) gets the tour.
-    if (firstSnap) {
+    if (firstSnap && room.code !== 'title-vista') {     // (the title backdrop isn't a snapshot)
       firstSnap = false;
       if (!lobbyMode) { wasLobby = false; warmSilently(); }
     }
@@ -2131,6 +2131,14 @@ export function createWorld(container, handlers = {}) {
         const n = nodeById[id];
         return new THREE.Vector3(n.x, (st.islands[id]?.plateauY ?? 0) + 1, n.z);
       });
+      // frame the stops within a sane radius of the ship (a big fork can fan
+      // stops far apart); the far ones are the chart's job. Keep ≥ the nearest.
+      const sp = ships[myPid]?.root.position;
+      if (sp && reachPts.length) {
+        reachPts.sort((a, b) => a.distanceToSquared(sp) - b.distanceToSquared(sp));
+        const near = reachPts.filter((v, i) => i === 0 || Math.hypot(v.x - sp.x, v.z - sp.z) <= 95);
+        reachPts = near;
+      }
     }
     return reachKey && !reachManual ? reachPts : null;
   }

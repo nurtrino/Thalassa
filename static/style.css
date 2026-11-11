@@ -2402,3 +2402,5 @@ body.jpicking #bmon { display: none; }
 /* hint chips: one inline run (H7) — icons ride the text baseline */
 .hint .hint-in { display: inline; }
 .hint .hint-in svg { vertical-align: -2px; margin-right: 3px; }
+/* the wonders strip steps aside while the trader's stall is open */
+body:has(#shopPanel:not(.hidden)) #evHud { display: none; }

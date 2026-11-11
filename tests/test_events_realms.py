@@ -303,7 +303,7 @@ def test_drums_rounds_have_one_right_answer_among_four():
     st = EG.gen("drums", random.Random(1))
     wrong = next(i for i in range(4) if i != st["secret"]["ans"])
     EG.move(st, {"pick": wrong}, random.Random(1))
-    assert st["correct"] == 0 and st["history"][0]["right"] is False and st["round"] == 2
+    assert st["right"] == 0 and st["history"][0]["right"] is False and st["round"] == 2
 
 
 def test_plates_clues_fix_exactly_one_order_and_a_wrong_plate_resets():
@@ -461,3 +461,26 @@ def test_meeting_a_realm_wonder_and_bot_route_opinions():
     assert g.phase == "event" and g.ev["active"]["id"] == "meet_penguins"
     snap = g.to_dict(b)
     assert any(x["model"] == "penguins" for x in snap["world"])
+
+
+@pytest.mark.parametrize("kind", REALM_KINDS)
+def test_public_realm_state_avoids_the_fuzzers_secret_key_names(kind):
+    """tools/sim.py flags these key names anywhere in a snapshot as a leak."""
+    banned = {"correct", "answer", "secret", "accept", "word", "data"}
+
+    def keys(o):
+        if isinstance(o, dict):
+            for k, v in o.items():
+                yield k
+                yield from keys(v)
+        elif isinstance(o, list):
+            for v in o:
+                yield from keys(v)
+    for seed in range(20):
+        rng = random.Random(seed)
+        st = EG.gen(kind, rng)
+        for _ in range(40):
+            assert not set(keys(EG.public(st))) & banned, kind
+            if st["done"]:
+                break
+            EG.move(st, EG.bot(st, rng, 0.5), rng)

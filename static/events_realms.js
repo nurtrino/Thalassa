@@ -172,9 +172,9 @@ function gDrums(g, actor) {
   const ch = (g.choices || []).map((s, i) => actor && !g.done
     ? `<button class="evopt evdrumpick" data-rmv='${JSON.stringify({ pick: i })}' data-key="${i + 1}"><span class="evnum">${'ABCD'[i]}</span>${beats(s)}</button>`
     : `<div class="evdrumrow"><b>${'ABCD'[i]}</b>${beats(s)}</div>`).join('');
-  const hist = (g.history || []).map((h, i) => `<div>Round ${i + 1}: ${h.right ? 'right' : 'wrong'} — the answer was ${beats(h.answer)}</div>`).join('');
+  const hist = (g.history || []).map((h, i) => `<div>Round ${i + 1}: ${h.right ? 'right' : 'wrong'} — the answer was ${beats(h.was)}</div>`).join('');
   return `<div class="evsmall">Big dark beats are BOOM, small light beats are tak. Each row follows one rule. What comes fifth?</div>` +
-    `<div class="evstat">Round ${g.round} of ${g.rounds} · right so far ${g.correct} · ${g.need} needed</div>` +
+    `<div class="evstat">Round ${g.round} of ${g.rounds} · right so far ${g.right} · ${g.need} needed</div>` +
     `<div class="evdrums">${seq}<div class="evdrumrow q"><b>5</b><span class="evbeats">?</span></div></div>` +
     `<div class="evopts evdrumch">${ch}</div><div class="evlog">${hist}</div>`;
 }

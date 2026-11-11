@@ -481,12 +481,12 @@ class Table:
             if g.players and g.phase != "finished":     # where the turn is spent
                 self.stats["stage_turns_" + EV.stage_of(g.board.nodes.get(g.current.node, {}))] += 1
 
-        def counted_shipwreck(p):
+        def counted_shipwreck(p, **kw):
             self.stats["shipwrecks"] += 1
             node = g.board.nodes.get(g.battle["node"]) if g.battle else None
             if node is not None:
                 self.stats[f"wreck_at_{node['type']}"] += 1
-            shipwreck(p)
+            shipwreck(p, **kw)
 
         next_turn = g._next_turn
 

@@ -27,7 +27,11 @@ export const ISLE_FOOT = {
   gate: 13.0, sea: 1.5,
 };
 export const SEA_FOOT = { islet: 7.0, rocks: 4.5, buoy: 2.0, none: 1.5 };
-export const FOOT_K = 0.72;  // a walked realm's stop: a low mound on the sand
+export const FOOT_K = 0.72;
+/* the smallest radius a landmark's island may shrink to (room clamp floor):
+   the coast of a fitted isle dips to ~0.7 R, and the landmark must stay on
+   land — the market's stalls reach ~6.2 wu, the Pharos rock ~13 */
+export const MIN_R = { shop: 10.5, home: 12, pharos: 17, shrine: 8.5, puzzle: 8, haven: 9.5 };  // a walked realm's stop: a low mound on the sand
 const GAP = 6.0;            // open water kept between two coasts / off a lane
 
 /** coast radius the client may give the stop at `n` (worst case) */
@@ -128,8 +132,10 @@ export function isleShape(node, dockA, foot) {
       stack(0.35);
       break;
     case 'shop':
-      if (rng() < 0.5) out.terrain.lobes = 0.3 + rng() * 0.1;   // twin-lobed
-      else harbour(0.26);
+      // the market (~6.2 wu across its stalls at board scale) needs a broad
+      // heart: no twin-lobed waist under it — a harbour, or gently uneven
+      rng();
+      harbour(0.24);
       break;
     case 'monster':
       stack(0.5);
