@@ -140,14 +140,15 @@ export function planRoute(raw, solids, opts = {}) {
     const ds = Math.hypot(c.x - start.x, c.z - start.z);
     const de = Math.hypot(c.x - end.x, c.z - end.z);
     const r = Math.min(c.r, ds - 0.4, de - 0.4);
-    if (r > 0.3) eff.push({ x: c.x, z: c.z, r });
+    // `hard` is the coast itself (r is coast + sea-room): never conceded
+    if (r > 0.3) eff.push({ x: c.x, z: c.z, r, hard: Math.max(0, Math.min(c.hard ?? 0, r)) });
   }
   if (!opts.walk && opts.heading != null && direct > 3) {
     // a real TURNING CIRCLE off the berth: swing along the bow's heading
     // until it bears on the first point of the lane (never a cusp)
     const tgt = raw.length > 2 ? raw[1] : end;
-    const Rt = opts.turnRadius ?? 6.5, step = 1.6, dA = step / Rt;
-    const firstLeg = Math.max(2, Math.min(5, direct * 0.15));
+    const Rt0 = opts.turnRadius ?? 6.5;
+    const firstLeg0 = Math.max(2, Math.min(5, direct * 0.15));
     // how far inside a clearance disc (or beyond the wall) a point lies
     const depth = (x, z) => {
       let m = 0;
@@ -157,13 +158,20 @@ export function planRoute(raw, solids, opts = {}) {
     };
     // side: 0 = swing the short way round; ±1 = forced to that hand (the long
     // way, when the short one would carry the hull across a coast)
-    const circle = (side) => {
+    const aground = (x, z) => {
+      let m = 0;
+      for (const c of eff) if (c.hard) m = Math.max(m, c.hard - Math.hypot(x - c.x, z - c.z));
+      return m;
+    };
+    const circle = (side, Rt = Rt0) => {
+      const step = Math.min(1.6, Rt * 0.3), dA = step / Rt;
+      const firstLeg = Math.min(firstLeg0, Rt * 0.45);
       const head = [];
-      let x = start.x, z = start.z, yaw = opts.heading, turned = 0, worst = 0;
+      let x = start.x, z = start.z, yaw = opts.heading, turned = 0, worst = 0, hard = 0;
       x += Math.cos(yaw) * firstLeg; z -= Math.sin(yaw) * firstLeg;
-      worst = Math.max(worst, depth(x, z));
+      worst = Math.max(worst, depth(x, z)); hard = Math.max(hard, aground(x, z));
       head.push(new THREE.Vector3(x, 0, z));
-      for (let i = 0; i < 44 && turned < Math.PI * 1.85; i++) {
+      for (let i = 0; i < 90 && turned < Math.PI * 1.85; i++) {
         const want = Math.atan2(-(tgt.z - z), tgt.x - x);
         let d = want - yaw;
         d -= Math.round(d / (Math.PI * 2)) * Math.PI * 2;
@@ -172,10 +180,10 @@ export function planRoute(raw, solids, opts = {}) {
         const t = Math.sign(d) * Math.min(Math.abs(d), dA);
         yaw += t; turned += Math.abs(t);
         x += Math.cos(yaw) * step; z -= Math.sin(yaw) * step;
-        worst = Math.max(worst, depth(x, z));
+        worst = Math.max(worst, depth(x, z)); hard = Math.max(hard, aground(x, z));
         head.push(new THREE.Vector3(x, 0, z));
       }
-      return { head, worst, turned };
+      return { head, worst, turned, score: hard * 8 + worst + 0.02 * turned, hard };
     };
     // The circle is kept as geometry (never relaxed). Where it crossed a
     // clearance disc, the samples after it were flung out to the rim — a 7 wu
@@ -189,16 +197,30 @@ export function planRoute(raw, solids, opts = {}) {
     let best = circle(0);
     if (best.worst > 0.15) {
       for (const alt of [circle(-hand), circle(hand)]) {
-        if (alt.worst + 0.02 * alt.turned < best.worst + 0.02 * best.turned - 0.3) best = alt;
+        if (alt.score < best.score - 0.3) best = alt;
       }
     }
-    for (const h of best.head) ctrl.push(h);
-    nFixedHead = ctrl.length;            // the turning circle is geometry: keep it
-    if (best.worst > 0.15) {
-      for (const c of eff) {
-        for (const h of best.head) c.r = Math.min(c.r, Math.hypot(h.x - c.x, h.z - c.z) - 0.2);
+    // berthed bow-on to a beach there is little sea room: a hull that cannot
+    // swing her full circle without grounding comes about in a tighter one
+    // (she is barely under way yet — the pacing below slows a tight bend)
+    for (const Rt of [4.4, 3.0, 2.2]) {
+      if (best.hard <= 0.4) break;
+      for (const side of [0, -hand, hand]) {
+        const alt = circle(side, Rt);
+        if (alt.score < best.score - 0.3) best = alt;
       }
-      for (let i = eff.length - 1; i >= 0; i--) if (eff[i].r <= 0.3) eff.splice(i, 1);
+    }
+    // (a circle that would run the hull AGROUND on either hand is dropped: the
+    //  route then leaves without one and the relaxation rounds the corner)
+    if (best.hard <= 0.4) {
+      for (const h of best.head) ctrl.push(h);
+      nFixedHead = ctrl.length;          // the turning circle is geometry: keep it
+      if (best.worst > 0.15) {
+        for (const c of eff) {
+          for (const h of best.head) c.r = Math.max(c.hard, Math.min(c.r, Math.hypot(h.x - c.x, h.z - c.z) - 0.2));
+        }
+        for (let i = eff.length - 1; i >= 0; i--) if (eff[i].r <= 0.3) eff.splice(i, 1);
+      }
     }
   }
   for (let i = 1; i < raw.length - 1; i++) {
@@ -326,6 +348,28 @@ export function planRoute(raw, solids, opts = {}) {
           const p = even[i], a = even[i - 1], b = even[i + 1];
           p.x += ((a.x + b.x) * 0.5 - p.x) * 0.5;
           p.z += ((a.z + b.z) * 0.5 - p.z) * 0.5;
+        }
+      }
+      // …but never across a coast: ease any sample off the land in small
+      // steps (small, so neighbours move together and no new jump opens)
+      for (let pass = 0; pass < 14; pass++) {
+        let moved = false;
+        for (let i = Math.max(1, lock); i < even.length - 1; i++) {
+          const p = even[i];
+          for (const c of eff) {
+            if (!c.hard) continue;
+            const dx = p.x - c.x, dz = p.z - c.z, d = Math.hypot(dx, dz);
+            if (d < c.hard && d > 1e-4) {
+              const m = Math.min(c.hard - d, 0.7) / d;
+              p.x += dx * m; p.z += dz * m; moved = true;
+            }
+          }
+        }
+        if (!moved) break;
+        for (let i = Math.max(1, lock); i < even.length - 1; i++) {
+          const p = even[i], a = even[i - 1], b = even[i + 1];
+          p.x += ((a.x + b.x) * 0.5 - p.x) * 0.2;
+          p.z += ((a.z + b.z) * 0.5 - p.z) * 0.2;
         }
       }
       out.length = 0;

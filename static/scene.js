@@ -809,12 +809,12 @@ export function createWorld(container, handlers = {}) {
       if (n.type === 'sea') {
         // islets and rock stacks on the lanes are land too
         if (!seaSolid(n)) continue;
-        solids.push({ x: n.x, z: n.z, r: (isle.R ?? 4) + (foot ? hull : 3.2) });
+        solids.push({ x: n.x, z: n.z, r: (isle.R ?? 4) + (foot ? hull : 3.2), hard: (isle.R ?? 4) + (foot ? 0.3 : 1.2) });
         continue;
       }
       // the Vale's stops are flush clearings, walked straight onto
       if (st.id === 'autumn') continue;
-      solids.push({ x: n.x, z: n.z, r: (isle.R ?? 8) * (foot ? 1.0 : 1.08) + hull });
+      solids.push({ x: n.x, z: n.z, r: (isle.R ?? 8) * (foot ? 1.0 : 1.08) + hull, hard: (isle.R ?? 8) + (foot ? 0.3 : 1.6) });
     }
     // the realm's field: bergs, stacks, dune rocks. (The Vale's wood is
     // already parted along every revealed trail — syncStage — and its broad
@@ -823,7 +823,7 @@ export function createWorld(container, handlers = {}) {
       if (!st.obstacles) st.obstacles = obstacleIndex(st.field);
       _near.length = 0;
       st.obstacles.near(a.x, a.z, b.x, b.z, 120, _near);
-      for (const c of _near) solids.push({ x: c.x, z: c.z, r: c.r + hull * 0.8 });
+      for (const c of _near) solids.push({ x: c.x, z: c.z, r: c.r + hull * 0.8, hard: c.r + (foot ? 0.2 : 0.8) });
     }
     // every other vessel in the stage — parked, or parking
     for (const pid in ships) {
@@ -1978,11 +1978,13 @@ export function createWorld(container, handlers = {}) {
         // is HELD at the moment he began to turn, whatever the frame took —
         // on a starved frame the old "push t0 by the clamped dt" leaked and
         // he walked backwards while still turning.
-        if (foot) {
+        // (a HULL does the same only in the rare berth with no sea room for
+        //  any turning circle — she comes about where she lies, then sails)
+        {
           routeAt(an.route, s, _vB, _vA, an.seg);
           let off = Math.atan2(-_vA.z, _vA.x) - rec.root.rotation.y;
           off -= Math.round(off / (Math.PI * 2)) * Math.PI * 2;
-          if (Math.abs(off) > 0.6 && s < an.total * 0.5) {
+          if (foot ? (Math.abs(off) > 0.6 && s < an.total * 0.5) : (Math.abs(off) > 0.7 && s < 2.5)) {
             if (an.heel == null) an.heel = Math.max(0, an.prevEl ?? 0);
             an.t0 = now - an.heel;
             k = Math.min(1, an.heel / an.dur);
@@ -1998,7 +2000,7 @@ export function createWorld(container, handlers = {}) {
         // the bow follows the curve's tangent at a capped turn rate — no
         // pivoting on the spot, no crabbing sideways; a walker turns quicker
         rec.root.rotation.y = helm(rec.root.rotation.y, _vA.x, _vA.z, shipDt,
-                                   helmRate(sog, foot), foot ? 16 : 12);
+                                   helmRate(sog, foot), foot ? 16 : 18);
         if (foot && st.surf.heightAt) rec.root.position.y = Math.max(0, st.surf.heightAt(rec.root.position.x, rec.root.position.z));
         moving = true;
         // a crossing vessel CUTS through the arch a beat before it stops

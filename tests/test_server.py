@@ -734,6 +734,8 @@ def test_humans_play_through_every_phase(fast, monkeypatch):
             await a.send("shop_buy", item="planks")
             await a.send("shop_buy", item="fitting")
             await a.phase("upgrade_pick")
+            # (b's snapshot rides its own socket: wait for it, don't race it)
+            await b.until(lambda: b.room.get("upgrade_offer"), "the upgrade offer")
             assert a.room["upgrade_offer"] and b.room["upgrade_offer"]
             seen.update(["shop", "upgrade_pick"])
             seen.update(await play_until(caps, lambda: game().current.pid != a.you))
