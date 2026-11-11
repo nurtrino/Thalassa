@@ -1146,15 +1146,27 @@ export function createWorld(container, handlers = {}) {
       // chase pose (where the normal follow-cam would be) → low astern,
       // eye through the arch to the glow beyond
       _vA.set(P.x - sfx * 26, 13, P.z - sfz * 26);
-      _vC.set(P.x - f.x * 15 - f.z * 2.5, 3.6, P.z - f.z * 15 + f.x * 2.5);
+      // the low shot: astern on the fairway's centre line, but never closer
+      // to the arch than its bastions (the eye must not end up in a pillar)
+      const along = (P.x - g.x) * f.x + (P.z - g.z) * f.z;    // < 0 before the arch
+      const camAlong = Math.min(along - 16, -36);
+      const lat = (P.x - g.x) * -f.z + (P.z - g.z) * f.x;     // off the centre line
+      const latK = lat * smooth01(-30, -70, along);
+      _vC.set(g.x + f.x * camAlong - f.z * latK, 4.4, g.z + f.z * camAlong + f.x * latK);
       _vA.lerp(_vC, e);
       _vC.set(P.x + sfx * 3, 1.6, P.z + sfz * 3);
       _vD.set(g.x + f.x * 46, 7, g.z + f.z * 46);
       _vC.lerp(_vD, e);
       _vA.y = Math.max(_vA.y, groundY(st, _vA.x, _vA.z) + 2.2);
-      const a = 1 - Math.exp(-dt * 5);
-      camera.position.lerp(_vA, a);
-      controls.target.lerp(_vC, a);
+      // ease in from wherever the player left the camera, by the hull's
+      // PROGRESS (not by frame time): the same shot at 60 fps or at 5
+      if (!cross.camFrom) {
+        cross.camFrom = { pos: camera.position.clone(), tgt: controls.target.clone(), w };
+      }
+      const w0 = Math.min(cross.camFrom.w, 0.7);
+      const b = smooth01(w0, w0 + 0.3, w);
+      camera.position.lerpVectors(cross.camFrom.pos, _vA, b);
+      controls.target.lerpVectors(cross.camFrom.tgt, _vC, b);
       camera.lookAt(controls.target);
       followSun(st, controls.target);
       return true;
