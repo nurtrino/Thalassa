@@ -79,6 +79,27 @@ side the vessel arrives from and clear of other ships. The `sail_monitor`
 suite now sails the hub AND every realm (both walked ones included) and
 checks island / field / ship clips, helm slip and camera height.
 
+**Slip, measured properly.** The live sampler runs against a software
+renderer at 2–4 fps, where frames bunch and its slip / turn-rate numbers are
+noisy in both directions. The trustworthy measure is a replay: capture each
+real `rec.anim.route` during play, then step it at an ideal 60 fps through
+the game's own `routeS` / `routeAt` / `helm` / `helmRate`. That replay found
+hulls up to 152° off their bow, from two causes, both fixed in `travel.js`:
+
+- the opening turning circle (kept as fixed geometry) could cut an island's
+  clearance disc, and the samples after it were then flung out to the rim —
+  a 7–9 wu jump in the route. The planner now takes the hand that intrudes
+  least and concedes that clearance to the circle; any jump still left is
+  re-laid evenly and smoothed (a route is always one continuous curve);
+- the helm's turn cap was a fixed 1.9 rad/s, slower than a tight bend demands
+  at cruising speed. `helmRate(speed)` now lets the bow swing as fast as the
+  curve needs under way, and stays low at rest (no spinning on the spot).
+
+After the fix, 29 real legs (hub, jungle, desert): worst 33°, typical 12–15°,
+no gap over the 1 wu sample spacing. A walker who must turn on his heel now
+has his clock HELD until he faces the trail (it used to leak on slow frames,
+and he walked backwards). The Vale's fork-to-fork walk was not in the replay.
+
 ## Why static + dynamic
 
 Boards are rolled with a random seed per voyage (`game.py`), so one pretty
