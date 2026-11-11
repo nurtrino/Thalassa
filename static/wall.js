@@ -10,6 +10,7 @@ import * as THREE from 'three';
 import { makeRidge } from './gfx/mountains.js';
 import { mulberry32, hashStr, flat, displace, seedFrom, softDiscTexture } from './util.js';
 import { REALM_INFO } from './themes.js';
+import { makePassLintel, makeBrazierPillar } from './models/landmarks.js';
 
 const _d = (a, b) => Math.atan2(Math.sin(a - b), Math.cos(a - b)); // wrapped delta
 
@@ -44,7 +45,6 @@ export function buildMountainWall({ radius = 560, gates = [], theme }) {
   }));
 
   /* the four passes: flanking bastions, carved lintel, braziers, realm haze */
-  const flames = [];
   const lights = [];
   for (const gt of gates) {
     const accent = new THREE.Color(REALM_INFO[gt.realm]?.accent ?? '#d9a441');
@@ -55,34 +55,19 @@ export function buildMountainWall({ radius = 560, gates = [], theme }) {
     gg.position.set(dirX * radius, 0, dirZ * radius);
     gg.rotation.y = -gt.angle;
 
-    // carved lintel bridging the pass, with a glowing sigil groove
-    const lintel = new THREE.Mesh(
-      displace(new THREE.BoxGeometry(10, 5, 40, 2, 1, 8), 1.4, seedFrom(rng)),
-      flat(rock.clone().multiplyScalar(0.85)));
-    lintel.position.set(0, 30, 0);
-    gg.add(lintel);
-    const groove = new THREE.Mesh(new THREE.BoxGeometry(10.6, 0.9, 34),
-      flat(0x241f28, { emissive: accent, emissiveIntensity: 1.1 }));
-    groove.position.set(0, 27.6, 0);
-    gg.add(groove);
-
-    // twin braziers at the mouths of the pass
+    // carved ashlar lintel bridging the pass, a glowing glyph groove under
+    // it, and twin fire bowls on stone pillars at the mouth — the fire is HDR
+    // and blooms; ONE accent light per pass (models/landmarks.js)
+    gg.add(makePassLintel(rock.getHex(), accent.getHex(), Math.floor(rng() * 1e9)));
     for (const side of [-1, 1]) {
-      const pillar = new THREE.Mesh(new THREE.CylinderGeometry(1.1, 1.6, 9, 6),
-        flat(rockDark));
-      pillar.position.set(-6, 4.5, side * 15);
-      const bowl = new THREE.Mesh(new THREE.CylinderGeometry(1.7, 1.0, 1.6, 7),
-        flat(0x4a4a52, { emissive: accent, emissiveIntensity: 0.6 }));
-      bowl.position.set(-6, 9.6, side * 15);
-      const fl = glowSprite(accent, 9);
-      fl.name = 'brazier';
-      fl.position.set(-6, 11.6, side * 15);
-      const li = new THREE.PointLight(accent, 26, 90, 1.7);
-      li.position.set(-6, 12, side * 15);
-      gg.add(pillar, bowl, fl, li);
-      flames.push(fl);
-      lights.push(li);
+      const br = makeBrazierPillar(accent.getHex(), 9, Math.floor(rng() * 1e9));
+      br.position.set(-6, 0, side * 15);
+      gg.add(br);
     }
+    const li = new THREE.PointLight(accent, 30, 100, 1.7);
+    li.position.set(-6, 12, 0);
+    gg.add(li);
+    lights.push(li);
 
     // a hint of the realm beyond: tinted haze filling the pass
     const haze = new THREE.Mesh(new THREE.PlaneGeometry(30, 34),
@@ -100,10 +85,9 @@ export function buildMountainWall({ radius = 560, gates = [], theme }) {
   }
 
   group.userData.update = (t) => {
-    for (let i = 0; i < flames.length; i++) {
-      const s = 8.4 + Math.sin(t * 9 + i * 2.1) * 0.9 + Math.sin(t * 23 + i * 5.7) * 0.4;
-      flames[i].scale.set(s, s * 1.3, 1);
-      lights[i].intensity = 24 + Math.sin(t * 11 + i * 1.9) * 5;
+    // (the fire bowls flicker themselves; the pass light breathes with them)
+    for (let i = 0; i < lights.length; i++) {
+      lights[i].intensity = 28 + Math.sin(t * 11 + i * 1.9) * 5;
     }
   };
   return group;
@@ -144,29 +128,18 @@ export function buildRealmBackdrop(theme, { radius = 520, gateAngle = 0 } = {}) 
   {
     const accent = new THREE.Color(REALM_INFO[theme.id]?.accent ?? '#d9a441');
     const gx = Math.cos(gateAngle), gz = Math.sin(gateAngle);
-    const flames = [];
-    const lightArr = [];
     for (const side of [-1, 1]) {
       const px = gx * (radius - 30) - gz * side * 16;
       const pz = gz * (radius - 30) + gx * side * 16;
-      const pillar = new THREE.Mesh(new THREE.CylinderGeometry(1.0, 1.5, 8, 6), flat(rockDark));
-      pillar.position.set(px, 4, pz);
-      const fl = glowSprite(accent, 8);
-      fl.name = 'brazier';
-      fl.position.set(px, 10.4, pz);
-      const li = new THREE.PointLight(accent, 22, 80, 1.7);
-      li.position.set(px, 10.8, pz);
-      group.add(pillar, fl, li);
-      flames.push(fl);
-      lightArr.push(li);
+      const br = makeBrazierPillar(accent.getHex(), 8, Math.floor(rng() * 1e9));
+      br.position.set(px, 0, pz);
+      group.add(br);
     }
-    updaters.push((t) => {
-      for (let i = 0; i < flames.length; i++) {
-        const s = 7.4 + Math.sin(t * 9 + i * 2.6) * 0.8;
-        flames[i].scale.set(s, s * 1.3, 1);
-        lightArr[i].intensity = 20 + Math.sin(t * 12 + i * 2.2) * 4;
-      }
-    });
+    // one accent light between the pair
+    const li = new THREE.PointLight(accent, 22, 90, 1.7);
+    li.position.set(gx * (radius - 30), 10.8, gz * (radius - 30));
+    group.add(li);
+    updaters.push((t) => { li.intensity = 20 + Math.sin(t * 12) * 4; });
   }
 
   group.userData.update = (t) => {

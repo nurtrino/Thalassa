@@ -6,6 +6,79 @@ The auditor is `tools/qa/travel_audit.py` (static, many seeds) plus the
 ship at 50 ms against every island footprint). Run both via
 `tools/qa/run_qa.sh`.
 
+## Round 2 — real footprints, smooth hulls, crossing the passes
+
+### The early Amber Vale (and every realm's cut)
+**Cause.** Landing on a pass ends your turn; ~1.8 s later the server's
+*gate carry* (`server.py gate_walk_task` → `Game.gate_carry`) moves you on to
+the first stop beyond it. The client started the sail-up animation when the
+landing snapshot arrived, but the carry snapshot arrived while the hull was
+still far out (a 3-hop approach is ~5 s of sailing): `syncShips` saw the node
+jump to a realm stop, **killed the animation** and re-placed the ship, and
+`stageForViewer`/`desiredTarget` switched stage at once. The Vale was worst:
+`desiredTarget` hard-routes any captain standing on an autumn node straight
+into the woods, so the forest popped in ~180 wu short of the gate (measured:
+fade at t = 2.2 s with the ship 183 wu out; the Vale stage then took 12 s to
+raise behind the curtain under the software renderer).
+
+**Fix (client only, scene.js).** A vessel that sails toward a pass from its
+own side carries `rec.hold`; while it is held the server's carry is *deferred*
+(the visual node stays the gate), `stageForViewer` / `desiredTarget` keep the
+stage it is sailing in, and the hold is released only when the hull has
+actually gone through the arch. A jump anywhere else (dev drop, respawn)
+drops the hold at once. The realm theme no longer starts on the carry either
+(`app.js`: music follows the crossing, `world.crossing()`).
+
+### Entering a region
+`scene.js` "CROSSING A PASS" — approach (the ship runs up the fairway and
+through the arch while the camera drops low astern and looks through it, the
+far side glowing in the realm's accent, haze thickening to the realm's
+colour) → cut (the `.scenefade` curtain, ~0.5 s) → reveal (the curtain lifts
+on the realm side; banner + music start here via `onStageChange`; the camera
+rises from deck height to the chase view as the ship glides — or the captain
+steps off his beached galley and walks — to the first stop). Leaving plays
+the same grammar, shorter. ~4–6 s; any tap or key skips; reduced motion,
+spectators, rivals' crossings and the tour get the plain fade; a battle
+aborts it. `window.__crossStops` freezes it at given beats for screenshots.
+
+### Footprints
+The terrain is now FITTED: an island's coast never passes its radius
+(`gfx/terrain.js fit`), and `buildIsland` never exceeds `ISLE_FOOT`
+(`static/isleshape.js`) — clamped further to the free water round the node.
+`board.py` keeps the same table (`ISLE_FOOT`, `SEA_FOOT`, `SHELF_K`,
+`footprint()`, `shelf()`; a test checks the two agree).
+
+### Audit (200 seeds, tightened checks)
+| | before | after |
+|---|---|---|
+| lane_through_island (ERROR) | 1.9/board | 0 |
+| lane_grazes_island (< coast + 6 wu, now ERROR) | 3.7/board | 0 |
+| waypoint_on_shelf (ERROR, new) | 4.2/board | 0 |
+| lane_blocked_by_islet (ERROR, new) | 4.0/board | 0 |
+| hops outside 10–100 wu (ERROR) | 1.1/board | 0 |
+| hops median / p95 / max / min | 54 / 77 / 105 / 6.4 | 55 / 82 / 96 / 15.7 |
+| route choice (landing stops per hub isle × roll 1–5) | 12.22 (worst 9.61) | 12.58 (worst 9.87) |
+
+(The old audit, with its looser rules and guessed radii, called the same
+"before" boards clean apart from 0.4 grazes/board.) Generation:
+`_insert_waypoints` sizes the waypoint count from the coast-reserved END hops,
+`_declip_lanes` relaxes every open-water waypoint off shelves / away from third
+coasts / into the hop band (designed realm stops tethered within 14 wu so the
+forks keep their shape), bends the rare island-to-island lane, splits/merges
+hops, and only dresses a waypoint as an islet or rock stack where it blocks
+nothing; `_place_sword` scores spots by real clearance. Tests:
+`tests/test_board_geometry.py`.
+
+### Sailing
+`static/travel.js`: routes are centripetal Catmull–Rom curves through the
+lane's control points, relaxed around every island, field solid (bergs, dune
+rocks, the Vale's trunks — an obstacle index built once per stage) and other
+vessel, leaving along the bow's current heading (no pivoting), followed by
+arc length with a sine ease and a rate-capped helm. Berths are chosen on the
+side the vessel arrives from and clear of other ships. The `sail_monitor`
+suite now sails the hub AND every realm (both walked ones included) and
+checks island / field / ship clips, helm slip and camera height.
+
 ## Why static + dynamic
 
 Boards are rolled with a random seed per voyage (`game.py`), so one pretty

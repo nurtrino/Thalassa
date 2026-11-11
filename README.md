@@ -38,19 +38,26 @@ storm the Pharos.
 5. **Battles** are stance + trivia, and bosses fight like bosses:
    | Move | Question | Effect |
    |---|---|---|
-   | **STRIKE** | tier I (II vs bosses) | 1 damage, reliable |
-   | **MAGIC** | tier III | 3 damage; a miss backfires |
+   | **STRIKE** | tier I (II vs bosses and 3+ HP units) | 1 damage (2 vs bosses / tough units); rams and the war horn add to it |
+   | **MAGIC** | tier III | 3 damage (+1 with the trident) |
+   | **HEAL** | tier III, your choice of format | mend 2 (4 with Ambrosia) and ward off the blow; not at full Health |
+   | **BRACE** | tier I — only while a boss winds up a heavy | turn the heavy aside completely and drive it back for 1 |
+   | **SWORD** | tier III — the Dark Presence only | 5 damage |
    | **FLEE** | 1 scroll | 50/50 escape; never from a boss |
 
-   And when a foe strikes back, the **DODGE** beat: a ring collapses onto
-   its target and one perfectly-timed tap nulls **half** the blow — miss
-   the window (it's tight) and it lands full. Foes take turns attacking
-   from a visible **turn rail**; no foe swings more than twice in a row.
-   Bosses counter **every** exchange and telegraph a **heavy blow** every
-   third round (dodge it or eat double damage). You do not beat one without
-   preparation: hull fittings, aegis
-   charms, **pitch & planks** (patch 3 Health mid-battle), a war horn, and
-   a steady dodge hand.
+   **Defence is knowledge, never reflexes.** Every exchange the foe strikes
+   back, and *your answer* decides how it lands: a **right answer blunts the
+   blow to half**, a wrong one takes it in full. There is no timing input
+   anywhere — a slower hand never costs Health. Foes take turns attacking
+   (no foe swings more than twice in a row). Realm bosses (14 HP, hit for
+   4; the Warden 22 HP) telegraph a **heavy blow** every third exchange (×2, capped at 6)
+   — answer it with **BRACE** — and once wounded below half they
+   **enrage**: a heavy every other exchange. You do not beat one without
+   preparation: hull fittings, aegis charms (they wait for a blow of 2+),
+   **pitch & planks** (patch 3 Health mid-battle), a war horn. A trial is
+   **catch-up**, never a wall: a realm boss rises 2 HP weaker for every
+   rival who felled it first, and every time *you* sank to a trial (realm
+   boss or the Warden) it comes back 4 HP weaker and hits 1 softer for you.
 6. **Win.** Shipwreck sends seals back to their lairs — bank them at Home
    Port. Three banked seals open the Pharos; put down the Warden inside and
    the Aegean is yours.
@@ -64,9 +71,10 @@ scrolls, so nobody is ever just waiting.
 | Piece | File | Role |
 |---|---|---|
 | Board | `board.py` | Procedural chart: three safe rings + four realm spines with dungeon depth, d3-tuned lane lengths. |
-| Engine | `game.py` | Pure rules state machine — phases, wagers, battles (heavies/enrage/guard), economy, relics. No IO; covered by the unit suite and the fuzzing simulator (`tools/sim.py`). |
+| Engine | `game.py` | Pure rules state machine — phases, wagers, battles (answer-blunted counters, heavies/BRACE/enrage, catch-up bosses), economy, relics. No IO; covered by the unit suite and the fuzzing simulator (`tools/sim.py`). |
 | Questions | `questions.py`, `data/trivia.json`, `data/jeopardy.json` | 2,252 audited multiple-choice questions tagged by difficulty (shrine tiers and STRIKE/MAGIC draw different pools, no repeats until a pool is spent) and a 54k-clue typed-answer deck with a lenient-on-typos, strict-on-guessing matcher. `tools/clean_jeopardy.py` rebuilds the deck. |
-| Bots | `bots.py` | Philosopher captains: sail/wager/shop/guard heuristics + per-tier answer accuracy. |
+| Events | `events.py`, `event_data.py`, `eventgames.py`, `static/events.js`, `static/worldfx.js` | 57 data-driven events for the Isles of Peace and the Amber Vale — story cards, untimed mini-games (knucklebones, the oracle's tiles, a code-lock, the cups, the amphora balance, the crossing, stone-scroll-shears, pebbles), table events everyone answers at once, and world wonders that roam the chart. Schema: `docs/EVENTS.md`. |
+| Bots | `bots.py` | Philosopher captains: sail/wager/shop/battle heuristics (provision before a trial, BRACE the heavies) + per-tier answer accuracy. |
 | Server | `server.py` | FastAPI + WebSockets: one shared table, d3 dice, timers tied to what they time, an idle-turn clock so an absent captain never freezes the table, bot driver, per-socket send queues and rate limits. |
 | World | `static/gfx/*` + `scene.js`, `islands.js`, `realms/*`, `wall.js`, `themes.js` | The V2 renderer: HDR pipeline (bloom, sun shafts, ACES, film grade), one shared sky/sun/haze model with sky-baked ambient, view-following sun shadows, a real ocean with shallows and surf from a baked shore map, heightfield islands and lit mountain ranges. Five stages (Aegean hub + four realms), each with its own lighting script. See `docs/GRAPHICS.md`. |
 | Models | `static/assets/{monsters,props,structures}/*.glb` → `static/monsters.js`, `props.js`, `structures.js`, `modelmat.js` | 32 creature/boss sculpts, 36 props, 14 landmarks (AI-sculpted, see `tools/MESHY-PIPELINE.md`), finished per material class for the HDR renderer and animated procedurally by named part. `docs/MODELS.md` is the catalogue (kept / removed / stand-ins / to remake); `/static/modeltest.html` is the contact sheet. |
@@ -125,7 +133,8 @@ move always available, turns that always end):
 python3 tools/sim.py --games 500 --seed 1      # summary; exits non-zero on a failure
 python3 tools/sim.py --games 1 --seed 137 --verbose    # replay one game, action by action
 python3 tools/sim.py --mode bots --max-turns 3000      # honest bot voyages (balance numbers)
-python3 tools/sim.py --study stances           # boss / Warden win rates by stance
+python3 tools/sim.py --study stances           # boss / Warden / pack win rates by stance and kit
+python3 tools/sim.py --mode bots --skill sharp  # (or casual) voyages: first-try boss rates, fight length
 ```
 
 Half the tables are honest all-bot voyages (the balance numbers), half are

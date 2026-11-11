@@ -26,6 +26,7 @@ import { preloadProps } from './props.js';
 import { buildMountainWall, buildRealmBackdrop } from './wall.js';
 import { getMonster, animateMonster, preloadMonsters, disposeMonster, BOSS_IDS } from './monsters.js';
 import { createBattleStage } from './battle.js';
+import { createWorldFx } from './worldfx.js';
 import { installAtmosphere, applyLook, updateAtmosphere } from './gfx/atmosphere.js';
 import { lookFor } from './gfx/looks.js';
 import { makeSky, bakeEnvironment } from './gfx/sky.js';
@@ -33,6 +34,10 @@ import { makeLightRig } from './gfx/lighting.js';
 import { makeOcean, WATER_Y } from './gfx/ocean.js';
 import { createPipeline } from './gfx/pipeline.js';
 import { makeShoreMap } from './gfx/shoremap.js';
+import { planRoute, routeAt, helm, easeVoyage, obstacleIndex, smooth01 } from './travel.js';
+import { REALM_INFO } from './themes.js';
+import { islandRoom, laneBearing } from './isleshape.js';
+import { makeTurnMarker as modelTurnMarker, makeReachBeacon, makeSeaLane, makeFootTrail } from './models/props.js';
 
 const FADE_MS = 480;               // fade-to-black hold before the swap
 const GOLD = 0xffd75e;
@@ -251,6 +256,13 @@ export function createWorld(container, handlers = {}) {
   function stageForViewer(room, you) {
     const me = room.players?.find((p) => p.pid === you);
     if (!me || !me.node) return activeBoardId || 'hub';
+    // a vessel still sailing UP to a pass stays in the stage it sails in —
+    // whatever the server says (it carries you through ~1.8 s after landfall,
+    // long before the hull has reached the arch: that early carry is what
+    // used to pop the Amber Vale in while the boat was still out at sea)
+    if (cross && cross.pid === you) return cross.phase === 'approach' ? cross.from : cross.to;
+    const held = ships[you];
+    if (held?.hold && held.stageId) return held.stageId;
     const n = nodeById[me.node];
     if (!n) return activeBoardId || 'hub';
     if (n.type === 'gate') {
@@ -453,6 +465,20 @@ export function createWorld(container, handlers = {}) {
     if (R) R.rotation.y = -swing;
   }
 
+  /* an island is sized to the free water round its node (no two isles grow
+     into each other or over a lane) and opens its harbour toward the lane it
+     is reached by — isleshape.js. The node snapshot itself is never touched. */
+  let roomEdges = null, roomKey = '';
+  function withRoom(node, nodes, room) {
+    const solid = node.type !== 'sea' && node.type !== 'gate';
+    if (!solid && node.look !== 'islet') return node;
+    const edges = room.board?.edges || [];
+    const k = edges.length + ':' + nodes.length;
+    if (k !== roomKey) { roomKey = k; roomEdges = edges; }
+    return { ...node, room: islandRoom(node, nodes, roomEdges, nodeById),
+             dockA: solid ? laneBearing(node, roomEdges, nodeById) : null };
+  }
+
   function syncStage(st, room) {
     const nodes = memberNodes(st.id, room);
     const domains = room.board?.domains || {};
@@ -468,7 +494,7 @@ export function createWorld(container, handlers = {}) {
         disposeDeep(existing.group);
         existing.proxy.geometry.dispose();
       }
-      const built = buildIsland(node, st.theme, domains);
+      const built = buildIsland(withRoom(node, nodes, room), st.theme, domains);
       built.group.position.set(node.x, 0, node.z);
       const R = built.R;
       const proxy = new THREE.Mesh(
@@ -547,34 +573,19 @@ export function createWorld(container, handlers = {}) {
         if (na.mode === 'foot' || nb.mode === 'foot') {
           // A foot trail is a real line of worn flagstones through the ground.
           const stoneHex = st.theme.id === 'autumn' ? 0x8d7c60 : 0xe6d7ae;
-          const trailRng = mulberry32(hashStr('trail:' + a + '~' + b));
-          const run = len - gapA - gapB;
-          const nStones = Math.max(2, Math.floor(run / 3.2));
-          const stoneMat = flat(stoneHex);
-          for (let i = 0; i <= nStones; i++) {
-            const d = gapA + (i / nStones) * run;
-            const stone = new THREE.Mesh(
-              new THREE.CylinderGeometry(0.45 + trailRng() * 0.35,
-                                         0.55 + trailRng() * 0.4, 0.12, 6),
-              stoneMat);
-            stone.position.set(
-              na.x + _vC.x * d + (trailRng() - 0.5) * 1.4, 0.07,
-              na.z + _vC.z * d + (trailRng() - 0.5) * 1.4);
-            stone.rotation.y = trailRng() * 3.14;
-            stone.receiveShadow = true;
-            st.laneGroup.add(stone);
-          }
+          // one merged mesh of worn, irregular flagstones (models/props.js)
+          st.laneGroup.add(makeFootTrail(
+            na.x + _vC.x * gapA, na.z + _vC.z * gapA,
+            na.x + _vC.x * (len - gapB), na.z + _vC.z * (len - gapB),
+            { hex: stoneHex, seed: hashStr('trail:' + a + '~' + b) }));
           continue;
         }
-        const pts = [_vA.clone().addScaledVector(_vC, gapA),
-                     _vA.clone().addScaledVector(_vC, len - gapB)];
-        const geo = new THREE.BufferGeometry().setFromPoints(pts);
-        const mat = new THREE.LineDashedMaterial({
-          color: 0xffffff, transparent: true, opacity: 0.32,
-          dashSize: 2.0, gapSize: 2.8 });
-        const line = new THREE.Line(geo, mat);
-        line.computeLineDistances();
-        st.laneGroup.add(line);
+        // a sea lane: a soft row of painted wake-dashes on the swell, fading
+        // toward both stops (models/props.js) — not a dashed debug line
+        st.laneGroup.add(makeSeaLane(
+          na.x + _vC.x * gapA, na.z + _vC.z * gapA,
+          na.x + _vC.x * (len - gapB), na.z + _vC.z * (len - gapB),
+          { seed: hashStr(a + '~' + b) }));
       }
     }
   }
@@ -600,66 +611,101 @@ export function createWorld(container, handlers = {}) {
     return path;
   }
 
-  function gateBerth(n, st, slotIdx) {
-    // Berth a ship on the channel centerline (the radial axis through the arch),
-    // on the side of the arch that belongs to the stage we're viewing — the hub
-    // side while approaching, the realm side once across — so you come at the
-    // pass head-on and pass THROUGH it, never around it. A small lateral fan
-    // lets two ships share the mouth without overlapping.
-    const rad = new THREE.Vector3(n.x, 0, n.z).normalize();   // outward (radial)
-    const inRealm = !!(st && st.id !== 'hub');
-    // HUB side (approaching): berth INWARD of the pass so the arch is ahead and
-    // you sail/step OUT through it. REALM side (arrived): berth just PAST the
-    // arch, out on the realm ground, so you stand clear of the structure at the
-    // gate and simply walk on to the first waypoint — never spawning inside it.
-    const along = inRealm ? 26 : 14;
-    const dir = inRealm ? 1 : -1;                    // realm: outward; hub: inward
-    const fan = ((slotIdx % 3) - 1) * 3.0;
-    return new THREE.Vector3(
-      n.x + dir * rad.x * along - rad.z * fan, 0,
-      n.z + dir * rad.z * along + rad.x * fan);
+  /* ── berths ─────────────────────────────────────────────────────────────
+     Where a vessel parks at a stop. Every berth is chosen on the side the
+     vessel ARRIVES from (so it never sails round an island to park on its
+     far side) and away from any other ship already parked or bound there
+     (so hulls never overlap). `from` is the approach point (or null). */
+  const HULL_GAP = 9.0;              // two galleys side by side, bow to stern clear
+  const FOOT_GAP = 1.7;              // two captains standing at one stop
+
+  /* where every OTHER vessel in this stage is parked, or is bound to park */
+  function berthsTaken(st, exceptPid) {
+    const out = [];
+    for (const pid in ships) {
+      if (pid === exceptPid) continue;
+      const r = ships[pid];
+      if (r.stageId !== st?.id) continue;
+      out.push(r.anim ? r.anim.route.pts[r.anim.route.pts.length - 1] : r.root.position);
+    }
+    return out;
+  }
+  function clearOf(p, taken, gap) {
+    for (const q of taken) if (Math.hypot(p.x - q.x, p.z - q.z) < gap) return false;
+    return true;
+  }
+  /* try `base + offsets[i]` until one is clear of every other vessel */
+  function pickClear(make, taken, gap, n = 9) {
+    let first = null;
+    for (let i = 0; i < n; i++) {
+      const k = i === 0 ? 0 : (i % 2 ? 1 : -1) * Math.ceil(i / 2);
+      const p = make(k);
+      if (!first) first = p;
+      if (clearOf(p, taken, gap)) return p;
+    }
+    return first;
   }
 
-  function slotFor(nodeId, slotIdx, st) {
+  function gateBerth(n, st, slotIdx, pid = null) {
+    // Berth on the channel centerline (the radial axis through the arch), on
+    // the side of the arch that belongs to the stage we're viewing — the hub
+    // side while approaching, the realm side once across — so you come at the
+    // pass head-on and pass THROUGH it, never around it. Extra vessels fan
+    // out ACROSS the channel, each a hull's beam clear of the others.
+    const rad = _vD.set(n.x, 0, n.z).normalize();             // outward (radial)
+    const rx = rad.x, rz = rad.z;
+    const inRealm = !!(st && st.id !== 'hub');
+    const foot = isFootStage(st?.id);
+    const along = inRealm ? 26 : 14;
+    const dir = inRealm ? 1 : -1;                    // realm: outward; hub: inward
+    const step = foot ? 2.2 : 5.0;
+    const taken = berthsTaken(st, pid);
+    return pickClear((k) => new THREE.Vector3(
+      n.x + dir * rx * along - rz * k * step, 0,
+      n.z + dir * rz * along + rx * k * step), taken, foot ? FOOT_GAP : 4.6, 5);
+  }
+
+  function slotFor(nodeId, slotIdx, st, from = null, pid = null) {
     const n = nodeById[nodeId];
-    if (n && n.type === 'gate') return gateBerth(n, st, slotIdx);
-    // the VALE is a maze of clearings: the captain stands ON the clearing
-    // itself (stepping stone, cairn) — never at a ship's berth off it. First
-    // captain dead centre; extra ones fan out a touch.
-    if (st?.id === 'autumn') {
-      if (slotIdx === 0) return new THREE.Vector3(n.x, 0, n.z);
-      const a = (slotIdx / 6) * Math.PI * 2 + 0.8;
-      return new THREE.Vector3(n.x + Math.cos(a) * 1.1, 0, n.z + Math.sin(a) * 1.1);
+    if (!n) return new THREE.Vector3();
+    if (n.type === 'gate') return gateBerth(n, st, slotIdx, pid);
+    const taken = berthsTaken(st, pid);
+    // approach bearing from the stop (falls back to a per-captain bearing)
+    const brg = from && Math.hypot(from.x - n.x, from.z - n.z) > 0.5
+      ? Math.atan2(from.z - n.z, from.x - n.x) : (slotIdx / 6) * Math.PI * 2 + 0.8;
+    // ON FOOT (the Vale's clearings, the desert's open dune stops) the
+    // captain stands ON the stop itself; a second captain a step beside him.
+    // A desert stop that carries an island (mound, shrine) is solid ground:
+    // he halts on the sand just short of its rim, on the side he came from.
+    if (st?.id === 'autumn' || isFootStage(st?.id)) {
+      const isle = st.islands[nodeId];
+      const structured = st.id !== 'autumn' && n.type !== 'sea';
+      const r0 = structured ? (isle?.R ?? 4) * 1.05 + 1.6 : 0;
+      return pickClear((k) => {
+        if (!structured && k === 0) return new THREE.Vector3(n.x, 0, n.z);
+        const a = brg + k * 0.5;
+        const r = structured ? r0 : FOOT_GAP;
+        return new THREE.Vector3(n.x + Math.cos(a) * r, 0, n.z + Math.sin(a) * r);
+      }, taken, FOOT_GAP);
     }
-    // the DESERT dune road: open 'sea' stops are bare sand the captain stands
-    // dead on; but a stop that carries an island (a monster mound, the shrine)
-    // is solid ground he'd clip — he halts on the SAND just short of its rim.
-    if (isFootStage(st?.id)) {
-      const structured = n && n.type !== 'sea';
-      const isle = st && st.islands[nodeId];
-      const R = isle?.R ?? 4;
-      if (!structured) {
-        if (slotIdx === 0) return new THREE.Vector3(n.x, 0, n.z);
-        const a = (slotIdx / 6) * Math.PI * 2 + 0.8;
-        return new THREE.Vector3(n.x + Math.cos(a) * 1.1, 0, n.z + Math.sin(a) * 1.1);
-      }
-      const a = (slotIdx / 6) * Math.PI * 2 + 0.8;
-      const r = R * 1.2 + 2.4;
-      return new THREE.Vector3(n.x + Math.cos(a) * r, 0, n.z + Math.sin(a) * r);
+    // an OPEN-WATER mooring (a shoal, no land under it): settle in its middle;
+    // a second ship lies alongside, toward the side it came from
+    if (n.type === 'sea' && !seaSolid(n)) {
+      return pickClear((k) => {
+        if (k === 0) return new THREE.Vector3(n.x, 0, n.z);
+        const a = brg + (Math.abs(k) - 1) * 0.9 * Math.sign(k);
+        return new THREE.Vector3(n.x + Math.cos(a) * HULL_GAP, 0, n.z + Math.sin(a) * HULL_GAP);
+      }, taken, HULL_GAP);
     }
-    // an OPEN-WATER sea mooring (a shoal, no land under it): the ship settles in
-    // the MIDDLE of the shoal, not off at its rim. The first captain sits dead
-    // centre; extra ships fan out just enough to not overlap.
-    if (n?.type === 'sea' && !seaSolid(n)) {
-      if (slotIdx === 0) return new THREE.Vector3(n.x, 0, n.z);
-      const a = (slotIdx / 6) * Math.PI * 2 + 0.8;
-      return new THREE.Vector3(n.x + Math.cos(a) * 3.2, 0, n.z + Math.sin(a) * 3.2);
-    }
+    // an island: lie off its beach on the approach side, a hull's width
+    // clear of the sand; further captains fan round the coast
     const isle = st && st.islands[nodeId];
     const R = isle?.R ?? 4;
-    const a = (slotIdx / 6) * Math.PI * 2 + 0.8;
-    const r = R * 1.55 + 1.2;
-    return new THREE.Vector3((n?.x ?? 0) + Math.cos(a) * r, 0, (n?.z ?? 0) + Math.sin(a) * r);
+    const r = R * 1.12 + 4.6;
+    return pickClear((k) => {
+      const a = brg + k * Math.max(0.32, (HULL_GAP + 1) / r);
+      return new THREE.Vector3(n.x + Math.cos(a) * r, 0, n.z + Math.sin(a) * r);
+    }, taken, HULL_GAP);
   }
 
   /* an open-sea waypoint can still be SOLID GROUND — an islet or a rock
@@ -668,26 +714,30 @@ export function createWorld(container, handlers = {}) {
     return n?.type === 'sea' && (n.look === 'islet' || n.look === 'rocks');
   }
 
-  function lanePoint(nid, fromPos, st) {
+  /* a route that runs THROUGH a stop it does not end on (an island on the
+     way, an islet buoy) passes beside it — on whichever side the straight
+     line from the last point to the next one already favours */
+  function lanePoint(nid, fromPos, st, toPos = null) {
     const n = nodeById[nid];
     const p = new THREE.Vector3(n.x, 0, n.z);
     if (n.type !== 'sea' || seaSolid(n)) {
-      const r = (st?.islands[nid]?.R ?? 8) * 1.25 + 3.5;
-      _vD.subVectors(p, fromPos).normalize();
-      p.x += -_vD.z * r;
-      p.z += _vD.x * r;
+      const r = (st?.islands[nid]?.R ?? 8) * 1.12 + 5;
+      const tx = (toPos ? toPos.x : n.x) - fromPos.x, tz = (toPos ? toPos.z : n.z) - fromPos.z;
+      const tl = Math.hypot(tx, tz) || 1;
+      // which side of the chord does the island lie on? pass on the other
+      // (left normal is (-tz, tx); the island's offset along it is −cross)
+      const side = ((n.x - fromPos.x) * tz - (n.z - fromPos.z) * tx) >= 0 ? 1 : -1;
+      p.x += (-tz / tl) * r * side;
+      p.z += (tx / tl) * r * side;
     }
     return p;
   }
 
   /* ── ships & the walking captain ────────────────────────────────────── */
+  /* the faceted gold gem over the captain whose turn it is (models/props.js;
+     shared geometry + material, so the dispose on removal is harmless) */
   function makeTurnMarker() {
-    const m = new THREE.Mesh(new THREE.ConeGeometry(0.36, 0.75, 6),
-      flat(GOLD, { emissive: 0x9a6a10 }));
-    m.name = 'turnMarker';
-    m.rotation.x = Math.PI;
-    m.position.y = 4.6;
-    return m;
+    return modelTurnMarker();
   }
 
   function ensureShip(p, idx) {
@@ -751,111 +801,400 @@ export function createWorld(container, handlers = {}) {
     }
   }
 
-  function avoidIslands(rawPts, st) {
-    /* Densify the route, then push every sample out of each island's
-       footprint — the hull arcs around land instead of cutting across it.
-       Endpoints (current position, destination slot) stay fixed. */
-    // Clearance is island footprint + a berth wide enough for the GALLEY's
-    // own reach: its bow and stern sit ~4 units off centre and swing inward on
-    // a turn, so the path (which only tracks the hull's centre) must stand off
-    // far enough that the whole hull clears, not just its midpoint.
-    const HULL_CLEAR = 5.0;
+  /* everything a route must keep clear of in this stage, as {x, z, r} discs
+     whose r already includes the vessel's own clearance. A galley's bow and
+     stern sit ~4 wu off its centre and swing out on a turn, so a hull stands
+     off a coast by more than a walker does. */
+  const _near = [];
+  function routeSolids(st, rec, foot, a, b) {
+    const hull = foot ? 1.1 : 4.6;
     const solids = [];
-    for (const [nid, isle] of Object.entries(st.islands)) {
+    for (const nid in st.islands) {
+      const isle = st.islands[nid];
       const n = nodeById[nid];
       if (!n || n.type === 'gate') continue;
       if (n.type === 'sea') {
-        // bare islets and rock stacks on the lanes are land too — the hull
-        // arcs around them instead of ploughing through (slightly tighter
-        // clearance so the berth beside them stays reachable)
+        // islets and rock stacks on the lanes are land too
         if (!seaSolid(n)) continue;
-        solids.push({ x: n.x, z: n.z, r: (isle.R ?? 4) * 1.2 + 2.8 });
+        solids.push({ x: n.x, z: n.z, r: (isle.R ?? 4) + (foot ? hull : 3.2) });
         continue;
       }
-      solids.push({ x: n.x, z: n.z, r: (isle.R ?? 8) * 1.2 + HULL_CLEAR });
+      // the Vale's stops are flush clearings, walked straight onto
+      if (st.id === 'autumn') continue;
+      solids.push({ x: n.x, z: n.z, r: (isle.R ?? 8) * (foot ? 1.0 : 1.08) + hull });
     }
-    const pts = [];
-    pts.push(rawPts[0].clone());
-    for (let i = 1; i < rawPts.length; i++) {
-      const a = rawPts[i - 1], b = rawPts[i];
-      const nSeg = Math.max(1, Math.ceil(a.distanceTo(b) / 2));   // finer: less chord sag
-      for (let s = 1; s <= nSeg; s++) {
-        pts.push(new THREE.Vector3().lerpVectors(a, b, s / nSeg));
-      }
+    // the realm's field: bergs, stacks, dune rocks, the Vale's trunks
+    if (st.field) {
+      if (!st.obstacles) st.obstacles = obstacleIndex(st.field);
+      _near.length = 0;
+      st.obstacles.near(a.x, a.z, b.x, b.z, 120, _near);
+      for (const c of _near) solids.push({ x: c.x, z: c.z, r: c.r + hull * 0.8 });
     }
-    if (!solids.length || pts.length < 3) return pts;
-    const pushOut = () => {
-      for (let i = 1; i < pts.length - 1; i++) {
-        const p = pts[i];
-        for (const c of solids) {
-          const dx = p.x - c.x, dz = p.z - c.z;
-          const d = Math.hypot(dx, dz);
-          if (d >= c.r) continue;
-          if (d > 1e-4) {
-            const k = c.r / d;
-            p.x = c.x + dx * k;
-            p.z = c.z + dz * k;
-          } else {
-            p.x = c.x + c.r;                 // dead center: pick a side
-          }
-        }
+    // every other vessel in the stage — parked, or parking
+    for (const pid in ships) {
+      const o = ships[pid];
+      if (o === rec || o.stageId !== st.id) continue;
+      const p = o.anim ? o.anim.route.pts[o.anim.route.pts.length - 1] : o.root.position;
+      solids.push({ x: p.x, z: p.z, r: foot ? 1.4 : 7.5 });
+    }
+    return solids;
+  }
+
+  /* the hub's mountain wall: nothing but a pass-bound hull may run up into
+     the range's roots (r ≈ 488) — everywhere else stay a hull clear of it */
+  function wallConstraint(st) {
+    if (st.id !== 'hub') return null;
+    const gates = [];
+    for (const id in nodeById) {
+      const g = nodeById[id];
+      if (g.type === 'gate') gates.push(g.gate_angle ?? Math.atan2(g.z, g.x));
+    }
+    const R = 474;
+    return (p) => {
+      const r = Math.hypot(p.x, p.z);
+      if (r <= R) return;
+      const a = Math.atan2(p.z, p.x);
+      for (const ga of gates) {
+        if (Math.abs(Math.atan2(Math.sin(a - ga), Math.cos(a - ga))) * r < 16) return;
       }
+      p.x *= R / r; p.z *= R / r;
     };
-    pushOut();
-    for (let pass = 0; pass < 3; pass++) {   // soften the tangent kinks…
-      for (let i = 1; i < pts.length - 1; i++) {
-        pts[i].x = pts[i].x * 0.6 + (pts[i - 1].x + pts[i + 1].x) * 0.2;
-        pts[i].z = pts[i].z * 0.6 + (pts[i - 1].z + pts[i + 1].z) * 0.2;
-      }
-      pushOut();                             // …but never back onto land
-    }
-    return pts;
+  }
+
+  /* which way through a pass (unit vector) — 'in' is outward, into the realm */
+  function passDir(g, into, out) {
+    out.set(g.x, 0, g.z).normalize();
+    if (!into) out.multiplyScalar(-1);
+    return out;
   }
 
   function startTravel(rec, toNode, st) {
-    // on foot the captain follows the trail stop-to-stop (no berth offsets), but
-    // the two foot realms differ: the VALE is a private maze whose trail is hand
-    // laid to thread its clearings, so it walks dead-straight between stops; the
-    // DESERT's dune road bows past scattered mounds, so its captain still arcs
-    // AROUND island footprints instead of ploughing through them.
+    // On foot the captain follows the trail stones stop to stop (corners only
+    // lightly rounded); at sea the hull carves a smooth curve between the
+    // lane's waypoints, round every coast, stack and moored ship.
     const onFoot = isFootStage(st?.id);
-    const walkTrail = st?.id === 'autumn';        // the Vale: raw stop-to-stop
     const route = sailPath(rec.prevNode, toNode);
     const raw = [rec.root.position.clone()];
     if (route && route.length > 2) {
-      for (const nid of route.slice(1, -1)) {
-        const n = nodeById[nid];
+      const mids = route.slice(1, -1);
+      for (let i = 0; i < mids.length; i++) {
+        const n = nodeById[mids[i]];
         if (!n) continue;
+        const nxt = nodeById[route[i + 2]];
         raw.push(onFoot ? new THREE.Vector3(n.x, 0, n.z)
-                        : lanePoint(nid, raw[raw.length - 1], st));
+                        : lanePoint(mids[i], raw[raw.length - 1], st,
+                                    nxt ? _vC.set(nxt.x, 0, nxt.z) : null));
       }
     }
     const dest = nodeById[toNode];
-    if (dest && dest.type === 'gate') {
-      // approach the isles-facing berth straight down the channel (the berth
-      // itself is inward of the arch — see gateBerth), so run in from further in
-      const rad = _vD.set(dest.x, 0, dest.z).normalize();
-      raw.push(new THREE.Vector3(dest.x - rad.x * 46, 0, dest.z - rad.z * 46));
+    const prevN = nodeById[rec.prevNode];
+    // a vessel bound for a PASS from this stage's own side is CROSSING: it
+    // sails up the channel, through the arch, and only then leaves the stage
+    // (the server's carry-through is held back until it gets there)
+    rec.hold = null;
+    if (dest && dest.type === 'gate' && prevN && prevN.type !== 'gate'
+        && (st.id === 'hub' ? !prevN.region : prevN.region === st.id)) {
+      const into = st.id === 'hub';
+      rec.hold = { gate: dest.id, from: st.id, to: into ? (dest.region || 'hub') : 'hub' };
+      const f = passDir(dest, into, _vD);
+      const fx = f.x, fz = f.z;
+      // straight up the fairway: well short of the arch, the berth, and on
+      // through the arch to the far mouth of the pass
+      const back = into ? 46 : 52, berth = into ? 14 : 26, beyond = into ? 24 : 16;
+      raw.push(new THREE.Vector3(dest.x - fx * back, 0, dest.z - fz * back));
+      raw.push(new THREE.Vector3(dest.x - fx * berth, 0, dest.z - fz * berth));
+      raw.push(new THREE.Vector3(dest.x + fx * beyond, 0, dest.z + fz * beyond));
+    } else {
+      if (dest && dest.type === 'gate' && st.id === 'hub') {
+        // approach the isles-facing berth straight down the channel
+        const rad = _vD.set(dest.x, 0, dest.z).normalize();
+        raw.push(new THREE.Vector3(dest.x - rad.x * 46, 0, dest.z - rad.z * 46));
+      }
+      raw.push(slotFor(toNode, rec.idx, st, raw[raw.length - 1], rec.pid));
     }
-    raw.push(slotFor(toNode, rec.idx, st));
-    const pts = walkTrail ? raw : avoidIslands(raw, st);
+    const solids = routeSolids(st, rec, onFoot, raw[0], raw[raw.length - 1]);
+    const plan = planRoute(raw, solids, {
+      heading: rec.root.rotation.y, walk: onFoot, constrain: wallConstraint(st),
+    });
     rec.arrivalPending = true;
-    let total = 0;
-    const legs = [];
-    for (let i = 1; i < pts.length; i++) {
-      const len = pts[i].distanceTo(pts[i - 1]);
-      legs.push(len);
-      total += len;
-    }
-    const foot = rec.mode === 'foot';
+    const total = plan.total;
     // unhurried: a voyage should read as a voyage, not a teleport — but the
     // hub's longest lanes were dragging past 7s a hop, so long legs pick up
-    // speed while short putters keep their lazy glide
+    // speed while short putters keep their lazy glide. A crossing gets a
+    // little extra to slow through the arch.
+    const extra = rec.hold ? 900 : 0;
     rec.anim = {
-      pts, legs, total, t0: performance.now(),
-      dur: foot ? Math.min(9000, 900 + total * 52) : Math.min(5800, 700 + total * 32),
+      route: plan, total, t0: performance.now(), seg: 0,
+      dur: (onFoot ? Math.min(9000, 900 + total * 52) : Math.min(5800, 700 + total * 32)) + extra,
     };
   }
+
+  /* ══ CROSSING A PASS ════════════════════════════════════════════════════
+     Entering (or leaving) a realm is a short cinematic, driven entirely by
+     the local captain's own travel state:
+
+       approach  the ship sails its lane and on up the channel between the
+                 pass's bastions; as it nears the arch the camera drops low
+                 astern and looks THROUGH it, the far side glowing in the
+                 realm's accent, the haze thickening to the realm's colour
+       cut       a beat before the hull stops in the arch the ink curtain
+                 falls (requestStage → .scenefade); behind it the far stage
+                 is raised and the vessel placed just through the arch
+       reveal    the curtain lifts on the far side — the realm's banner and
+                 music start HERE (handlers.onStageChange) — the camera rises
+                 from deck height to the chase view while the ship glides (or
+                 the captain steps off his beached galley and walks) on to
+                 the first stop the server carried him to
+
+     ~4–6 s all told; any tap or key skips it (to the plain fade); with
+     prefers-reduced-motion, the Light tier's slow frames, a spectator, a
+     rival's crossing or the opening tour it never starts (rivals' hulls
+     still sail all the way through the arch before they leave the stage).
+     A battle, a respawn or a dev drop mid-crossing aborts it cleanly. */
+  let cross = null;   // {pid, gate, from, to, dir, phase, t0, dur, w, skip, fog, glow}
+  const _cA = new THREE.Color();
+  const reduceMotion = () => {
+    try { return window.matchMedia('(prefers-reduced-motion: reduce)').matches; }
+    catch { return false; }
+  };
+
+  function saveFog(st) {
+    const f = st?.scene.fog;
+    return f ? { st, color: f.color.clone(), near: f.near, far: f.far } : null;
+  }
+  function hazeTo(save, hex, k, thick) {
+    if (!save) return;
+    const f = save.st.scene.fog;
+    if (!f) return;
+    f.color.copy(save.color).lerp(_cA.set(hex), k);
+    f.near = save.near * (1 - 0.6 * thick);
+    f.far = save.far * (1 - 0.55 * thick);
+  }
+  function restoreFog(save) {
+    const f = save?.st.scene.fog;
+    if (!f) return;
+    f.color.copy(save.color); f.near = save.near; f.far = save.far;
+  }
+  function dropGlow() {
+    if (!cross?.glow) return;
+    cross.glow.parent?.remove(cross.glow);
+    cross.glow.material.dispose();
+    cross.glow = null;
+  }
+
+  function beginCrossing(rec) {
+    if (cross || tour || renderPaused || battleOn || reduceMotion()) return;
+    const h = rec.hold;
+    const st = stages[h.from];
+    const g = nodeById[h.gate];
+    if (!st || !g) return;
+    const into = h.from === 'hub';
+    const realm = into ? h.to : h.from;
+    cross = {
+      pid: rec.pid, gate: h.gate, from: h.from, to: h.to, dir: into ? 'in' : 'out',
+      phase: 'approach', t0: 0, dur: into ? 2900 : 1900, w: 0, skip: false,
+      fog: saveFog(st), destFog: null, realm,
+      haze: lookFor(h.to).fog.color, glow: null,
+    };
+    // the far side, glowing in its accent through the arch (HDR: it blooms)
+    const accent = REALM_INFO[into ? realm : 'hub']?.accent ?? '#d9a441';
+    const glow = new THREE.Sprite(new THREE.SpriteMaterial({
+      map: TEX_GLOW, color: new THREE.Color(accent).multiplyScalar(2.2),
+      transparent: true, opacity: 0, depthWrite: false, fog: false,
+      blending: THREE.AdditiveBlending }));
+    const f = passDir(g, into, _vB);
+    glow.position.set(g.x + f.x * 40, 11, g.z + f.z * 40);
+    glow.scale.set(70, 52, 1);
+    glow.renderOrder = 4;
+    st.scene.add(glow);
+    cross.glow = glow;
+  }
+
+  /* the hull has reached the arch (or, for a crossing we don't film, has
+     sailed through it): let the server's carry-through take effect */
+  let resyncShips = false;
+  function crossedPass(rec) {
+    if (cross && cross.pid === rec.pid) {
+      if (cross.phase !== 'approach') return;
+      cross.phase = 'cut';
+      requestStage(cross.to);           // the curtain; placeCrossed runs behind it
+      return;
+    }
+    rec.hold = null;
+    resyncShips = true;                  // honour the deferred carry this frame
+  }
+
+  function releaseHold(rec, drop) {
+    rec.hold = null;
+    if (drop && cross && cross.pid === rec.pid) abortCrossing();
+  }
+
+  /* behind the curtain: put the vessel just through the arch on the far side */
+  function placeCrossed(st) {
+    const rec = ships[cross.pid];
+    const g = nodeById[cross.gate];
+    if (!rec || !g) { abortCrossing(); return; }
+    restoreFog(cross.fog);
+    dropGlow();
+    const into = cross.dir === 'in';
+    const f = passDir(g, into, _vB);
+    rec.hold = null;
+    rec.anim = null;
+    rec.arrivalPending = false;
+    setShipStage(rec, st.id);
+    rec.needPlace = false;
+    rec.node = g.id;
+    rec.prevNode = g.id;
+    rec.root.position.set(g.x + f.x * 8, 0, g.z + f.z * 8);
+    rec.root.rotation.y = Math.atan2(-f.z, f.x);
+    const foot = isFootStage(st.id);
+    if (foot !== (rec.mode === 'foot')) { rec.mode = foot ? 'foot' : 'sail'; applyMode(rec); }
+    // ON FOOT: the galley is run up on the strand at the mouth of the pass
+    // and left there; the captain steps down from it and walks on
+    if (foot && into) beachHull(st, rec, g, f);
+    cross.phase = 'reveal';
+    cross.t0 = performance.now() + 140;           // the curtain starts to lift
+    cross.destFog = saveFog(st);
+    cross.placed = true;
+  }
+
+  function beachHull(st, rec, g, f) {
+    if (st.beached) {
+      st.scene.remove(st.beached);
+      disposeDeep(st.beached);
+    }
+    const hull = makeShip(rec.color);
+    hull.scale.setScalar(2);
+    hull.name = 'beached';
+    // nosed up the sand just past the arch, heeled over on her bilge
+    const x = g.x + f.x * 4 - f.z * 5, z = g.z + f.z * 4 + f.x * 5;
+    const y = st.surf.heightAt ? st.surf.heightAt(x, z) : 0;
+    hull.position.set(x, y - 0.55, z);
+    hull.rotation.set(0.16, Math.atan2(-f.z, f.x) + 0.35, 0.05);
+    st.scene.add(hull);
+    st.beached = hull;
+  }
+
+  function finishCrossing() {
+    if (!cross) return;
+    restoreFog(cross.destFog);
+    restoreFog(cross.fog);
+    dropGlow();
+    const pid = cross.pid;
+    cross = null;
+    handlers.onArrive?.(pid);              // the HUD may hand the dice over now
+  }
+
+  function abortCrossing() {
+    if (!cross) return;
+    const rec = ships[cross.pid];
+    restoreFog(cross.destFog);
+    restoreFog(cross.fog);
+    dropGlow();
+    if (rec && rec.hold) { rec.hold = null; resyncShips = true; }
+    cross = null;
+  }
+
+  function skipCrossing() {
+    if (!cross) return;
+    cross.skip = true;
+    const rec = ships[cross.pid];
+    if (cross.phase === 'approach' && rec?.anim) rec.anim.t0 -= rec.anim.dur;   // to the arch
+    else if (cross.phase === 'reveal') {
+      if (rec && rec.stageId === activeBoardId) snapBehindShip(rec);
+      finishCrossing();
+    }
+  }
+
+  function groundY(st, x, z) {
+    return st.surf.heightAt ? Math.max(0, st.surf.heightAt(x, z)) : 0;
+  }
+
+  /* dev/QA only: window.__crossStops = [0.2, 0.8, 1.1, 1.6] freezes the
+     crossing each time its progress (approach 0..1, reveal 1..2) passes the
+     next stop, so a slow headless renderer can photograph exact beats;
+     clearing window.__crossHold resumes it */
+  function crossStop(progress) {
+    const stops = window.__crossStops;
+    if (!stops || !stops.length || window.__crossHold) return;
+    if (progress >= stops[0]) {
+      window.__crossPaused = stops.shift();
+      window.__crossHold = true;
+    }
+  }
+
+  /* the camera through a crossing; true while it owns the view */
+  function crossingCamera(st, now, dt) {
+    const rec = ships[cross.pid];
+    const g = nodeById[cross.gate];
+    if (!rec || !g || rec.stageId !== st.id) return false;
+    const into = cross.dir === 'in';
+    const P = rec.root.position;
+    const yaw = rec.root.rotation.y;
+    const sfx = Math.cos(yaw), sfz = -Math.sin(yaw);
+    if (cross.phase === 'approach' || cross.phase === 'cut') {
+      const d = Math.hypot(P.x - g.x, P.z - g.z);
+      // monotone: once the camera has started down it never climbs back out
+      cross.w = Math.max(cross.w, cross.phase === 'cut' ? 1 : 1 - smooth01(24, 90, d));
+      const w = cross.w;
+      if (cross.phase === 'approach') crossStop(w);
+      hazeTo(cross.fog, cross.haze, w * 0.75, w);
+      if (cross.glow) cross.glow.material.opacity = w * 0.85;
+      if (w <= 0.001) return false;
+      const f = passDir(g, into, _vB);
+      const e = easeVoyage(w);
+      // chase pose (where the normal follow-cam would be) → low astern,
+      // eye through the arch to the glow beyond
+      _vA.set(P.x - sfx * 26, 13, P.z - sfz * 26);
+      _vC.set(P.x - f.x * 15 - f.z * 2.5, 3.6, P.z - f.z * 15 + f.x * 2.5);
+      _vA.lerp(_vC, e);
+      _vC.set(P.x + sfx * 3, 1.6, P.z + sfz * 3);
+      _vD.set(g.x + f.x * 46, 7, g.z + f.z * 46);
+      _vC.lerp(_vD, e);
+      _vA.y = Math.max(_vA.y, groundY(st, _vA.x, _vA.z) + 2.2);
+      const a = 1 - Math.exp(-dt * 5);
+      camera.position.lerp(_vA, a);
+      controls.target.lerp(_vC, a);
+      camera.lookAt(controls.target);
+      followSun(st, controls.target);
+      return true;
+    }
+    if (cross.phase === 'reveal') {
+      if (cross.skip) {
+        snapBehindShip(rec);
+        finishCrossing();
+        return false;
+      }
+      const k = Math.min(1, Math.max(0, (now - cross.t0) / cross.dur));
+      crossStop(1 + k);
+      const e = easeVoyage(k);
+      const f = passDir(g, into, _vB);
+      // start: deck height in the mouth of the arch, looking out over the
+      // realm; end: the ordinary chase pose behind the moving vessel
+      _vA.set(g.x - f.x * 3 + f.z * 2, 3.4, g.z - f.z * 3 - f.x * 2);
+      _vC.set(P.x - sfx * 26, 13, P.z - sfz * 26);
+      _vA.lerp(_vC, e);
+      _vC.set(g.x + f.x * 70, 6, g.z + f.z * 70);
+      _vD.set(P.x + sfx * 3, 1.6, P.z + sfz * 3);
+      _vC.lerp(_vD, e);
+      _vA.y = Math.max(_vA.y, groundY(st, _vA.x, _vA.z) + 2.2);
+      camera.position.copy(_vA);
+      controls.target.copy(_vC);
+      camera.lookAt(controls.target);
+      // the realm's own haze, thick at the threshold, thinning as we rise
+      hazeTo(cross.destFog, cross.haze, 0, 1 - e);
+      followSun(st, controls.target);
+      if (k >= 1) finishCrossing();
+      return true;
+    }
+    return false;
+  }
+
+  /* any key cuts the crossing short (the tap is handled with the other
+     cinematics in pointerdown) */
+  window.addEventListener('keydown', (e) => {
+    if (cross && !['Shift', 'Control', 'Alt', 'Meta'].includes(e.key)) skipCrossing();
+  });
 
   /* a realm crossed on foot (the desert): its captain walks, no boat */
   function isFootStage(stageId) {
@@ -873,7 +1212,20 @@ export function createWorld(container, handlers = {}) {
       // mid arrow-walk the server holds your true node until the roll
       // resolves, but hands YOU the walk's head — drive the captain there
       // so he strides up to each fork, then its arrows appear
-      const nodeNow = (p.pid === myPid && room.walk?.node) ? room.walk.node : p.node;
+      let nodeNow = (p.pid === myPid && room.walk?.node) ? room.walk.node : p.node;
+      // CROSSING A PASS: the server carries a captain through ~1.8 s after
+      // landfall, while the hull may still be miles out. Hold the vessel's
+      // visual node at the gate until it has actually sailed through the arch
+      // (tickShips releases the hold). A jump anywhere else — a dev drop, a
+      // respawn at a haven — drops the hold and is honoured at once.
+      if (rec.hold) {
+        const far = nodeById[nodeNow];
+        const carried = nodeNow === rec.hold.gate
+          || (far && (nbrs[rec.hold.gate] || []).includes(nodeNow)
+              && (rec.hold.to === 'hub' ? !far.region : far.region === rec.hold.to));
+        if (carried) nodeNow = rec.node;
+        else releaseHold(rec, true);
+      }
       const moved = rec.node !== nodeNow;
       if (moved) { rec.prevNode = rec.node; rec.node = nodeNow; }
 
@@ -888,7 +1240,7 @@ export function createWorld(container, handlers = {}) {
 
       let doTravel = false;
       if (moved) {
-        const inActive = stageHasNode(activeBoardId, p.node);
+        const inActive = stageHasNode(activeBoardId, rec.node);
         const fromIn = stageHasNode(activeBoardId, rec.prevNode);
         if (inActive && fromIn && rec.stageId === activeBoardId && !rec.needPlace) {
           doTravel = true;
@@ -899,9 +1251,14 @@ export function createWorld(container, handlers = {}) {
       }
       setShipStage(rec, targetStage);
       if (modeChanged || (foot && !rec.captain)) applyMode(rec);
-      if (doTravel) startTravel(rec, rec.node, stages[activeBoardId]);
+      if (doTravel) {
+        startTravel(rec, rec.node, stages[activeBoardId]);
+        if (rec.hold && rec.pid === myPid) beginCrossing(rec);
+      }
       if (rec.needPlace && rec.stageId && stages[rec.stageId]) {
-        rec.root.position.copy(slotFor(rec.node, rec.idx, stages[rec.stageId]));
+        const pv = nodeById[rec.prevNode];
+        rec.root.position.copy(slotFor(rec.node, rec.idx, stages[rec.stageId],
+          pv ? _vC.set(pv.x, 0, pv.z) : null, rec.pid));
         // spawned at a realm pass: face INTO the realm (outward, away from the
         // gate) so you're looking at the road ahead, not back at the wall
         const pn = nodeById[rec.node];
@@ -933,6 +1290,8 @@ export function createWorld(container, handlers = {}) {
    * advanced, so a captain finishes sailing on-screen before the view hands
    * off to the next. */
   function animatingPid() {
+    // my own crossing owns the view (and holds the dice) until the reveal
+    if (cross && ships[cross.pid] && cross.phase !== 'reveal') return cross.pid;
     for (const pid in ships) {
       if (ships[pid].anim) return pid;
     }
@@ -1070,50 +1429,10 @@ export function createWorld(container, handlers = {}) {
   function addBeacon(nid, n, R) {
     const x = n?.x ?? 0, z = n?.z ?? 0;
     const rr = Math.max(3.6, R);
-    const bmat = () => new THREE.MeshBasicMaterial({ color: HL_BRIGHT,
-      transparent: true, side: THREE.DoubleSide, depthWrite: false, fog: false });
-
-    const ring = new THREE.Mesh(new THREE.RingGeometry(rr * 1.25, rr * 1.55, 44), bmat());
-    ring.material.opacity = 0.85;
-    ring.rotation.x = -Math.PI / 2;
-    ring.position.set(x, 0.32, z);
-    ring.renderOrder = 6;
-    ring.userData = { node: nid, role: 'ring' };
-
-    // a soft second ring for a halo so it reads on bright sand too
-    const halo = new THREE.Mesh(new THREE.RingGeometry(rr * 0.2, rr * 1.25, 40), bmat());
-    halo.material.opacity = 0.14;
-    halo.material.blending = THREE.AdditiveBlending;
-    halo.rotation.x = -Math.PI / 2;
-    halo.position.set(x, 0.28, z);
-    halo.renderOrder = 5;
-    halo.userData = { node: nid, role: 'halo' };
-
-    // a slim shaft of light — narrow enough to leave the island readable
-    const beam = new THREE.Mesh(
-      new THREE.CylinderGeometry(rr * 0.28, rr * 0.5, 13, 20, 1, true), bmat());
-    beam.material.opacity = 0.12;
-    beam.material.blending = THREE.AdditiveBlending;
-    beam.position.set(x, 7.5, z);
-    beam.renderOrder = 6;
-    beam.userData = { node: nid, role: 'beam' };
-
-    // a bright downward chevron floating well above the spot
-    const chSize = Math.min(rr * 0.5, 2.6);
-    const chev = new THREE.Mesh(new THREE.ConeGeometry(chSize, chSize * 1.5, 4), bmat());
-    chev.material.opacity = 1;
-    chev.rotation.x = Math.PI;                       // point down at the spot
-    chev.position.set(x, 9, z);
-    chev.renderOrder = 8;
-    chev.userData = { node: nid, role: 'chev', ph: (hashStr(nid) % 628) / 100 };
-
-    const disc = new THREE.Mesh(new THREE.CircleGeometry(rr * 1.8, 16),
-      new THREE.MeshBasicMaterial({ visible: false }));
-    disc.rotation.x = -Math.PI / 2;
-    disc.position.set(x, 0.4, z);
-    disc.userData = { node: nid, role: 'disc' };
-
-    highlights.add(ring, halo, beam, chev, disc);
+    // ring, halo, beam, chev, disc — same roles/userData as before, drawn as
+    // a crisp soft-edged ring, a pool of light, a fading shaft and a gold gem
+    // (models/props.js). Fog-free: it is UI.
+    highlights.add(...makeReachBeacon(nid, x, z, rr, HL_BRIGHT));
   }
 
   /* ── stage switching (with the ink fade) ────────────────────────────── */
@@ -1147,6 +1466,7 @@ export function createWorld(container, handlers = {}) {
       controls.minDistance = 16; controls.maxDistance = 84;
     }
     if (lastRoom) syncStage(st, lastRoom);
+    if (cross && cross.phase === 'cut' && cross.to === stageId) placeCrossed(st);
     /* move the ride-along groups into this scene */
     st.scene.add(highlights, fx, valeArrows);
     hiKey = '';
@@ -1157,7 +1477,13 @@ export function createWorld(container, handlers = {}) {
       syncHighlights(lastRoom, myPid);
       syncValeArrows(lastRoom, myPid);
     }
-    if (prevId !== stageId) {
+    if (cross && cross.placed && cross.to === stageId) {
+      // just through the arch: glide on to the first stop (or, if the server
+      // has not carried us yet, out to the realm-side berth)
+      cross.placed = false;
+      const rec = ships[cross.pid];
+      if (rec && !rec.anim) startTravel(rec, rec.node, st);
+    } else if (prevId !== stageId) {
       const mine = ships[myPid];
       if (mine && mine.stageId === stageId) snapBehindShip(mine);
     }
@@ -1237,6 +1563,11 @@ export function createWorld(container, handlers = {}) {
 
   function desiredTarget(room) {
     if (!room) return activeBoardId || 'hub';
+    // a battle interrupts a crossing; otherwise the crossing owns the stage
+    if (cross && (room.battle || battleHold)) abortCrossing();
+    if (cross) return cross.phase === 'approach' ? cross.from : cross.to;
+    const mine = ships[myPid];
+    if (mine?.hold && mine.stageId && !room.battle) return mine.stageId;
     // hold the cut to the battle stage until the boat finishes sailing up —
     // and keep it up through the VICTORY / YOU DIED card, so the closing
     // beat plays over the diorama, not the board the fight has left behind.
@@ -1314,6 +1645,7 @@ export function createWorld(container, handlers = {}) {
     hiKey = '';
     cameraAnchored = false;
     cine = null;
+    cross = null;
     wasLobby = true;
     loadGate = false;      // rematch: gate again (cached promises resolve fast)
     seenStages.clear();
@@ -1425,6 +1757,7 @@ export function createWorld(container, handlers = {}) {
   renderer.domElement.addEventListener('pointerdown', (e) => {
     downAt = [e.clientX, e.clientY];
     skipCinematic();          // any touch cuts the establishing pan short
+    skipCrossing();           // …and a pass crossing
     endTour();                // …and the opening tour
   });
   renderer.domElement.addEventListener('pointerup', (e) => {
@@ -1435,7 +1768,7 @@ export function createWorld(container, handlers = {}) {
     // one of those used to be discarded as a camera drag — the #1 "my tap
     // did nothing" report on the Vale arrows
     const slop = e.pointerType === 'touch' ? 18 : 9;
-    if (moved > slop || battleOn || fading || mapMode) return;  // view-only drag
+    if (moved > slop || battleOn || fading || renderPaused) return;  // view-only drag
     const st = stages[activeBoardId];
     // NOT gated on proxyList: the fogged Vale can have ZERO built islands,
     // and this early-out was killing every tap before the trail arrows even
@@ -1541,38 +1874,37 @@ export function createWorld(container, handlers = {}) {
     }
   }
 
+  let shipPrev = 0, shipDt = 0.016;
   function tickShips(st, t, now) {
+    shipDt = shipPrev ? Math.min(0.1, (now - shipPrev) / 1000) : 0.016;
+    shipPrev = now;
     let arrived = null;
     for (const pid in ships) {
       const rec = ships[pid];
       if (rec.stageId !== st.id) continue;
       let moving = false;
       if (rec.anim) {
-        const k = Math.min(1, (now - rec.anim.t0) / rec.anim.dur);
-        const e = k < 0.5 ? 2 * k * k : 1 - Math.pow(-2 * k + 2, 2) / 2;
-        let dAlong = e * rec.anim.total;
-        let seg = 0;
-        while (seg < rec.anim.legs.length - 1 && dAlong > rec.anim.legs[seg]) {
-          dAlong -= rec.anim.legs[seg];
-          seg++;
-        }
-        const a = rec.anim.pts[seg], b = rec.anim.pts[seg + 1];
-        const f = rec.anim.legs[seg] > 0 ? dAlong / rec.anim.legs[seg] : 1;
-        rec.root.position.lerpVectors(a, b, Math.min(1, f));
-        _vA.subVectors(b, a);
-        if (_vA.lengthSq() > 0.01) {
-          const want = Math.atan2(-_vA.z, _vA.x);
-          let diff = want - rec.root.rotation.y;
-          while (diff > Math.PI) diff -= Math.PI * 2;
-          while (diff < -Math.PI) diff += Math.PI * 2;
-          rec.root.rotation.y += diff * 0.15;          // smooth helm turns
-        }
+        const an = rec.anim;
+        const k = Math.min(1, (now - an.t0) / an.dur);
+        const s = easeVoyage(k) * an.total;
+        an.seg = routeAt(an.route, s, rec.root.position, _vA, an.seg);
+        // the bow follows the curve's tangent at a capped turn rate — no
+        // pivoting on the spot, no crabbing sideways; a walker turns quicker
+        const foot = rec.mode === 'foot';
+        rec.root.rotation.y = helm(rec.root.rotation.y, _vA.x, _vA.z, shipDt,
+                                   foot ? 5.5 : 1.9, foot ? 14 : 7);
+        if (foot && st.surf.heightAt) rec.root.position.y = Math.max(0, st.surf.heightAt(rec.root.position.x, rec.root.position.z));
         moving = true;
-        if (k >= 1) {
+        // a crossing vessel CUTS through the arch a beat before it stops
+        if (rec.hold && (k >= 1 || (cross && cross.pid === rec.pid && an.total - s < 7))) {
+          crossedPass(rec);
+        }
+        if (rec.anim && k >= 1) {
           rec.anim = null; moving = false;
           if (rec.arrivalPending) { rec.arrivalPending = false; arrived = rec.pid; }
         }
-        /* wake foam while the galley sails */
+        /* wake foam while the galley sails — dropped at the stern, so the
+           trail of foam traces the curve the hull actually carved */
         if (moving && rec.galley.visible && now - rec.lastWake > 95) {
           rec.lastWake = now;
           const yaw = rec.root.rotation.y;
@@ -1608,6 +1940,11 @@ export function createWorld(container, handlers = {}) {
         marker.rotation.y = t * 2.2;
         marker.position.y = 4.6 + Math.sin(t * 2.6) * 0.18;
       }
+    }
+    if (resyncShips && lastRoom) {
+      resyncShips = false;
+      syncShips(lastRoom, myPid);
+      requestStage(desiredTarget(lastRoom));
     }
     if (arrived) onShipArrive(arrived);
   }
@@ -1717,6 +2054,7 @@ export function createWorld(container, handlers = {}) {
     }
     controls.autoRotate = lobbyMode && !cine;
     viewFollowPid = focusPid(lastRoom);   // follow the mover, then the next captain
+    if (cross) { if (crossingCamera(st, performance.now(), dt)) return; }
     if (cine) { if (tickCinematic(st, performance.now())) return; }
     if (!lobbyMode) {
       const rec = viewFollowPid ? ships[viewFollowPid] : null;
@@ -1912,8 +2250,9 @@ export function createWorld(container, handlers = {}) {
     }
   }
 
-  /* ── aerial chart mode: a live top-down view of the CURRENT region ──── */
-  let mapMode = null;   // {saved, bounds, H, Hmin, Hmax, tx, tz, keys, drag}
+  /* the voyage chart (chart.js) is an opaque 2D sheet: while it is fully
+     open the world stops rendering (battles always render) */
+  let renderPaused = false;
 
   function stageBounds(st) {
     let minX = 1e9, maxX = -1e9, minZ = 1e9, maxZ = -1e9;
@@ -1928,141 +2267,16 @@ export function createWorld(container, handlers = {}) {
     return { minX: minX - 45, maxX: maxX + 45, minZ: minZ - 45, maxZ: maxZ + 45 };
   }
 
-  function enterMapView(dev) {
-    const st = stages[activeBoardId];
-    if (!st || battleOn || mapMode || tour) return false;
-    // no chart holds the Amber Vale — every captain walks their own woods.
-    // DEV mode overrides it so the owner can inspect their maze while testing.
-    if (st.theme.id === 'autumn' && !dev) return false;
-    const b = stageBounds(st);
-    const extent = Math.max(b.maxX - b.minX, b.maxZ - b.minZ, 140);
-    mapMode = {
-      saved: { pos: camera.position.clone(), target: controls.target.clone() },
-      bounds: b,
-      H: extent * 0.72, Hmin: extent * 0.25, Hmax: extent * 1.15,
-      tx: (b.minX + b.maxX) / 2, tz: (b.minZ + b.maxZ) / 2,
-      keys: new Set(), drag: null, snapped: false,
-      // the stage fog is tuned for deck height — from a chart-view altitude
-      // it swallows every isle and bleaches the sea. Push it far out while
-      // the chart is open so the REAL islands and blue water show.
-      fogSave: st.scene.fog
-        ? { stageId: activeBoardId, near: st.scene.fog.near, far: st.scene.fog.far }
-        : null,
-    };
-    if (st.scene.fog) {
-      st.scene.fog.near = extent * 1.6;
-      st.scene.fog.far = extent * 5.0;
-    }
-    controls.enabled = false;
-    skipCinematic();
-    return true;
-  }
-
-  function exitMapView() {
-    if (!mapMode) return;
-    const fs = mapMode.fogSave;
-    if (fs) {
-      const st = stages[fs.stageId];
-      if (st?.scene.fog) {
-        st.scene.fog.near = fs.near;
-        st.scene.fog.far = fs.far;
-      }
-    }
-    camera.position.copy(mapMode.saved.pos);
-    controls.target.copy(mapMode.saved.target);
-    controls.enabled = true;
-    mapMode = null;
-  }
-
-  function tickMapView(dt) {
-    const m = mapMode;
-    const sp = m.H * 0.9 * dt;                     // pan speed scales with height
-    if (m.keys.has('w') || m.keys.has('arrowup')) m.tz -= sp;
-    if (m.keys.has('s') || m.keys.has('arrowdown')) m.tz += sp;
-    if (m.keys.has('a') || m.keys.has('arrowleft')) m.tx -= sp;
-    if (m.keys.has('d') || m.keys.has('arrowright')) m.tx += sp;
-    // locked within the mountains: the view can never leave the region
-    m.tx = Math.max(m.bounds.minX, Math.min(m.bounds.maxX, m.tx));
-    m.tz = Math.max(m.bounds.minZ, Math.min(m.bounds.maxZ, m.tz));
-    _vA.set(m.tx, m.H, m.tz + m.H * 0.26);         // high, tipped slightly south
-    if (!m.snapped) { camera.position.copy(_vA); m.snapped = true; }
-    else camera.position.lerp(_vA, 0.14);
-    camera.lookAt(m.tx, 0, m.tz);
-    const st = stages[activeBoardId];
-    if (st) {
-      followSun(st, _vD.set(m.tx, 0, m.tz), 400);
-    }
-  }
-
-  /* screen-space projection of the region's points of interest + captains,
-     polled by the HUD to float icon chips over the live aerial view */
-  function mapProject() {
-    if (!mapMode) return null;
-    const st = stages[activeBoardId];
-    if (!st) return null;
-    const w = renderer.domElement.clientWidth, h = renderer.domElement.clientHeight;
-    const out = [];
-    const swordId = lastRoom?.sword_node;      // only set once the chart is bought
-    for (const id in st.islands) {
-      const n = nodeById[id];
-      // the sword islet is a plain sea node — but once its X is on the chart,
-      // surface it on the map like a proper landmark
-      const isSword = id === swordId;
-      if (!n || (n.type === 'sea' && !isSword)) continue;
-      _vA.set(n.x, (st.islands[id].plateauY ?? 1) + 2, n.z).project(camera);
-      if (_vA.z > 1) continue;
-      out.push({ id, type: isSword ? 'sword' : n.type, name: n.name,
-                 region: n.region || null,
-                 solved: !!n.solved, boss_name: n.boss_name || null,
-                 defeated: (n.defeated || []).length,
-                 x: (_vA.x * 0.5 + 0.5) * w, y: (-_vA.y * 0.5 + 0.5) * h });
-    }
-    for (const pid in ships) {
-      const rec = ships[pid];
-      if (rec.stageId !== activeBoardId) continue;
-      _vA.copy(rec.root.position); _vA.y += 3; _vA.project(camera);
-      if (_vA.z > 1) continue;
-      out.push({ player: pid,
-                 x: (_vA.x * 0.5 + 0.5) * w, y: (-_vA.y * 0.5 + 0.5) * h });
-    }
-    return out;
-  }
-
-  window.addEventListener('keydown', (e) => {
-    if (!mapMode) return;
-    const k = e.key.toLowerCase();
-    if (['w', 'a', 's', 'd', 'arrowup', 'arrowdown', 'arrowleft', 'arrowright'].includes(k)) {
-      mapMode.keys.add(k);
-      e.preventDefault();
-    }
-  });
-  window.addEventListener('keyup', (e) => {
-    if (mapMode) mapMode.keys.delete(e.key.toLowerCase());
-  });
-  renderer.domElement.addEventListener('contextmenu', (e) => {
-    if (mapMode) e.preventDefault();
-  });
-  renderer.domElement.addEventListener('pointerdown', (e) => {
-    if (mapMode && e.button === 2) mapMode.drag = [e.clientX, e.clientY];
-  });
-  renderer.domElement.addEventListener('pointermove', (e) => {
-    if (!mapMode || !mapMode.drag) return;
-    const m = mapMode;
-    const per = m.H * 0.0016;                      // world units per pixel
-    m.tx -= (e.clientX - m.drag[0]) * per;
-    m.tz -= (e.clientY - m.drag[1]) * per;
-    m.drag = [e.clientX, e.clientY];
-  });
-  window.addEventListener('pointerup', () => { if (mapMode) mapMode.drag = null; });
-  renderer.domElement.addEventListener('wheel', (e) => {
-    if (!mapMode) return;
-    e.preventDefault();
-    mapMode.H = Math.max(mapMode.Hmin,
-      Math.min(mapMode.Hmax, mapMode.H * (1 + e.deltaY * 0.001)));
-  }, { passive: false });
-
   /* ── the kraken surfacing beside a blocked ship ───────────────────────── */
   let krakenRec = null;   // {node, obj}
+
+  /* ── world wonders (events.py → room.world) — static/worldfx.js ─────── */
+  const worldFx = createWorldFx();
+  const worldCtx = {
+    stages, stageHasNode, groundY, t: 0,
+    get nodeById() { return nodeById; },
+    islandR: (stageId, nid) => stages[stageId]?.islands?.[nid]?.R ?? 6,
+  };
   function syncKraken(room) {
     const want = room?.minigame?.kraken ? room.minigame.island : null;
     const st = stages[activeBoardId];
@@ -2136,20 +2350,26 @@ export function createWorld(container, handlers = {}) {
   }
 
   const clock = new THREE.Timer();
-  let tPrev = 0, tNow = 0;
+  let tPrev = 0, tNow = 0, msPrev = 0;
   renderer.setAnimationLoop(() => {
     clock.update();
+    if (window.__crossHold) {            // dev/QA freeze (see crossStop)
+      const ms = performance.now() - msPrev;
+      for (const pid in ships) if (ships[pid].anim) ships[pid].anim.t0 += ms;
+      if (cross) cross.t0 += ms;
+    }
+    msPrev = performance.now();
     const t = tNow = clock.getElapsed();
     const dt = Math.min(0.1, t - tPrev);
     tPrev = t;
     if (battleOn) {
-      if (mapMode) exitMapView();
       litStage = null;                       // the diorama owns the light while it runs
       battleStage.update(t, dt);
       updateAtmosphere(battleStage.camera, t);
       pipe.render(battleStage.scene, battleStage.camera, dt);
       return;
     }
+    if (renderPaused) return;
     const st = stages[activeBoardId];
     if (!st) return;
     const now = performance.now();
@@ -2159,8 +2379,9 @@ export function createWorld(container, handlers = {}) {
     tickHighlights(t);
     syncValeArrows(lastRoom, myPid);   // keyed: re-lays when a stride ends
     syncKraken(lastRoom);
+    worldCtx.t = tNow;
+    worldFx.sync(lastRoom, worldCtx);
     if (tour) tickTour(performance.now());
-    else if (mapMode) tickMapView(dt);
     else tickCamera(st, t, dt);
     tickSunShadow(st);
     lightStage(st);
@@ -2209,11 +2430,10 @@ export function createWorld(container, handlers = {}) {
     holdBattleStage: (v) => { battleHold = !!v; },
     arriving: () => arriving(lastRoom),
     animating: () => animatingPid(),
+    crossing: () => (cross ? cross.phase : null),
     currentStage: () => (battleOn ? 'battle' : (activeBoardId || 'hub')),
-    enterMapView,
-    exitMapView,
-    mapActive: () => !!mapMode,
-    mapProject,
+    pauseRender: (v) => { renderPaused = !!v; },
+    renderPaused: () => renderPaused,
     tourActive: () => !!tour,
     endTour,
     quality: () => pipe.quality,
@@ -2226,6 +2446,7 @@ export function createWorld(container, handlers = {}) {
     camera, controls, ships, stages,
     follow: () => viewFollowPid,
     animating: () => animatingPid(),
+    crossing: () => (cross ? { phase: cross.phase, to: cross.to, w: +(cross.w || 0).toFixed(2) } : null),
   };
 
   return api;

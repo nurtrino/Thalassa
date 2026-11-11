@@ -91,6 +91,10 @@ ocean samples it for water depth, which drives the turquoise shallows, the
 seabed caustics, the surf line, and the calming of the swell as it runs up a
 beach. It is re-baked whenever a stage's islands change. To make a new solid
 object sit *in* the water properly: `mesh.layers.enable(SHORE_LAYER)`.
+After the bake the heights are clamped (−20…+2, the range the ocean reads)
+and blurred over a few texels, so the turquoise rim and surf round sheer
+solids (bergs, sea stacks, quays) follow a smooth contour instead of the
+texel grid.
 
 Per-stage water lives in `theme.water`: `deep`, `shallow`, `seabed`,
 `scatter`, `chop`, `sparkle`, `foam`, `clarity`, `reflect`. Sea level is
@@ -115,7 +119,9 @@ gates). The hub's wall and the realm horizons both use it.
 ## Models
 
 GLB models (`static/assets/`) load through `static/props.js`,
-`static/monsters.js` and the landmark loader in `static/islands.js`. Which
+`static/monsters.js` and `static/structures.js`; the landmarks players see
+most (Pharos, shrines, puzzle spires, havens, market, home port, realm gates,
+markers and lanes) are procedural, in `static/models/`. Which
 models are kept, which were removed and what should be remade is tracked in
 `docs/MODELS.md`.
 

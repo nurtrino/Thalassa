@@ -77,11 +77,15 @@ color (red/blue/gold/etc.), so leave it a neutral mid-tone.
 
 ## 1. BOSSES (5) — the showpieces
 
-Each realm ends in a boss (HP 12, tier-III questions); the Pharos holds the
-Warden (HP 14). Bosses are ~2× the size of a grunt, **crowned** (`crown`
+Each realm ends in a boss (HP 14, hits for 4; tier-III questions); the
+Pharos holds the Warden — the Dark Presence (HP 22, hits for 4). A boss
+rises weaker for whoever trails (−2 HP per rival who felled it, −4 HP and
+−1 power once you yourself fell to it). Bosses are ~2× the size of a grunt, **crowned** (`crown`
 part, gold), and should be unmistakable and threatening. They telegraph a
-"heavy blow" (a big wind-up) and **enrage** at half health (eyes shift red),
-so give them a clear head/jaw and readable arms or maw.
+"heavy blow" (a big wind-up, ×2 capped at 6 — the player may BRACE against
+it) every third exchange, and **enrage** at half health (eyes shift red):
+from then on a heavy every other exchange. Give them a clear head/jaw and
+readable arms or maw.
 
 ### `stag_king` — **The Stag King** (Amber Vale / autumn, boss)
 A towering elk-lord of the autumn forest. Massive stag body on long legs,
@@ -323,7 +327,9 @@ segments trailing back; ≥4 segments makes it slither. Optional `fins`.
 | skiff | Brigand Skiffs | (lore) | grunt-boat | 2·1 |
 
 *(HP·Power are the base per-unit values; packs field 1–3 of them, and deeper
-in a realm the same model appears in tougher variants.)*
+in a realm the same model appears in tougher variants. Units of 3+ HP are
+"tough": STRIKE draws a tier-II question against them and deals 2. Spoils
+per fallen unit: 1–2 HP → 1 scroll, 3–4 → 2, 5 → 3; a realm boss pays 10.)*
 
 The shipped models live in `static/assets/monsters/<model>.glb` (AI-sculpted
 via `tools/MESHY-PIPELINE.md`; `tools/make_monsters.py` is the older Blender

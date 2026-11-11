@@ -36,23 +36,36 @@ Client→server messages and snapshot shape: see legacy/app.js §protocol —
 port it verbatim. New/changed since the legacy client was written:
 
 - `roll` results are 1..3 (d3). `config.die_sides = 3`.
-- `stance` accepts `'attack'|'magic'` only — there is NO guard stance.
-  Incoming enemy blows enter the `'dodge'` phase instead: the snapshot
-  carries `room.dodge = {attacker, attacker_idx, power, heavy, deadline}`
-  and the client answers with `dodge {hit: bool}` (a timing action beat,
-  judged client-side; the server times out to a full hit after
-  `DODGE_SECS`). A read dodge nulls half the blow.
+- `stance` accepts `'attack'|'magic'|'heal'` (+`mode`) `|'sword'|'guard'`.
+  `'guard'` is BRACE, legal only while `room.battle.can_brace` (a boss
+  telegraphing a heavy). There is NO reflex/timing input: the timed
+  `'dodge'` phase and the `dodge {hit,full}` message were REMOVED. Every
+  exchange resolves in ONE reveal — your move, then the foe's counter: a
+  right answer blunts it to half (`config.combat.blunt`), a right BRACE or
+  hymn turns it aside, a wrong answer takes it in full. `room.dodge` is
+  kept as a vestigial `null`; a stale client's `dodge` message gets
+  "Unknown message".
 - `room.battle.order` — upcoming enemy attacker indices (the turn rail);
   every living foe rotates in and none strikes more than twice in a row.
 - `use {item:'planks'}` — patch 3 hull; legal on your turn in phases
   roll/sail/battle/shrine/haven/shop.
 - `config.shop_items` now includes `planks`; costs rebalanced;
   `config.heavy_every=3`, `config.heavy_mult=2`, `config.planks_heal=3`.
-- `room.battle` extra fields: `model` (string id), `enraged` (bool),
+- `room.battle` extra fields: `model` (string id), `enraged` (bool — at or
+  below half health a boss telegraphs a heavy every OTHER exchange),
   `round` (int), `charging` (bool — the NEXT enemy blow is heavy),
-  `region` (realm id or null), per-enemy `model`.
-- `room.reveal.enemy_phase` extra fields: `dodged` (the blow was read —
-  half nulled), `heavy` (bool).
+  `can_brace` (bool), `escalation` (int — how far it was WEAKENED for you:
+  rivals who felled it + your own falls; it used to mean "risen harder"),
+  `strike_tier` (1|2), `region` (realm id or null), per-enemy `model`.
+- `room.reveal.enemy_phase`: your move (`stance`, `dealt`, `killed`,
+  `target_idx`, `healed`, `riposte`, `backfire`/`backfire_dmg`) and the
+  counter in the same dict: `counter` (a blow was thrown), `attacker`,
+  `attacker_idx`, `power`, `heavy`, `dmg` (Health it cost), `blunted`
+  (a right answer halved it), `braced` (turned aside by BRACE or the
+  hymn), `blocked` (an aegis charm ate it). `dodged`/`evaded` stay `false`
+  (vestigial). `reveal.side[pid].paid` — scrolls that side answer paid.
+- `config.combat` — `{strike, strike_boss, magic, sword, heal,
+  heal_ambrosia, backfire, blunt, riposte, heavy_cap, aegis_min}`.
 - Board nodes: `depth` (1..7, realm dungeon depth), `mode` (`'sail'|'foot'`,
   foot = the desert trek), `region` ∈
   `{'ice','desert','jungle','autumn'}` or absent (hub).
@@ -345,11 +358,12 @@ the NEW world API (`createWorld(container, {onNodeClick, onStageChange})`).
 Key new behavior:
 - d3 dice: tumble shows 1-3 (die faces show 1..3 twice); `dice` WS message
   unchanged.
-- Stance UI: STRIKE/MAGIC (+tier chips: strike I/II by boss, magic III) —
-  guarding is the DODGE action beat (`#dodgeQte`), not a stance. Boss
-  `charging` → show the warning strip in `#bfoe`; `enraged` badge; battle
-  beats extended: `enemy_phase.dodged` → the blow text carries the
-  twist-aside verdict; `heavy` hits
+- Stance UI: STRIKE/MAGIC/HEAL (+tier chips: strike I/II, magic III), and
+  BRACE (tier I) while `battle.can_brace`. Boss `charging` → show the
+  warning strip in `#bfoe`; `enraged` badge; battle beats: your move,
+  then the counter in the same reveal — `enemy_phase.blunted/braced/
+  blocked` set the blow text, a turned blow plays `('guard_block',
+  {heavy})`; `heavy` hits
   → `('enemy_attack',{dmg,heavy:true})`; kills → `('enemy_die',{idx})`;
   boss `charging` after reveal → `('charge_telegraph')`. Keep legacy beat
   timings (900/1500/2200/2600ms) and sfx pairings (audio.js API unchanged).

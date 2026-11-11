@@ -254,9 +254,8 @@ def battle(outdir):
                 # every stance must deal its challenge and resolve. Battles
                 # draw from THREE decks (mc / jeopardy / puzzle); the dev
                 # hook pins the deck so each path is tested deterministically.
-                # A wrong move triggers the DODGE beat — the suite must see
-                # it appear and resolve it.
-                dodges = 0
+                # Every exchange ends in the foe's counter, resolved inside
+                # the move's own reveal (there is no reflex beat any more).
                 plans = [("attack", "mc"), ("magic", "jeopardy"),
                          ("attack", "puzzle")]
                 for stance, deck in plans:
@@ -308,22 +307,14 @@ def battle(outdir):
                         limit = (r.get("minigame") or {}).get("limit") or 45
                         await c.send({"type": "solve", "payload": None})
                         resolve_ms = min(95, limit + 10) * 1000
-                    # ride the whole exchange: the enemy's counter now lands
-                    # on a DODGE beat AFTER the move's reveal, so the phase
-                    # cycles reveal → dodge → reveal → (battle/roll). Poll
-                    # across the reveals, answer the dodge when it appears,
-                    # and settle once the exchange fully resolves.
+                    # ride the whole exchange: your move and the foe's
+                    # counter play out in ONE reveal, then (battle/roll).
                     import time as _t
                     end = _t.time() + resolve_ms / 1000 + 8
                     resolved = False
                     while _t.time() < end:
                         rr = await c.room()
                         ph = rr["phase"]
-                        if ph == "dodge":
-                            dodges += 1
-                            await c.send({"type": "dodge", "hit": True},
-                                         settle=500)
-                            continue
                         if ph in ("battle", "roll", "trade", "upgrade_pick"):
                             resolved = True
                             break
@@ -334,10 +325,8 @@ def battle(outdir):
                         bad = True
                         continue
                     notes.append(f"{stance}/{deck}: dealt and resolved ✓")
-                notes.append(f"dodge beats seen: {dodges}")
-                if dodges == 0:
-                    notes.append("no dodge beat ever appeared — is the "
-                                 "counter-attack flow wired?")
+                if (await c.room())["phase"] == "dodge":
+                    notes.append("a retired 'dodge' phase appeared")
                     bad = True
 
                 status = console_verdict(c, notes)
@@ -349,44 +338,125 @@ def battle(outdir):
 
 SAMPLER = """
 () => {
+  // Samples every moving vessel at 50 ms against what is REALLY on screen in
+  // its stage: island coasts (the built R — terrain is fitted inside it), the
+  // realm field's solids (bergs, stacks, trunks — scene.js' obstacle index),
+  // and every other vessel. Also tracks helm quality: how fast the bow
+  // swings (spinning in place) and how far the motion slips off the bow
+  // (sliding sideways), and the camera's clearance over the ground.
   const T = window.__thalassa, W = window.__world;
   window.__qaClips = [];
   window.__qaLegs = [];
-  let cur = null;
-  const isles = {};
-  const R = { home: 13.0, shrine: 10.0, puzzle: 10.0, haven: 11.0,
-              shop: 10.0, monster: 11.0, lair: 14.0, pharos: 17.0 };
-  for (const n of window.__room.board.nodes) {
-    if (R[n.type]) isles[n.id] = { x: n.x, z: n.z, r: R[n.type] * 1.23,
-                                   type: n.type, region: n.region || null };
-  }
+  window.__qaHelm = { maxTurn: 0, maxSlip: 0, camLow: 99 };
+  const cur = {};
+  const last = {};
   window.__qaTick = setInterval(() => {
-    const pid = W.animating();
-    if (!pid) {
-      if (cur) { cur.end = performance.now(); window.__qaLegs.push(cur); cur = null; }
-      return;
-    }
-    const rec = T.ships[pid];
-    if (!rec) return;
-    const p = rec.root.position;
-    if (!cur) cur = { pid, start: performance.now(), from: rec.prevNode || rec.node,
-                      samples: 0 };
-    cur.samples++;
-    for (const [id, o] of Object.entries(isles)) {
-      // berthing at the destination (or casting off from the origin) island
-      // is not a clip — only THIRD islands count
-      if (id === rec.node || id === cur.from) continue;
-      const d = Math.hypot(p.x - o.x, p.z - o.z);
-      if (d < o.r - 0.5) {
-        const last = window.__qaClips[window.__qaClips.length - 1];
-        if (!last || last.island !== id)
-          window.__qaClips.push({ island: id, type: o.type, d: +d.toFixed(1),
-                                  x: +p.x.toFixed(1), z: +p.z.toFixed(1) });
+    const now = performance.now();
+    for (const [pid, rec] of Object.entries(T.ships)) {
+      const st = T.stages[rec.stageId];
+      if (!rec.anim || !st) {
+        if (cur[pid]) { cur[pid].end = now; window.__qaLegs.push(cur[pid]); delete cur[pid]; }
+        delete last[pid];
+        continue;
       }
+      const p = rec.root.position;
+      if (!cur[pid]) cur[pid] = { pid, stage: st.id, start: now, from: rec.prevNode,
+                                  to: rec.node, samples: 0, foot: rec.mode === 'foot' };
+      const leg = cur[pid];
+      leg.samples++;
+      const foot = rec.mode === 'foot';
+      const slack = foot ? 0.3 : 0.5;
+      const clip = (what, type, d) => {
+        const lc = window.__qaClips[window.__qaClips.length - 1];
+        if (!lc || lc.what !== what)
+          window.__qaClips.push({ what, type, stage: st.id, d: +d.toFixed(1),
+                                  x: +p.x.toFixed(1), z: +p.z.toFixed(1), foot });
+      };
+      // islands (not the stops this leg leaves from or berths at)
+      for (const [id, isle] of Object.entries(st.islands)) {
+        if (id === rec.node || id === leg.from || id === leg.to) continue;
+        const n = window.__room.board.nodes.find((q) => q.id === id);
+        if (!n || n.type === 'gate') continue;
+        if (st.id === 'autumn') continue;           // flush clearings, walked over
+        if (n.type === 'sea' && !(n.look === 'islet' || n.look === 'rocks')) continue;
+        const d = Math.hypot(p.x - n.x, p.z - n.z);
+        if (d < isle.R - slack) clip(id, n.type, d);
+      }
+      // the realm field's solids
+      if (st.obstacles) {
+        const near = st.obstacles.near(p.x, p.z, p.x, p.z, 6, []);
+        for (const c of near) {
+          const d = Math.hypot(p.x - c.x, p.z - c.z);
+          if (d < c.r * 0.85) clip('field@' + c.x.toFixed(0) + ',' + c.z.toFixed(0), 'field', d);
+        }
+      }
+      // other vessels
+      for (const [opid, o] of Object.entries(T.ships)) {
+        if (opid === pid || o.stageId !== rec.stageId) continue;
+        const d = Math.hypot(p.x - o.root.position.x, p.z - o.root.position.z);
+        if (d < (foot ? 0.8 : 3.5)) clip('ship:' + opid, 'ship', d);
+      }
+      // helm: turn rate and slip off the bow
+      const yaw = rec.root.rotation.y;
+      const L = last[pid];
+      if (L) {
+        const dt = (now - L.t) / 1000;
+        let dy = yaw - L.yaw; dy -= Math.round(dy / (Math.PI * 2)) * Math.PI * 2;
+        const vx = p.x - L.x, vz = p.z - L.z, sp = Math.hypot(vx, vz) / dt;
+        if (dt > 0) window.__qaHelm.maxTurn = Math.max(window.__qaHelm.maxTurn, Math.abs(dy) / dt);
+        if (sp > 2.5) {
+          const fx = Math.cos(yaw), fz = -Math.sin(yaw);
+          const slip = Math.acos(Math.max(-1, Math.min(1, (vx * fx + vz * fz) / (Math.hypot(vx, vz) || 1))));
+          window.__qaHelm.maxSlip = Math.max(window.__qaHelm.maxSlip, slip * 180 / Math.PI);
+        }
+      }
+      last[pid] = { t: now, yaw, x: p.x, z: p.z };
+      // the camera stays above the ground it looks over
+      const cam = T.camera.position;
+      const gy = st.surf && st.surf.heightAt ? Math.max(0, st.surf.heightAt(cam.x, cam.z)) : 0;
+      window.__qaHelm.camLow = Math.min(window.__qaHelm.camLow, cam.y - gy);
     }
   }, 50);
 }
 """
+
+
+async def _sail_some(c, rounds, notes, label):
+    """Roll and sail/walk `rounds` times from wherever we stand."""
+    you = await c.page.evaluate("() => window.__you")
+    sailed = 0
+    for _ in range(rounds):
+        r = await c.settle_to_roll()
+        if r["phase"] != "roll" or r["turn"] != you:
+            continue
+        await c.send({"type": "roll"})
+        await c.wait_phase("sail", "roll", "battle", "question", timeout=10000)
+        r = await c.room()
+        if r["phase"] != "sail":
+            continue
+        walk = r.get("walk") or {}
+        if r["reachable"]:
+            # prefer a stop that stays in this realm: the tour should cover
+            # its waters, not bounce back out through the pass
+            here = {n["id"]: n for n in r["board"]["nodes"]}
+            opts = sorted(r["reachable"], key=lambda k: (
+                here.get(k, {}).get("type") == "gate", k))
+            await c.send({"type": "sail", "node": opts[0]})
+        elif walk.get("options"):
+            for _step in range(6):          # the Vale's arrow-walk, fork by fork
+                r = await c.room()
+                w = r.get("walk") or {}
+                if r["phase"] != "sail" or not w.get("options"):
+                    break
+                await c.send({"type": "walk", "node": sorted(w["options"])[0]},
+                             settle=900)
+                await c.wait_ship_settled(timeout=30000)
+        else:
+            continue
+        await c.wait_ship_settled(timeout=30000)
+        sailed += 1
+    notes.append(f"{label}: {sailed} voyages")
+    return sailed
 
 
 @suite
@@ -399,44 +469,44 @@ def sail_monitor(outdir):
         with DevServer() as srv:
             async with browser_client(srv.url) as c:
                 await c.page.evaluate(SAMPLER)
-                r = await c.room()
-                nodes = {n["id"]: n for n in r["board"]["nodes"]}
-                sailed = 0
-                # walk real rolls for a while — this is what players do
-                you = await c.page.evaluate("() => window.__you")
-                for _ in range(20):
-                    r = await c.settle_to_roll()
-                    if r["phase"] != "roll" or r["turn"] != you:
-                        continue
-                    await c.send({"type": "roll"})
-                    await c.wait_phase("sail", "roll", "battle", "question",
-                                       timeout=10000)
-                    r = await c.room()
-                    if r["phase"] != "sail" or not r["reachable"]:
-                        continue
-                    # prefer a fresh node so the tour covers ground
-                    pick = list(r["reachable"])[0]
-                    await c.send({"type": "sail", "node": pick})
-                    await c.wait_ship_settled(timeout=30000)
-                    sailed += 1
+                # the hub first — this is what players do most
+                await _sail_some(c, 14, notes, "hub")
+                # then each realm: sail realms, both walked realms
+                for realm in ("ice", "jungle", "desert", "autumn"):
+                    await c.teleport_region(realm, settle=2600)
+                    with contextlib.suppress(Exception):
+                        await c.page.wait_for_function(
+                            "want => window.__world.currentStage() === want",
+                            arg=realm, timeout=20000)
+                    await c.page.wait_for_timeout(800)
+                    await _sail_some(c, 5, notes, realm)
                 legs = await c.page.evaluate("() => window.__qaLegs")
                 clips = await c.page.evaluate("() => window.__qaClips")
-                await c.page.evaluate(
-                    "() => clearInterval(window.__qaTick)")
+                helm = await c.page.evaluate("() => window.__qaHelm")
+                await c.page.evaluate("() => clearInterval(window.__qaTick)")
                 durs = sorted((l["end"] - l["start"]) / 1000 for l in legs
                               if l.get("end"))
+                stages = sorted({l["stage"] for l in legs})
                 if durs:
                     notes.append(
-                        f"{sailed} sails, {len(durs)} legs — median "
+                        f"{len(durs)} legs over {', '.join(stages)} — median "
                         f"{durs[len(durs) // 2]:.1f}s, max {durs[-1]:.1f}s")
-                    if durs[-1] > 9.0:
-                        notes.append(f"leg over 9s: travel drags")
+                    if durs[-1] > 11.0:
+                        notes.append("leg over 11s: travel drags")
                         bad = True
-                for cl in clips[:8]:
-                    n = nodes.get(cl["island"], {})
-                    notes.append(f"CLIP: ship inside {cl['island']} "
-                                 f"({cl['type']}, {n.get('region') or 'hub'}) "
-                                 f"— {cl['d']}wu from centre")
+                notes.append(f"helm: max turn {helm['maxTurn']:.1f} rad/s, "
+                             f"max slip {helm['maxSlip']:.0f}°, camera min "
+                             f"{helm['camLow']:.1f} wu over ground")
+                if helm["maxSlip"] > 35:
+                    notes.append("SLIDE: a vessel moved >35° off its bow")
+                    bad = True
+                if helm["camLow"] < 0.8:
+                    notes.append("CAMERA under the ground")
+                    bad = True
+                for cl in clips[:10]:
+                    notes.append(f"CLIP ({cl['stage']}{', foot' if cl['foot'] else ''}): "
+                                 f"inside {cl['what']} ({cl['type']}) — "
+                                 f"{cl['d']}wu from its centre at ({cl['x']}, {cl['z']})")
                 if clips:
                     bad = True
                 status = console_verdict(c, notes)

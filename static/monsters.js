@@ -10,8 +10,9 @@
  *               eyes) and the hue-keyed "painted glow" in modelmat.js light
  *               the real eyes and cores on the sculpt itself, in HDR, so they
  *               bloom;
- *   crown       rebuilt as a small gold circlet hovering over the boss's
- *               highest point; the animator turns and bobs it.
+ *   crown       rebuilt as a gold circlet with a ruby, seated on the boss's
+ *               head (the highest point of the front of the body); the
+ *               animator sways it a touch so it catches the light.
  *
  * THE ANIMATOR drives creatures procedurally BY NAMED PART (body/head/jaw/
  * legXX/armX/wingX/tail0..N/vine0..N/weapon/shield/crown/wisp/tatter...). A
@@ -43,6 +44,7 @@
  */
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { hashStr } from './util.js';
 import { finishModel, finishOf, setModelColor, modelGlowTexture } from './modelmat.js';
 
@@ -80,7 +82,7 @@ const HEIGHTS = {
 export const STAND_INS = {
   // Leafshade Wolf / Sea Wolf — the lean jackal, bulked up, in a grey coat
   wolf:        { use: 'jackal', height: 1.45,
-                 finish: { desat: 0.92, tint: [0.70, 0.67, 0.66] } },
+                 finish: { desat: 0.92, tint: [0.56, 0.52, 0.48] } },
   // Frost Wolf / Frostfang Alpha — the same hound bleached to rime
   wolf_frost:  { use: 'jackal', height: 1.5,
                  finish: { desat: 1.0, tint: [1.22, 1.38, 1.62], rough: [0.4, 0.9] } },
@@ -240,33 +242,68 @@ function prepareTemplate(scene, id) {
   return scene;
 }
 
-/* The boss crown: a small gold circlet with points, softly lit, hovering
- * over the sculpt's HIGHEST point (antler tips, horns, crest — wherever the
- * eye goes) and parented to `body` so it rides every bob and lunge. Named
- * 'crown': the animator turns and bobs it. Set BOSS_CROWNS to false to drop
- * the marker entirely (bosses are already staged 2.2× larger in battle). */
+/* The boss crown: a real 3D circlet — a thick gold band with eight raised
+ * points tipped with beads and a glowing ruby on the brow — SEATED on the
+ * creature's head, not floating over it. The head is found on the fused
+ * sculpt itself: creatures face +X, so it is the highest point of the front
+ * part of the body (front 45% of its length); the band is sized to the
+ * spread of that crown-of-the-head slice and sunk a little into it, then
+ * tilted to follow the slope of the head. Parented to `body` so it rides
+ * every bob and lunge; named 'crown' so the animator turns it gently.
+ * Set BOSS_CROWNS to false to drop the marker entirely. */
 const BOSS_CROWNS = true;
-let _crownGeo = null, _crownMat = null;
+let _crownGeo = null, _crownMat = null, _crownJewelMat = null, _crownJewelGeo = null;
 function crownParts() {
   if (_crownGeo) return;
-  // an open band whose top edge rises into eight points; unit radius
-  const SEG = 32;
-  const geo = new THREE.CylinderGeometry(1, 0.9, 0.5, SEG, 2, true);
-  const pos = geo.getAttribute('position');
-  for (let i = 0; i < pos.count; i++) {
-    if (pos.getY(i) > 0.2) {
-      const a = Math.atan2(pos.getZ(i), pos.getX(i));
-      const k = Math.abs(((a / (Math.PI * 2)) * 8 + 8.5) % 1 - 0.5) * 2;   // 0 at a point, 1 between
-      pos.setY(i, 0.25 + (1 - k) * 0.62);
-      const r = 1.0 + (1 - k) * 0.06;
-      pos.setX(i, Math.cos(a) * r); pos.setZ(i, Math.sin(a) * r);
+  // a thick band (outer + inner wall + rims) whose top rises into 8 points;
+  // unit radius, band height ~0.42, points to ~0.95
+  const SEG = 48, rows = [[1.0, 0.0], [1.04, 0.06], [1.02, 0.36], [1.0, 0.42]];
+  const pos = [], idx = [];
+  const ring = (r, y, pointy) => {
+    const base = pos.length / 3;
+    for (let i = 0; i <= SEG; i++) {
+      const a = (i / SEG) * Math.PI * 2;
+      const k = Math.abs(((i / SEG) * 8 + 0.5) % 1 - 0.5) * 2;     // 1 at a point, 0 between
+      const yy = pointy ? y + Math.pow(Math.max(0, k), 2.2) * 0.55 : y;
+      const rr = pointy ? r * (1 - 0.06 * Math.pow(k, 2)) : r;
+      pos.push(Math.cos(a) * rr, yy, Math.sin(a) * rr);
+    }
+    return base;
+  };
+  const strips = [];
+  for (const [r, y] of rows) strips.push(ring(r, y, false));
+  strips.push(ring(0.99, 0.43, true));                  // outer face of the points
+  strips.push(ring(0.9, 0.43, true));                   // inner face
+  strips.push(ring(0.9, 0.0, false));                   // inner wall
+  strips.push(strips[0]);                               // close the loop at the bottom
+  for (let s = 0; s < strips.length - 1; s++) {
+    const a0 = strips[s], b0 = strips[s + 1];
+    for (let i = 0; i < SEG; i++) {
+      const a = a0 + i, b = a0 + i + 1, c = b0 + i, d = b0 + i + 1;
+      idx.push(a, c, b, b, c, d);
     }
   }
+  let geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  geo.setIndex(idx);
   geo.computeVertexNormals();
+  // beads on the eight points
+  const parts = [geo];
+  for (let k = 0; k < 8; k++) {
+    const a = ((k + 0.5) / 8) * Math.PI * 2;             // the point tips
+    const b = new THREE.SphereGeometry(0.075, 8, 6);
+    b.translate(Math.cos(a) * 0.94, 1.0, Math.sin(a) * 0.94);
+    parts.push(b);
+  }
+  for (const p of parts) if (p.attributes.uv) p.deleteAttribute('uv');
+  geo = mergeGeometries(parts.map((p) => (p.index ? p.toNonIndexed() : p)), false);
   _crownGeo = geo;
   _crownMat = new THREE.MeshStandardMaterial({
-    color: 0xffc64a, metalness: 1, roughness: 0.3, side: THREE.DoubleSide,
-    emissive: 0xff9a1a, emissiveIntensity: 0.9 });
+    color: 0xf2bf4a, metalness: 1, roughness: 0.26,
+    emissive: 0xff9a1a, emissiveIntensity: 0.35 });
+  _crownJewelGeo = new THREE.SphereGeometry(0.16, 12, 8).scale(0.6, 1, 1);
+  _crownJewelMat = new THREE.MeshStandardMaterial({
+    color: 0x5a0610, roughness: 0.15, metalness: 0, emissive: 0xff2a3a, emissiveIntensity: 2.2 });
 }
 function addCrown(scene) {
   if (!BOSS_CROWNS) return;
@@ -277,27 +314,62 @@ function addCrown(scene) {
   const pos = body.geometry.getAttribute('position');
   body.geometry.computeBoundingBox();
   const bb = body.geometry.boundingBox;
+  // the body's local frame is the sculpt's; the template may be yawed so
+  // that the creature faces world +X — find "forward" in body space
+  scene.updateMatrixWorld(true);
+  const inv = new THREE.Matrix4().copy(body.matrixWorld).invert();
+  const fwd = new THREE.Vector3(1, 0, 0).transformDirection(inv);
+  fwd.y = 0;
+  if (fwd.lengthSq() < 1e-6) fwd.set(1, 0, 0);
+  fwd.normalize();
   const H = bb.max.y - bb.min.y;
-  // centroid of the top slice of the sculpt, in the body's local space
-  const yCut = bb.max.y - H * 0.06;
+  let f0 = Infinity, f1 = -Infinity;
+  for (let i = 0; i < pos.count; i++) {
+    const f = pos.getX(i) * fwd.x + pos.getZ(i) * fwd.z;
+    if (f < f0) f0 = f; if (f > f1) f1 = f;
+  }
+  const fCut = f0 + (f1 - f0) * 0.55;            // the front 45% of the body
+  let top = -Infinity;
+  for (let i = 0; i < pos.count; i++) {
+    if (pos.getX(i) * fwd.x + pos.getZ(i) * fwd.z >= fCut && pos.getY(i) > top) top = pos.getY(i);
+  }
+  if (!isFinite(top)) top = bb.max.y;
+  // the slice just under that top: its centroid and spread size the band
+  const slab = H * 0.05;
   let sx = 0, sz = 0, n = 0;
   for (let i = 0; i < pos.count; i++) {
-    if (pos.getY(i) >= yCut) { sx += pos.getX(i); sz += pos.getZ(i); n++; }
+    const y = pos.getY(i);
+    if (y >= top - slab && pos.getX(i) * fwd.x + pos.getZ(i) * fwd.z >= fCut) { sx += pos.getX(i); sz += pos.getZ(i); n++; }
   }
-  const R = H * 0.07;
+  const cx = n ? sx / n : 0, cz = n ? sz / n : 0;
+  let spread = 0;
+  for (let i = 0; i < pos.count; i++) {
+    const y = pos.getY(i);
+    if (y >= top - slab * 1.6) {
+      const d = Math.hypot(pos.getX(i) - cx, pos.getZ(i) - cz);
+      if (d < H * 0.2 && d > spread) spread = d;
+    }
+  }
+  const R = THREE.MathUtils.clamp(spread * 1.05, H * 0.045, H * 0.1);
   const crown = new THREE.Group();
   crown.name = 'crown';
-  crown.position.set(n ? sx / n : 0, bb.max.y + H * 0.07, n ? sz / n : 0);
+  crown.position.set(cx, top - R * 0.32, cz);
   const band = new THREE.Mesh(_crownGeo, _crownMat);
   band.scale.setScalar(R);
-  band.castShadow = false;
+  band.castShadow = true;
+  const jewel = new THREE.Mesh(_crownJewelGeo, _crownJewelMat);
+  // the ruby sits on the brow: the band's forward face
+  jewel.position.set(fwd.x * R * 1.03, R * 0.22, fwd.z * R * 1.03);
+  jewel.scale.setScalar(R);
+  jewel.lookAt(jewel.position.clone().multiplyScalar(2));
   const halo = new THREE.Sprite(new THREE.SpriteMaterial({
     map: modelGlowTexture(), color: new THREE.Color(1.0, 0.7, 0.26),
-    transparent: true, opacity: 0.32, depthWrite: false,
+    transparent: true, opacity: 0.18, depthWrite: false,
     blending: THREE.AdditiveBlending }));
-  halo.position.y = R * 0.35;
-  halo.scale.setScalar(R * 5);
-  crown.add(band, halo);
+  halo.position.y = R * 0.5;
+  halo.scale.setScalar(R * 4);
+  crown.add(band, jewel, halo);
+  crown.userData.fwd = fwd.clone();
   body.add(crown);
 }
 
@@ -725,9 +797,9 @@ function poseLocomotion(rig, u, t, ph, walking) {
   }
   // the boss crown turns slowly and rides a small bob of its own
   if (rig.crown) {
+    // seated on the head: it only catches the light with a slow glint-sway
     const c = rig.crown;
-    c.node.rotation.y = c.r.y + t * 0.5;
-    c.node.position.y = c.p.y * (1 + Math.sin(t * 1.3 + ph) * 0.006);
+    c.node.rotation.y = c.r.y + Math.sin(t * 0.6 + ph) * 0.12;
   }
 }
 

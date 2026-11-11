@@ -16,7 +16,7 @@ and PER-VIEWER snapshots (each captain gets their own reachable-stops view).
 Client → server: hello{token,name} · add_bot · start · roll · sail{node}
                  · walk{node} · wager{tier} · pass · repair · shop_buy{item}
                  · buy_map · use{item} · stance{stance,target,mode} · flee
-                 · dodge{hit,full} · jpick{idx} · item{id} · pharos_enter
+                 · jpick{idx} · item{id} · pharos_enter
                  · answer{idx} (turn OR side answer) · answer_text{text}
                  · pick{upgrade} · solve{payload} (minigame) · kick{pid}
                  · rematch · ping
@@ -44,8 +44,9 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
 import bots
+import events
 import questions
-from game import DODGE_SECS, RELICS_TO_WIN, Game, GameError
+from game import RELICS_TO_WIN, Game, GameError
 from questions import QuestionBank, TriviaAPIBank
 
 log = logging.getLogger("thalassa")
@@ -71,7 +72,6 @@ BOT_TEMPO = _env_float("BOT_TEMPO", 1.0)
 BOT_POLL_SECS = 0.5            # how often the bot driver looks at the table
 GATE_WALK_SECS = 1.8           # the beat before a pass carries you through
 TIMER_GRACE = 1.0              # slack after a deadline before the server calls it
-DODGE_GRACE = 0.5
 
 # ── the idle-turn clock ──────────────────────────────────────────────────────
 # Most phases (roll, sail, shrine, haven, shop, trade, the Pharos door, a
@@ -90,7 +90,7 @@ DODGE_GRACE = 0.5
 #                   touched anything since — every later decision
 #                   moves at this pace                              (20)
 # A captain who is both away AND disconnected is played at AUTO_STEP_SECS,
-# their questions / puzzles / dodges timed out without the wait.
+# their questions / puzzles timed out without the wait.
 # Any action from them clears "away". IDLE_TURN_SECS=0 switches the clock
 # off; DEV_CHEATS=1 servers (screenshot/QA rigs that park on a phase for
 # minutes) default to off unless IDLE_TURN_SECS is set explicitly.
@@ -118,8 +118,9 @@ MAX_TEXT = 200                 # a typed answer / id longer than this is junk
 DEV_CODE = os.environ.get("DEV_CODE", "783")
 
 IDLE_PHASES = frozenset({"roll", "sail", "shrine", "haven", "shop", "trade",
-                         "pharos", "battle", "upgrade_pick"})
-TIMED_PHASES = frozenset({"question", "minigame", "dodge", "jchoose"})
+                         "pharos", "battle", "upgrade_pick", "event"})
+EVENT_TABLE_SECS = _env_float("EVENT_TABLE_SECS", events.TABLE_SECS)
+TIMED_PHASES = frozenset({"question", "minigame", "jchoose"})
 BOT_PHASES = IDLE_PHASES | TIMED_PHASES
 
 
@@ -134,6 +135,7 @@ class Table:
         self.bots: dict[str, bots.Skill] = {}
         self.bot_rng = random.Random()
         self.acted: set[tuple] = set()
+        self.ev_acted: set[tuple] = set()      # bots' parts in an open event
         self.last_active = time.monotonic()
         self._clear_clocks()
 
@@ -156,6 +158,7 @@ class Table:
         self.game = Game("THALASSA")
         self.bots = {}
         self.acted = set()
+        self.ev_acted = set()
         self._clear_clocks()
         for ws in self.sockets:
             self.sockets[ws] = None
@@ -345,7 +348,7 @@ def idle_deadline() -> float | None:
     away = p.pid in table.away
     untimed = g.phase in IDLE_PHASES or _clockless(g)
     if not untimed:
-        # question / minigame / dodge / category pick keep their own clocks
+        # question / minigame / category pick keep their own clocks
         # (the ones the client draws). The idle clock only hurries them for a
         # captain who is on autopilot AND has no socket — nobody is watching
         # that countdown, and the table should not sit through it.
@@ -397,7 +400,7 @@ def idle_step(g: Game, pid: str) -> str:
       battle         try to flee (the engine's own retreat); if that is
                      refused (a trial, or no scrolls) STRIKE and fight on
       question,      the engine's own timeout for that phase
-      minigame, dodge, category pick
+      minigame, category pick
     """
     phase, nonce = g.phase, g.nonce
     p = g.player_by_pid(pid)
@@ -441,12 +444,13 @@ def idle_step(g: Game, pid: str) -> str:
         elif phase == "question":
             g.timeout_question()
             done = "timeout"
-        elif phase == "dodge":
-            g.dodge_timeout()
-            done = "timeout"
         elif phase == "jchoose":
             g.jchoose_timeout()
             done = "timeout"
+        elif phase == "event":
+            # an event card: the cautious option · a game: cash out or
+            # forfeit · a table: answer "sit it out", then close the table
+            done = "event:" + events.idle_default(g, pid)
     except Exception:
         log.exception("idle default for %s in %s failed", pid, phase)
     if g.phase == phase and g.nonce == nonce and phase in BOT_PHASES:
@@ -496,8 +500,10 @@ async def _unstick_bot():
     g = table.game
     if (not g.players or not table.bots or g.phase not in BOT_PHASES
             or g.current.pid not in table.bots
-            or (g.phase == "question" and g.question is None)):
-        table.stuck_key = None
+            or (g.phase == "question" and g.question is None)
+            or (g.phase == "event" and events.table_waiting(g)
+                and g.current.pid not in events.table_waiting(g))):
+        table.stuck_key = None              # (a table event waits on the others)
         return
     key = (id(g), g.nonce, g.phase)
     now = time.monotonic()
@@ -594,8 +600,8 @@ async def reveal_timer(rv: dict):
     if rv.get("kind") == "battle":
         if rv.get("battle_over"):
             dur = 5.6                        # a kill / shipwreck: hold on the ending
-        elif g.battle and g.battle.get("incoming"):
-            dur = 1.4                        # a dodge is coming — snap to the DODGE prompt
+        elif (rv.get("enemy_phase") or {}).get("counter"):
+            dur = 4.4                        # your move, THEN the foe's blow lands
         else:
             dur = 3.4
         dur = _env_float("BATTLE_REVEAL_SECS", dur)   # QA speed hook
@@ -615,15 +621,6 @@ async def minigame_timer(mg: dict, limit: float):
     if g.minigame is mg and g.phase == "minigame":
         g.minigame_timeout()
         after_phase_change()          # a timed-out puzzle-battle → arm the reveal timer
-        await broadcast()
-
-
-async def dodge_timer(incoming: dict, limit: float):
-    await asyncio.sleep(limit + DODGE_GRACE)
-    g = table.game
-    if g.phase == "dodge" and g.battle and g.battle.get("incoming") is incoming:
-        g.dodge_timeout()             # frozen at the tiller — the blow lands full
-        after_phase_change()
         await broadcast()
 
 
@@ -658,6 +655,36 @@ async def gate_walk_task(g: Game, pid: str, gate: str, dest: str):
         await broadcast()
 
 
+def _arm_event_table(g):
+    """A TABLE event: everyone answers at once against one generous clock.
+    Captains who cannot answer (no socket, on autopilot) are not waited
+    for: once only they are left, the table closes on their defaults."""
+    act = g.ev.get("active") if getattr(g, "ev", None) else None
+    if not act or act.get("step") != "table":
+        return
+    t = act["table"]
+    if t["deadline"] is None:
+        t["deadline"] = time.time() + EVENT_TABLE_SECS
+        schedule(event_table_timer(t, EVENT_TABLE_SECS), "event_table_timer")
+    waiting = events.table_waiting(g)
+    # (nobody left to wait on — a kick took the last one — or only captains
+    # who cannot answer: close the table now)
+    if all((pid not in table.bots and (not table.here(pid) or pid in table.away))
+           for pid in waiting):
+        events.timeout(g)
+        after_phase_change()
+
+
+async def event_table_timer(t: dict, limit: float):
+    await asyncio.sleep(limit + TIMER_GRACE)
+    g = table.game
+    act = g.ev.get("active") if getattr(g, "ev", None) else None
+    if g.phase == "event" and act and act.get("table") is t:
+        events.timeout(g)             # absent answers take the do-nothing default
+        after_phase_change()
+        await broadcast()
+
+
 def after_phase_change():
     """Kick off whatever the new phase demands (fetches, timers)."""
     g = table.game
@@ -674,10 +701,8 @@ def after_phase_change():
         if limit:                            # simon runs without a clock (the
             g.minigame["deadline"] = time.time() + limit   # idle clock backs it)
             schedule(minigame_timer(g.minigame, limit), "minigame_timer")
-    elif g.phase == "dodge" and g.dodge_deadline is None \
-            and g.battle and g.battle.get("incoming"):
-        g.dodge_deadline = time.time() + DODGE_SECS
-        schedule(dodge_timer(g.battle["incoming"], DODGE_SECS), "dodge_timer")
+    elif g.phase == "event":
+        _arm_event_table(g)
     elif g.phase == "reveal" and g.reveal is not None:
         # ANY path into a reveal must arm the timer that advances it — trivia
         # answers, puzzle-battle solves, timeouts, all of it. Missing this on the
@@ -765,8 +790,6 @@ async def _apply(pid: str | None, kind: str, msg: dict) -> str | None:
             mode = msg.get("mode")
             g.stance(pid, _text(msg.get("stance")), int(msg.get("target", 0)),
                      mode if isinstance(mode, str) else None)
-        elif kind == "dodge":
-            g.dodge(pid, bool(msg.get("hit")), bool(msg.get("full")))
         elif kind == "flee":
             g.flee(pid)
         elif kind == "item":
@@ -782,6 +805,14 @@ async def _apply(pid: str | None, kind: str, msg: dict) -> str | None:
             g.answer_text(pid, _text(msg.get("text")))     # typed Jeopardy clue
         elif kind == "solve":
             g.minigame_submit(pid, msg.get("payload"))
+        elif kind == "event_choose":
+            events.choose(g, pid, msg.get("idx"))
+        elif kind == "event_move":
+            events.game_move(g, pid, msg.get("payload"))
+        elif kind == "event_answer":
+            events.answer(g, pid, msg.get("value"))
+        elif kind == "event_bet":
+            events.bet(g, pid, msg.get("value"))
         elif kind == "pick":
             g.pick_upgrade(pid, _text(msg.get("upgrade")))
         elif kind == "kick":
@@ -820,6 +851,8 @@ async def _apply(pid: str | None, kind: str, msg: dict) -> str | None:
                 p.scrolls += 100                # coin to spare for the chart + gear.
                 g.nonce += 1                    # (NOT map_bought — leave the chart flow
                                                 #  intact so the trader's prompt still plays)
+            if msg.get("event") and p:         # force an event (or a world wonder) here
+                events.dev_force(g, pid, _text(msg["event"]))
             if msg.get("fight") and p:         # simulate a fight with anything
                 if not isinstance(msg["fight"], dict):
                     raise GameError("Malformed message.")
@@ -894,8 +927,9 @@ def _forget_departed():
 # ── bot driver ───────────────────────────────────────────────────────────────
 def _bot_delay(tag: str) -> float:
     base = {"roll": 1.0, "sail": 1.6, "shrine": 1.2, "haven": 1.0,
-            "battle": 1.6, "question": 3.5, "minigame": 9.0, "dodge": 1.2,
-            "upgrade_pick": 1.4, "side": 2.2, "trade": 0.8}.get(tag, 1.0)
+            "battle": 1.6, "question": 3.5, "minigame": 9.0,
+            "upgrade_pick": 1.4, "side": 2.2, "trade": 0.8,
+            "event": 2.4, "event_side": 2.6}.get(tag, 1.0)
     return (base + table.bot_rng.random() * base * 0.7) * BOT_TEMPO
 
 
@@ -975,7 +1009,7 @@ async def _bot_turn(g: Game, pid: str, phase: str, skill, rng) -> str | None:
         if not buy or err:
             err = await dispatch(pid, "pass", {})
     elif phase == "battle":
-        choice = bots.decide_battle(g, pid, rng)
+        choice = bots.decide_battle(g, pid, rng, skill)
         if choice == "planks":
             err = await dispatch(pid, "use", {"item": "planks"})
             if err:                                    # can't patch: fight on
@@ -984,6 +1018,8 @@ async def _bot_turn(g: Game, pid: str, phase: str, skill, rng) -> str | None:
             err = await dispatch(pid, "flee", {})
             if err:                                    # broke, or it's a trial
                 err = await dispatch(pid, "stance", {"stance": "attack"})
+        elif choice == "heal":
+            err = await dispatch(pid, "stance", {"stance": "heal", "mode": "mc"})
         else:
             err = await dispatch(pid, "stance", {"stance": choice})
     elif phase == "jchoose":
@@ -1003,15 +1039,42 @@ async def _bot_turn(g: Game, pid: str, phase: str, skill, rng) -> str | None:
         g.resolve_minigame(rng.random() < p_solve)
         after_phase_change()
         await broadcast()
-    elif phase == "dodge":
-        # philosopher reflexes: sharper minds read the blow more often
-        err = await dispatch(pid, "dodge",
-                             {"hit": rng.random() < 0.25 + skill.t1 * 0.4})
     elif phase == "upgrade_pick":
         err = await dispatch(pid, "pick", {"upgrade": bots.decide_upgrade(g, pid)})
+    elif phase == "event":
+        mv = events.bot_decide(g, pid, skill.t2, rng)
+        if mv:                        # None: its table answer is in — it waits
+            kind, value = mv
+            key = {"event_choose": "idx", "event_move": "payload",
+                   "event_answer": "value"}[kind]
+            err = await dispatch(pid, kind, {key: value})
     else:
         err = f"no move for phase {phase}"
     return err
+
+
+async def bot_event_side(act: dict, pid: str):
+    """A bot's part in someone else's event: its sealed table answer, or a
+    side bet on the acting captain's game."""
+    g = table.game
+    await asyncio.sleep(_bot_delay("event_side"))
+    if table.game is not g or g.ev.get("active") is not act:
+        return
+    rng = table.bot_rng
+    skill = table.bots.get(pid)
+    if skill is None:
+        return
+    try:
+        if act.get("step") == "table":
+            mv = events.bot_decide(g, pid, skill.t2, rng)
+            if mv:
+                await dispatch(pid, "event_answer", {"value": mv[1]})
+        elif act.get("step") in ("game", "puzzle") and rng.random() < 0.6:
+            bet = events.bot_bet(g, pid, rng)
+            if bet is not None:
+                await dispatch(pid, "event_bet", {"value": bet})
+    except Exception:
+        log.exception("[bot %s] event side move failed", pid)
 
 
 def bot_tick():
@@ -1035,6 +1098,20 @@ def bot_tick():
                 if key not in table.acted:
                     table.acted.add(key)
                     schedule(bot_move(g.nonce, "side", p.pid), "bot_side")
+
+    # table events: every bot answers; rival bots bet on an event game
+    act = g.ev.get("active") if getattr(g, "ev", None) else None
+    if not act:
+        table.ev_acted.clear()
+    elif g.phase in ("event", "minigame") and g.players:
+        for p in g.players:
+            if p.pid not in table.bots or (p.pid == g.current.pid
+                                           and act.get("step") == "table"):
+                continue
+            key = (id(act), p.pid, act.get("step"))
+            if key not in table.ev_acted:
+                table.ev_acted.add(key)
+                schedule(bot_event_side(act, p.pid), "bot_event_side")
 
     if not g.players or g.current.pid not in table.bots:
         return
@@ -1243,10 +1320,6 @@ def heal_stuck_phase(g, stuck: float) -> str | None:
             and now > g.minigame["deadline"] + 3):
         g.minigame_timeout()
         return "timeout"
-    if (g.phase == "dodge" and g.dodge_deadline
-            and now > g.dodge_deadline + 2):
-        g.dodge_timeout()
-        return "timeout"
     if (g.phase == "jchoose" and g.jchoose_deadline
             and now > g.jchoose_deadline + 3):
         g.jchoose_timeout()                   # the pick timer was lost
@@ -1254,6 +1327,11 @@ def heal_stuck_phase(g, stuck: float) -> str | None:
     if g.phase == "reveal" and stuck > 15:
         g.advance_after_reveal()              # the reveal timer was lost
         return "advance"
+    act = g.ev.get("active") if g.phase == "event" and getattr(g, "ev", None) else None
+    if (act and act.get("step") == "table" and act["table"].get("deadline")
+            and now > act["table"]["deadline"] + 3):
+        events.timeout(g)                     # the table timer was lost
+        return "timeout"
     return None
 
 

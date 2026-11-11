@@ -69,11 +69,12 @@ export function structTemplate(id) {
   return p;
 }
 
-/* Every landmark the map mounts — preloaded by the loading screen */
+/* Every landmark GLB the map still mounts — preloaded by the loading screen.
+   The Pharos, shrines, puzzle spire, market, havens and lighthouse are
+   procedural now (static/models/landmarks.js); their GLBs stay on disk for
+   the contact sheet and the desert battle set (obelisk, tents) only. */
 export function preloadStructures() {
-  return ['pharos', 'temple', 'temple_ice', 'temple_desert', 'temple_jungle',
-          'temple_autumn', 'market', 'dock', 'obelisk', 'tents', 'lighthouse',
-          'ice_temple']
+  return ['dock', 'ice_temple', 'obelisk', 'tents']
     .map((id) => structTemplate(id));
 }
 

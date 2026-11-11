@@ -48,10 +48,20 @@ ISLAND_NAMES = [
     "Gavdos", "Elafonisos", "Meganisi", "Kalamos",
 ]
 
-# the endgame wall: tankier than a realm boss (a normal boss is 12) so the final
-# trial actually tests the upgrades you've hauled home — but not a slog when
-# STRIKE only chips 1 (MAGIC / the Sword of Damocles swing for 3)
-WARDEN = ("The Dark Presence", 24, 3, 3)
+# the endgame: tankier than a realm boss (a normal boss is 12) so the final
+# trial tests the upgrades you've hauled home — winnable without the Sword of
+# Damocles for a prepared captain, much likelier with it
+WARDEN = ("The Dark Presence", 22, 4, 3)
+# CATCH-UP: a trial rises WEAKER for whoever trails — BOSS_EASE_HP less
+# health per rival who already felled that realm boss, FALL_EASE_HP less per
+# time THIS captain already sank to it (realm boss or Warden) — never below
+# BOSS_MIN_HP / WARDEN_MIN_HP. (It used to rise STRONGER for latecomers.)
+BOSS_EASE_HP = 2
+FALL_EASE_HP = 4
+FALL_EASE_POWER = 1                # …and once you have fallen to it, it bites softer
+BOSS_MIN_HP = 6
+WARDEN_MIN_HP = 10
+BOSS_MIN_POWER = 3
 WARDEN_MODEL = "tyrant"            # the colossal dark biped who holds the Pharos
 
 # ── the four realms, one beyond each mountain pass ───────────────────────────
@@ -63,7 +73,7 @@ WARDEN_MODEL = "tyrant"            # the colossal dark biped who holds the Pharo
 REGION_POOL = {
     "autumn": {
         "name": "The Amber Vale", "mode": "foot",
-        "boss": ("The Stag King", 12, 2, 3), "boss_model": "stag_king",
+        "boss": ("The Stag King", 14, 4, 3), "boss_model": "stag_king",
         "tiers": [
             [("Leafshade Wolves", "Leafshade Wolf", 2, 1, "wolf"),
              ("Thistle Fauns", "Thistle Faun", 1, 1, "faun"),
@@ -78,7 +88,7 @@ REGION_POOL = {
     },
     "ice": {
         "name": "The Frostfang Reach", "mode": "sail",
-        "boss": ("The Boreal Wyrm", 12, 2, 3), "boss_model": "wyrm",
+        "boss": ("The Boreal Wyrm", 14, 4, 3), "boss_model": "wyrm",
         "tiers": [
             [("Frost Wolves", "Frost Wolf", 2, 1, "wolf_frost"),
              ("Rime Harpies", "Rime Harpy", 1, 1, "harpy"),
@@ -93,7 +103,7 @@ REGION_POOL = {
     },
     "desert": {
         "name": "The Bleached Reach", "mode": "foot",
-        "boss": ("The Sphinx", 12, 2, 3), "boss_model": "sphinx",
+        "boss": ("The Sphinx", 14, 4, 3), "boss_model": "sphinx",
         "tiers": [
             [("Sand Raiders", "Sand Raider", 2, 1, "raider"),
              ("Bone Vultures", "Bone Vulture", 1, 1, "vulture"),
@@ -108,7 +118,7 @@ REGION_POOL = {
     },
     "jungle": {
         "name": "The Verdigris Deep", "mode": "sail",
-        "boss": ("The Strangler Matriarch", 12, 2, 3), "boss_model": "matriarch",
+        "boss": ("The Strangler Matriarch", 14, 4, 3), "boss_model": "matriarch",
         "tiers": [
             [("Poison Birds", "Poison Bird", 1, 1, "bird_poison"),
              ("River Drakes", "River Drake", 2, 1, "drake"),
@@ -187,10 +197,56 @@ _WAYPOINT_EVERY_REALM = 42.0  # realms are finer-grained: a real crawl
 _MAX_WAYPOINTS_REALM = 2      # per REALM lane
 _SEA_LOOKS = ["buoy", "buoy", "buoy", "rocks", "rocks", "islet", "islet", "none"]
 _FLOTSAM_CHANCE = 0.25        # open-water nodes that drift a scroll's worth of salvage
-# approximate rendered island radii, so lane waypoints stay off the coasts
-_NODE_CLEAR = {"home": 17.0, "lair": 18.0, "pharos": 22.0, "monster": 15.0,
-               "haven": 15.0, "shrine": 13.0, "shop": 13.0, "puzzle": 13.0,
-               "gate": 9.0}
+# ── rendered footprints ────────────────────────────────────────────────────
+# The client raises every island from static/gfx/terrain.js, FITTED so the
+# coast's farthest point sits exactly at the island's radius (buildIsland in
+# static/islands.js: ISLE_R × a per-isle size ≤ 1, clamped to the free water
+# around the node). These are those maxima — keep the two tables in step.
+# Beyond the coast the terrain runs a sandy underwater SHELF (the turquoise
+# shallows) out to ~SHELF_K × the coast radius: no buoy may sit on it.
+ISLE_FOOT = {"pharos": 24.0, "home": 21.0, "lair": 19.0, "haven": 16.0,
+             "shrine": 15.0, "monster": 15.0, "puzzle": 14.0, "shop": 14.0,
+             "gate": 13.0}
+# open-water stops: what stands in the water at the waypoint itself
+SEA_FOOT = {"islet": 7.0, "rocks": 4.5, "buoy": 2.0, "none": 1.5}
+SHELF_K = 1.35          # shelf radius / coast radius
+FOOT_K = 0.72           # a stop on a WALKED realm is a low mound on the sand,
+                        # this much smaller than its island would be at sea
+LANE_MARGIN = 6.0       # water a lane keeps off a third island's coast (hull + air)
+HOP_BAND = (10.0, 100.0)  # every d3 step (non-Vale) stays in this band, wu
+
+
+def footprint(node: dict) -> float:
+    """Coast radius of whatever the client raises at this node (wu)."""
+    if node["type"] == "sea":
+        if node.get("mode") == "foot":
+            return 1.9 if node.get("region") == "autumn" else 3.0
+        if node.get("region") in ("ice", "jungle"):
+            return 4.4            # a realm mooring: brash ice / lily rafts
+        return SEA_FOOT.get(node.get("look", "buoy"), 2.0)
+    f = ISLE_FOOT.get(node["type"], 14.0)
+    return f * FOOT_K if node.get("mode") == "foot" and node["type"] != "gate" else f
+
+
+def shelf(node: dict) -> float:
+    """Radius of the shallows round an island (its coast for a sea stop, or
+    for a mound standing on dry ground — the walked realms have no sea)."""
+    f = footprint(node)
+    if node["type"] in ("sea", "gate") or node.get("mode") == "foot":
+        return f
+    return f * SHELF_K
+
+
+def _clear(node: dict) -> float:
+    """How far a lane's first waypoint keeps off this stop."""
+    if node.get("mode") == "foot" and node["type"] not in ("sea", "gate"):
+        return footprint(node) + 3.0
+    return _NODE_CLEAR.get(node["type"], 4.0)
+
+
+# waypoints keep off the coasts: an island's shelf plus a buoy's swing
+_NODE_CLEAR = {t: r * SHELF_K + 3.0 for t, r in ISLE_FOOT.items()}
+_NODE_CLEAR["gate"] = 16.0
 # The Isles of Peace are exactly that — no hunting grounds, no ambushes. All
 # danger lives beyond the mountain passes. (Monsters are grown into the realm
 # spines by _grow_region.)
@@ -841,25 +897,32 @@ class Board:
                             max(2, round(length / _WAYPOINT_EVERY_REALM) - 1))
             else:
                 n_way = min(_MAX_WAYPOINTS, max(1, round(length / _WAYPOINT_EVERY) - 1))
-                # …but NEVER leave a hop past ~90 wu, however long the lane —
-                # the chase camera turns those into featureless open-water
-                # dollies. Only the very longest ring-3 arcs exceed the cap.
-                n_way = max(n_way, math.ceil(length / 90.0) - 1)
-            # keep waypoints OFF the coasts: reserve each island's visual
-            # footprint at both ends of the lane, distribute between them
-            ca = _NODE_CLEAR.get(na["type"], 4.0)
-            cb = _NODE_CLEAR.get(nb["type"], 4.0)
+            # keep waypoints OFF the coasts: reserve each island's shelf at
+            # both ends of the lane, distribute between them
+            ca = _clear(na)
+            cb = _clear(nb)
             lo = min(0.45, ca / max(length, 1e-6) + 0.04)
             # on lanes shorter than the far island's footprint the waypoints
             # bunch near the START coast rather than landing on the island
             hi = max(lo + 0.08, 1 - cb / max(length, 1e-6) - 0.04)
+            usable = (hi - lo) * length
+            if not desert_lane:
+                # …but NEVER leave a hop past the band's ceiling, however long
+                # the lane — the chase camera turns those into featureless
+                # open-water dollies. The END hops carry the coast reserve, so
+                # size the count from them, not from the bare length.
+                cap = HOP_BAND[1] - 8.0
+                while n_way < 6:
+                    gap = usable / (n_way + 1)
+                    if max(lo * length, (1 - hi) * length) + gap <= cap:
+                        break
+                    n_way += 1
             # once the coasts are reserved, short lanes may have almost no
             # open water left — cramming the quota in anyway stacked buoys
             # 4 wu apart (a "sail" that reads as a twitch). Thin the count
-            # until every hop on the lane gets ≥ ~10 wu of water. (The Vale
+            # until every hop on the lane gets ≥ ~14 wu of water. (The Vale
             # never passes through here — its maze builds its own trails.)
-            usable = (hi - lo) * length
-            n_way = min(n_way, max(0, int(usable / 10.0) - 1))
+            n_way = min(n_way, max(0, int(usable / (10.0 if desert_lane else 14.0)) - 1))
             chain = [a]
             for k in range(1, n_way + 1):
                 t = lo + (hi - lo) * (k / (n_way + 1))
@@ -902,21 +965,54 @@ class Board:
         Peace, AFTER every lane waypoint exists, so it never overlaps another
         stop. Linked to the nearest node as a short detour hop; unmarked among
         the scenery until the trader's map circles it."""
+        # an islet is solid ground (footprint SEA_FOOT["islet"]): off every
+        # shelf, off every lane, clear of the other buoys — and its own short
+        # lane to the nearest stop must not clip a coast either
+        fr = SEA_FOOT["islet"]
+        hub = [n for n in self.nodes.values() if not n.get("region")]
+        lanes = [(self.nodes[a], self.nodes[b]) for a, b in self.edges
+                 if not self.nodes[a].get("region") and not self.nodes[b].get("region")]
+
+        def seg_d(ax, az, bx, bz, px, pz):
+            dx, dz = bx - ax, bz - az
+            L2 = dx * dx + dz * dz or 1e-9
+            t = max(0.0, min(1.0, ((px - ax) * dx + (pz - az) * dz) / L2))
+            return math.hypot(px - ax - t * dx, pz - az - t * dz)
+
+        def slack(sx, sz):
+            worst = 1e9
+            for n in hub:
+                need = (shelf(n) if n["type"] not in ("sea", "gate") else footprint(n) + 4) + fr + 1.5
+                worst = min(worst, math.hypot(sx - n["x"], sz - n["z"]) - need)
+            for na, nb in lanes:
+                worst = min(worst, seg_d(na["x"], na["z"], nb["x"], nb["z"], sx, sz)
+                            - fr - LANE_MARGIN - 1)
+            return worst
+
         best = None
         for _ in range(200):
             ang = rng.uniform(0, 6.28318)
             rad = rng.uniform(280, 355)            # inside ring 3 (~380): safe waters
             sx, sz = round(math.cos(ang) * rad, 2), round(math.sin(ang) * rad, 2)
-            near = min(math.hypot(sx - n["x"], sz - n["z"])
-                       for n in self.nodes.values())
-            if best is None or near > best[2]:
-                best = (sx, sz, near)
-            if near >= 24:
+            sl = slack(sx, sz)
+            if best is None or sl > best[2]:
+                best = (sx, sz, sl)
+            if sl >= 4:
                 break
         sx, sz, _ = best
-        anchor = min((nid for nid in self.nodes),
-                     key=lambda nid: math.hypot(sx - self.nodes[nid]["x"],
-                                                sz - self.nodes[nid]["z"]))
+
+        def clean_link(nid):
+            n = self.nodes[nid]
+            L = math.hypot(sx - n["x"], sz - n["z"])
+            if L > HOP_BAND[1] or L < HOP_BAND[0]:
+                return False
+            return all(seg_d(sx, sz, n["x"], n["z"], c["x"], c["z"])
+                       >= footprint(c) + LANE_MARGIN
+                       for c in hub if c["id"] != nid and c["type"] not in ("sea", "gate"))
+        order = sorted((nid for nid in self.nodes if not self.nodes[nid].get("region")),
+                       key=lambda nid: math.hypot(sx - self.nodes[nid]["x"],
+                                                  sz - self.nodes[nid]["z"]))
+        anchor = next((nid for nid in order[:8] if clean_link(nid)), order[0])
         self.nodes["sword_isle"] = {
             "id": "sword_isle", "name": "Uncharted Islet", "type": "sea",
             "band": self.nodes[anchor]["band"], "x": sx, "z": sz,
@@ -941,106 +1037,268 @@ class Board:
                 "domain": rng.choice(DOMAINS), "pack": True, "enemies": enemies}
 
     def _declip_lanes(self):
-        """No lane may cross a third island's footprint — the ship (and the
-        lane's buoys) would cut straight through its terrain. Two passes:
-        shoo sea waypoints out of every island's clearance disc, then bend
-        any island-to-island lane that still crosses one by dropping a bend
-        buoy at the closest approach, pushed off the coast. The Amber Vale
-        is left untouched: its serpentine trail is designed geometry."""
-        def clear_r(n):
-            return _NODE_CLEAR.get(n["type"], 0.0)
+        """No lane may come within LANE_MARGIN of a third island's coast and
+        no waypoint may sit on an island's beach or shelf — the ship (and the
+        lane's buoys) would cut across sand. Footprints are the client's
+        real ones (footprint()/shelf(), mirroring the fitted terrain).
+
+        1 · RELAX every open-water waypoint: off island shelves, its lanes
+            bowed clear of third coasts, hops kept inside HOP_BAND, hub
+            waypoints inside the mountain wall, realm stops beyond it. Designed
+            realm stops (the spine's open-water stops) are tethered near
+            where the realm plan put them, so the forks keep their shape.
+        2 · BEND any island-to-island lane that still clips a coast with a
+            new buoy off that coast (rare after the relaxation).
+        3 · split any hop still past the band, merge any twitch hop.
+        4 · DRESS: an islet / rock stack only where it blocks no lane and
+            stands clear of every shelf — otherwise the stop is a buoy.
+
+        The Amber Vale is left untouched: its maze is designed geometry on
+        flush ground, and is grown later (grow_vale)."""
+        nodes = self.nodes
 
         def in_vale(n):
             return n.get("region") == "autumn"
 
-        islands = [n for n in self.nodes.values() if clear_r(n) > 0]
+        def is_isle(n):
+            return n["type"] not in ("sea", "gate")
 
-        for _ in range(3):                      # repulsion can cascade a little
-            moved = False
-            for n in self.nodes.values():
-                if n["type"] != "sea" or in_vale(n):
-                    continue
-                for isl in islands:
-                    need = clear_r(isl) + 2.0
-                    dx, dz = n["x"] - isl["x"], n["z"] - isl["z"]
+        isles = [n for n in nodes.values() if is_isle(n) and not in_vale(n)]
+        movable = {nid for nid, n in nodes.items()
+                   if n["type"] == "sea" and not in_vale(n)}
+        anchor = {nid: (nodes[nid]["x"], nodes[nid]["z"]) for nid in movable}
+        tether = {nid: (14.0 if not nid.startswith("sea") else 1e9)
+                  for nid in movable}
+        lo_hop, hi_hop = HOP_BAND
+        lo_hop += 2.0                       # aim inside the band, not on its edge
+
+        def seg_near(ax, az, bx, bz, px, pz):
+            dx, dz = bx - ax, bz - az
+            L2 = dx * dx + dz * dz
+            t = 0.0 if L2 < 1e-9 else max(0.0, min(1.0, ((px - ax) * dx + (pz - az) * dz) / L2))
+            cx, cz = ax + t * dx, az + t * dz
+            return math.hypot(px - cx, pz - cz), cx, cz, t
+
+        self._build_neighbors()
+        # isles a waypoint could ever interact with (it moves a few wu at most;
+        # its lanes are under ~100 wu) — keeps the relaxation cheap
+        local = {}
+        for nid in movable:
+            w = nodes[nid]
+            local[nid] = [c for c in isles
+                          if math.hypot(w["x"] - c["x"], w["z"] - c["z"]) < 170]
+        for _it in range(60):
+            worst = 0.0
+            for nid in movable:
+                w = nodes[nid]
+                fx = fz = 0.0
+                wr = footprint(w)
+                near = local[nid]
+                # (a) off every shelf
+                for c in near:
+                    dx, dz = w["x"] - c["x"], w["z"] - c["z"]
                     d = math.hypot(dx, dz)
-                    if d >= need:
+                    need = shelf(c) + wr + 1.5
+                    if d < need:
+                        if d < 1e-6:
+                            dx, dz, d = 1.0, 0.0, 1.0
+                        fx += dx / d * (need - d)
+                        fz += dz / d * (need - d)
+                # (b) its lanes clear of third coasts; (c) hops in the band
+                for o in self.neighbors[nid]:
+                    on = nodes[o]
+                    if in_vale(on):
                         continue
-                    if d < 1e-6:
-                        dx, dz, d = 1.0, 0.0, 1.0
-                    n["x"] = round(isl["x"] + dx / d * need, 2)
-                    n["z"] = round(isl["z"] + dz / d * need, 2)
-                    moved = True
-            if not moved:
+                    for c in near:
+                        if c["id"] == o:
+                            continue
+                        d, cx, cz, t = seg_near(w["x"], w["z"], on["x"], on["z"],
+                                                c["x"], c["z"])
+                        need = footprint(c) + LANE_MARGIN + 1.0
+                        if d < need and 0.0 < t < 1.0:
+                            ox, oz = cx - c["x"], cz - c["z"]
+                            if d < 1e-6:
+                                ox, oz = -(on["z"] - w["z"]), on["x"] - w["x"]
+                                d = math.hypot(ox, oz) or 1.0
+                            # the waypoint end carries the lane: move it in
+                            # proportion to how much of the bend it owns
+                            k = (need - d) * (1.0 - t) * 1.6
+                            fx += ox / d * k
+                            fz += oz / d * k
+                    dx, dz = w["x"] - on["x"], w["z"] - on["z"]
+                    d = math.hypot(dx, dz) or 1e-6
+                    if d < lo_hop:
+                        fx += dx / d * (lo_hop - d) * 0.5
+                        fz += dz / d * (lo_hop - d) * 0.5
+                    elif d > hi_hop - 4:
+                        fx -= dx / d * (d - hi_hop + 4) * 0.5
+                        fz -= dz / d * (d - hi_hop + 4) * 0.5
+                # (d) the wall: the hub's waters end well short of the range;
+                #     a realm stop never strays back inside it
+                r = math.hypot(w["x"], w["z"]) or 1e-6
+                if not w.get("region") and r > WALL_R - 16:
+                    fx -= w["x"] / r * (r - WALL_R + 16)
+                    fz -= w["z"] / r * (r - WALL_R + 16)
+                elif w.get("region") and r < WALL_R + 6:
+                    fx += w["x"] / r * (WALL_R + 6 - r)
+                    fz += w["z"] / r * (WALL_R + 6 - r)
+                # (e) designed realm stops stay near the plan
+                ax, az = anchor[nid]
+                da = math.hypot(w["x"] + fx - ax, w["z"] + fz - az)
+                if da > tether[nid]:
+                    k = tether[nid] / da
+                    fx = ax + (w["x"] + fx - ax) * k - w["x"]
+                    fz = az + (w["z"] + fz - az) * k - w["z"]
+                step = math.hypot(fx, fz)
+                if step > 6.0:                     # small steps: no ping-pong
+                    fx, fz = fx / step * 6.0, fz / step * 6.0
+                    step = 6.0
+                worst = max(worst, step)
+                w["x"] = round(w["x"] + fx * 0.7, 2)
+                w["z"] = round(w["z"] + fz * 0.7, 2)
+            if worst < 0.05:
                 break
 
+        # 2 · lanes between two islands (no waypoint to move) that still clip
         bends = 0
-        for _round in range(4):     # a bend's own halves can still cross
+        for _round in range(4):
             dirty = False
             for a, b in self.edges[:]:
-                na, nb = self.nodes[a], self.nodes[b]
+                na, nb = nodes[a], nodes[b]
                 if in_vale(na) or in_vale(nb):
                     continue
-                for isl in islands:
-                    if isl["id"] in (a, b):
+                for c in isles:
+                    if c["id"] in (a, b):
                         continue
-                    need = clear_r(isl) + 1.0
-                    ax, az, bx, bz = na["x"], na["z"], nb["x"], nb["z"]
-                    dx, dz = bx - ax, bz - az
-                    L2 = dx * dx + dz * dz
-                    if L2 < 1e-9:
+                    d, px, pz, t = seg_near(na["x"], na["z"], nb["x"], nb["z"],
+                                            c["x"], c["z"])
+                    if d >= footprint(c) + LANE_MARGIN or t in (0.0, 1.0):
                         continue
-                    t = max(0.0, min(1.0, ((isl["x"] - ax) * dx
-                                           + (isl["z"] - az) * dz) / L2))
-                    px, pz = ax + t * dx, az + t * dz
-                    d = math.hypot(px - isl["x"], pz - isl["z"])
-                    if d >= need or t in (0.0, 1.0):
-                        continue
-                    ox, oz = px - isl["x"], pz - isl["z"]
+                    ox, oz = px - c["x"], pz - c["z"]
                     if d < 1e-6:
-                        ox, oz, d = -dz, dx, math.hypot(dz, dx)
-                    push = clear_r(isl) + 3.0
+                        ox, oz = -(nb["z"] - na["z"]), nb["x"] - na["x"]
+                        d = math.hypot(ox, oz) or 1.0
+                    push = shelf(c) + SEA_FOOT["buoy"] + 2.0
                     nid = f"seab{bends}"
                     bends += 1
-                    self.nodes[nid] = {
+                    nodes[nid] = {
                         "id": nid, "name": na["name"] if na["type"] == "sea"
                         else "Open Sea", "type": "sea",
                         "band": max(na["band"], nb["band"]),
-                        "x": round(isl["x"] + ox / d * push, 2),
-                        "z": round(isl["z"] + oz / d * push, 2),
+                        "x": round(c["x"] + ox / d * push, 2),
+                        "z": round(c["z"] + oz / d * push, 2),
                         "flotsam": False, "look": "buoy",
                     }
                     for k in ("region", "mode", "depth"):
                         if na.get(k) is not None and na.get(k) == nb.get(k):
-                            self.nodes[nid][k] = na[k]
+                            nodes[nid][k] = na[k]
                     self.edges.remove((a, b))
                     self._link(a, nid)
                     self._link(nid, b)
                     dirty = True
-                    break                        # this edge is gone; next edge
+                    break
             if not dirty:
                 break
-        if bends:
+        self._build_neighbors()
+
+        # 3 · the band: split a hop that still runs long; merge a twitch
+        #     (a two-lane waypoint whose neighbours can see each other clean)
+        def lane_clean(a, b):
+            na, nb = nodes[a], nodes[b]
+            for c in isles:
+                if c["id"] in (a, b):
+                    continue
+                d, _, _, t = seg_near(na["x"], na["z"], nb["x"], nb["z"], c["x"], c["z"])
+                if d < footprint(c) + LANE_MARGIN:
+                    return False
+            return True
+
+        split = 0
+        for a, b in self.edges[:]:
+            na, nb = nodes[a], nodes[b]
+            if in_vale(na) or in_vale(nb):
+                continue
+            L = self._dist(a, b)
+            if L <= HOP_BAND[1]:
+                continue
+            nid = f"seas{split}"
+            split += 1
+            mx, mz = (na["x"] + nb["x"]) / 2, (na["z"] + nb["z"]) / 2
+            nodes[nid] = {"id": nid, "name": "Open Sea", "type": "sea",
+                          "band": max(na["band"], nb["band"]),
+                          "x": round(mx, 2), "z": round(mz, 2),
+                          "flotsam": False, "look": "buoy"}
+            for k in ("region", "mode", "depth"):
+                if na.get(k) is not None and na.get(k) == nb.get(k):
+                    nodes[nid][k] = na[k]
+            if nodes[nid].get("mode") == "foot":
+                nodes[nid]["name"] = "Dune Trail"
+            self.edges.remove((a, b))
+            self._link(a, nid)
+            self._link(nid, b)
+        self._build_neighbors()
+        for nid in [n for n in nodes if n.startswith("seab") or n.startswith("sea")]:
+            n = nodes.get(nid)
+            if not n or n["type"] != "sea" or in_vale(n) or len(self.neighbors[nid]) != 2:
+                continue
+            a, b = self.neighbors[nid]
+            short = min(self._dist(nid, a), self._dist(nid, b))
+            if short >= HOP_BAND[0]:
+                continue
+            if self._dist(a, b) > HOP_BAND[1] or not lane_clean(a, b):
+                continue
+            if (a, b) in self.edges or (b, a) in self.edges:
+                continue                       # would collapse a loop
+            self.edges = [e for e in self.edges if nid not in e]
+            self._link(a, b)
+            del nodes[nid]
             self._build_neighbors()
 
-    # Titles for a boss that has already been slain once and rises again,
-    # harder, for the next challenger. Index by how many rivals beat it before.
-    ESCALATION_TITLES = ["", "the Ascendant", "the Vengeful", "the Undying",
-                         "the Eternal"]
+        # 4 · dressing: solid looks only where they block nothing
+        for nid, w in nodes.items():
+            if w["type"] != "sea" or in_vale(w) or w.get("look") not in ("islet", "rocks"):
+                continue
+            fr = footprint(w)
+            bad = any(math.hypot(w["x"] - c["x"], w["z"] - c["z"]) < shelf(c) + fr + 1.5
+                      for c in isles)
+            if not bad:
+                for a, b in self.edges:
+                    if nid in (a, b):
+                        continue
+                    na, nb = nodes[a], nodes[b]
+                    if in_vale(na) or in_vale(nb):
+                        continue
+                    if seg_near(na["x"], na["z"], nb["x"], nb["z"], w["x"], w["z"])[0] \
+                            < fr + LANE_MARGIN:
+                        bad = True
+                        break
+            if not bad:                        # and clear of the other waypoints
+                bad = any(o is not w and o["type"] == "sea" and not in_vale(o)
+                          and math.hypot(w["x"] - o["x"], w["z"] - o["z"]) < fr + footprint(o) + 4
+                          for o in nodes.values())
+            if bad:
+                w["look"] = "buoy"
 
-    def _boss(self, spec, rng, model: str = "warden", escalate: int = 0) -> dict:
+    # Titles for a boss that has already been slain once and rises again —
+    # WEAKER — for the next challenger. Index by how many rivals beat it before.
+    ESCALATION_TITLES = ["", "the Wounded", "the Weary", "the Broken",
+                         "the Fading"]
+
+    def _boss(self, spec, rng, model: str = "warden", escalate: int = 0,
+              ease_hp: int = 0, floor: int = BOSS_MIN_HP,
+              ease_power: int = 0) -> dict:
         """A trial guardian: ONE great enemy — the boss battles of the voyage.
         Bosses always counter, telegraph a heavy blow every third exchange,
         and enrage at half strength (the engine drives those rules).
 
-        ``escalate`` is how many rivals have already felled this boss. Each
-        prior victor leaves the guardian risen angrier: more health and, past
-        the first, more bite — so the first to reach a lair fights the weakest
-        form. A later challenger meets a titled, tougher version."""
+        ``escalate`` counts what has worn it down (rivals who felled it,
+        your own falls to it) and picks its title; ``ease_hp`` is the health
+        that costs it, down to ``floor`` — CATCH-UP for whoever trails. The
+        field keeps its old name for the protocol."""
         name, hp, power, tier = spec
         if escalate:
-            hp += 5 * escalate
-            power += min(2, escalate)
+            hp = max(min(hp, floor), hp - ease_hp)
+            power = max(min(power, BOSS_MIN_POWER), power - ease_power)
             ti = min(escalate, len(self.ESCALATION_TITLES) - 1)
             title = self.ESCALATION_TITLES[ti]
             if title:
@@ -1077,22 +1335,32 @@ class Board:
         return {"name": name, "tier": tier, "model": model,
                 "domain": rng.choice(DOMAINS), "enemies": enemies}
 
-    def spawn_boss(self, nid: str) -> dict:
+    def spawn_boss(self, nid: str, pid: str | None = None) -> dict:
         """A fresh personal-trial boss for whoever just landed. Every rival who
-        already conquered this lair leaves the guardian risen harder for the
-        next arrival — reward for reaching the trial first."""
+        already conquered this lair — and every time THIS captain sank here
+        before (``node["falls"]``) — leaves the guardian weaker for the next
+        try: catch-up for whoever trails the race."""
         node = self.nodes[nid]
         theme = node.get("region")
         model = REGION_POOL[theme]["boss_model"] if theme else "warden"
-        escalate = len(node.get("defeated", []))
+        rivals = len(node.get("defeated", []))
+        falls = (node.get("falls") or {}).get(pid, 0)
         node["monster"] = self._boss(tuple(node["boss_spec"]), self.rng, model,
-                                     escalate=escalate)
+                                     escalate=rivals + falls,
+                                     ease_hp=BOSS_EASE_HP * rivals + FALL_EASE_HP * falls,
+                                     ease_power=FALL_EASE_POWER if falls else 0)
         return node["monster"]
 
-    def reset_warden(self):
+    def reset_warden(self, ease: int = 0):
         """A fresh Warden for the next challenger — the final trial is
-        personal too; nobody inherits a softened boss."""
-        self.nodes["pharos"]["monster"] = self._boss(WARDEN, self.rng, WARDEN_MODEL)
+        personal too; nobody inherits a softened boss. ``ease``: how often
+        THIS challenger already fell to it — each fall leaves it
+        FALL_EASE_HP weaker for them (down to WARDEN_MIN_HP)."""
+        m = self._boss(WARDEN, self.rng, WARDEN_MODEL, escalate=ease,
+                       ease_hp=FALL_EASE_HP * ease, floor=WARDEN_MIN_HP,
+                       ease_power=FALL_EASE_POWER if ease else 0)
+        m["name"] = m["enemies"][0]["name"] = WARDEN[0]   # the Dark Presence keeps its name
+        self.nodes["pharos"]["monster"] = m
 
     def _dist(self, a: str, b: str) -> float:
         na, nb = self.nodes[a], self.nodes[b]

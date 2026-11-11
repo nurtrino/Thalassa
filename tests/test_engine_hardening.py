@@ -43,20 +43,19 @@ def pack_question(g, pid, hps=(9,)):
 
 
 # ── economy ──────────────────────────────────────────────────────────────────
-def test_side_answer_streak_bonus_is_paid_once():
-    """Pins the payout (reward + ONE streak scroll). The old helper added
-    the streak scroll itself AND returned 1 for the caller to add again; it
-    only paid correctly because ``x += f()`` reads x before calling f, so
-    the helper's own increment was silently overwritten. Now it says what
-    it means."""
+def test_side_answer_pays_its_reward_and_never_feeds_the_streak():
+    """A right side guess pays SIDE_REWARD (every one at a two-captain
+    table) and no longer touches the streak — side guesses kept a rival's
+    streak hot and paid a second, streak scroll on top, risk-free."""
     g, (p0, p1) = make_game()
     rival = g.player_by_pid(p1)
     rival.streak = G.STREAK_AT - 1
     shrine_question(g, p0, correct=2)
     g.side_answer(p1, 2)
     g.answer(p0, 0)
-    assert rival.streak == G.STREAK_AT
-    assert rival.scrolls == 3 + G.SIDE_REWARD + 1          # reward + ONE bonus
+    assert rival.streak == G.STREAK_AT - 1                  # untouched
+    assert rival.scrolls == 3 + G.SIDE_REWARD               # the reward alone
+    assert g.reveal["side"][p1] == {"ok": True, "chosen": 2, "paid": G.SIDE_REWARD}
 
 
 def test_gale_charms_cannot_be_stacked_past_the_cap():
@@ -265,8 +264,6 @@ def _clear_islet(g, pid):
             g.answer(pid, 0)
         elif g.phase == "reveal":
             g.advance_after_reveal()
-        elif g.phase == "dodge":
-            g.dodge(pid, True, True)
         else:
             break
     return p
@@ -497,7 +494,7 @@ def test_rematch_starts_from_a_clean_table():
     assert g.phase == "roll" and g.flash is None
     for attr in ("battle", "question", "qctx", "minigame", "kraken", "jboard",
                  "_pending_jeopardy", "reveal", "walk", "upgrade_offer",
-                 "question_deadline", "dodge_deadline", "jchoose_deadline"):
+                 "question_deadline", "jchoose_deadline"):
         assert getattr(g, attr) is None, attr
     assert g.side_answers == {} and g.reachable == {}
     snap = g.to_dict(p0)

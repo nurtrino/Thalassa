@@ -1,0 +1,261 @@
+/* ═══════════════════════════════════════════════════════════════════════
+   events.css — event cards, event games, table events, the result card and
+   the HUD strip of boons + world wonders (static/events.js). Builds on the
+   "Aegean bronze" tokens in style.css; z: card overlay 20 (with the other
+   overlays), result card 19, HUD strip 10.
+   ═══════════════════════════════════════════════════════════════════════ */
+
+#evModal { z-index: 20; }
+#evModal.watch { background: rgba(6, 9, 13, .28); backdrop-filter: none; }
+
+.evcard {
+  width: min(580px, 96vw);
+  padding: 3px;
+  text-align: left;
+  max-height: calc(100vh - 28px);
+  overflow-y: auto;
+  scrollbar-width: thin;
+}
+.evhead {
+  display: flex; justify-content: space-between; align-items: baseline; gap: var(--s3);
+  color: #fdf6e4;
+  background: linear-gradient(180deg, rgba(255, 255, 255, .16), rgba(0, 0, 0, .14)), var(--bronze-deep);
+  padding: 10px 18px 9px;
+  font-family: var(--disp); font-weight: 700;
+  font-size: 13.5px; letter-spacing: .14em; text-transform: uppercase;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, .45);
+}
+.evhead .evwhere {
+  font-family: var(--body); font-weight: 500; font-size: 13px;
+  font-style: italic; letter-spacing: .02em; text-transform: none; opacity: .92;
+}
+.evart { display: block; width: 100%; height: clamp(64px, 16vh, 150px); }
+.evart { position: relative; }
+.evart svg { position: absolute; inset: 6px 0; width: 100%; height: calc(100% - 12px); }
+.evart svg:first-child { inset: 0; height: 100%; }
+.evbody { padding: 12px 22px 18px; }
+.evbody h2 {
+  font-family: var(--disp); font-weight: 800; font-size: 23px;
+  letter-spacing: .04em; color: #4a3811; margin: 2px 0 6px;
+}
+.evtext { font-size: 17px; line-height: 1.42; color: var(--sepia); }
+.evintro { font-size: 16px; line-height: 1.4; color: var(--sepia-soft); font-style: italic; margin-top: 8px; }
+.evwho { font-size: 15px; font-style: italic; color: var(--sepia-soft); margin-top: 10px; }
+.evwho strong { font-style: normal; color: #4a3811; }
+
+/* option buttons: big, readable, stakes on their own line */
+.evopts { display: flex; flex-direction: column; gap: 10px; margin-top: 14px; }
+.evopt {
+  display: flex; align-items: center; gap: 12px;
+  width: 100%; min-height: 58px;
+  padding: 10px 14px;
+  text-align: left;
+  font-family: var(--body); font-size: 17px; font-weight: 600; color: var(--sepia);
+  background: linear-gradient(180deg, #fbf6e9, #efe3c6);
+  border: 1px solid var(--parch-line);
+  border-radius: 9px;
+  box-shadow: 0 2px 0 rgba(120, 92, 30, .25);
+  transition: transform var(--fast), box-shadow var(--fast), border-color var(--fast);
+}
+.evopt .evnum {
+  flex: 0 0 28px; height: 28px; border-radius: 50%;
+  display: grid; place-items: center;
+  font: 800 14px/1 var(--disp); color: #fdf6e4;
+  background: linear-gradient(180deg, #c99a2c, #7a5c16);
+}
+.evopt .evlab { flex: 1; display: flex; flex-direction: column; gap: 2px; }
+.evopt small { font-weight: 500; font-size: 14px; font-style: italic; color: var(--sepia-soft); }
+.evopt:hover:not(:disabled), .evopt:focus-visible {
+  transform: translateY(-1px); border-color: var(--bronze);
+  box-shadow: 0 4px 10px rgba(120, 92, 30, .25); outline: none;
+}
+.evopt:disabled { opacity: .5; cursor: not-allowed; }
+.evopt:disabled .evnum { background: #9c8e70; }
+.evopt.why small { color: var(--blood-deep); }
+
+/* bronze action buttons inside a game */
+.evrow { display: flex; flex-wrap: wrap; gap: 10px; justify-content: center; margin-top: 14px; }
+.evbtn {
+  min-width: 110px; min-height: 52px;
+  padding: 10px 18px;
+  font: 800 16px/1.1 var(--disp); letter-spacing: .08em; text-transform: uppercase;
+  color: #3a2a08;
+  background: linear-gradient(180deg, #f6dd7e, #d9ae37 55%, #97741c);
+  border: 1px solid #6e5413; border-radius: 9px;
+  box-shadow: 0 3px 0 #5a430e, inset 0 1px 0 rgba(255, 250, 220, .6);
+}
+.evbtn small { display: block; font: italic 500 12.5px var(--body); letter-spacing: 0; text-transform: none; }
+.evbtn.cool { color: #f2f7fa; background: linear-gradient(180deg, #62a2c0, #3c7391 55%, #24485d); border-color: #1d3a4b; box-shadow: 0 3px 0 #17303f; }
+.evbtn.hot { color: #fff1ea; background: linear-gradient(180deg, #e0704e, #bc432c 55%, #7c2617); border-color: #5e1c10; box-shadow: 0 3px 0 #4d160c; }
+.evbtn.ghost { color: var(--sepia); background: rgba(255, 255, 255, .45); border-color: var(--parch-line); box-shadow: none; }
+.evbtn:disabled { filter: grayscale(.7); opacity: .55; }
+.evbtn:focus-visible { outline: 3px solid rgba(201, 162, 39, .55); outline-offset: 2px; }
+.evbtn.sel { outline: 3px solid #2e9e8f; outline-offset: 2px; }
+
+.evgame { margin-top: 12px; }
+.evstat { text-align: center; font: 700 15px var(--disp); letter-spacing: .06em; color: #5b4615; margin-top: 8px; }
+.evbig { font: 900 46px/1 var(--disp); color: #4a3811; text-align: center; }
+.evsmall { font-size: 14.5px; color: var(--sepia-soft); text-align: center; margin-top: 6px; }
+.evlog { margin-top: 10px; display: flex; flex-direction: column; gap: 4px; font-size: 15px; }
+.evlog > div { padding: 5px 10px; background: rgba(255, 255, 255, .4); border-radius: 6px; }
+
+/* knucklebones */
+.evbones { display: flex; flex-wrap: wrap; gap: 6px; justify-content: center; margin-top: 8px; min-height: 40px; }
+.evbone {
+  width: 38px; height: 38px; display: grid; place-items: center;
+  font: 800 18px var(--disp); color: #3a2a08;
+  background: radial-gradient(circle at 35% 30%, #fffaf0, #e2d3ae);
+  border: 1px solid #a48b55; border-radius: 12px 6px 12px 6px;
+}
+.evbone.dog { color: #fff; background: radial-gradient(circle at 35% 30%, #e0704e, #8e2c1e); }
+.evgoals { display: flex; justify-content: center; gap: 8px; margin-top: 8px; font-size: 13.5px; }
+.evgoals span { padding: 3px 9px; border-radius: 999px; border: 1px solid var(--parch-line); }
+.evgoals span.met { background: #2e9e8f; color: #fff; border-color: #1a5f57; }
+
+/* higher / lower */
+.evtile {
+  width: 86px; height: 112px; margin: 6px auto 0;
+  display: grid; place-items: center;
+  font: 900 54px var(--disp); color: #4a3811;
+  background: linear-gradient(180deg, #f3e2b6, #d6b670);
+  border: 2px solid #8a6c1c; border-radius: 10px;
+  box-shadow: inset 0 0 0 4px rgba(255, 245, 210, .5), 0 4px 10px rgba(60, 40, 10, .25);
+}
+.evcount { display: grid; grid-template-columns: repeat(9, 1fr); gap: 4px; margin-top: 12px; }
+.evcount div { text-align: center; padding: 4px 0; border-radius: 6px; background: rgba(255, 255, 255, .45); font: 700 15px var(--disp); }
+.evcount div i { display: block; font: 600 11.5px var(--body); color: var(--sepia-soft); font-style: normal; }
+.evcount div.gone { opacity: .35; text-decoration: line-through; }
+
+/* code-breaker */
+.evslots { display: flex; gap: 10px; justify-content: center; margin-top: 10px; }
+.evslot, .evglyph {
+  width: 60px; height: 60px; padding: 10px;
+  color: #4a3811; background: rgba(255, 255, 255, .55);
+  border: 2px dashed #a48b55; border-radius: 10px;
+}
+.evslot.full { border-style: solid; background: #fbf3dc; }
+.evglyph { border-style: solid; background: linear-gradient(180deg, #fbf6e9, #efe3c6); }
+.evslot svg, .evglyph svg { width: 100%; height: 100%; }
+.evguesses { display: flex; flex-direction: column; gap: 6px; margin-top: 12px; }
+.evguess { display: flex; align-items: center; gap: 10px; padding: 4px 10px; background: rgba(255, 255, 255, .4); border-radius: 8px; }
+.evguess .g { width: 30px; height: 30px; color: #4a3811; }
+.evguess .g svg { width: 100%; height: 100%; }
+.evguess .fb { margin-left: auto; font-size: 14.5px; font-weight: 600; }
+.evpeg { display: inline-block; width: 13px; height: 13px; border-radius: 50%; margin-right: 3px; vertical-align: -2px; }
+.evpeg.placed { background: #2e9e8f; }
+.evpeg.present { border: 2px solid #c9a227; }
+
+/* shells */
+.evcups { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-top: 12px; }
+.evcup {
+  display: flex; flex-direction: column; align-items: center; gap: 8px;
+  padding: 10px 8px 12px; min-height: 150px;
+  font-family: var(--body); font-size: 15px; line-height: 1.3; color: var(--sepia);
+  background: linear-gradient(180deg, #fbf6e9, #efe3c6);
+  border: 1px solid var(--parch-line); border-radius: 10px;
+}
+.evcup svg { width: 54px; height: 46px; color: #7a5c16; }
+.evcup:hover:not(:disabled) { border-color: var(--bronze); }
+.evcup.pearl { border: 2px solid #2e9e8f; }
+
+/* amphorae */
+.evjars { display: grid; grid-template-columns: repeat(9, 1fr); gap: 4px; margin-top: 12px; }
+.evjar {
+  display: flex; flex-direction: column; align-items: center; gap: 2px;
+  padding: 6px 0; min-height: 70px;
+  font: 700 13px var(--disp); color: var(--sepia);
+  background: rgba(255, 255, 255, .45); border: 2px solid transparent; border-radius: 8px;
+}
+.evjar svg { width: 26px; height: 36px; color: #7a5c16; }
+.evjar.left { border-color: #3c7391; background: rgba(98, 162, 192, .25); }
+.evjar.right { border-color: #bc432c; background: rgba(224, 112, 78, .2); }
+.evjar.cleared { opacity: .35; }
+.evseg { display: flex; justify-content: center; gap: 6px; margin-top: 10px; }
+
+/* crossing */
+.evbanks { display: grid; grid-template-columns: 1fr 70px 1fr; gap: 8px; margin-top: 12px; align-items: stretch; }
+.evbank { min-height: 110px; padding: 8px; border-radius: 10px; background: rgba(110, 150, 90, .22); display: flex; flex-direction: column; gap: 6px; align-items: center; }
+.evbank b { font: 700 12.5px var(--disp); letter-spacing: .1em; text-transform: uppercase; color: #4a3811; }
+.evriver { border-radius: 10px; background: linear-gradient(180deg, #6fb3c7, #3c7391); display: flex; align-items: center; justify-content: center; color: #fff; font: 700 12px var(--disp); }
+.evriver.near { align-items: flex-start; padding-top: 10px; }
+.evriver.far { align-items: flex-end; padding-bottom: 10px; }
+.evchip { padding: 4px 10px; border-radius: 999px; background: #fbf3dc; border: 1px solid #a48b55; font-size: 15px; font-weight: 600; text-transform: capitalize; }
+
+/* rps */
+.evtell { text-align: center; font-size: 19px; font-style: italic; color: #4a3811; margin-top: 8px; padding: 10px; background: rgba(255, 255, 255, .45); border-radius: 10px; }
+.evscore { display: flex; justify-content: center; gap: 22px; font: 800 18px var(--disp); margin-top: 8px; color: #4a3811; }
+
+/* nim */
+.evpebbles { display: flex; flex-wrap: wrap; justify-content: center; gap: 6px; margin-top: 10px; max-width: 420px; margin-inline: auto; }
+.evpebbles i { width: 22px; height: 18px; border-radius: 50%; background: radial-gradient(circle at 35% 30%, #d9d2c3, #6f675a); box-shadow: 0 2px 2px rgba(0, 0, 0, .25); }
+
+/* table events */
+.evtable { margin-top: 12px; }
+.evprompt { font: 700 16px var(--disp); letter-spacing: .04em; color: #4a3811; text-align: center; }
+.evstep { display: flex; align-items: center; justify-content: center; gap: 10px; margin-top: 12px; }
+.evstep output { min-width: 84px; text-align: center; font: 900 40px var(--disp); color: #4a3811; }
+.evwait { margin-top: 12px; text-align: center; font-size: 15px; color: var(--sepia-soft); }
+.evwait .done { color: #1a5f57; font-weight: 700; }
+.evclock { height: 6px; margin-top: 12px; background: rgba(90, 70, 30, .25); border-radius: 3px; overflow: hidden; }
+.evclock i { display: block; height: 100%; background: linear-gradient(90deg, var(--gleam), var(--bronze)); transition: width .5s linear; }
+.evbets { margin-top: 12px; padding: 10px; border-radius: 10px; background: rgba(46, 158, 143, .12); text-align: center; font-size: 15px; }
+
+/* ── the result card (non-blocking, over the tray) ── */
+#evResult {
+  position: fixed; z-index: 19; left: 50%; bottom: 84px;
+  transform: translateX(-50%);
+  width: min(460px, 94vw);
+  padding: 3px;
+  cursor: pointer;
+  animation: evrise .3s ease-out;
+}
+#evResult.hidden { display: none; }
+@keyframes evrise { from { opacity: 0; transform: translate(-50%, 18px); } }
+#evResult .evres { display: flex; gap: 12px; align-items: flex-start; padding: 12px 16px 14px; }
+#evResult .evres .ic { flex: 0 0 52px; height: 52px; padding: 8px; border-radius: 50%; color: #fdf6e4; background: linear-gradient(180deg, #c99a2c, #7a5c16); }
+#evResult .evres.bad .ic { background: linear-gradient(180deg, #c45b3c, #7c2617); }
+#evResult .evres .ic svg { width: 100%; height: 100%; }
+#evResult h3 { font: 800 17px var(--disp); letter-spacing: .04em; color: #4a3811; }
+#evResult .who { font-size: 13.5px; font-style: italic; color: var(--sepia-soft); }
+#evResult ul { list-style: none; margin-top: 4px; font-size: 15.5px; line-height: 1.35; }
+#evResult li + li { margin-top: 2px; }
+#evResult li.first { font-style: italic; }
+
+/* ── HUD strip: my boons + the wonders on the chart ── */
+#evHud {
+  position: fixed; z-index: 10; right: var(--s3); top: 66px;
+  display: flex; flex-direction: column; align-items: flex-end; gap: 6px;
+  max-width: min(300px, 60vw);
+  pointer-events: none;
+}
+#evHud .evchipH {
+  pointer-events: auto;
+  display: flex; align-items: center; gap: 7px;
+  padding: 5px 11px 5px 7px;
+  font-size: 13.5px; color: var(--bone);
+  background: var(--ink-glass);
+  border: 1px solid rgba(201, 162, 39, .45); border-radius: 999px;
+  box-shadow: 0 3px 10px rgba(3, 8, 13, .45);
+}
+#evHud .evchipH svg { width: 22px; height: 22px; color: var(--gilt); flex: 0 0 22px; }
+#evHud .evchipH.bane svg { color: #e0704e; }
+#evHud .evchipH b { font-family: var(--disp); font-weight: 700; color: var(--gilt); }
+#evHud .evchipH.bane b { color: #f0a080; }
+#evHud .evchipH em { font-style: normal; opacity: .75; font-size: 12px; }
+body.battling #evHud { display: none; }
+
+@media (max-width: 700px) {
+  .evbody { padding: 10px 14px 14px; }
+  .evbody h2 { font-size: 20px; }
+  .evtext { font-size: 16px; }
+  .evopt { font-size: 16px; min-height: 54px; }
+  .evjars { grid-template-columns: repeat(5, 1fr); }
+  .evcount { grid-template-columns: repeat(9, 1fr); gap: 2px; }
+  #evHud { top: 60px; max-width: 46vw; }
+  #evHud .evchipH { font-size: 12px; }
+  #evResult { bottom: 76px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  #evResult { animation: none; }
+}
+.evstep .evbtn { min-width: 64px; padding: 10px 12px; }

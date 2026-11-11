@@ -12,7 +12,16 @@ import { buildJungleField, jungleMooring, dressJungleIsland, makeLilyRaft } from
 import { makeDesertField, desertWaypoint, sandApron, dressReachIsland, makeOasis as makeReachOasis } from './realms/desert.js';
 import { makeValeField, valeWaystone, dressValeIsland } from './realms/autumn.js';
 import { glbProp, preloadStructures } from './structures.js';
+import { makePharos as makePharosTower, dressPharosIsle, makeShrineTemple, makePuzzleSpire, makeCampHaven,
+  makeCheckpointBeacon as makeCheckpointLamp, makeMarketSquare, makeHomeTown, makeLighthouse as makeHarbourLight,
+  makeLairAltar as makeTrialAltar, makeRelicBeacon as makeRelicUrn, makeGatePortal as makeRealmGate, boatsAt,
+  battleStructure,
+} from './models/landmarks.js';
+import { makeRock as procRock, makeFlotsam as procFlotsam } from './models/props.js';
+import { onShore } from './models/kit.js';
+import { warningStake } from './realms/footkit.js';
 import { makeTerrain, makeNoise2D, makeGroundMaterial, groundGrainTexture, groundReliefTexture, SHORE_LAYER, GROUND_TILE } from './gfx/terrain.js';
+import { ISLE_FOOT, FOOT_K, isleShape } from './isleshape.js';
 
 /* ground grain/relief textures now live with the terrain engine (gfx/terrain.js);
    re-exported under their old names for the sand floors in water.js */
@@ -39,10 +48,13 @@ export { makeTerrain };
 // a jetty seated on the real coastline at `angle`, sized to the island so it
 // rests on the beach and reaches over the water — never clipping or floating
 function placeDock(terrain, angle, len = 5.0) {
-  const p = terrain.place(angle, 0.9);
-  const dock = makeDock(len);
+  // `angle` is a world BEARING (the lane's); the coast there is found on the
+  // fitted terrain, the jetty footed on the beach just above the waterline
+  const c = terrain.coastAt ? terrain.coastAt(angle) : null;
+  const p = terrain.place(c ? c.pa : angle, 0.86);
+  const dock = makeDock(Math.max(len, (c ? Math.hypot(c.x, c.z) - Math.hypot(p.x, p.z) : 0) + 3.5));
   dock.position.set(p.x, Math.max(0.12, p.y), p.z);
-  dock.rotation.y = -angle - Math.PI / 2;    // planks run seaward along the radius
+  dock.rotation.y = -Math.atan2(p.z, p.x) - Math.PI / 2;   // planks run seaward
   return dock;
 }
 
@@ -52,119 +64,10 @@ function placeDock(terrain, angle, len = 5.0) {
 function shallowDisc() { return new THREE.Group(); }
 function foamRing() { return new THREE.Group(); }
 
-/* ── flora: five realm sets ─────────────────────────────────────────────── */
-function makeCypress(rng, scale = 1) {
-  const g = new THREE.Group();
-  const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.08, 0.4 * scale, 5), flat(COL.trunk));
-  trunk.position.y = 0.2 * scale;
-  g.add(trunk);
-  let y = 0.35 * scale;
-  for (const [r, h] of [[0.42, 1.1], [0.3, 0.85], [0.16, 0.6]]) {
-    const cone = new THREE.Mesh(new THREE.ConeGeometry(r * scale, h * scale, 6), flat(COL.cypress));
-    cone.position.y = y + (h * scale) / 2;
-    cone.castShadow = true;
-    g.add(cone);
-    y += h * scale * 0.55;
-  }
-  g.rotation.y = rng() * 6.28;
-  return g;
-}
-
-function makeOlive(rng, s = 1) {
-  const g = new THREE.Group();
-  const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.08 * s, 0.14 * s, 0.9 * s, 5), flat(0x7a6248));
-  trunk.position.y = 0.45 * s;
-  trunk.rotation.z = (rng() - 0.5) * 0.35;
-  g.add(trunk);
-  for (let i = 0; i < 3; i++) {
-    const puff = new THREE.Mesh(
-      displace(new THREE.IcosahedronGeometry((0.32 + rng() * 0.16) * s, 0), 0.06 * s, seedFrom(rng)),
-      flat(0x8fa05a));
-    puff.position.set((rng() - 0.5) * 0.55 * s, (0.95 + rng() * 0.35) * s, (rng() - 0.5) * 0.55 * s);
-    puff.castShadow = true;
-    g.add(puff);
-  }
-  return g;
-}
-
-/* snowy conifer — tiers of deep blue-green with white snow shoulders */
-function makePine(rng, s = 1) {
-  const g = new THREE.Group();
-  const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.06 * s, 0.11 * s, 0.7 * s, 5), flat(0x4a3a2c));
-  trunk.position.y = 0.35 * s;
-  g.add(trunk);
-  const tiers = 3 + (rng() < 0.4 ? 1 : 0);
-  for (let i = 0; i < tiers; i++) {
-    const r = (0.58 - i * 0.12) * s, h = 0.62 * s;
-    const cone = new THREE.Mesh(new THREE.ConeGeometry(r, h, 7), flat(0x2e5a48));
-    cone.position.y = (0.72 + i * 0.4) * s;
-    cone.castShadow = true;
-    g.add(cone);
-    const snow = new THREE.Mesh(new THREE.ConeGeometry(r * 0.82, h * 0.42, 7), flat(0xeef4f8));
-    snow.position.y = (0.72 + i * 0.4) * s + h * 0.32;
-    g.add(snow);
-  }
-  g.rotation.y = rng() * 6.28;
-  return g;
-}
-
-function makeDeadScrub(rng, s = 1) {
-  const g = new THREE.Group();
-  const wood = 0x9a8262;
-  const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.05 * s, 0.1 * s, 0.9 * s, 5), flat(wood));
-  trunk.position.y = 0.45 * s;
-  trunk.rotation.z = (rng() - 0.5) * 0.3;
-  g.add(trunk);
-  for (let i = 0; i < 4; i++) {
-    const br = new THREE.Mesh(new THREE.CylinderGeometry(0.02 * s, 0.04 * s, 0.6 * s, 4), flat(wood));
-    br.position.set((rng() - 0.5) * 0.3 * s, (0.6 + rng() * 0.4) * s, (rng() - 0.5) * 0.3 * s);
-    br.rotation.set((rng() - 0.5) * 1.4, rng() * 6.28, 0.5 + rng() * 0.9);
-    g.add(br);
-  }
-  return g;
-}
-
-/* tall emergent canopy tree with hanging vines */
-function makeJungleTree(rng, s = 1) {
-  const g = new THREE.Group();
-  const h = (1.8 + rng() * 0.9) * s;
-  const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.09 * s, 0.16 * s, h, 6), flat(0x6a4a30));
-  trunk.position.y = h / 2;
-  trunk.rotation.z = (rng() - 0.5) * 0.14;
-  trunk.castShadow = true;
-  g.add(trunk);
-  const greens = [0x1d6e30, 0x2a8a3e, 0x17552a];
-  const nP = 3 + Math.floor(rng() * 2);
-  for (let i = 0; i < nP; i++) {
-    const puff = new THREE.Mesh(
-      displace(new THREE.IcosahedronGeometry((0.42 + rng() * 0.24) * s, 0), 0.1 * s, seedFrom(rng)),
-      flat(greens[i % 3]));
-    puff.position.set((rng() - 0.5) * 0.8 * s, h + (rng() - 0.2) * 0.4 * s, (rng() - 0.5) * 0.8 * s);
-    puff.castShadow = true;
-    g.add(puff);
-  }
-  const nV = 2 + Math.floor(rng() * 2);
-  for (let i = 0; i < nV; i++) {
-    const len = (0.6 + rng() * 0.7) * s;
-    const vine = new THREE.Mesh(new THREE.CylinderGeometry(0.015 * s, 0.02 * s, len, 3), flat(0x3f7a35));
-    const a = rng() * 6.28;
-    vine.position.set(Math.cos(a) * 0.5 * s, h - len / 2 + 0.1 * s, Math.sin(a) * 0.5 * s);
-    vine.rotation.x = (rng() - 0.5) * 0.2;
-    g.add(vine);
-    const tip = new THREE.Mesh(new THREE.IcosahedronGeometry(0.06 * s, 0), flat(0x4f9a40));
-    tip.position.set(Math.cos(a) * 0.5 * s, h - len + 0.1 * s, Math.sin(a) * 0.5 * s);
-    g.add(tip);
-  }
-  return g;
-}
-
-function makeRock(rng, r, color = COL.rock) {
-  const geo = displace(new THREE.DodecahedronGeometry(r, 0), r * 0.55, rng() * 100);
-  geo.scale(1, 0.65 + rng() * 0.3, 1);
-  const rock = new THREE.Mesh(geo, flat(color));
-  rock.castShadow = true;
-  rock.rotation.y = rng() * 6.28;
-  return rock;
+/* ── rocks: one procedural generator for every boulder (models/props.js:
+   strata, sun-bleached tops, moss/snow cover, smooth normals) ─────────── */
+function makeRock(rng, r, color = COL.rock, opts = {}) {
+  return procRock(rng, r, color, opts);
 }
 
 /* dispatch a tree/plant for the theme's flora set — Meshy flora now, at
@@ -182,70 +85,31 @@ function floraFor(theme, rng, s = 1, castShadow = true) {
   return propGroup('olive_tree', s, castShadow);
 }
 
-/* ── buildings & props ──────────────────────────────────────────────────── */
-function makeColumn(h = 1.6, r = 0.13) {
-  const g = new THREE.Group();
-  const base = new THREE.Mesh(new THREE.BoxGeometry(r * 2.6, r * 0.7, r * 2.6), flat(COL.marbleShade));
-  base.position.y = r * 0.35;
-  const shaft = new THREE.Mesh(new THREE.CylinderGeometry(r, r * 1.14, h, 8), flat(COL.marble));
-  shaft.position.y = r * 0.7 + h / 2;
-  shaft.castShadow = true;
-  const cap = new THREE.Mesh(new THREE.BoxGeometry(r * 3, r * 0.8, r * 3), flat(COL.marbleShade));
-  cap.position.y = r * 0.7 + h + r * 0.4;
-  g.add(base, shaft, cap);
+/* ── buildings & props ─────────────────────────────────────────────────────
+   The landmarks are procedural now (static/models/landmarks.js); these thin
+   wrappers keep the old call sites. */
+function makeShrine(domainHex, themeId = 'hub', spent = false, seed = 1) {
+  return makeShrineTemple(domainHex, themeId, spent, seed);
+}
+
+function makeObelisk(solved = false, seed = 1) {
+  return makePuzzleSpire({ solved: !!solved, seed });
+}
+
+/* a camp: harbour awnings + nets (sea), caravan / woodland tents (on foot) */
+function makeTents(rng, kind = 'sea') {
+  const g = makeCampHaven({ kind, seed: Math.floor(rng() * 1e9) });
+  g.rotation.y = rng() * 6.28;
   return g;
 }
 
-function makeShrine(domainHex, themeId = 'hub', spent = false) {
-  const g = new THREE.Group();
-  const temple = { ice: 'temple_ice', desert: 'temple_desert',
-                   jungle: 'temple_jungle', autumn: 'temple_autumn' }[themeId]
-                 || 'temple';
-  g.add(glbProp(temple, {
-    h: 4.6,
-    onReady: spent ? (inst) => inst.traverse((o) => {
-      if (o.isMesh && o.material?.color) {
-        o.material = o.material.clone();
-        o.material.color.multiplyScalar(0.55);
-      }
-    }) : null,
-  }));
-  // the oracle's domain still reads at a glance: a tinted flame over the roof
-  const glow = glowSprite(domainHex, 3.4);
-  glow.material.opacity = spent ? 0.12 : 0.75;
-  glow.position.y = 5.3;
-  g.add(glow);
-  const light = new THREE.PointLight(new THREE.Color(domainHex), spent ? 0.8 : 4, 11, 2);
-  light.position.y = 4.4;
-  g.add(light);
-  return g;
-}
-
-function makeObelisk() {
-  const g = new THREE.Group();
-  g.add(glbProp('obelisk', { h: 5.4 }));   // 150% up
-  const glow = new THREE.PointLight(0x9fb4ff, 5, 9);
-  glow.position.y = 2.4;
-  g.add(glow);
-  return g;
-}
-
-function makeTents(rng) {
-  const g = new THREE.Group();
-  g.add(glbProp('tents', { h: 2.3, ry: rng() * 6.28 }));
-  const fire = new THREE.PointLight(0xff9a3d, 5, 8);
-  fire.position.y = 1.2;
-  g.add(fire);
-  return g;
-}
-
+/* the white harbour light at Home Port (callers scale ×2.3 as for the old
+   4.6-unit model) */
 function makeLighthouse() {
   const g = new THREE.Group();
-  g.add(glbProp('lighthouse', { h: 4.6 }));
-  // a warm glimmer, not a floodlight — was washing out Home Port
-  const light = new THREE.PointLight(0xffd9a0, 1.6, 9, 2);
-  light.position.y = 3.7;
-  g.add(light);
+  const lh = makeHarbourLight();
+  lh.scale.setScalar(0.68);
+  g.add(lh);
   return g;
 }
 
@@ -258,9 +122,7 @@ function makeDock(len = 5.2) {
 }
 
 function makeMarket(rng, ry = 0) {
-  const g = new THREE.Group();
-  g.add(glbProp('market', { h: 5.0, ry }));   // marble taberna, porch faces `ry`
-  return g;
+  return makeMarketSquare(ry, { seed: Math.floor(rng() * 1e9) });
 }
 
 function glowSprite(cssOrHex, scale = 6, name = '') {
@@ -272,101 +134,14 @@ function glowSprite(cssOrHex, scale = 6, name = '') {
   return sp;
 }
 
+/* the Pharos: tower, lantern fire ('pharosfire'), sweeping beams and the
+   sealed door ('pharosgate') — models/landmarks.js */
 function makePharos() {
-  const g = new THREE.Group();
-  // the tower itself is the Meshy landmark; the FIRE, the beam, the halo and
-  // the sealed sigil gate are the game's own — scene.js drives them by name
-  g.add(glbProp('pharos', { h: 31.2 }));   // 20% taller
-  const fire = new THREE.Mesh(new THREE.SphereGeometry(1.1, 10, 8),
-    new THREE.MeshBasicMaterial({ color: 0xffdf90 }));
-  fire.position.y = 22.4;
-  fire.name = 'pharosfire';
-  // a lit beacon, not a sun — the old 42-intensity/range-300 lamp bleached
-  // the whole hub white
-  const light = new THREE.PointLight(0xffe2a0, 6, 90, 2);
-  light.position.y = 22.4;
-  const beam = new THREE.Mesh(new THREE.CylinderGeometry(0.9, 2.8, 70, 10, 1, true),
-    new THREE.MeshBasicMaterial({ color: 0xffe9b0, transparent: true, opacity: 0.09,
-      side: THREE.DoubleSide, depthWrite: false, blending: THREE.AdditiveBlending }));
-  beam.position.y = 56;
-  const halo = glowSprite(0xffeecb, 15);
-  halo.material.opacity = 0.4;
-  halo.position.y = 22.4;
-  g.add(fire, light, beam, halo);
-  // (the old propylaea doorway is gone — the Meshy tower carries its own
-  // carved door; makePharosGate stays available if a sealed-door set piece
-  // is ever wanted again)
-  return g;
-}
-
-/* The sealed door at the Pharos' foot: a marble portal, twin bronze leaves,
-   and three sigil sockets across the lintel. The sockets sit BLANK (dark) and
-   the leaves stay shut until a captain banks all three seals — the scene lights
-   a socket per banked seal and swings the leaves once all three answer. Parts
-   are named so scene.js can drive that state per frame. */
-function makePharosGate() {
-  const gate = new THREE.Group();
-  gate.name = 'pharosgate';
-  gate.position.set(0, 0, 7.4);                 // front face, toward the berth
-  const stone = flat(COL.marbleShade);
-  const jamb = (x) => {
-    const m = new THREE.Mesh(new THREE.BoxGeometry(0.6, 5.4, 0.9), stone);
-    m.position.set(x, 2.7, 0);
-    m.castShadow = true;
-    return m;
-  };
-  const lintel = new THREE.Mesh(new THREE.BoxGeometry(4.6, 0.9, 1.0), stone);
-  lintel.position.set(0, 5.7, 0);
-  lintel.castShadow = true;
-  const sill = new THREE.Mesh(new THREE.BoxGeometry(4.6, 0.4, 1.2), stone);
-  sill.position.set(0, 0.2, 0.1);
-  gate.add(jamb(-2.0), jamb(2.0), lintel, sill);
-
-  // twin bronze leaves on hinge pivots at the jambs
-  const bronze = new THREE.MeshStandardMaterial({
-    color: 0x5b4a2a, flatShading: true, metalness: 0.5, roughness: 0.55,
-    emissive: 0x120c04, emissiveIntensity: 1 });
-  for (const side of [-1, 1]) {
-    const pivot = new THREE.Group();
-    pivot.name = side < 0 ? 'doorPivotL' : 'doorPivotR';
-    pivot.position.set(side * 1.7, 2.9, 0.35);
-    const leaf = new THREE.Mesh(new THREE.BoxGeometry(1.62, 4.9, 0.28), bronze);
-    leaf.position.set(-side * 0.85, 0, 0);      // extends inward, leaves meet at centre
-    leaf.castShadow = true;
-    // a raised stud line down each leaf
-    const stud = new THREE.Mesh(new THREE.BoxGeometry(0.16, 4.2, 0.12),
-      flat(0x8a7038, { emissive: 0x2a1e08 }));
-    stud.position.set(-side * 0.85, 0, 0.2);
-    pivot.add(leaf, stud);
-    gate.add(pivot);
-  }
-
-  // three sigil sockets across the lintel — dark carved discs that light up
-  const socketMat = flat(0x2a2620);
-  for (let i = 0; i < 3; i++) {
-    const x = (i - 1) * 1.5;
-    const socket = new THREE.Mesh(new THREE.CylinderGeometry(0.52, 0.52, 0.22, 12), socketMat);
-    socket.rotation.x = Math.PI / 2;            // face the disc toward the berth
-    socket.position.set(x, 5.7, 0.55);
-    const sigil = new THREE.Mesh(new THREE.CylinderGeometry(0.4, 0.4, 0.14, 12),
-      new THREE.MeshStandardMaterial({ color: 0x3a352c, flatShading: true,
-        emissive: 0xffd66a, emissiveIntensity: 0 }));   // blank until banked
-    sigil.rotation.x = Math.PI / 2;
-    sigil.position.set(x, 5.7, 0.64);
-    sigil.name = 'sigil' + i;
-    gate.add(socket, sigil);
-  }
-  return gate;
+  return makePharosTower();
 }
 
 function makeRelicBeacon() {
-  // no pillar of light — just a small gold urn marking the relic spot
-  const g = new THREE.Group();
-  const urn = new THREE.Mesh(new THREE.SphereGeometry(0.35, 8, 6), flat(COL.gold, { emissive: 0x9a6a10 }));
-  urn.position.y = 1.4;
-  g.add(urn);
-  g.name = 'beacon';
-  return g;
+  return makeRelicUrn();
 }
 
 /* the BARROW beacon: the Amber Vale is a fog-of-war maze, so its goal wears
@@ -401,29 +176,10 @@ function makeBarrowBeacon() {
 }
 
 /* the CHECKPOINT light: every haven wears a permanent azure beam — you can
-   read where you'll respawn from anywhere on the water */
+   read where you'll respawn from anywhere on the water (models/landmarks.js;
+   children[3] is the halo scene.js breathes) */
 function makeCheckpointBeacon() {
-  const g = new THREE.Group();
-  const AZURE = 0x3fa8ff;
-  const post = new THREE.Mesh(new THREE.CylinderGeometry(0.14, 0.2, 2.6, 7),
-    flat(COL.marbleShade));
-  post.position.y = 1.3;
-  post.castShadow = true;
-  const lamp = new THREE.Mesh(new THREE.SphereGeometry(0.42, 10, 8),
-    new THREE.MeshBasicMaterial({ color: 0xbfe4ff }));
-  lamp.position.y = 2.9;
-  const beam = new THREE.Mesh(new THREE.CylinderGeometry(0.45, 0.85, 26, 10, 1, true),
-    new THREE.MeshBasicMaterial({ color: AZURE, transparent: true, opacity: 0.3,
-      side: THREE.DoubleSide, depthWrite: false, blending: THREE.AdditiveBlending }));
-  beam.position.y = 15.5;
-  const halo = glowSprite(AZURE, 7);
-  halo.material.opacity = 0.5;
-  halo.position.y = 2.9;
-  const light = new THREE.PointLight(AZURE, 3.2, 34, 2);
-  light.position.y = 3.2;
-  g.add(post, lamp, beam, halo, light);
-  g.name = 'checkpoint';
-  return g;
+  return makeCheckpointLamp();
 }
 
 /* The sea-lane marker: a turned spar buoy in Aegean red and white with a
@@ -504,27 +260,10 @@ function makeBuoy(rng) {
 }
 
 
-/* drifting flotsam: a raft of crates & a barrel with a gold glint — sail onto
-   it to haul it aboard for a scroll. Named 'bob' so it rides the swell. */
+/* drifting flotsam: a lashed raft of crates and a barrel with a gold glint —
+   sail onto it to haul it aboard for a scroll. Named 'bob' (models/props.js) */
 function makeFlotsam(rng) {
-  const g = new THREE.Group();
-  for (let i = 0; i < 3; i++) {
-    const crate = new THREE.Mesh(new THREE.BoxGeometry(0.55, 0.4, 0.55), flat(COL.woodDark));
-    const a = rng() * 6.28;
-    crate.position.set(Math.cos(a) * (0.4 + rng() * 0.5), 0.16, Math.sin(a) * (0.4 + rng() * 0.5));
-    crate.rotation.y = rng() * 1.5;
-    g.add(crate);
-  }
-  const barrel = new THREE.Mesh(new THREE.CylinderGeometry(0.24, 0.24, 0.5, 8), flat(COL.wood));
-  barrel.rotation.z = Math.PI / 2;
-  barrel.position.y = 0.2;
-  g.add(barrel);
-  const glint = new THREE.Mesh(new THREE.SphereGeometry(0.12, 6, 5),
-    flat(COL.gold, { emissive: 0x9a6a10 }));
-  glint.position.y = 0.5;
-  g.add(glint);
-  g.name = 'bob';
-  return g;
+  return procFlotsam(rng);
 }
 
 
@@ -648,251 +387,27 @@ function makeMonsterTotem(rng, m) {
   bones.position.set(0.5 * s, 0, 0.75 * s);
   bones.rotation.y = rng() * 6.28;
   g.add(stone, bones);
-  const ember = new THREE.PointLight(0xff5030, 3 + hp, 7 + hp);
-  ember.position.y = 2.2 * s;
-  const haze = glowSprite(0xff4a26, 3.4 * s);
-  haze.material.opacity = 0.4;
+  // (no point light per monster isle — the ember haze blooms on its own)
+  const haze = glowSprite(new THREE.Color(0xff4a26).multiplyScalar(1.6), 3.4 * s);
+  haze.material.opacity = 0.5;
   haze.position.y = 1.6 * s;
-  g.add(ember, haze);
+  g.add(haze);
   g.name = 'monster';
   return g;
 }
 
-/* the boss trial altar on lair isles */
+/* the boss trial altar on lair isles (models/landmarks.js) */
 function makeLairAltar(accentHex, rng) {
-  const g = new THREE.Group();
-  const accent = new THREE.Color(accentHex);
-  const slab = new THREE.Mesh(
-    displace(new THREE.CylinderGeometry(1.7, 2.1, 0.6, 8), 0.16, seedFrom(rng)),
-    flat(COL.basalt));
-  slab.position.y = 0.3;
-  slab.castShadow = true;
-  const step = new THREE.Mesh(new THREE.CylinderGeometry(2.4, 2.7, 0.3, 9), flat(0x3a3a42));
-  step.position.y = 0.05;
-  g.add(slab, step);
-  for (let i = 0; i < 4; i++) {
-    const a = (i / 4) * Math.PI * 2 + 0.4;
-    const horn = new THREE.Mesh(
-      displace(new THREE.ConeGeometry(0.22, 2.2 + (i % 2) * 0.6, 5), 0.14, seedFrom(rng)),
-      flat(0x2c2830));
-    horn.position.set(Math.cos(a) * 1.9, 1.2, Math.sin(a) * 1.9);
-    horn.rotation.set(Math.sin(a) * -0.35, 0, Math.cos(a) * 0.35);
-    horn.castShadow = true;
-    g.add(horn);
-  }
-  for (const side of [-1, 1]) {
-    const bowl = new THREE.Mesh(new THREE.CylinderGeometry(0.26, 0.16, 0.3, 6),
-      flat(0x4a4a52, { emissive: accent, emissiveIntensity: 0.4 }));
-    bowl.position.set(side * 1.3, 0.75, 0);
-    const fl = glowSprite(accent, 1.8, 'brazier');
-    fl.position.set(side * 1.3, 1.15, 0);
-    g.add(bowl, fl);
-  }
-  const glow = new THREE.PointLight(accent, 9, 22, 1.7);
-  glow.position.y = 2.4;
-  g.add(glow);
-  return g;
+  return makeTrialAltar(accentHex, Math.floor(rng() * 1e9));
 }
 
-/* a tall fluted temple column with a proper base and echinus/abacus capital */
-function _grandColumn(h, r) {
-  const g = new THREE.Group();
-  const base = new THREE.Mesh(new THREE.CylinderGeometry(r * 1.5, r * 1.75, r * 1.3, 10),
-    flat(COL.marbleShade));
-  base.position.y = r * 0.65;
-  const shaft = new THREE.Mesh(new THREE.CylinderGeometry(r * 0.86, r, h, 14),
-    flat(COL.marble));
-  shaft.position.y = r * 1.3 + h / 2;
-  shaft.castShadow = true;
-  const echinus = new THREE.Mesh(new THREE.CylinderGeometry(r * 1.35, r * 0.86, r * 0.8, 14),
-    flat(COL.marble));
-  echinus.position.y = r * 1.3 + h + r * 0.4;
-  const abacus = new THREE.Mesh(new THREE.BoxGeometry(r * 3, r * 0.7, r * 3), flat(COL.marbleShade));
-  abacus.position.y = r * 1.3 + h + r * 0.9;
-  g.add(base, shaft, echinus, abacus);
-  return g;
-}
-
-/* THE MOUNTAIN PASS — a monumental carved gateway into a trial realm.
- * Two great strata towers on a stone dais, framed by temple colonnades and
- * flanked by guardian obelisks; a corbelled arch with keystone, a glowing
- * carved frieze, a pediment crown, brazier plinths and hanging banners in the
- * realm's colour. Local frame: the channel runs along ±Z, the structure
- * flanks along ±X (the caller rotates it so the channel opens radially). */
-function makeGatePortal(accentHex, seed, rockHex = 0x8a8f98) {
-  const g = new THREE.Group();
-  const accent = new THREE.Color(accentHex);
-  const rock = new THREE.Color(rockHex);
-  const rockLt = rock.clone().multiplyScalar(1.16);
-  const rockDk = rock.clone().multiplyScalar(0.6);
-  const rng = mulberry32(seed);
-  const CH = 9;                       // half-width of the sailing channel
-
-  // ── two stepped stone quays, one under each tower — the sailing channel
-  //    between them (|x| < CH) stays OPEN WATER so a ship passes straight
-  //    through the arch instead of fetching up against a solid dais ──
-  for (const qs of [-1, 1]) {
-    for (let i = 0; i < 3; i++) {
-      const step = new THREE.Mesh(
-        new THREE.BoxGeometry(15 - i * 2.4, 1.15, 27 - i * 3.2),
-        flat(i % 2 ? rockDk : rock));
-      step.position.set(qs * (CH + 5.5), -0.3 + i * 0.85, 0);
-      step.receiveShadow = true;
-      g.add(step);
-    }
-  }
-  // a low threshold sill bridging the quays at the back of the arch, kept
-  // below the waterline so it reads as a submerged causeway, not a wall
-  const sill = new THREE.Mesh(new THREE.BoxGeometry(2 * CH + 2, 0.7, 3.2), flat(rockDk));
-  sill.position.set(0, -0.55, -6.5);
-  g.add(sill);
-
-  for (const side of [-1, 1]) {
-    const tx = side * (CH + 4);
-
-    // ── great flanking tower: three tapering strata blocks + jagged crown ──
-    const tiers = [[8.4, 7.2, 10, 5], [7, 6, 9, 14.5], [5.6, 5, 8, 23]];
-    tiers.forEach(([w, d, h, y], k) => {
-      const c = k === 0 ? rockDk : k === 1 ? rock : rockLt;
-      const blk = new THREE.Mesh(
-        displace(new THREE.BoxGeometry(w, h, d, 2, 2, 2), 0.32, seed + side * 7 + y),
-        flat(c, { flatShading: true }));
-      blk.position.set(tx, y, 0);
-      blk.castShadow = true;
-      g.add(blk);
-      const band = new THREE.Mesh(new THREE.BoxGeometry(w + 0.7, 0.5, d + 0.7), flat(rockDk));
-      band.position.set(tx, y + h / 2, 0);
-      g.add(band);
-    });
-    const crown = new THREE.Mesh(
-      displace(new THREE.ConeGeometry(3.6, 9, 6, 2), 1.9, seed + side * 13),
-      flat(rockLt, { flatShading: true }));
-    crown.position.set(tx, 31, 0);
-    crown.castShadow = true;
-    g.add(crown);
-    // a buttress wedge bracing the tower toward the channel
-    const butt = new THREE.Mesh(new THREE.BoxGeometry(3.4, 12, 4.4), flat(rockDk));
-    butt.position.set(tx - side * 3.4, 6, 0);
-    butt.rotation.z = side * 0.42;
-    g.add(butt);
-    // glowing carved arrow-slit on the inner face
-    const slit = new THREE.Mesh(new THREE.BoxGeometry(0.7, 4.5, 0.5),
-      flat(0x161219, { emissive: accent, emissiveIntensity: 1.25 }));
-    slit.position.set(tx - side * 3.7, 15, 0);
-    g.add(slit);
-
-    // ── temple colonnade framing the channel mouth (a column fore & aft) ──
-    for (const zz of [-5, 5]) {
-      const col = _grandColumn(11, 0.9);
-      col.position.set(side * (CH - 1.2), 0.9, zz);
-      g.add(col);
-    }
-    const entablature = new THREE.Mesh(new THREE.BoxGeometry(3.2, 1.5, 13.5),
-      flat(COL.marbleShade));
-    entablature.position.set(side * (CH - 1.2), 13.3, 0);
-    entablature.castShadow = true;
-    g.add(entablature);
-
-    // ── tall brazier plinth at the fore mouth ──
-    const plinth = new THREE.Mesh(new THREE.CylinderGeometry(1.1, 1.5, 6.5, 8), flat(rockDk));
-    plinth.position.set(side * (CH + 0.8), 3.2, 7);
-    g.add(plinth);
-    const bowl = new THREE.Mesh(new THREE.CylinderGeometry(1.6, 0.9, 1.3, 8),
-      flat(0x39343f, { emissive: accent, emissiveIntensity: 0.75 }));
-    bowl.position.set(side * (CH + 0.8), 6.7, 7);
-    g.add(bowl);
-    const fl = glowSprite(accent, 3.6, 'brazier');
-    fl.position.set(side * (CH + 0.8), 8.1, 7);
-    g.add(fl);
-    const glow = new THREE.PointLight(accent, 7, 28, 2);
-    glow.position.set(side * (CH + 0.8), 8.1, 7);
-    g.add(glow);
-
-    // ── guardian obelisk standing watch out front ──
-    const ob = new THREE.Mesh(
-      displace(new THREE.CylinderGeometry(0.55, 1.4, 10, 5), 0.28, seed + side * 17),
-      flat(rockLt, { flatShading: true }));
-    ob.position.set(side * (CH + 2.5), 5, 12);
-    ob.castShadow = true;
-    g.add(ob);
-    const obcap = new THREE.Mesh(new THREE.ConeGeometry(1.0, 1.8, 4),
-      flat(0x161219, { emissive: accent, emissiveIntensity: 0.9 }));
-    obcap.position.set(side * (CH + 2.5), 10.7, 12);
-    g.add(obcap);
-  }
-
-  // ── monumental archway spanning the channel ──
-  for (const side of [-1, 1]) {                    // corbel brackets stepping in
-    for (let k = 0; k < 3; k++) {
-      const cb = new THREE.Mesh(new THREE.BoxGeometry(4.4, 1.2, 3.2), flat(k % 2 ? rock : rockDk));
-      cb.position.set(side * (CH + 1.6 - k * 1.2), 16.5 + k * 1.2, 0);
-      cb.castShadow = true;
-      g.add(cb);
-    }
-  }
-  const lintel = new THREE.Mesh(
-    displace(new THREE.BoxGeometry(2 * CH + 7, 3.2, 4.2, 8, 1, 1), 0.4, seed + 31),
-    flat(rockLt, { flatShading: true }));
-  lintel.position.y = 21.5;
-  lintel.castShadow = true;
-  g.add(lintel);
-  const keystone = new THREE.Mesh(new THREE.BoxGeometry(2.8, 3.9, 4.6), flat(rock));
-  keystone.position.set(0, 21.5, 0);
-  g.add(keystone);
-  // carved frieze band with a row of glowing glyphs (dark stone, not a hole)
-  const frieze = new THREE.Mesh(new THREE.BoxGeometry(2 * CH + 2.5, 1.5, 4.3),
-    flat(rockDk.clone().multiplyScalar(0.85)));
-  frieze.position.y = 19.2;
-  g.add(frieze);
-  for (let i = -4; i <= 4; i++) {
-    const gl = new THREE.Mesh(new THREE.BoxGeometry(0.9, 0.95, 0.4),
-      new THREE.MeshBasicMaterial({ color: accent }));
-    gl.position.set(i * 2.05, 19.2, 2.2);
-    g.add(gl);
-  }
-  // a low pediment crowning the arch — a proper triangular gable that faces
-  // straight down the channel (built as an extruded triangle, so it never
-  // twists off-axis the way a flattened-then-rotated pyramid did)
-  const pw = CH + 3.5, ph = 5.5;
-  const pedShape = new THREE.Shape();
-  pedShape.moveTo(-pw, 0);
-  pedShape.lineTo(pw, 0);
-  pedShape.lineTo(0, ph);
-  pedShape.closePath();
-  const pedGeo = new THREE.ExtrudeGeometry(pedShape, { depth: 3.8, bevelEnabled: false });
-  pedGeo.translate(0, 0, -1.9);                 // centre the depth on the channel axis
-  const ped = new THREE.Mesh(pedGeo, flat(rock, { flatShading: true }));
-  ped.position.set(0, 22.9, 0);
-  ped.castShadow = true;
-  g.add(ped);
-
-  // ── long banners in the realm's colour hanging beside the opening ──
-  for (const side of [-1, 1]) {
-    const ban = new THREE.Mesh(new THREE.PlaneGeometry(2.4, 9.5),
-      new THREE.MeshStandardMaterial({ color: accent, side: THREE.DoubleSide,
-        roughness: 0.85, emissive: accent, emissiveIntensity: 0.18 }));
-    ban.position.set(side * 6.2, 13.6, 2.3);
-    g.add(ban);
-    const trim = new THREE.Mesh(new THREE.BoxGeometry(2.5, 0.5, 0.2), flat(COL.gold));
-    trim.position.set(side * 6.2, 18.1, 2.3);
-    g.add(trim);
-  }
-
-  // a soft accent glow breathing in the opening (subtle, not a flat plane)
-  const haze = glowSprite(accent, 13);
-  haze.material.opacity = 0.16;
-  haze.position.set(0, 9.5, 0);
-  g.add(haze);
-
-  // marker ring on the water (keeps the pulse-animation hook)
-  const ring = new THREE.Mesh(new THREE.RingGeometry(5, 7, 32),
-    new THREE.MeshBasicMaterial({ color: accent, transparent: true, opacity: 0.3,
-      side: THREE.DoubleSide, depthWrite: false }));
-  ring.rotation.x = -Math.PI / 2;
-  ring.position.y = 1.35;
-  ring.name = 'foam';
-  g.add(ring);
-  return g;
+/* THE MOUNTAIN PASS — a monumental carved gateway into a trial realm
+   (models/landmarks.js): pylon towers on stepped quays, a voussoir arch over
+   the open sailing channel, the realm's emblem glowing over the keystone,
+   colossal columns, accent banners and fire bowls. Local frame: the channel
+   runs along ±Z, the structure flanks along ±X. */
+function makeGatePortal(accentHex, seed, rockHex = 0x8a8f98, realm = '') {
+  return makeRealmGate(accentHex, seed, rockHex, realm);
 }
 
 /* scattered coast dressing so islands feel dense and hand-made */
@@ -948,22 +463,50 @@ function dressIsland(g, rng, theme, R, terrain, node = null) {
 }
 
 /* ── island assembly ────────────────────────────────────────────────────── */
-const ISLE_R = { home: 13.0, shrine: 10.0, puzzle: 10.0, haven: 11.0,
-                 shop: 10.0, monster: 11.0, lair: 14.0, pharos: 17.0,
-                 gate: 2.0, sea: 1.5 };
+// Largest coast radius per node type — importance reads as size (the Pharos
+// and Home Port lead). The terrain is FITTED so its coast never passes R, and
+// board.py plans every lane round the same table (isleshape.js ISLE_FOOT).
+const ISLE_R = ISLE_FOOT;
+
+/* a rocky sea stack standing off the main isle, inside its footprint */
+function seaStack(st, R, seed, pal) {
+  const rs = R * st.r;
+  const t = makeTerrain({ seed: seed + 77, R: rs, H: st.H, mode: 'peak', fit: true,
+    shelf: true, cover: 'rocks',
+    palette: { ...pal, grass: pal.rock ?? 0x8f8a80, grass2: pal.rock ?? 0x8f8a80 } });
+  const d = R - rs * 1.05;
+  t.mesh.position.set(Math.cos(st.a) * d, 0, Math.sin(st.a) * d);
+  return t.mesh;
+}
 
 export function buildIsland(node, theme, domains) {
   const g = new THREE.Group();
   const seed = hashStr(node.id);
   const rng0 = mulberry32(seed + 7);
-  const R = (ISLE_R[node.type] ?? 4.8) * (node.type === 'sea' ? 1 : 0.88 + rng0() * 0.35);
   const foot = node.mode === 'foot';
+  // size: the type's footprint × a little per-isle variety, never more than
+  // the free water round the node (node.room, measured by scene.js)
+  const solid = node.type !== 'sea' && node.type !== 'gate';
+  const maxR = (ISLE_R[node.type] ?? 4.8) * (solid && foot ? FOOT_K : 1);
+  let R = maxR * (solid ? 0.84 + rng0() * 0.16 : 1);
+  if (solid && node.room != null) R = Math.max(maxR * 0.45, Math.min(R, node.room));
+  // silhouette: harbour cove toward the lane, lobes, stack, terraces, cliffs
+  const shape = solid ? isleShape(node, node.dockA ?? null, foot) : null;
   const pal = theme.palette;
   // In the Amber Vale the POIs sit DIRECTLY ON THE GROUND — no raised island.
   // Flatten every terrain to a flush pad so shrines, camps and the barrow stand
   // on the forest floor with the trees, not perched on their own little mounds.
   const flatFoot = foot && theme.id === 'autumn';
-  const mt = (opts) => makeTerrain(flatFoot ? { ...opts, H: 0.05, mode: 'flat' } : opts);
+  const mt = (opts) => {
+    if (flatFoot) return makeTerrain({ ...opts, H: 0.05, mode: 'flat' });
+    const o = { fit: true, ...opts };
+    if (shape && opts.R === R) {
+      Object.assign(o, shape.terrain);
+      if (shape.mode && opts.mode === 'mesa') o.mode = shape.mode;
+      if (shape.mainK !== 1) o.R = R * shape.mainK;     // room for the stack
+    }
+    return makeTerrain(o);
+  };
   let terrain;
 
   /* waterline dressing appropriate to sea or sand footing */
@@ -977,6 +520,7 @@ export function buildIsland(node, theme, domains) {
   };
 
   if (node.type === 'sea') {
+    let isletR = 5.2;
     if (foot) {
       if (theme.id === 'autumn') {
         // a waypoint on the forest track: a single large flat stepping
@@ -1015,24 +559,29 @@ export function buildIsland(node, theme, domains) {
       for (let i = 0; i < 2 + Math.floor(rng0() * 2); i++) {
         const rk = makeRock(rng0, 0.9 + rng0() * 1.1, rng0() < 0.4 ? 0xd8d4c8 : pal.rock);
         const a = rng0() * 6.28;
-        rk.position.set(Math.cos(a) * rng0() * 2.4, 0.35, Math.sin(a) * rng0() * 2.4);
-        g.add(rk);
+        rk.position.set(Math.cos(a) * rng0() * 2.4, -0.1, Math.sin(a) * rng0() * 2.4);
+        g.add(onShore(rk));               // the sea paints surf round the stacks
       }
       g.add(shallowDisc(15, theme.water.shallow));
     } else if (node.look === 'islet') {
       const style = rng0();
+      // ≤ SEA_FOOT.islet (7) and never past the water round it; a third are
+      // atolls round a drowned lagoon
+      isletR = Math.max(3.2, Math.min(7, node.room ?? 7, 4.6 + rng0() * 2.6));
       const t = mt({
-        seed, R: 4.6 + rng0() * 2.6,
+        seed, R: isletR,
         H: style < 0.33 ? 0.8 : 1.1,
         mode: style < 0.33 ? 'atoll' : 'hill',
+        lagoon: style < 0.33 ? 0.6 : 0,
         lobes: style > 0.66 ? 0.42 : 0,
         palette: { ...pal, ...(rng0() < 0.5 ? { sand: 0xf7ecc8 } : {}) },
       });
       g.add(t.mesh);
       g.add(shallowDisc(22, theme.water.shallow));
       const fl = floraFor(theme, rng0, 1.0);
-      const fr = style < 0.33 ? 0.3 : 0.15;
-      fl.position.set(t.heightAt(fr) ? 0.8 : 0, Math.max(0.3, t.heightAt(fr)), 0);
+      const fr = style < 0.33 ? 0.5 : 0.15;         // atoll: on the ring, not in the lagoon
+      const fp = t.place(1.1, fr);                  // seated on the real surface
+      fl.position.set(fp.x, Math.max(0.05, fp.y), fp.z);
       g.add(fl);
     } else if (node.look === 'none') {
       const ripple = new THREE.Mesh(new THREE.RingGeometry(0.9, 1.5, 24),
@@ -1054,7 +603,7 @@ export function buildIsland(node, theme, domains) {
       g.add(fl);
     }
     g.position.set(node.x, 0, node.z);
-    return { group: g, R: node.look === 'islet' ? 5.2 : node.look === 'rocks' ? 3.6 : R, plateauY: 0 };
+    return { group: g, R: node.look === 'islet' ? isletR : node.look === 'rocks' ? 3.6 : R, plateauY: 0 };
   }
 
   if (node.type === 'gate') {
@@ -1065,7 +614,7 @@ export function buildIsland(node, theme, domains) {
       if (!o.material) return;
       for (const m of (Array.isArray(o.material) ? o.material : [o.material])) m.fog = false;
     };
-    const portal = makeGatePortal(accent, seed, theme?.wall?.rock ?? 0x8a8f98);
+    const portal = makeGatePortal(accent, seed, theme?.wall?.rock ?? 0x8a8f98, node.region);
     // the pass sits way out at the mountain wall — render it fog-free like the
     // wall itself so the gateway reads clearly instead of washing into haze.
     // NOT in the Amber Vale, though: its thick fog is meant to SWALLOW the pass
@@ -1095,21 +644,28 @@ export function buildIsland(node, theme, domains) {
 
   if (node.type === 'home') {
     terrain = mt({ seed, R, H: 1.7, mode: 'mesa', palette: { ...footPal } });
-    g.add(placeDock(terrain, 0.5, 6.0));           // jetty on the real shoreline
+    const hd = node.dockA ?? 0.5;                  // the harbour faces the lane in
+    g.add(placeDock(terrain, hd, 6.0));            // jetty on the real shoreline
     const lh = makeLighthouse();
     lh.scale.setScalar(2.3);                       // a proper landmark tower
-    const lhp = terrain.place(3.9, 0.22);          // near the crown, on the surface
+    const lhp = terrain.place(hd + 3.4, 0.22);     // near the crown, across from the harbour
     lh.position.set(lhp.x, lhp.y, lhp.z);
     g.add(lh);
     // a little grove ringing Home Port — Meshy palms with a couple of olives
     // and a cypress for variety, all seated on the actual surface
+    // …and the town itself: whitewashed houses stepping up from a stone quay,
+    // a blue-domed chapel, fishing boats at the jetty (models/landmarks.js)
+    makeHomeTown(g, terrain, R, hd, seed);
+    boatsAt(g, terrain, hd + 0.42, seed + 3);
     const homeTrees = [
       ['palm_tree', 2.2, 0.6], ['palm_tree', 3.7, 0.62], ['palm_tree', 5.1, 0.55],
-      ['olive_tree', 1.2, 0.5], ['cypress_tree', 0.4, 0.58], ['palm_tree', 4.6, 0.44],
+      ['olive_tree', 2.8, 0.5], ['cypress_tree', 1.9, 0.58], ['palm_tree', 4.6, 0.44],
     ];
     for (const [id, a, rr] of homeTrees) {
       const tree = propGroup(id, 0.9 + rng0() * 0.3);
-      const pp = terrain.place(a + (rng0() - 0.5) * 0.3, rr);
+      // (angles were laid out for a harbour at 0.5 — keep them clear of the
+      // town, which follows the harbour round)
+      const pp = terrain.place(a - 0.5 + hd + (rng0() - 0.5) * 0.3, rr);
       tree.position.set(pp.x, pp.y, pp.z);
       g.add(tree);
     }
@@ -1117,7 +673,7 @@ export function buildIsland(node, theme, domains) {
     const hex = DOMAIN_COLORS[node.domain] || '#d9a441';
     terrain = mt({ seed, R, H: 2.2, mode: 'mesa', palette: { ...footPal } });
     const spent = (node.charges ?? 0) <= 0;
-    const shrine = makeShrine(hex, theme.id, spent);
+    const shrine = makeShrine(hex, theme.id, spent, seed);
     shrine.position.y = terrain.heightAt(0);
     g.add(shrine);
     // (no decorative tree beside the shrine — buildings no longer generate the
@@ -1125,40 +681,42 @@ export function buildIsland(node, theme, domains) {
   } else if (node.type === 'puzzle') {
     terrain = mt({ seed, R, H: 2.4, mode: 'mesa',
       palette: { ...footPal, grass: foot ? footPal.grass : 0x6fae8f } });
-    const ob = makeObelisk();
+    const ob = makeObelisk(node.solved, seed);
     ob.position.y = terrain.heightAt(0);
     if (node.solved) ob.children.forEach((ch) => { if (ch.isPointLight) ch.intensity = 0; });
     g.add(ob);
-    const rk = makeRock(rng0, 0.5, 0x8d94b8);
-    rk.position.set(-R * 0.4, terrain.surfaceY(-R * 0.4, R * 0.3) + 0.2, R * 0.3);
+    const rk = makeRock(rng0, 0.6, 0x8d94b8, { moss: !foot });
+    rk.position.set(-R * 0.48, terrain.surfaceY(-R * 0.48, R * 0.36) + 0.05, R * 0.36);
     g.add(rk);
   } else if (node.type === 'haven') {
     terrain = mt({ seed, R, H: foot ? 1.2 : 1.8, mode: 'flat', palette: { ...footPal } });
     if (foot && theme.id === 'autumn') {
       // a woodland camp: tents in a clearing (the Vale's own giant trees ring
       // it — the camp no longer spawns its own little trees)
-      const t = makeTents(rng0);
+      const t = makeTents(rng0, 'autumn');
       t.position.y = terrain.heightAt(0.2);
       g.add(t);
     } else if (foot) {
       const oasis = makeReachOasis(rng0, theme, 3.75);
       oasis.position.y = terrain.heightAt(0.15) + 0.02;
       g.add(oasis);
-      const t = makeTents(rng0);
+      const t = makeTents(rng0, 'desert');
       t.position.set(R * 0.35, terrain.surfaceY(R * 0.35, -R * 0.3), -R * 0.3);
-      t.scale.setScalar(0.85);
+      t.scale.setScalar(0.72);
       g.add(t);
     } else {
-      const t = makeTents(rng0);
+      const t = makeTents(rng0, 'sea');
       t.position.y = terrain.heightAt(0.2);
       g.add(t);
-      g.add(placeDock(terrain, Math.PI + (rng0() - 0.5), 4.0));
+      const dockA = node.dockA ?? Math.PI + (rng0() - 0.5);
+      g.add(placeDock(terrain, dockA, 4.0));
+      boatsAt(g, terrain, dockA + 0.5, seed + 1);     // caiques drawn up by the jetty
       // (no decorative tree beside the tents)
     }
     // the checkpoint light: a permanent azure beam so a haven is
     // unmistakable from anywhere on the water
     const cp = makeCheckpointBeacon();
-    cp.position.set(-R * 0.25, terrain.heightAt(0.25), R * 0.25);
+    cp.position.set(-R * 0.25, terrain.surfaceY(-R * 0.25, R * 0.25), R * 0.25);
     g.add(cp);
   } else if (node.type === 'lair' && foot) {
     // ON FOOT the tyrant doesn't get a dark island — it gets a HOUSE:
@@ -1212,58 +770,51 @@ export function buildIsland(node, theme, domains) {
         g.add(den);
       } else {
         const altar = makeLairAltar(accent, rng0);
-        altar.position.set(R * 0.1, terrain.heightAt(0.25) + 0.2, 0);
+        altar.position.set(R * 0.1, terrain.surfaceY(R * 0.1, 0) + 0.2, 0);
         g.add(altar);
       }
       const beacon = makeRelicBeacon();
-      beacon.position.set(-R * 0.3, terrain.heightAt(0.35), -R * 0.25);
+      beacon.position.set(-R * 0.3, terrain.surfaceY(-R * 0.3, -R * 0.25), -R * 0.25);
       g.add(beacon);
     }
     if (node.monster) {
       const totem = makeMonsterTotem(rng0, node.monster);
-      totem.position.set(R * 0.1, terrain.heightAt(0.25) + 0.3, 0);
+      totem.position.set(R * 0.1, terrain.surfaceY(R * 0.1, 0) + 0.3, 0);
       g.add(totem);
     } else if (node.type === 'monster' && !foot) {
       // calm hunting grounds: bone-stake warning that ambushes happen here
-      // (the foot realms plant their own — see realms/footkit.js warningStake)
-      const stake = new THREE.Mesh(new THREE.CylinderGeometry(0.09, 0.12, 2.4, 6), flat(COL.woodDark));
-      stake.position.set(R * 0.1, terrain.heightAt(0.25) + 1.1, 0);
-      const skull = new THREE.Mesh(displace(new THREE.SphereGeometry(0.34, 8, 6), 0.07, seed + 9),
-        flat(COL.bone));
-      skull.position.set(R * 0.1, terrain.heightAt(0.25) + 2.4, 0);
-      g.add(stake, skull);
-      for (const side of [-1, 1]) {
-        const bone = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, 1.1, 5), flat(COL.bone));
-        bone.position.set(R * 0.1, terrain.heightAt(0.25) + 1.7, 0.05);
-        bone.rotation.z = side * 0.8;
-        g.add(bone);
-      }
+      // (the same weathered skull stake the foot realms plant — footkit.js)
+      const stake = warningStake(rng0, 1.1);
+      stake.position.set(R * 0.1, terrain.surfaceY(R * 0.1, 0), 0);
+      g.add(stake);
     }
     // (the water realms scatter their own smooth boulders in dressIsland)
     for (let i = 0; i < (theme.id === 'ice' || theme.id === 'jungle' || foot ? 0 : 3); i++) {
       const rk = makeRock(rng0, 0.4 + rng0() * 0.4, dark ? COL.basalt : pal.rock);
       const a = rng0() * 6.28;
-      rk.position.set(Math.cos(a) * R * 0.7, terrain.heightAt(0.7) + 0.15, Math.sin(a) * R * 0.7);
+      const rp = terrain.place(a, 0.62);            // on the shoulder, never in the surf
+      rk.position.set(rp.x, rp.y + 0.15, rp.z);
       g.add(rk);
     }
   } else if (node.type === 'pharos') {
+    // a rocky islet with a dry-grass terrace — not a bare sand disc
     terrain = mt({ seed, R, H: 3.0, mode: 'mesa',
-      palette: { grass: 0xdfd9c6, grass2: 0xcfc7b2, sand: 0xf6efdc, rock: 0xe8e2d2 } });
+      palette: { grass: 0x9fa86e, grass2: 0x8a935c, sand: 0xeadcb6, rock: 0xa49c8c } });
     const ph = makePharos();
     ph.position.y = terrain.heightAt(0);
     g.add(ph);
-    for (const a of [0.6, 1.9, 3.2, 4.5, 5.8]) {
-      const c = makeColumn(1.6, 0.14);
-      c.position.set(Math.cos(a) * R * 0.72, terrain.heightAt(0.72), Math.sin(a) * R * 0.72);
-      g.add(c);
-    }
+    // rocky shoulder, harbour mole with its lamp, a ring of old columns
+    dressPharosIsle(g, terrain, R, seed);
   } else if (node.type === 'shop') {
     terrain = mt({ seed, R, H: 1.6, mode: 'flat', palette: { ...footPal } });
     const stall = makeMarket(rng0, Math.PI);       // porch faces the dock/arrival
     const sp = terrain.place(Math.PI / 2, 0.1);    // planted in the middle of the isle
     stall.position.set(sp.x, sp.y, sp.z);
     g.add(stall);
-    if (!foot) g.add(placeDock(terrain, -Math.PI / 2 + (rng0() - 0.5) * 0.5, 4.6));
+    if (!foot) {
+      const sd = -Math.PI / 2 + (rng0() - 0.5) * 0.5;
+      g.add(placeDock(terrain, node.dockA ?? sd, 4.6));
+    }
     // (no decorative tree beside the market — buildings no longer generate them)
   } else {
     terrain = mt({ seed, R, H: 2.0, mode: 'hill', palette: { ...footPal } });
@@ -1275,6 +826,7 @@ export function buildIsland(node, theme, domains) {
   // In the Amber Vale the POIs stand DIRECTLY on the shared forest floor — no
   // raised pad at all, so nothing floats and nothing z-fights the ground.
   if (!flatFoot) g.add(terrain.mesh);
+  if (shape?.stack && !flatFoot) g.add(seaStack(shape.stack, R, seed, footPal));
   if (!flatFoot) addSkirt(R);          // no beach/leaf skirt around a flush pad
   g.position.set(node.x, 0, node.z);
   return { group: g, R, plateauY: terrain.heightAt(0) };
@@ -1397,5 +949,5 @@ export function makeParticles(kind) {
    userData.shore ({x, z, size} for the ocean's shore map, null on land). */
 import { buildBattleSet } from './realms/battle_sets.js';
 export function makeBattleBackdrop(theme, opts = {}) {
-  return buildBattleSet(theme, opts, { structure: glbProp });
+  return buildBattleSet(theme, opts, { structure: battleStructure(glbProp) });
 }

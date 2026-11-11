@@ -1,0 +1,271 @@
+/* ═══ THE VOYAGE CHART (static/chart.js) ═════════════════════════════════
+   A parchment sheet over the world: an inked canvas plus a little bronze
+   chrome (tabs, cartouche, captains, key, zoom). z 13: over the HUD (10),
+   under flashes/battle (14+) and every card overlay (20). */
+
+#chart {
+  position: fixed; inset: 0; z-index: 13;
+  display: flex; align-items: stretch; justify-content: stretch;
+  padding: 10px;
+  background: rgba(5, 9, 14, .55);
+  outline: none;
+}
+#chart.hidden { display: none; }
+#chart .ch-sheet {
+  position: relative; flex: 1; overflow: hidden;
+  background: #efe3c4;
+  border-radius: 6px;
+  box-shadow: 0 0 0 1px rgba(201, 162, 39, .55), 0 0 0 4px #1a1408,
+              0 0 0 5px rgba(201, 162, 39, .5), 0 22px 70px rgba(0, 0, 0, .7);
+}
+#chart .ch-canvas { position: absolute; inset: 0; display: block; cursor: grab; }
+#chart .ch-canvas.grab { cursor: grabbing; }
+
+/* the unrolling: the sheet's clip opens downward behind a bronze roller */
+#chart .ch-rod {
+  position: absolute; left: -2px; right: -2px; height: 12px; z-index: 6;
+  border-radius: 6px; pointer-events: none; opacity: 0;
+  background: linear-gradient(180deg, #ffefb0 0%, #c9a227 35%, #6b5212 75%, #3a2c08 100%);
+  box-shadow: 0 3px 8px rgba(0, 0, 0, .45);
+}
+#chart .ch-rod.top { top: -2px; }
+#chart .ch-rod.bot { top: calc(100% - 10px); }
+@media (prefers-reduced-motion: no-preference) {
+  #chart.opening { animation: chfade .3s ease-out both; }
+  #chart.opening .ch-sheet { animation: chunroll .44s cubic-bezier(.3, .7, .25, 1) both; }
+  #chart.opening .ch-rod { opacity: 1; }
+  #chart.opening .ch-rod.bot { animation: chrod .44s cubic-bezier(.3, .7, .25, 1) both; }
+  #chart.closing { animation: chfade .26s ease-in reverse both; }
+  #chart.closing .ch-sheet { animation: chunroll .26s cubic-bezier(.6, 0, .8, .4) reverse both; }
+  #chart.closing .ch-rod { opacity: 1; }
+  #chart.closing .ch-rod.bot { animation: chrod .26s cubic-bezier(.6, 0, .8, .4) reverse both; }
+}
+@media (prefers-reduced-motion: reduce) {
+  #chart.opening { animation: chfade .12s ease-out both; }
+  #chart.closing { animation: chfade .12s ease-in reverse both; }
+}
+@keyframes chfade { from { opacity: 0; } to { opacity: 1; } }
+@keyframes chunroll {
+  from { clip-path: inset(0 0 calc(100% - 14px) 0); }
+  to   { clip-path: inset(0 0 0 0); }
+}
+@keyframes chrod { from { top: 2px; } to { top: calc(100% - 10px); } }
+
+/* ── top bar: tabs · cartouche · close ─────────────────────────────────── */
+#chart .ch-top {
+  position: absolute; left: 0; right: 0; top: 0; z-index: 3;
+  display: flex; align-items: flex-start; justify-content: space-between;
+  gap: 10px; padding: 12px 12px 0; pointer-events: none;
+}
+#chart .ch-top > * { pointer-events: auto; }
+#chart .ch-tabs {
+  display: flex; gap: 2px; padding: 3px;
+  background: rgba(26, 20, 8, .88);
+  border: 1px solid rgba(201, 162, 39, .6);
+  border-radius: 10px;
+}
+#chart .ch-tab {
+  display: flex; align-items: center; gap: 6px;
+  min-height: 38px; padding: 0 12px;
+  font: 700 12px/1 var(--disp); letter-spacing: .08em; text-transform: uppercase;
+  color: #d9c9a0; background: transparent; border: 0; border-radius: 7px;
+  cursor: pointer;
+}
+#chart .ch-tab:hover { color: var(--gilt); }
+#chart .ch-tab.on { color: #1a1206; background: linear-gradient(180deg, #f0d060, #c9a227); }
+#chart .ch-tab svg { width: 15px; height: 15px; }
+
+#chart .ch-cart {
+  --ri: #6b4c12;
+  position: absolute; left: 50%; top: 10px; transform: translateX(-50%);
+  min-width: 260px; max-width: min(560px, 48vw);
+  padding: 8px 30px 9px; text-align: center;
+  background:
+    radial-gradient(ellipse at 50% 40%, #f8efd8 0%, #ecdcb4 100%);
+  border: 1.5px solid #3a2c12;
+  border-radius: 4px;
+  box-shadow: 0 0 0 3px #efe3c4, 0 0 0 4.5px #3a2c12, 0 6px 16px rgba(60, 40, 10, .35);
+}
+#chart .ch-cart::before, #chart .ch-cart::after {
+  content: ''; position: absolute; top: 50%; width: 16px; height: 26px;
+  transform: translateY(-50%);
+  border: 1.5px solid #3a2c12; border-radius: 50%;
+  background: #e6d3a6;
+}
+#chart .ch-cart::before { left: -11px; }
+#chart .ch-cart::after { right: -11px; }
+#chart .ch-cart-t {
+  font: 800 clamp(14px, 1.7vw, 19px)/1.15 var(--disp); letter-spacing: .12em;
+  text-transform: uppercase; color: var(--ri);
+}
+#chart .ch-cart-s {
+  margin-top: 3px;
+  font: italic 500 13.5px/1.3 var(--body); color: #4a3a1c;
+}
+#chart .ch-close {
+  width: 44px; height: 44px; padding: 11px;
+  color: var(--gilt); background: rgba(26, 20, 8, .88);
+  border: 1px solid rgba(201, 162, 39, .6); border-radius: 10px; cursor: pointer;
+}
+#chart .ch-close:hover { color: #fff3c0; border-color: var(--gilt); }
+#chart .ch-close svg { width: 100%; height: 100%; }
+
+/* ── captains ──────────────────────────────────────────────────────────── */
+#chart .ch-fleet {
+  position: absolute; right: 12px; top: 84px; z-index: 3; width: 252px;
+  max-height: calc(100% - 160px); overflow-y: auto;
+  padding: 8px; display: flex; flex-direction: column; gap: 5px;
+  background: rgba(26, 20, 8, .86);
+  border: 1px solid rgba(201, 162, 39, .55); border-radius: 10px;
+  box-shadow: 0 8px 22px rgba(30, 20, 5, .35);
+}
+#chart .ch-fh {
+  font: 700 10.5px/1 var(--disp); letter-spacing: .28em; text-transform: uppercase;
+  color: rgba(240, 208, 96, .75); padding: 2px 4px 4px;
+}
+#chart .ch-cap {
+  --pc: #888;
+  display: grid; grid-template-columns: 30px 1fr; grid-template-rows: auto auto auto;
+  column-gap: 8px; row-gap: 1px; align-items: center;
+  width: 100%; min-height: 44px; padding: 6px 8px; text-align: left;
+  color: var(--bone); background: rgba(255, 245, 220, .04);
+  border: 1px solid rgba(201, 162, 39, .18); border-radius: 8px; cursor: pointer;
+}
+#chart .ch-cap:hover { border-color: rgba(240, 208, 96, .6); background: rgba(255, 245, 220, .08); }
+#chart .ch-cap.turn { border-color: var(--pc); box-shadow: inset 3px 0 0 var(--pc); }
+#chart .ch-cap.me .ch-dot { box-shadow: 0 0 0 2px var(--gilt); }
+#chart .ch-dot {
+  grid-row: 1 / 4; width: 28px; height: 28px; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  font: 800 13px/1 var(--disp); color: #fff; text-shadow: 0 1px 2px rgba(0, 0, 0, .6);
+  background: var(--pc); border: 2px solid #1a1206;
+}
+#chart .ch-cn { font: 700 13px/1.2 var(--disp); letter-spacing: .03em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#chart .ch-cn em { font: italic 500 12px var(--body); color: var(--gilt); letter-spacing: 0; }
+#chart .ch-helm { display: inline-flex; align-items: center; gap: 3px; font: 600 10px var(--body); color: var(--gilt); letter-spacing: .04em; }
+#chart .ch-cw { font: italic 12.5px/1.25 var(--body); color: var(--mist); }
+#chart .ch-cs { display: flex; gap: 3px; }
+#chart .ch-seal { width: 14px; height: 14px; color: rgba(201, 162, 39, .28); }
+#chart .ch-seal svg { width: 100%; height: 100%; display: block; }
+#chart .ch-seal.carry { color: var(--gilt); }
+#chart .ch-seal.bank { color: var(--gilt); }
+#chart .ch-seal.bank svg { fill: var(--gilt); }
+
+/* ── key (legend) ──────────────────────────────────────────────────────── */
+#chart .ch-legend {
+  position: absolute; left: 12px; top: 72px; z-index: 3;
+  display: flex; flex-direction: column; align-items: flex-start; gap: 6px;
+}
+#chart .ch-keybtn {
+  display: flex; align-items: center; gap: 6px; min-height: 36px; padding: 0 12px;
+  font: 700 11px/1 var(--disp); letter-spacing: .14em; text-transform: uppercase;
+  color: var(--gilt); background: rgba(26, 20, 8, .86);
+  border: 1px solid rgba(201, 162, 39, .55); border-radius: 8px; cursor: pointer;
+}
+#chart .ch-keylist {
+  display: none; padding: 8px 10px; gap: 4px; flex-direction: column;
+  background: rgba(247, 239, 220, .93);
+  border: 1px solid #3a2c12; border-radius: 6px;
+  box-shadow: 0 6px 16px rgba(60, 40, 10, .3);
+  font: 13px/1.2 var(--body); color: #2c2212;
+}
+#chart.keyopen .ch-keylist { display: flex; }
+#chart .ch-krow { display: flex; align-items: center; gap: 8px; min-height: 22px; }
+#chart .ch-med {
+  --m: #888;
+  flex: none; width: 21px; height: 21px; padding: 3px; border-radius: 50%;
+  color: #fbf3dc; background: var(--m); border: 1.4px solid #2c2212;
+}
+#chart .ch-med svg { width: 100%; height: 100%; display: block; }
+#chart .ch-doms { display: inline-flex; gap: 2px; margin-left: 4px; vertical-align: middle; }
+#chart .ch-doms i { width: 8px; height: 8px; border-radius: 50%; border: 1px solid #2c2212; }
+#chart .ch-k-way {
+  flex: none; width: 21px; height: 21px; position: relative;
+  background: radial-gradient(circle, #f2e8cf 0 4px, rgba(44, 34, 18, .62) 4px 5px, transparent 5.5px);
+}
+#chart .ch-k-reach {
+  flex: none; width: 21px; height: 21px; border-radius: 50%;
+  border: 2.4px solid #a8841f; box-shadow: 0 0 0 3px rgba(201, 162, 39, .4);
+}
+#chart .ch-k-ck { flex: none; width: 21px; height: 21px; color: #2c2212; }
+#chart .ch-k-ck svg { width: 100%; height: 100%; }
+
+/* ── zoom buttons, status line, tooltip ────────────────────────────────── */
+#chart .ch-zoom {
+  position: absolute; right: 12px; bottom: 14px; z-index: 3;
+  display: flex; gap: 6px;
+}
+#chart .ch-zoom button {
+  width: 44px; height: 44px; display: flex; align-items: center; justify-content: center;
+  font: 700 22px/1 var(--disp); color: var(--gilt);
+  background: rgba(26, 20, 8, .86); border: 1px solid rgba(201, 162, 39, .55);
+  border-radius: 10px; cursor: pointer;
+}
+#chart .ch-zoom button:hover { border-color: var(--gilt); color: #fff3c0; }
+#chart .ch-zoom svg { width: 20px; height: 20px; }
+#chart .ch-status {
+  position: absolute; left: 50%; bottom: 16px; transform: translateX(-50%); z-index: 3;
+  max-width: calc(100% - 330px); padding: 8px 18px;
+  font: 14px/1.3 var(--body); color: #f1e6c8; text-align: center;
+  background: rgba(26, 20, 8, .86); border: 1px solid rgba(201, 162, 39, .45);
+  border-radius: 999px; pointer-events: none;
+}
+#chart .ch-status:empty { display: none; }
+#chart .ch-status.go { border-color: var(--gilt); }
+#chart .ch-status b { color: var(--gilt); font-family: var(--disp); }
+#chart .ch-tip {
+  position: absolute; z-index: 4; max-width: 260px; pointer-events: none;
+  display: flex; flex-direction: column; gap: 2px;
+  padding: 8px 12px;
+  font: 13px/1.3 var(--body); color: #2c2212;
+  background: #f8f0dc; border: 1.5px solid #3a2c12; border-radius: 6px;
+  box-shadow: 0 8px 20px rgba(40, 25, 5, .35);
+}
+#chart .ch-tip.hidden { display: none; }
+#chart .ch-tip b { font: 700 14px/1.2 var(--disp); letter-spacing: .03em; }
+#chart .ch-tip .ch-tipk { font-style: italic; color: #6b5a38; }
+#chart .ch-tip .ch-tipgo { color: #8a6c1c; font-weight: 700; }
+
+/* ── phones: captains become a strip along the bottom ──────────────────── */
+@media (max-width: 719px) {
+  #chart { padding: 4px; }
+  #chart .ch-top { padding: 8px 8px 0; }
+  #chart .ch-tab { padding: 0 10px; font-size: 11px; }
+  #chart .ch-cart {
+    top: 58px; min-width: 0; width: calc(100% - 64px); max-width: none; padding: 6px 16px 7px;
+  }
+  #chart .ch-cart-t { font-size: 14px; }
+  #chart .ch-cart-s { font-size: 12.5px; }
+  #chart .ch-legend { top: auto; bottom: 156px; left: 8px; }
+  #chart .ch-keylist { max-height: 46vh; overflow-y: auto; }
+  #chart .ch-fleet {
+    left: 6px; right: 6px; top: auto; bottom: 6px; width: auto; max-height: none;
+    flex-direction: row; overflow-x: auto; overflow-y: hidden; padding: 6px; gap: 6px;
+  }
+  #chart .ch-fh { display: none; }
+  #chart .ch-cap { flex: none; width: 168px; }
+  #chart .ch-zoom { right: 8px; bottom: 156px; flex-direction: column; }
+  #chart .ch-status { bottom: 118px; max-width: calc(100% - 80px); font-size: 13px; padding: 6px 14px; }
+}
+
+/* the chart button in the HUD */
+#mapBtn {
+  position: fixed; top: var(--s3); right: 128px; z-index: 10;
+  width: 44px; height: 44px; padding: 9px;
+  color: var(--bronze);
+  background: rgba(14, 24, 34, .72);
+  border: 1px solid rgba(201, 162, 39, .4);
+  border-radius: 10px;
+  backdrop-filter: blur(4px);
+  transition: transform var(--fast), border-color var(--fast), color var(--fast);
+}
+#mapBtn:hover { transform: translateY(-1px); color: var(--gilt); border-color: rgba(240, 208, 96, .7); }
+#mapBtn.on { color: var(--gilt); border-color: var(--gilt); box-shadow: 0 0 0 2px rgba(240, 208, 96, .35); }
+#mapBtn svg { width: 100%; height: 100%; display: block; }
+@media (max-width: 700px) {
+  #mapBtn { right: 118px; width: 44px; height: 44px; padding: 9px; top: var(--s2); }
+}
+/* while the chart is up the stall steps aside */
+body.charting #shopPanel { visibility: hidden; }
+/* the sound / graphics toggles step back while the sheet is up */
+body.charting #muteBtn, body.charting #gfxBtn { visibility: hidden; }

@@ -32,8 +32,6 @@ async def reach_picross(c, stance):
         elif ph == "battle":
             await c.send({"type": "dev", "battle_mode": "puzzle"})
             await c.send({"type": "stance", "stance": stance, "target": 0}, settle=600)
-        elif ph == "dodge":
-            await c.send({"type": "dodge", "hit": False}, settle=600)
         elif ph == "reveal":
             await c.page.wait_for_timeout(1200)
         else:

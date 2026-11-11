@@ -16,11 +16,11 @@ replays exactly with ``--games 1 --seed <its seed> [--verbose]``.
 Two kinds of table (alternating by seed unless --mode says otherwise):
 
   bots   honest voyages: every captain is one of the server's philosopher
-         bots (bots.py decision functions, the same accuracy / dodge / puzzle
-         odds server.bot_move uses). No cheats — these produce the balance
+         bots (bots.py decision functions, the same accuracy / puzzle odds
+         server.bot_move uses). No cheats — these produce the balance
          numbers (turns to each seal, shipwrecks, boss win rates, where the
-         scrolls come from). ``--skill sharp`` keeps the bots' routing but
-         gives them a strong human's answers and dodge timing.
+         scrolls come from). ``--skill sharp|casual`` keeps the bots' routing
+         but gives them a strong / an ordinary human's answers.
 
   chaos  robustness fuzzing: captains take random-but-legal actions through
          every phase, while the harness injects illegal / out-of-turn /
@@ -66,14 +66,16 @@ if ROOT not in sys.path:
 import bots                      # noqa: E402
 import game as G                 # noqa: E402
 import puzzles                   # noqa: E402
+import events as EV              # noqa: E402
+import eventgames as EG          # noqa: E402
 import questions                 # noqa: E402
 import tetromino6                # noqa: E402
-from board import RELICS_TO_WIN  # noqa: E402
+from board import REGION_POOL, RELICS_TO_WIN, WARDEN  # noqa: E402
 from game import Game, GameError  # noqa: E402
 
 PHASES = {"lobby", "roll", "sail", "shrine", "haven", "shop", "trade",
-          "pharos", "battle", "jchoose", "question", "reveal", "dodge",
-          "minigame", "upgrade_pick", "finished"}
+          "pharos", "battle", "jchoose", "question", "reveal",
+          "minigame", "upgrade_pick", "finished", "event"}
 # snapshot keys that must never reach a client while a challenge is open
 SECRET_KEYS = {"correct", "answer", "secret", "accept", "word", "data"}
 ONE_ATTEMPT = ("simon", "memory", "ravens", "visual_memory")
@@ -139,12 +141,25 @@ def _fast_jeopardy_board(rng: random.Random, band: str = "low", n: int = 4) -> l
 FAST_JEOPARDY = True              # run_game swaps the dealer in for its own run only
 
 # who sits at a "bots" table. "bots": the server's six philosophers, with the
-# odds server.bot_move gives them (never a perfect dodge). "sharp": the same
-# routing and shopping (bots.py), but a strong human's hands — 90/80/65 %
-# answers, 80 % puzzles, 75 % of dodges read and a third of all blows
-# slipped clean — to separate "the bots play badly" from "the rules are slow".
+# odds server.bot_move gives them. "sharp": the same routing, shopping and
+# battle choices (bots.py), but a strong human's answers — 90/80/65 % by
+# tier, 80 % puzzles — to separate "the bots play badly" from "the rules
+# are slow". "casual": the same with a weaker hand (70/55/40, 60 % puzzles).
+# (There is no reflex input left to model: defence is decided by answers.)
 SKILL = "bots"
 SHARP = bots.Skill("Sharp", 0.90, 0.80, 0.65)
+# a casual table: an ordinary pub-quiz hand — to check a weaker player can
+# still finish a voyage
+CASUAL = bots.Skill("Casual", 0.70, 0.55, 0.40)
+
+
+def minigame_odds(skill) -> float:
+    """How often a captain solves a combat / isle puzzle."""
+    if skill is SHARP:
+        return 0.80
+    if skill is CASUAL:
+        return 0.60
+    return min(0.85, skill.t3 + 0.25)
 
 
 def _typed_clue(rng: random.Random) -> dict:
@@ -362,7 +377,8 @@ def fingerprint(g: Game) -> tuple:
         (p.pid, p.node, p.prev_node, p.checkpoint, p.scrolls, p.hull, p.max_hull,
          tuple(p.cargo), p.banked, tuple(p.upgrades), tuple(sorted(p.items.items())),
          p.next_roll_bonus, p.map_bought, p.streak, p.puzzles_solved,
-         p.cheated_death, p.skip_turns, len(p.seen), p.connected)
+         p.cheated_death, p.skip_turns, len(p.seen), p.connected,
+         repr(sorted(getattr(p, "buffs", {}).items())))
         for p in g.players)
     nodes = tuple(map(_node_sig, g.board.nodes.values()))
     return (g.phase, g.nonce, g.turn_idx, g.die, repr(g.reachable), repr(g.walk),
@@ -371,7 +387,7 @@ def fingerprint(g: Game) -> tuple:
             repr(g.upgrade_offer), repr(sorted(g.used_puzzles)), g.pharos_open,
             g.winner, tuple(g.log), repr(g.jboard),
             repr(getattr(g, "_pending_jeopardy", None)), repr(g.gate_walk),
-            hash(g.rng.getstate()), players, nodes)
+            hash(g.rng.getstate()), players, nodes, repr(getattr(g, "ev", None)))
 
 
 def _walk_keys(obj, path=""):
@@ -440,10 +456,14 @@ class Table:
         self.first_seal: int | None = None
         self._last_battle = None
         self._boss_ctx = None
+        self._fight = None               # the fight being watched (combat report)
+        self._tried = set()              # (captain, lair) pairs already attempted
         self._wrong_tries = 0
         self._seen_challenge = None
         self._snap_at = -1
         self._earned: dict[str, tuple] = {}
+        self._ev_fired = 0
+        self._ev_counts: dict[str, int] = {}
         self._last_label = ""
         self._install_hooks()
 
@@ -504,6 +524,7 @@ class Table:
         for i in range(self.n_players):
             p = g.add_player(f"tok{i}", f"Cap{i}", is_bot=(self.mode == "bots" and i > 0))
             self.skills[p.pid] = (SHARP if self.mode == "bots" and SKILL == "sharp"
+                                  else CASUAL if self.mode == "bots" and SKILL == "casual"
                                   else pool[i % len(pool)])
             if self.mode == "bots":
                 self.policy[p.pid] = "bot"
@@ -598,8 +619,6 @@ class Table:
         elif g.phase == "minigame" and g.minigame and g.minigame["deadline"] is None:
             if g.minigame["limit"]:
                 g.minigame["deadline"] = self.clock + g.minigame["limit"]
-        elif g.phase == "dodge" and g.dodge_deadline is None:
-            g.dodge_deadline = self.clock + G.DODGE_SECS
 
     def _carry_through(self, gw: dict):
         g = self.g
@@ -712,8 +731,11 @@ class Table:
             tgt = rng.choice(alive + [0, 7, -1])
             add("strike", lambda: g.stance(pid, "attack", tgt), 3)
             add("magic", lambda: g.stance(pid, "magic", tgt), 3)
-            for mode in ("mc", "jeopardy", "puzzle"):
-                add(f"heal {mode}", lambda m_=mode: g.stance(pid, "heal", 0, m_), 0.25)
+            if g.battle.get("charging"):                # BRACE answers a telegraphed heavy
+                add("brace", lambda: g.stance(pid, "guard", tgt), 3)
+            if p.hull < p.max_hull:                      # a hymn at full Health is refused
+                for mode in ("mc", "jeopardy", "puzzle"):
+                    add(f"heal {mode}", lambda m_=mode: g.stance(pid, "heal", 0, m_), 0.25)
             if p.has("sword_of_damocles") and node["type"] == "pharos":
                 add("sword", lambda: g.stance(pid, "sword", tgt), 4)
             if not m.get("boss") and p.scrolls >= G.FLEE_COST:
@@ -764,15 +786,81 @@ class Table:
             add("minigame timeout", g.minigame_timeout, 0.5)
             add("bot solve", lambda: g.resolve_minigame(True), 0.5)
             add("bot fail", lambda: g.resolve_minigame(False), 0.5)
-        elif ph == "dodge":
-            add("dodge core", lambda: g.dodge(pid, True, True))
-            add("dodge gold", lambda: g.dodge(pid, True, False))
-            add("dodge miss", lambda: g.dodge(pid, False, False))
-            add("dodge timeout", g.dodge_timeout, 0.5)
         elif ph == "upgrade_pick":
             for u in g.upgrade_offer or []:
                 add(f"pick {u}", lambda u=u: g.pick_upgrade(pid, u))
+        elif ph == "event":
+            for label, msg, val in EV.legal_moves(g, pid):
+                add(f"event {label}", lambda m=msg, v=val: self.ev_send(pid, m, v), 2)
+            act = g.ev["active"]
+            if act and act["step"] == "game":
+                add("event game junk", lambda: self._ev_junk(pid), 0.3)
+            if act and act["step"] == "table":
+                add("event table timeout", lambda: EV.timeout(g), 0.3)
         return A
+
+    # ── events (events.py) ───────────────────────────────────────────────────
+    def ev_send(self, pid: str, msg: str, val):
+        g = self.g
+        {"event_choose": EV.choose, "event_move": EV.game_move,
+         "event_answer": EV.answer, "event_bet": EV.bet}[msg](g, pid, val)
+
+    def _ev_junk(self, pid: str):
+        """Malformed moves at an open event game: refused, nothing changes."""
+        g = self.g
+        gs = g.ev["active"]["game"]
+        for junk in self.rng.sample(EG.junk_payloads(gs), 3):
+            before = fingerprint(g)
+            try:
+                EV.game_move(g, pid, junk)
+            except GameError:
+                if fingerprint(g) != before:
+                    self.fail(f"a refused event move {junk!r} mutated state")
+                continue
+            return                                       # it happened to be legal
+
+    def _ev_others_pending(self) -> bool:
+        g = self.g
+        act = g.ev["active"]
+        if not act:
+            return False
+        cur = g.current.pid
+        if act["step"] == "table":
+            return any(p.pid not in act["table"]["answers"] and p.pid != cur
+                       for p in g.players)
+        if act["step"] in ("game", "puzzle"):
+            return any(p.pid not in act["bets"] and p.pid != act["pid"]
+                       for p in g.players) and self.rng.random() < 0.25
+        return False
+
+    def ev_table_round(self):
+        """Everyone at a TABLE event answers (bots by policy, others at random)
+        and rivals bet on an event game — what the bot driver and the other
+        captains' clients do while the acting captain thinks."""
+        g, rng = self.g, self.rng
+        act = g.ev["active"] if g.phase in ("event", "minigame") else None
+        if not act:
+            return
+        for p in list(g.players):
+            if g.ev["active"] is not act or g.phase not in ("event", "minigame"):
+                return
+            if act["step"] == "table" and p.pid not in act["table"]["answers"]:
+                if self.policy.get(p.pid) == "bot" or rng.random() < 0.7:
+                    if self.policy.get(p.pid) == "bot":
+                        mv = EV.bot_decide(g, p.pid, self.skills.get(
+                            p.pid, bots.PHILOSOPHERS[0]).t2, rng)
+                    else:
+                        opts = EV.legal_moves(g, p.pid)
+                        mv = rng.choice(opts)[1:] if opts else None
+                    if mv:
+                        self.note(f"{p.pid}: table answer {mv[1]!r}")
+                        self.ev_send(p.pid, *mv)
+                        self.expect_error("second table answer",
+                                          lambda q=p.pid: EV.answer(g, q, mv[1]))
+            elif act["step"] in ("game", "puzzle") and p.pid != act["pid"] \
+                    and p.pid not in act["bets"] and rng.random() < 0.3:
+                self.note(f"{p.pid}: event bet")
+                EV.bet(g, p.pid, rng.random() < 0.5)
 
     def _submit_solution(self, pid: str):
         g = self.g
@@ -881,13 +969,15 @@ class Table:
             if not buy or not attempt(f"buy {buy}", lambda: g.shop_buy(pid, buy)):
                 must("pass", lambda: g.pass_turn(pid))
         elif ph == "battle":
-            choice = bots.decide_battle(g, pid, rng)
+            choice = bots.decide_battle(g, pid, rng, skill)
             if choice == "planks":
                 if not attempt("planks", lambda: g.use_item_charm(pid, "planks")):
                     must("magic", lambda: g.stance(pid, "magic"))
             elif choice == "flee":
                 if not attempt("flee", lambda: g.flee(pid)):
                     must("strike", lambda: g.stance(pid, "attack"))
+            elif choice == "heal":
+                must("heal", lambda: g.stance(pid, "heal", 0, "mc"))
             else:
                 must(choice, lambda: g.stance(pid, choice))
         elif ph == "jchoose":
@@ -902,18 +992,17 @@ class Table:
                 idx = bots.decide_answer(g, skill, rng)
                 must(f"answer {idx}", lambda: g.answer(pid, idx))
         elif ph == "minigame":
-            ok = rng.random() < (0.80 if skill is SHARP else min(0.85, skill.t3 + 0.25))
+            ok = rng.random() < minigame_odds(skill)
             self.note(f"{pid}(bot): minigame {'solved' if ok else 'failed'}")
             g.resolve_minigame(ok)
-        elif ph == "dodge":
-            if skill is SHARP:
-                r = rng.random()
-                hit, full = r < 0.75, r < 0.35
-            else:
-                hit, full = rng.random() < 0.25 + skill.t1 * 0.4, False
-            must(f"dodge {hit}{' core' if full else ''}", lambda: g.dodge(pid, hit, full))
         elif ph == "upgrade_pick":
             must("pick", lambda: g.pick_upgrade(pid, bots.decide_upgrade(g, pid)))
+        elif ph == "event":
+            mv = EV.bot_decide(g, pid, skill.t2, rng)
+            if mv is None:                               # answered: the table waits
+                must("event idle", lambda: EV.idle_default(g, pid))
+            else:
+                must(f"{mv[0]} {mv[1]!r}", lambda: self.ev_send(pid, *mv))
         else:
             self.fail(f"bot has no move for phase {ph}")
 
@@ -956,7 +1045,6 @@ class Table:
             ("use_item_charm", lambda: g.use_item_charm(who, j), is_s(j), True),
             ("stance", lambda: g.stance(who, j, j2, j3),
              is_s(j) and is_i(j2) and (j3 is None or is_s(j3)), True),
-            ("dodge", lambda: g.dodge(who, j, j2), True, True),
             ("flee", lambda: g.flee(who), True, True),
             ("use_item", lambda: g.use_item(who, j), is_s(j), True),
             ("answer", lambda: g.answer(who, j), is_i(j), True),
@@ -965,6 +1053,10 @@ class Table:
             ("minigame_submit", lambda: g.minigame_submit(who, j), True, True),
             ("pick_upgrade", lambda: g.pick_upgrade(who, j), is_s(j), True),
             ("roll", lambda: g.roll(who, j), is_i(j) and 1 <= j <= 6, True),
+            ("event_choose", lambda: EV.choose(g, who, j), is_i(j), True),
+            ("event_move", lambda: EV.game_move(g, who, j), True, True),
+            ("event_answer", lambda: EV.answer(g, who, j), True, False),
+            ("event_bet", lambda: EV.bet(g, who, j), type(j) is bool, False),
             ("start", lambda: g.start(who), True, False),
             ("add_player", lambda: g.add_player("late", "Late"), False, False),
         ]
@@ -1014,10 +1106,10 @@ class Table:
                 g.minigame_timeout()
                 g.resolve_minigame(True)
                 g.resolve_minigame(False)
-            if ph != "dodge":
-                g.dodge_timeout()
             if ph != "jchoose":
                 g.jchoose_timeout()
+            if ph != "event":
+                EV.timeout(g)
             if ph != "reveal":
                 g.advance_after_reveal()
             if ph != "question" or g.question is not None:
@@ -1110,7 +1202,7 @@ class Table:
         g, rng = self.g, self.rng
         p = rng.choice(g.players)
         kind = rng.choice(["scrolls", "scrolls", "seals", "upgrade", "items",
-                           "wound", "sword", "broke"])
+                           "wound", "sword", "broke", "warden"])
         self.note(f"GRANT {kind} → {p.pid}")
         if kind == "scrolls":
             p.scrolls += rng.choice([5, 20, 60])
@@ -1136,6 +1228,12 @@ class Table:
         elif kind == "sword":
             if not p.has("sword_of_damocles"):
                 p.upgrades.append("sword_of_damocles")
+        elif kind == "warden":
+            # wear the Dark Presence down so random play still reaches the
+            # victory screen (answers decide every blow now — no lucky dodges)
+            m = g.board.alive_monster("pharos")
+            if m:
+                m["enemies"][0]["hp"] = min(m["enemies"][0]["hp"], rng.choice([1, 2, 3]))
 
     def chaos(self):
         g, rng = self.g, self.rng
@@ -1238,7 +1336,7 @@ class Table:
                 self.fail(f"lair {n['id']}: stash holds a seal nobody earned")
         cur = g.current
         # ── per-phase structure ──────────────────────────────────────────────
-        battleish = ph in ("battle", "dodge", "jchoose", "question", "minigame", "reveal")
+        battleish = ph in ("battle", "jchoose", "question", "minigame", "reveal")
         if g.battle is not None and not battleish:
             self.fail(f"battle state left over in phase {ph}")
         if g.battle is not None:
@@ -1250,17 +1348,14 @@ class Table:
                 self.fail("battle phase without battle state")
             if not g.board.alive_monster(g.battle["node"]):
                 self.fail("battle phase with nothing left to fight")
-            if g.battle.get("incoming"):
-                self.fail("a blow is still hanging in the stance phase")
             if cur.node != g.battle["node"]:
                 self.fail(f"{cur.pid} fights at {g.battle['node']} but stands on {cur.node}")
             if g.battle.get("sphinx"):
                 self.fail("the staged Sphinx reached the stance phase")
-        if ph == "dodge":
-            if not (g.battle and g.battle.get("incoming")):
-                self.fail("dodge phase with no incoming blow")
-        elif g.battle and g.battle.get("incoming") and ph != "reveal":
-            self.fail(f"an incoming blow hangs over phase {ph}")
+        if g.battle and g.battle.get("incoming"):
+            self.fail("a blow left hanging (the dodge beat is gone)")
+        if ph == "battle" and g.battle.get("charging") is None:
+            self.fail("battle state lost its heavy-blow rhythm")
         if ph == "minigame":
             mg = g.minigame
             if not mg:
@@ -1275,6 +1370,7 @@ class Table:
                 self.fail(f"minigame kind {mg['kind']!r} has no checker")
         elif g.minigame is not None:
             self.fail(f"minigame left over in phase {ph}")
+        self.check_events()
         if g.kraken is not None and not (ph == "minigame" and g.minigame.get("kraken")):
             self.fail(f"kraken state left over in phase {ph}")
         if ph == "jchoose":
@@ -1385,6 +1481,47 @@ class Table:
             self._snap_at = self.actions
             self.check_snapshot(self.rng.choice(pids + [None]))
 
+    def check_events(self):
+        """events.py invariants: one open event, owned by the acting captain,
+        in a phase that can show it; world wonders on the chart; sane buffs."""
+        g = self.g
+        ph = g.phase
+        act = g.ev["active"]
+        if ph == "event":
+            if not act:
+                self.fail("event phase with no open event")
+            if act["pid"] != g.current.pid:
+                self.fail(f"the open event belongs to {act['pid']}, not {g.current.pid}")
+            if act["step"] not in ("card", "game", "table"):
+                self.fail(f"event phase on step {act['step']!r}")
+            if act["step"] == "card" and not any(o["ok"] for o in act["options"]):
+                self.fail(f"event {act['id']} offers no choosable option")
+            if act["step"] == "game" and (not act["game"] or act["game"].get("done")):
+                self.fail("event game step with no live game")
+            if act["step"] == "table":
+                for pid in act["table"]["answers"]:
+                    if g.player_by_pid(pid) is None:
+                        self.fail(f"a table answer from {pid}, who is not at the table")
+        elif ph == "minigame" and g.minigame and g.minigame.get("event"):
+            if not act or act["step"] != "puzzle":
+                self.fail("an event puzzle with no open event")
+        elif act is not None:
+            self.fail(f"event {act['id']} left open in phase {ph}")
+        if g.minigame and not g.minigame.get("event") and act is not None:
+            self.fail("an open event under a non-event minigame")
+        for w in g.ev["world"]:
+            if w["node"] not in g.board.nodes:
+                self.fail(f"world wonder {w['id']} on {w['node']!r}, not on the chart")
+            if w["rounds"] <= 0:
+                self.fail(f"world wonder {w['id']} outlived its rounds")
+        ids = [w["id"] for w in g.ev["world"]]
+        if len(ids) != len(set(ids)):
+            self.fail(f"duplicate world wonders {ids}")
+        for p in g.players:
+            for bid, n in p.buffs.items():
+                if bid not in EV.BUFFS or type(n) is not int or not 1 <= n <= EV.BUFF_CAP:
+                    self.fail(f"{p.pid} carries buff {bid}x{n!r}")
+
     def check_snapshot(self, viewer):
         g = self.g
         try:
@@ -1420,7 +1557,7 @@ class Table:
             if pl["node"] not in shown:
                 self.fail(f"player {pl['pid']} stands on a stop the snapshot hides")
         # nothing that answers an OPEN challenge may be on the wire
-        for part in ("question", "minigame", "jboard"):
+        for part in ("question", "minigame", "jboard", "event"):
             sub = snap.get(part)
             if sub is None:
                 continue
@@ -1448,6 +1585,16 @@ class Table:
                     self.fail(f"minigame secret {key!r} is on the wire")
             if snap["minigame"] is None:
                 self.fail("an open minigame is missing from the snapshot")
+        ev = snap.get("event")
+        if ev and ev.get("table"):
+            act = g.ev["active"]
+            if ev["table"].get("mine_in") and viewer not in act["table"]["answers"]:
+                self.fail("a table answer is shown as mine to someone who gave none")
+            for path, k, v in _walk_keys(ev):
+                if k == "answers":
+                    self.fail(f"sealed table answers on the wire (viewer {viewer!r})")
+        if ev and ev.get("game") and "secret" in ev["game"]:
+            self.fail("an event game's secret is on the wire")
         if ph == "jchoose":
             jb = snap["jboard"]
             if not jb or any(set(c) - {"category", "value"} for c in jb["cells"]):
@@ -1470,7 +1617,6 @@ class Table:
             "gate_walk": g.gate_walk, "die": g.die, "flash": g.flash,
             "_pending_jeopardy": getattr(g, "_pending_jeopardy", None),
             "_pending_puzzle": getattr(g, "_pending_puzzle", None),
-            "dodge_deadline": g.dodge_deadline,
             "jchoose_deadline": g.jchoose_deadline,
             "question_deadline": g.question_deadline,
         }
@@ -1506,6 +1652,9 @@ class Table:
         self._earned.clear()
         self.pending_gate = None
         self._last_battle = None
+        self._fight = None
+        self._tried.clear()
+        self._ev_fired, self._ev_counts = 0, {}
         self.rematches += 1
         self.check_fresh(old)
 
@@ -1529,7 +1678,21 @@ class Table:
                 self.stats["sword_fights"] += 1
             elif node.get("elite"):
                 self.stats["elite_fights"] += 1
+        self._watch_fight(b)
         self._last_battle = b
+        fired = sum(g.ev["fired"].values())
+        if fired > self._ev_fired:
+            for eid, n in g.ev["fired"].items():
+                k = n - self._ev_counts.get(eid, 0)
+                if k > 0:
+                    ev = EV.EVENTS_BY_ID[eid]
+                    self.stats["events"] += k
+                    self.stats[f"events_{ev['kind']}"] += k
+                    self.stats[f"events_{ev['stage']}"] += k
+                    if ev.get("world"):
+                        self.stats["events_world"] += k
+            self._ev_counts = dict(g.ev["fired"])
+        self._ev_fired = fired
         if self.first_three is None and self.rematches == 0 and not self.granted:
             top = max(p.banked for p in g.players)
             if top >= 1 and self.first_seal is None:
@@ -1544,6 +1707,55 @@ class Table:
                     self.stats["boss_wins"] += 1
                     self.stats[f"boss_wins_risen{min(3, before)}"] += 1
                 self._boss_ctx = None
+
+    def _watch_fight(self, b):
+        """Per-fight combat report: exchanges per fight, and how often a
+        captain's FIRST attempt at a trial (each realm boss, the Warden) wins."""
+        g = self.g
+        f = self._fight
+        if f and g.phase == "reveal" and g.reveal is not f["rv"] \
+                and (g.reveal or {}).get("kind") == "battle":
+            f["rv"] = g.reveal
+            f["ex"] += 1
+        if f and b is not f["b"]:
+            node = g.board.nodes.get(f["nid"])
+            p = g.player_by_pid(f["pid"])
+            if f["kind"] == "boss":
+                won = node is not None and f["pid"] in node.get("defeated", [])
+            elif f["kind"] == "warden":
+                won = g.winner == f["pid"]
+            else:
+                won = (self.stats["shipwrecks"] == f["wrecks"] and node is not None
+                       and g.board.alive_monster(f["nid"]) is None)
+            k = f["kind"]
+            self.stats[f"fx_{k}_n"] += 1
+            self.stats[f"fx_{k}_ex"] += f["ex"]
+            self.stats[f"fx_{k}_won"] += bool(won)
+            if f["first"]:
+                self.stats[f"fx_{k}_first_n"] += 1
+                self.stats[f"fx_{k}_first_won"] += bool(won)
+                if not f["eased"]:
+                    self.stats[f"fx_{k}_fresh_n"] += 1
+                    self.stats[f"fx_{k}_fresh_won"] += bool(won)
+            if k == "pack" and p is not None and won:
+                self.stats["fx_pack_hull_lost"] += max(0, f["hull"] - p.hull)
+            self._fight = None
+        if b is not None and self._fight is None and not b.get("sphinx"):
+            node = g.board.nodes[b["node"]]
+            kind = ("boss" if node["type"] == "lair" else
+                    "warden" if node["type"] == "pharos" else "pack")
+            key = (g.current.pid, b["node"])
+            first = key not in self._tried
+            self._tried.add(key)
+            if first and kind != "pack":
+                cp = g.current
+                self.stats[f"fx_{kind}_ready"] += bots.readiness(cp)
+                self.stats[f"fx_{kind}_maxhull"] += cp.max_hull
+            self._fight = {"b": b, "kind": kind, "nid": b["node"], "pid": g.current.pid,
+                           "first": first and kind != "pack", "ex": 0, "rv": None,
+                           "wrecks": self.stats["shipwrecks"], "hull": g.current.hull,
+                           "eased": bool((g.board.nodes[b["node"]].get("monster") or {})
+                                         .get("escalation"))}
 
     # ── the main loop ────────────────────────────────────────────────────────
     def _ledger(self, actor: str, purse: dict, wrecks: int):
@@ -1593,6 +1805,9 @@ class Table:
                 self.fail("SOFTLOCK: the reveal did not advance")
         elif ph == "question" and g.question is None:
             self.deliver_question()
+        elif ph in ("event", "minigame") and g.ev["active"] and self._ev_others_pending() \
+                and (self.mode == "bots" or self.rng.random() < 0.6):
+            self.ev_table_round()
         elif self.policy.get(g.current.pid) == "bot":
             self.act_bot()
         else:
@@ -1614,7 +1829,7 @@ class Table:
         result["replay"] = (f"python3 tools/sim.py --games 1 --seed {self.seed} "
                             f"--mode {self.mode} --players {self.seats} "
                             f"--max-turns {self.max_turns}"
-                            + (" --skill sharp" if self.mode == "bots" and SKILL == "sharp"
+                            + (f" --skill {SKILL}" if self.mode == "bots" and SKILL != "bots"
                                else "") + " --verbose")
         try:
             self._seat()
@@ -1795,7 +2010,29 @@ def summarize(results: list[dict]) -> str:
                      f"other {per('in_other'):.1f}  |  out: market {per('out_shop'):.1f} · "
                      f"repairs {per('out_repair'):.1f} · flee {per('out_flee'):.1f} · "
                      f"shipwreck {per('out_shipwreck'):.1f} · other {per('out_other'):.1f}")
-            L.append("  trial bosses by how many rivals beat them first (they rise harder): "
+            def rate(a, b):
+                return f"{tot[a]}/{tot[b]} ({100 * tot[a] / max(1, tot[b]):.0f}%)"
+
+            def avg(a, b):
+                return f"{tot[a] / max(1, tot[b]):.1f}"
+            L.append(f"  fights — realm boss first try {rate('fx_boss_first_won', 'fx_boss_first_n')}"
+                     f" (unweakened {rate('fx_boss_fresh_won', 'fx_boss_fresh_n')})"
+                     f", every try {rate('fx_boss_won', 'fx_boss_n')}, "
+                     f"{avg('fx_boss_ex', 'fx_boss_n')} exchanges · Warden first try "
+                     f"{rate('fx_warden_first_won', 'fx_warden_first_n')}, every try "
+                     f"{rate('fx_warden_won', 'fx_warden_n')}, "
+                     f"{avg('fx_warden_ex', 'fx_warden_n')} exchanges · packs won "
+                     f"{rate('fx_pack_won', 'fx_pack_n')}, {avg('fx_pack_ex', 'fx_pack_n')} "
+                     f"exchanges, {avg('fx_pack_hull_lost', 'fx_pack_won')} Health lost per win")
+            L.append(f"  kit at a first try (bots.readiness / max Health): realm boss "
+                     f"{avg('fx_boss_ready', 'fx_boss_first_n')} / "
+                     f"{avg('fx_boss_maxhull', 'fx_boss_first_n')} · Warden "
+                     f"{avg('fx_warden_ready', 'fx_warden_first_n')} / "
+                     f"{avg('fx_warden_maxhull', 'fx_warden_first_n')}")
+            L.append(f"  turns per captain to the win (median, all tables): "
+                     f"{cell(med([r['turns'] / r['players'] for r in fin]) if fin else None, 4)}"
+                     f" · shipwrecks per captain {sum(r['stats'].get('shipwrecks', 0) for r in rs) / max(1, sum(r['players'] for r in rs)):.1f}")
+            L.append("  trial bosses by how many rivals beat them first (they rise WEAKER — catch-up): "
                      + " · ".join(
                          f"{lab} {tot[f'boss_wins_risen{k}']}/{tot[f'boss_fights_risen{k}']}"
                          for k, lab in ((0, "fresh"), (1, "once"), (2, "twice"), (3, "3+"))))
@@ -1818,6 +2055,12 @@ def summarize(results: list[dict]) -> str:
             if missing:
                 L.append(f"  PHASES NEVER REACHED: {sorted(missing)}")
         L.append(f"  longest single turn: {max(r['max_turn_actions'] for r in rs)} actions")
+        turns_m = sum(r["turns"] for r in rs) or 1
+        L.append(f"  events: {tot['events']:,} ({100 * tot['events'] / turns_m:.1f} per 100 turns"
+                 f" — hub {tot['events_hub']:,}, vale {tot['events_autumn']:,}) · by kind: "
+                 + ", ".join(f"{k} {tot['events_' + k]:,}"
+                             for k in ("instant", "choice", "game", "table", "world"))
+                 + f" · actions per turn {sum(r['actions'] for r in rs) / turns_m:.2f}")
     if fails:
         L.append("")
         L.append(f"══ {len(fails)} INVARIANT FAILURE(S) ══")
@@ -1839,104 +2082,168 @@ def summarize(results: list[dict]) -> str:
 
 
 # ── the stance study ─────────────────────────────────────────────────────────
-def stance_study(fights: int, seed: int) -> str:
-    """Does one stance embarrass another against a boss? Fresh captain
-    (6 Health, no gear) vs a fresh realm boss, one stance only, at each
-    philosopher's accuracy; then the Warden with the endgame options."""
-    rng = random.Random(seed)
-    lines = ["stance study — win rate (avg exchanges) over "
-             f"{fights} fights each; one stance only, no consumables; philosophers "
-             "dodge at the server's bot odds (never a perfect core read)"]
+# Kits a captain can carry into a fight: (label, max Health, planks, aegis
+# charms, upgrades). "prepared" is what bots.readiness() asks of a realm
+# trial; "endgame" a captain who has hauled fittings home for the Warden.
+KITS = {
+    "bare":     ("6 Health, empty hold", 6, 0, 0, ()),
+    "prepared": ("8 Health, 1 planks, 1 aegis charm", 8, 1, 1, ()),
+    "stocked":  ("11 Health, 2 planks, 1 aegis charm", 11, 2, 1, ()),
+    "endgame":  ("13 Health, 2 planks, 2 aegis, trident+ram", 13, 2, 2, ("trident", "ram")),
+}
 
-    def table(where):
+
+def study_fight(g, pid, nid, skill, policy, kit, rng, risen=0, extra=(),
+                pack=None):
+    """One fight to the end. ``policy`` is 'bot' (bots.decide_battle) or a
+    fixed stance ('attack' | 'magic' | 'sword'), optionally suffixed '!' to
+    never BRACE. Planks are used as the bot would. Returns (won, exchanges,
+    health lost, braces)."""
+    _label, hull, planks, aegis, ups = KITS[kit]
+    p = g.player_by_pid(pid)
+    node = g.board.nodes[nid]
+    p.reset()
+    p.max_hull = p.hull = hull
+    p.items = {"planks": planks, "aegis_charm": aegis}
+    p.upgrades = list(ups) + list(extra)
+    p.scrolls = 0
+    g.winner = None
+    g._start_turn()
+    node.pop("falls", None)            # every study fight is a FIRST try
+    if pack is not None:
+        node["monster"] = pack(g)
+        g.battle = {"node": nid, "stance": None, "round": 0, "charging": False,
+                    "ambush": False, "used_items": [], "first_hit_taken": False}
+        p.prev_node, p.node = p.node, nid
+        g._arm_battle()
+        g._bump("battle")
+    elif nid == "pharos":
+        p.banked = RELICS_TO_WIN
+        g.pharos_open = True
+        g.board.reset_warden()
+        p.prev_node, p.node = p.node, nid
+        g._land(p, nid)
+        g.enter_pharos(pid)
+    else:
+        node["defeated"][:] = [f"rival{i}" for i in range(risen)]
+        node["monster"] = None
+        p.prev_node, p.node = p.node, nid
+        g._land(p, nid)
+    rounds = braces = 0
+    start = last = p.hull + PLANKS_HEAL_OF(p)
+    fixed = policy.rstrip("!")
+    while g.phase not in ("trade", "finished", "roll") and rounds < 400:
+        if g.phase == "battle":
+            if policy == "bot":
+                choice = bots.decide_battle(g, pid, rng, skill)
+            else:
+                choice = fixed
+                if p.items.get("planks", 0) and p.hull <= p.max_hull - G.PLANKS_HEAL \
+                        and p.hull <= 4:
+                    choice = "planks"
+                elif g.battle.get("charging") and not policy.endswith("!"):
+                    choice = "guard"
+            if choice == "planks":
+                g.use_item_charm(pid, "planks")
+                continue
+            if choice == "flee":
+                choice = "attack"            # the study fights to the end
+            rounds += 1
+            braces += choice == "guard"
+            g._force_mode = "mc"
+            g.stance(pid, choice, 0, "mc" if choice == "heal" else None)
+        elif g.phase == "question":
+            ok = rng.random() < skill.accuracy(g.qctx["tier"])
+            g.set_question({"text": "?", "options": ["a", "b", "c", "d"],
+                            "correct": 0})
+            g.answer(pid, 0 if ok else 1)
+            if g.phase == "reveal" and not g.reveal.get("player_dead"):
+                last = p.hull + PLANKS_HEAL_OF(p)    # before a win carries you home
+        elif g.phase == "reveal":
+            g.advance_after_reveal()
+        else:
+            break
+    if pack is not None:
+        won = g.board.alive_monster(nid) is None and p.node == nid
+    else:
+        won = (g.winner == pid) if nid == "pharos" else p.banked > 0
+    lost = start - last if won else start
+    return won, rounds, lost, braces
+
+
+def PLANKS_HEAL_OF(p):            # health still in the hold
+    return G.PLANKS_HEAL * p.items.get("planks", 0)
+
+
+def stance_study(fights: int, seed: int) -> str:
+    """Does one stance embarrass another? Win rate, exchanges per fight and
+    braces per fight for fixed stances and the bot policy, by kit, against a
+    realm boss (fresh and eased), the Warden, and realm packs."""
+    rng = random.Random(seed)
+    lines = [f"stance study — {fights} fights a row: win % · avg exchanges · "
+             "avg braces (fixed stances BRACE on a telegraphed heavy unless "
+             "marked '!'; planks used at ≤4 Health)"]
+
+    def table():
         g = Game("STUDY", seed=rng.randrange(2 ** 31))
         pid = g.add_player("a", "A").pid
         g.start(pid)
-        nid = "pharos" if where == "pharos" else next(
-            n for n in g.board.lairs() if g.board.nodes[n]["region"] != "autumn")
-        return g, pid, nid
+        return g, pid
 
-    def fight(g, pid, nid, skill, stance, hull=6, upgrades=(), core=0.0, risen=0):
-        p = g.player_by_pid(pid)
-        node = g.board.nodes[nid]
-        # a fresh captain, a fresh guardian
-        p.reset()
-        p.max_hull = p.hull = hull
-        p.upgrades = list(upgrades)
-        g.winner = None
-        g._start_turn()
-        if nid == "pharos":
-            p.banked = RELICS_TO_WIN
-            g.pharos_open = True
-            g.board.reset_warden()
-        else:
-            node["defeated"][:] = [f"rival{i}" for i in range(risen)]
-            node["monster"] = None
-        p.prev_node, p.node = p.node, nid
-        g._land(p, nid)
-        if g.phase == "pharos":
-            g.enter_pharos(pid)
-        rounds = 0
-        while g.phase not in ("trade", "finished") and rounds < 400:
-            if g.phase == "battle":
-                rounds += 1
-                g._force_mode = "mc"
-                g.stance(pid, stance)
-            elif g.phase == "question":
-                ok = rng.random() < skill.accuracy(g.qctx["tier"])
-                g.set_question({"text": "?", "options": ["a", "b", "c", "d"],
-                                "correct": 0})
-                g.answer(pid, 0 if ok else 1)
-            elif g.phase == "reveal":
-                g.advance_after_reveal()
-            elif g.phase == "dodge":
-                hit = rng.random() < 0.25 + skill.t1 * 0.4
-                g.dodge(pid, hit, hit and rng.random() < core)
-            else:
-                break
-        won = (g.winner == pid) if nid == "pharos" else p.banked > 0
-        return won, rounds
+    def row(label, skill, policy, where, kit, **kw):
+        g, pid = table()
+        nid = where
+        if where == "lair":
+            nid = next(n for n in g.board.lairs() if g.board.nodes[n]["region"] != "autumn")
+        elif where == "sea":
+            nid = next(n for n, d in g.board.nodes.items()
+                       if d["type"] == "sea" and not d.get("region") and not d.get("sword"))
+        res = [study_fight(g, pid, nid, skill, policy, kit, rng, **kw)
+               for _ in range(fights)]
+        wins = [r for r in res if r[0]]
+        w = 100 * len(wins) / fights
+        lost = _mean(r[2] for r in wins) if wins else float("nan")
+        return (f"{label:<30} {w:5.1f}%  {_mean(r[1] for r in res):4.1f} ex  "
+                f"{_mean(r[3] for r in res):3.1f} br  (won: −{lost:.1f} hp)")
 
-    def row(label, skill, stance, where, **kw):
-        g, pid, nid = table(where)
-        res = [fight(g, pid, nid, skill, stance, **kw) for _ in range(fights)]
-        wins = sum(1 for w, _ in res if w)
-        return f"{label:<34} {100 * wins / fights:5.1f}%  ({_mean(r for _, r in res):4.1f})"
+    def pack_of(unit_hp, power, count, name="Pack"):
+        def mk(g):
+            return {"name": name, "tier": 3, "model": "wolf", "domain": "ares",
+                    "enemies": [{"name": f"Unit {i}", "hp": unit_hp, "max_hp": unit_hp,
+                                 "power": power, "model": "wolf"} for i in range(count)]}
+        return mk
 
-    for skill in (bots.PHILOSOPHERS[0], bots.PHILOSOPHERS[2], bots.PHILOSOPHERS[5]):
+    sharp, casual = SHARP, CASUAL
+    for skill in (sharp, casual, bots.PHILOSOPHERS[0], bots.PHILOSOPHERS[5]):
         lines.append(f"\n{skill.name} (tier I/II/III accuracy "
                      f"{skill.t1:.2f}/{skill.t2:.2f}/{skill.t3:.2f})")
-        lines.append("  realm boss (12 hp), 6 Health:")
-        lines.append("    " + row("STRIKE only", skill, "attack", "lair"))
-        lines.append("    " + row("MAGIC only", skill, "magic", "lair"))
-        lines.append("    " + row("STRIKE + both rams (4 dmg)", skill, "attack", "lair",
-                                  upgrades=("ram", "titan_ram")))
-        lines.append("    " + row("MAGIC + trident (4 dmg)", skill, "magic", "lair",
-                                  upgrades=("trident",)))
-        lines.append("  realm boss, 13 Health (plates + fleece):")
-        lines.append("    " + row("STRIKE only", skill, "attack", "lair", hull=13))
-        lines.append("    " + row("MAGIC only", skill, "magic", "lair", hull=13))
-        lines.append("  the Warden (24 hp), 13 Health:")
-        lines.append("    " + row("STRIKE only (chips 1)", skill, "attack", "pharos", hull=13))
-        lines.append("    " + row("MAGIC only", skill, "magic", "pharos", hull=13))
-        lines.append("    " + row("SWORD only", skill, "sword", "pharos", hull=13,
-                                  upgrades=("sword_of_damocles",)))
-    sharp = bots.Skill("A sharp human (.9/.8/.65, 35% core dodges)", 0.9, 0.8, 0.65)
-    lines.append(f"\n{sharp.name}")
-    lines.append("    " + row("boss · STRIKE only", sharp, "attack", "lair", core=0.35))
-    lines.append("    " + row("boss · MAGIC only", sharp, "magic", "lair", core=0.35))
-    lines.append("    " + row("boss · MAGIC, 13 Health", sharp, "magic", "lair",
-                              hull=13, core=0.35))
-    lines.append("    " + row("boss risen once (17 hp, hits 3)", sharp, "magic", "lair",
-                              hull=13, core=0.35, risen=1))
-    lines.append("    " + row("boss risen twice (22 hp, hits 4)", sharp, "magic", "lair",
-                              hull=13, core=0.35, risen=2))
-    lines.append("    " + row("boss risen 5× (37 hp, hits 4)", sharp, "magic", "lair",
-                              hull=13, core=0.35, risen=5))
-    lines.append("    " + row("Warden · MAGIC, 13 Health", sharp, "magic", "pharos",
-                              hull=13, core=0.35))
-    lines.append("    " + row("Warden · SWORD, 13 Health", sharp, "sword", "pharos",
-                              hull=13, core=0.35, upgrades=("sword_of_damocles",)))
+        _n, bhp, bpow, _t = next(iter(REGION_POOL.values()))["boss"]
+        lines.append(f"  realm boss ({bhp} HP, hits {bpow} / heavy "
+                     f"{min(G.HEAVY_CAP, bpow * G.HEAVY_MULT)}):")
+        for kit in ("bare", "prepared", "stocked"):
+            lines.append(f"   {KITS[kit][0]}:")
+            for lab, pol in (("STRIKE (+brace)", "attack"), ("MAGIC (+brace)", "magic"),
+                             ("STRIKE, never brace", "attack!"),
+                             ("MAGIC, never brace", "magic!"), ("bot policy", "bot")):
+                lines.append("     " + row(lab, skill, pol, "lair", kit))
+        lines.append("  boss already felled by rivals (catch-up), prepared:")
+        for r in (1, 2):
+            lines.append("     " + row(f"felled ×{r} · bot policy", skill, "bot", "lair",
+                                       "prepared", risen=r))
+        lines.append(f"  the Warden ({WARDEN[1]} HP, hits {WARDEN[2]} / heavy "
+                     f"{min(G.HEAVY_CAP, WARDEN[2] * G.HEAVY_MULT)}):")
+        for kit in ("bare", "stocked", "endgame"):
+            lines.append("     " + row(f"{kit} · bot policy", skill, "bot", "pharos", kit))
+            lines.append("     " + row(f"{kit} · +Sword · bot policy", skill, "bot",
+                                       "pharos", kit, extra=("sword_of_damocles",)))
+        lines.append("  packs, 6 Health, empty hold:")
+        for lab, mk in (("3 × 1-HP, power 1", pack_of(1, 1, 3)),
+                        ("2 × 2-HP, power 2", pack_of(2, 2, 2)),
+                        ("3 × 3-HP, power 2 (deep)", pack_of(3, 2, 3)),
+                        ("2 × 5-HP, power 2 (brutes)", pack_of(5, 2, 2))):
+            for pl, pol in (("STRIKE", "attack"), ("MAGIC", "magic"), ("bot", "bot")):
+                lines.append("     " + row(f"{lab} · {pl}", skill, pol, "sea", "bare",
+                                           pack=mk))
     return "\n".join(lines)
 
 
@@ -1950,9 +2257,9 @@ def main(argv=None) -> int:
     ap.add_argument("--max-turns", type=int, default=None,
                     help="turn cap per game (default: 200·players+300 for bots, "
                          "160 for chaos)")
-    ap.add_argument("--skill", choices=["bots", "sharp"], default="bots",
+    ap.add_argument("--skill", choices=["bots", "sharp", "casual"], default="bots",
                     help="who plays the bots tables: the server's philosophers, or "
-                         "the same routing with a strong human's answers and dodges")
+                         "the same routing with a strong / an ordinary human's answers")
     ap.add_argument("--study", choices=["stances"], default=None)
     ap.add_argument("--fights", type=int, default=400)
     ap.add_argument("--verbose", action="store_true",

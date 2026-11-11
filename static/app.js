@@ -16,9 +16,11 @@
  *   beat timer is cancelled when a new reveal/phase arrives.
  */
 import { createWorld } from './scene.js';
+import { createChart } from './chart.js';
 import { DOMAIN_COLORS, REALM_INFO } from './themes.js';
 import { audio } from './audio.js';
 import { esc, stripEmoji, icon, glyphSVG } from './ui.js';
+import { initEvents, renderEvents, eventMinigameTitle } from './events.js';
 
 const $ = (id) => document.getElementById(id);
 
@@ -112,8 +114,8 @@ function resetTransient() {
 
 /* ── boot ───────────────────────────────────────────────────────────────── */
 let devUnlocked = false;
-world = createWorld($('world'), {
-  onNodeClick(nodeId, walkArrow) {
+/* a tap on a stop — in the 3D world or on the chart: sail / walk there */
+function tapNode(nodeId, walkArrow) {
     if (devUnlocked) { devTeleport(nodeId, false); return; }   // dev: click to jump
     if (!room || room.phase !== 'sail' || room.turn !== you) return;
     const trails = room.walk?.options || [];
@@ -135,7 +137,9 @@ world = createWorld($('world'), {
       audio.sfx.sail();
       send({ type: 'walk', node: nodeId });
     }
-  },
+}
+world = createWorld($('world'), {
+  onNodeClick: tapNode,
   onStageChange(stageId) {
     applyStage(stageId);
   },
@@ -166,6 +170,7 @@ world = createWorld($('world'), {
       introDismissed = true;
       localStorage.setItem('thalassa_intro', '1');
       $('modal').classList.add('hidden');
+      chart.close();                     // the tour owns the screen
     } else if (room) render();
   },
   onArrive() {
@@ -178,6 +183,21 @@ world = createWorld($('world'), {
     }
   },
 });
+
+/* the voyage chart (chart.js) — M / the chart button */
+const chart = createChart({
+  world,
+  getRoom: () => room,
+  getYou: () => you,
+  onPick: (nodeId, walkArrow) => tapNode(nodeId, walkArrow),
+  onToggle: (isOpen) => {
+    $('mapBtn').classList.toggle('on', isOpen);
+    if (!isOpen) document.body.classList.remove('shop-aside');   // the stall slides back in
+  },
+  isDev: () => devUnlocked,
+  sfx: audio.sfx,
+});
+window.__chart = chart;
 
 /* ── dev teleport panel — double-tap the T in THALASSA, enter code 783 ─────
  * Unlocks a floating bar to jump between regions, and turns every node click
@@ -314,17 +334,7 @@ function lockDev() {
       }
     });
   }
-  // once unlocked: open the aerial chart (M) and click any island to jump to it
-  const mapBox = document.getElementById('mapIcons');
-  if (mapBox) {
-    mapBox.addEventListener('click', (e) => {
-      if (!devUnlocked) return;
-      const chip = e.target.closest('.mapchip');
-      if (!chip || !chip.dataset.key) return;
-      devTeleport(chip.dataset.key, false);
-      toggleMap(false);
-    });
-  }
+  // once unlocked, any stop tapped on the chart (M) is a jump (chart.js → tapNode)
 })();
 
 // the living sea behind the title card — deferred so every module-level
@@ -377,12 +387,10 @@ $('resetBtn').onclick = () => {
 $('nameInput').addEventListener('keydown', (e) => { if (e.key === 'Enter') $('joinBtn').click(); });
 $('startBtn').onclick = () => send({ type: 'start' });
 $('addBotBtn').onclick = () => send({ type: 'add_bot' });
-$('mapBtn').onclick = () => toggleMap(true);
+$('mapBtn').onclick = () => toggleMap();
 document.addEventListener('keydown', (e) => {
   if (e.key === 'Escape' && world.tourActive?.()) world.endTour();
-  else if (e.key === 'Escape' && document.getElementById('valeChart')) {
-    document.getElementById('valeChart').remove();   // the '?' card obeys Esc too
-  } else if (e.key === 'Escape' && mapOpen) toggleMap(false);
+  else if (e.key === 'Escape' && chart.isOpen()) toggleMap(false);
   else if ((e.key === 'm' || e.key === 'M') && room && room.phase !== 'lobby'
            && !/^(INPUT|TEXTAREA)$/.test(document.activeElement?.tagName || '')) toggleMap();
 });
@@ -456,6 +464,7 @@ function setConnVeil(on) {
 }
 
 function send(obj) { if (ws?.readyState === 1) ws.send(JSON.stringify(obj)); }
+initEvents(send);                            // events.js mounts its cards + HUD strip
 window.__send = send;                 // debug/testing handles
 window.__room = null;
 window.__you = null;
@@ -828,7 +837,7 @@ function announceBattle(b) {
     // door is open, so go straight to naming the foe waiting within
     showAnnounce('The Dark Presence', 'The final trial', '#a36cff');
   } else if (b.is_lair) {
-    const sub = b.escalation > 0 ? `Risen ×${b.escalation} — a rival came before you` : 'Your trial';
+    const sub = b.escalation > 0 ? `Weakened ×${b.escalation} — worn down before you came` : 'Your trial';
     showAnnounce(b.name, sub, '#ffb454');
   } else if (b.ambush) {
     showAnnounce('Ambush!', b.name, '#e0553a');
@@ -862,25 +871,17 @@ function reactAudio(prev, next) {
     const rv = next.reveal;
     revealCardDropped = false;
     if (rv.kind === 'battle') {
-      const enemyTurn = !!rv.enemy_phase?.enemy_turn;
-      if (enemyTurn) {
-        // the ENEMY-TURN reveal: no card, no verdict chime — the foe has
-        // wound up (the dodge beat just passed) and the blow lands now
-        revealCardDropped = true;
-        renderQuestion(); renderBattle();
-        playBattleBeats(rv);
-      } else {
-        // 1) the VERDICT: right or wrong, shown plainly on its own…
-        if (rv.was_correct) audio.sfx.correct(); else audio.sfx.wrong();
-        if (rv.challenge === 'puzzle') {
-          revealCardDropped = true;           // puzzle rounds have no card
-          setBTurn(rv.was_correct
-            ? `${icon('laurel', 16)} <strong>PUZZLE SOLVED!</strong>`
-            : `${icon('skull', 16)} the puzzle stands — <strong>you falter…</strong>`);
-        }
-        // 2) …then half a beat later the card clears and YOUR move plays
-        beat(500, () => { revealCardDropped = true; renderQuestion(); renderBattle(); playBattleBeats(rv); });
+      // 1) the VERDICT: right or wrong, shown plainly on its own…
+      if (rv.was_correct) audio.sfx.correct(); else audio.sfx.wrong();
+      if (rv.challenge === 'puzzle') {
+        revealCardDropped = true;           // puzzle rounds have no card
+        setBTurn(rv.was_correct
+          ? `${icon('laurel', 16)} <strong>PUZZLE SOLVED!</strong>`
+          : `${icon('skull', 16)} the puzzle stands — <strong>you falter…</strong>`);
       }
+      // 2) …then half a beat later the card clears, YOUR move plays, and
+      // the foe's counter follows (see playBattleBeats)
+      beat(500, () => { revealCardDropped = true; renderQuestion(); renderBattle(); playBattleBeats(rv); });
     } else if (rv.was_correct) audio.sfx.correct();
     else audio.sfx.wrong();
   }
@@ -913,7 +914,7 @@ function reactAudio(prev, next) {
   if (next.phase !== 'finished') sfxAnnouncedWin = false;
 
   /* soundtrack scenes: lobby / battle / puzzle / endgame / per-realm open sea */
-  const battleish = next.phase === 'battle' || next.phase === 'dodge' ||
+  const battleish = next.phase === 'battle' ||
     next.phase === 'jchoose' ||
     (next.phase === 'question' && next.question?.kind === 'battle') ||
     (next.phase === 'minigame' && (next.minigame?.battle || next.minigame?.sphinx)) ||
@@ -941,7 +942,9 @@ function reactAudio(prev, next) {
     // finished swapping in.
     const stg = world.currentStage?.();
     const meP = next.players?.find((p) => p.pid === you);
-    const myRegion = meP && nodeOf(meP)?.region;
+    // …except mid-crossing: the realm's theme starts WITH the reveal through
+    // the pass (onStageChange), not when the server carries you through
+    const myRegion = meP && !world.crossing?.() && nodeOf(meP)?.region;
     const realm = REALM_MUSIC.has(myRegion) ? myRegion
       : REALM_MUSIC.has(stg) ? stg
       : (REALM_MUSIC.has(curRealm) ? curRealm : null);
@@ -998,239 +1001,130 @@ function setBTurn(text) {
   if (el) el.innerHTML = text;
 }
 
-/* A battle exchange now plays across TWO reveals with the DODGE beat wedged
- * between them, so it never blurs together:
- *   1) YOUR MOVE reveal — the verdict (right/wrong) and your strike, shown
- *      plainly. If a counter is coming, ep.pending is set and we STOP here.
- *   2) …the foe winds up → the DODGE action command → the ENEMY-TURN reveal
- *      (ep.enemy_turn), where the blow actually lands.
- * Backfires and clean evades have no counter, so they still play in one go. */
+/* One battle exchange plays in ONE reveal: the verdict (right / wrong), YOUR
+ * move, then — while the foe still stands — its counter. Defence is decided
+ * by the answer you gave, never by reflexes: a right answer BLUNTS the blow
+ * (ep.blunted), a right BRACE or mending hymn turns it aside (ep.braced), an
+ * aegis charm eats it (ep.blocked); a wrong answer lets it land in full. */
 function playBattleBeats(rv) {
   const ep = rv.enemy_phase || {};
-  // if a blow is about to land on the hero, hold the hearts at the pre-hit
-  // count now (the server hull is already docked) and drop them when it hits
+  // the server hull is already docked: hold the hearts at the pre-hit count
+  // and drop them when the blow visibly connects
   const fighter = room && room.players.find((p) => p.pid === room.turn);
-  const heroDmg = ep.dmg > 0 ? ep.dmg : 0;
+  const heroDmg = (ep.dmg > 0 ? ep.dmg : 0) + (ep.backfire_dmg > 0 ? ep.backfire_dmg : 0);
   bHullShown = (heroDmg && fighter) ? fighter.hull + heroDmg : null;
   const landHit = () => { bHullShown = null; refreshBHearts(); renderPlayers(); };
   refreshBHearts();
   const idx = ep.target_idx ?? 0;
-  const stance = (room?.turn === you && myStance)
-    ? myStance
-    : (ep.dealt >= 3 ? 'magic' : 'attack');
+  const stance = ep.stance
+    || ((room?.turn === you && myStance) ? myStance : (ep.dealt >= 3 ? 'magic' : 'attack'));
   const foe = esc(ep.attacker || 'the beast');
+  const blow = ep.heavy ? '<strong>HEAVY BLOW</strong>' : 'blow';
   const blowText = ep.blocked
-    ? `${foe} strikes — <strong>your aegis turns it aside!</strong>`
-    : ep.dodged
-      ? `${foe} ${ep.heavy ? 'swings a <strong>HEAVY BLOW</strong>' : 'strikes'} — <strong>you twist aside!</strong> `
-        + (ep.dmg > 0 ? `Only <strong>${fmtHp(ep.dmg)}</strong> gets through`
-                      : '<strong>Nothing</strong> gets through!')
-      : `${foe} ${ep.heavy ? 'lands a <strong>HEAVY BLOW</strong>' : 'strikes'} for <strong>${fmtHp(ep.dmg)}</strong>!`;
+    ? `${foe}'s ${blow} — <strong>your aegis charm turns it aside!</strong>`
+    : ep.braced && stance === 'guard'
+      ? `${foe}'s ${blow} — <strong>you read it and turn it aside!</strong>`
+      : ep.braced
+        ? `${foe}'s ${blow} — <strong>the hymn wards it off!</strong>`
+        : ep.blunted
+          ? `${foe}'s ${blow} — <strong>your guard holds:</strong> only <strong>${fmtHp(ep.dmg)}</strong> gets through`
+          : `${foe} ${ep.heavy ? 'lands a <strong>HEAVY BLOW</strong>' : 'strikes'} for <strong>${fmtHp(ep.dmg)}</strong>!`;
 
-  /* ── the ENEMY-TURN reveal: the wound-up blow lands (the dodge just passed) ── */
-  if (ep.enemy_turn) {
-    bEnemyFrozen = false;
-    setBTurn(`ENEMY MOVE — ${blowText}`);
-    beat(150, () => {
+  /* the foe's answer, `at` ms into the reveal */
+  const counter = (at) => {
+    if (!ep.counter) return;
+    beat(at, () => {
+      setBTurn(`ENEMY MOVE — ${blowText}`);
       if (ep.dmg > 0) world.battlePlay('enemy_attack', { dmg: ep.dmg, heavy: ep.heavy });
-      else world.battlePlay('enemy_miss');
+      else world.battlePlay('guard_block', { heavy: ep.heavy });   // turned aside
     });
-    beat(500, () => {
+    beat(at + 380, () => {
       if (ep.dmg > 0) {
         audio.sfx.hurt();
         if (ep.heavy) audio.sfx.roar();
         flashScreen('red');
         shake(ep.heavy);
       } else {
-        audio.sfx.sail();               // a perfect read / block — the blow whiffs
+        audio.sfx.sail();                   // the blow glances off
       }
       landHit();
     });
     if (rv.battle_over && rv.player_dead) {
-      beat(1100, () => {
+      beat(at + 1000, () => {
         world.battlePlay('defeat');
         setBTurn(`${icon('skull', 16)} <strong>SHIPWRECK…</strong>`);
         showBattleEnd('death', 'The sea takes you back to your last haven.');
       });
-      return;
+    } else if (room?.battle?.charging) {
+      beat(at + 1250, () => { world.battlePlay('charge_telegraph'); audio.sfx.roar(); });
     }
-    if (room?.battle?.charging) {
-      beat(1300, () => { world.battlePlay('charge_telegraph'); audio.sfx.roar(); });
+  };
+  const victory = (at) => {
+    beat(at, () => audio.sfx.laurel());
+    beat(at + 400, () => { world.battlePlay('victory'); showBattleEnd('win'); });
+    beat(at + 1000, () => setBTurn(`${icon('laurel', 18)} <strong>VICTORY!</strong>`));
+  };
+  bEnemyFrozen = false;
+
+  if (stance === 'guard') {
+    /* BRACE — the heavy comes first; a right read turns it and drives it back */
+    setBTurn(rv.was_correct
+      ? `${icon('guard', 16)} YOUR MOVE — you <strong>brace</strong> for the heavy blow…`
+      : `${icon('guard', 16)} YOUR MOVE — you misread the wind-up…`);
+    if (rv.was_correct && ep.riposte > 0) {
+      // the riposte can be the killing blow: then the heavy never landed
+      const at = rv.battle_over ? 0 : 450;
+      if (!rv.battle_over) counter(at);
+      beat(at + 1150, () => {
+        audio.sfx.hit();
+        flashScreen('gold');
+        world.battlePlay('player_hit', { idx, dmg: ep.riposte, stance: 'attack' });
+        renderBattle();
+        setBTurn(`${icon('guard', 16)} …and <strong>drive it back</strong> for <strong>${ep.riposte}</strong>!`);
+        if (ep.killed) beat(500, () => world.battlePlay('enemy_die', { idx }));
+      });
+      if (rv.battle_over && !rv.player_dead) victory(at + 2000);
+    } else {
+      counter(600);
     }
     return;
   }
 
-  /* ── the YOUR-MOVE reveal ─────────────────────────────────────────────────── */
-  let chargeAt = 2200;
   if (rv.was_correct && ep.healed != null) {
-    /* HEAL — a mending hymn: NO strike/hit animation, just knit the hearts */
-    bEnemyFrozen = false;
+    /* HEAL — a mending hymn: NO strike animation, just knit the hearts */
     audio.sfx.correct?.();
     renderPlayers(); refreshBHearts(); renderBattle();
-    setBTurn(ep.healed > 0
-      ? `${icon('heart', 16)} YOUR MOVE — the hymn mends <strong>${ep.healed}</strong>!`
-      : `${icon('heart', 16)} YOUR MOVE — the hull is already whole`);
-    if (ep.pending) return;
-  } else if (rv.was_correct) {
-    /* STRIKE / MAGIC lands */
-    bEnemyFrozen = false;                   // your blow lands NOW
+    setBTurn(`${icon('heart', 16)} YOUR MOVE — the hymn mends <strong>${ep.healed}</strong>!`);
+    counter(1100);
+    return;
+  }
+  if (rv.was_correct) {
+    /* STRIKE / MAGIC / SWORD lands */
     audio.sfx.hit();
     flashScreen('gold');
     world.battlePlay('player_hit', { idx, dmg: ep.dealt, stance });
     renderBattle();
     setBTurn(`${icon(stance === 'magic' ? 'magic' : 'strike', 16)} YOUR MOVE — you hit for <strong>${ep.dealt}</strong>!`);
     if (ep.killed) beat(500, () => world.battlePlay('enemy_die', { idx }));
-
-    if (rv.battle_over && !rv.player_dead) {
-      beat(900, () => audio.sfx.laurel());
-      beat(1300, () => { world.battlePlay('victory'); showBattleEnd('win'); });
-      beat(1900, () => setBTurn(`${icon('laurel', 18)} <strong>VICTORY!</strong>`));
-      return;
-    }
-    // every foe now counters — the blow comes after the dodge beat (no evade)
-    if (ep.pending) return;
-  } else if (ep.backfire) {
-    bEnemyFrozen = false;
-    setBTurn(`${icon('magic', 16)} YOUR MOVE — the spell fizzles…`);
-    beat(900, () => {
-      setBTurn(`It <strong>backfires</strong> for <strong>${ep.dmg}</strong> damage!`);
+    if (rv.battle_over && !rv.player_dead) { victory(900); return; }
+    counter(1300);
+    return;
+  }
+  /* a miss — your move fails, and the foe's blow comes in full */
+  setBTurn(ep.healed != null ? `${icon('heart', 16)} YOUR MOVE — the hymn falters…`
+    : 'YOUR MOVE — the answer escapes you…');
+  if (ep.backfire) {
+    beat(600, () => {
+      setBTurn(`The spell <strong>backfires</strong> for <strong>${ep.backfire_dmg}</strong>!`);
       world.battlePlay('backfire');
       audio.sfx.hurt();
       flashScreen('red');
       shake();
-      landHit();
     });
-    chargeAt = 2200;
-  } else if (ep.pending) {
-    /* a miss — your move fails; the foe winds up for the dodge beat to come */
-    bEnemyFrozen = false;
-    setBTurn('YOUR MOVE — the answer escapes you…');
-    return;
+    counter(1500);
   } else {
-    /* a blocked-by-aegis / no-counter round: nothing lands */
-    bEnemyFrozen = false;
-    setBTurn('YOUR MOVE — the moment slips past…');
+    counter(700);
   }
-
-  if (room?.battle?.charging) {
-    beat(chargeAt, () => {
-      world.battlePlay('charge_telegraph');
-      audio.sfx.roar();
-    });
-  }
-}
-
-/* ── the DODGE action beat (Paper-Mario style) ──────────────────────────────
- * When a foe strikes back, the server holds the blow in the 'dodge' phase.
- * A ring collapses onto a target; tap (or hit space) EXACTLY as they meet
- * and half the blow is nulled. One attempt, tight window, no second chances
- * — miss the beat or freeze up and it lands full. */
-let dodgeState = null;   // {raf, t0, done, key}
-
-function renderDodge() {
-  const el = $('dodgeQte');
-  const d = room?.dodge;
-  const active = room.phase === 'dodge' && d;
-  if (!active) {
-    if (dodgeState) {
-      cancelAnimationFrame(dodgeState.raf);
-      removeEventListener('keydown', dodgeState.key);
-      dodgeState = null;
-    }
-    el.classList.add('hidden');
-    el.innerHTML = '';
-    return;
-  }
-  const mine = room.turn === you;
-  const key = `${d.deadline || d.attacker}`;       // one beat per incoming blow
-  if (dodgeState?.id === key) return;              // already running this beat
-  if (dodgeState) { cancelAnimationFrame(dodgeState.raf); removeEventListener('keydown', dodgeState.key); }
-  el.classList.remove('hidden');
-
-  // a big warning banner over the telegraphed heavy blow, so the dodge for
-  // the bigger hit never takes you by surprise
-  const warn = d.heavy
-    ? `<div class="dodgewarn heavy">${icon('guard', 15)} HEAVY BLOW</div>`
-    : '';
-
-  if (!mine) {
-    const fighter = room.players.find((p) => p.pid === room.turn);
-    el.innerHTML = warn + `<div class="dodgecap">${esc(d.attacker)} strikes — ` +
-      `${esc(fighter?.name || 'the captain')} reads the blow…</div>`;
-    dodgeState = { id: key, raf: 0, key: () => {} };
-    return;
-  }
-
-  // the timing wheel: a white clock hand sweeps the circle; a gold arc is
-  // shaded onto the ring at a random position each beat. Tap while the hand
-  // is inside the gold and the dodge lands. The arc is narrow and the hand
-  // is quick — not easy, and never in the same place twice.
-  const ARC = 42;                       // gold window, degrees (~135ms of hand)
-  const CORE = 15;                       // bright core inside the gold: a PERFECT
-  const PERIOD = 1150;                  // ms per revolution
-  const WINDUP = 450;                   // arc shown, hand held at 12 o'clock
-  const REVS = 2;                       // two laps, then the blow lands
-  const arcStart = 100 + Math.random() * 200;   // degrees clockwise from 12
-  const coreOff = (ARC - CORE) / 2;             // core centred in the gold band
-
-  el.innerHTML = warn +
-    `<div class="dodgecap">${esc(d.attacker)} strikes! <strong>DODGE!</strong></div>` +
-    '<div class="dodgewheel">' +
-    // gold band = twist aside for HALF; the pale core at its centre = a clean,
-    // FULL dodge (the only way clear of a boss's heavy blow)
-    `<div class="dq-arc" style="background:conic-gradient(from ${arcStart}deg,` +
-    'rgba(240,208,96,.92) 0deg,' +
-    `rgba(240,208,96,.92) ${coreOff}deg,` +
-    `rgba(255,248,214,1) ${coreOff}deg,` +
-    `rgba(255,248,214,1) ${coreOff + CORE}deg,` +
-    `rgba(240,208,96,.92) ${coreOff + CORE}deg,` +
-    `rgba(240,208,96,.92) ${ARC}deg,` +
-    `transparent ${ARC}deg)"></div>` +
-    '<div class="dq-hand"></div><div class="dq-verdict"></div></div>' +
-    `<div class="dodgehint">${d.heavy
-      ? 'nail the bright core to slip the heavy blow — the gold only softens it'
-      : 'tap when the hand crosses the gold'}</div>`;
-  const hand = el.querySelector('.dq-hand');
-  const verdict = el.querySelector('.dq-verdict');
-
-  const t0 = performance.now();
-  const angleAt = (t) =>                // degrees clockwise from 12 o'clock
-    Math.max(0, (t - t0 - WINDUP)) / PERIOD * 360;
-  const relAt = (a) => ((a - arcStart) % 360 + 360) % 360;
-  const inGold = (a) => relAt(a) <= ARC;
-  const inCore = (a) => { const r = relAt(a); return r >= coreOff && r <= coreOff + CORE; };
-  const st = { id: key, done: false, raf: 0, key: null };
-  const finish = (hit, full, label) => {
-    if (st.done) return;
-    st.done = true;
-    send({ type: 'dodge', hit, full });
-    verdict.textContent = label;
-    verdict.className = 'dq-verdict ' + (hit ? 'hit' : 'miss');
-    if (hit) audio.sfx.sail(); else audio.sfx.hurt();
-    el.classList.add(hit ? 'dodged' : 'flubbed');
-  };
-  const tick = (now) => {
-    if (st.done) return;
-    const a = angleAt(now);
-    hand.style.transform = `rotate(${(a % 360).toFixed(2)}deg)`;
-    hand.style.opacity = now - t0 < WINDUP ? '0.45' : '1';
-    if (a >= REVS * 360) { finish(false, false, 'TOO LATE'); return; }
-    st.raf = requestAnimationFrame(tick);
-  };
-  const attempt = () => {
-    if (st.done) return;
-    const t = performance.now();
-    if (t - t0 < WINDUP) return;                   // hand not moving yet
-    const a = angleAt(t);
-    const full = inCore(a);
-    const hit = inGold(a);
-    finish(hit, full, full ? 'PERFECT!' : hit ? 'DODGED!' : 'MISSED');
-  };
-  el.onpointerdown = (e) => { e.preventDefault(); attempt(); };
-  st.key = (e) => { if (e.code === 'Space') { e.preventDefault(); attempt(); } };
-  addEventListener('keydown', st.key);
-  st.raf = requestAnimationFrame(tick);
-  dodgeState = st;
 }
 
 /* ── the JEOPARDY! category board ───────────────────────────────────────────
@@ -1323,8 +1217,9 @@ function render() {
     $('uppanel').classList.add('hidden');
     $('shopPanel').classList.add('hidden');
     $('mapBtn').classList.add('hidden');
-    if (mapOpen) toggleMap(false);
+    toggleMap(false);
     document.body.classList.remove('battling');
+    renderEvents(room, you);                 // events.js: hide its cards
     renderLobby();
     return;
   }
@@ -1336,10 +1231,12 @@ function render() {
   maybeSwordClaim();
   renderItembelt();
   renderBattle();
-  renderDodge();
   renderJboard();
   renderQuestion();
   renderMinigame();
+  // events.js: event cards / games / table events, result card, HUD strip —
+  // held back while the acting ship is still sailing up to the stop
+  renderEvents(room, you, { hold: world.arriving() });
   renderModal();
   renderVictory();
   renderLog();
@@ -1508,135 +1405,40 @@ function renderTurnBanner() {
   }).join('<span class="toarrow">›</span>') + '</div>';
 }
 
-/* ── the chart: a live AERIAL view of the region you are in ─────────────── */
-/* WASD / arrows and right-click-drag pan (locked within the mountains),
-   the wheel zooms, icons float over every isle — hover one to name it. */
-let mapOpen = false;
-let mapRAF = 0;
-
-const MAP_POI = {
-  home:   { icon: 'home',    label: 'Home Port',            cls: 'home' },
-  gate:   { icon: 'flag',    label: 'Mountain Pass',        cls: 'gate' },
-  shrine: { icon: 'laurel',  label: 'Oracle — trivia wagers', cls: 'shrine' },
-  shop:   { icon: 'market',  label: 'Trader — market isle', cls: 'shop' },
-  puzzle: { icon: 'fitting', label: 'Puzzle Spire',         cls: 'puzzle' },
-  haven:  { icon: 'anchor',  label: 'Haven — checkpoint',   cls: 'haven' },
-  monster:{ icon: 'skull',   label: 'Hunting Grounds',      cls: 'foe' },
-  lair:   { icon: 'skull',   label: 'Boss Lair',            cls: 'lair' },
-  pharos: { icon: 'crown',   label: 'The Pharos',           cls: 'pharos' },
-  sword:  { icon: 'sword',   label: 'The sword in the stone', cls: 'swordx' },
-};
-
-function mapChipLabel(p) {
-  if (p.player) return '';
-  if (p.type === 'sword') return '?';
-  const poi = MAP_POI[p.type] || {};
-  let name = p.name || poi.label || p.type;
-  if (p.type === 'gate' && p.region) name = `Pass to ${REALM_INFO[p.region]?.name || p.region}`;
-  if (p.type === 'lair') name = `${p.boss_name || 'The tyrant'}${p.defeated ? ' · slain' : ''} — boss lair`;
-  if (p.type === 'haven') name = `${p.name} — haven (checkpoint)`;
-  if (p.type === 'shrine') name = `${p.name} — oracle`;
-  if (p.type === 'shop') name = `${p.name} — trader`;
-  if (p.type === 'puzzle') name = `${p.name} — puzzle spire${p.solved ? ' (solved)' : ''}`;
-  return name;
+/* ── the chart (static/chart.js): a drawn sea chart of the whole voyage ─── */
+/* Phases where a card needs this player (or the whole table) reclaim the
+   screen: the chart rolls itself up and stays shut until they're done. */
+const CHART_TABLE_PHASES = ['question', 'minigame', 'reveal', 'upgrade_pick',
+  'finished', 'battle', 'jchoose'];
+let chartForcedPhase = null;     // opened from a card on purpose (the trader's X)
+function chartBlocked() {
+  if (!room || room.phase === 'lobby') return true;
+  if (chartForcedPhase && room.phase === chartForcedPhase) return false;
+  chartForcedPhase = null;
+  if (world.battleActive() || world.tourActive?.()) return true;
+  if (CHART_TABLE_PHASES.includes(room.phase)) return true;
+  // the trader's stall is a tray, not a card — the chart may sit over it;
+  // any other card phase (shrine wager, haven, events…) only blocks the
+  // captain it is waiting on
+  return room.turn === you && !['roll', 'sail', 'trade', 'shop'].includes(room.phase);
 }
 
 function renderMapBtn() {
   $('mapBtn').classList.toggle('hidden', !room || room.phase === 'lobby');
-  // modal phases and battles reclaim the screen — the chart rolls itself up
-  if (['question', 'minigame', 'reveal', 'upgrade_pick', 'finished', 'battle']
-      .includes(room?.phase) || world.battleActive()) {
-    document.getElementById('valeChart')?.remove();
-    if (mapOpen) toggleMap(false);
-  }
+  chart.sync();
+  if (chart.isOpen() && chartBlocked()) toggleMap(false);
 }
 
-/* The Amber Vale's "chart": a question mark. The Vale is DIFFERENT FOR
-   EVERY CAPTAIN — a private labyrinth read by lantern light, so the chart
-   has nothing to show. Any tap (or the map key again) dismisses it. */
-function showValeChart() {
-  let ov = document.getElementById('valeChart');
-  if (ov) { ov.remove(); return; }
-  audio.sfx?.click?.();
-  ov = document.createElement('div');
-  ov.id = 'valeChart';
-  ov.innerHTML = `
-    <div class="vc-card">
-      <div class="vc-mark">?</div>
-      <div class="vc-line">The Amber Vale is different for every captain.</div>
-      <div class="vc-sub">No chart can hold it — walk it by lantern light,
-        and steer for the golden beacon.</div>
-    </div>`;
-  ov.onclick = () => ov.remove();
-  document.body.appendChild(ov);
-}
-
-function toggleMap(open) {
-  const want = open ?? !mapOpen;
-  if (want === mapOpen) return;
+function toggleMap(open, opts) {
+  const want = open ?? !chart.isOpen();
+  if (want === chart.isOpen()) return;
   if (want) {
-    // the Amber Vale is different for every captain — the chart is just a
-    // question mark there. (DEV mode keeps the real chart for testing.)
-    if (world.currentStage?.() === 'autumn' && !devUnlocked) {
-      showValeChart();
-      return;
-    }
-    if (!world.enterMapView(devUnlocked)) return;
-    mapOpen = true;
-    audio.sfx?.click?.();
-    $('mapIcons').classList.remove('hidden');
-    $('mapHint').classList.remove('hidden');
-    $('mapBtn').classList.add('on');
-    mapTick();
+    if (opts?.force) chartForcedPhase = room?.phase || null;
+    else if (chartBlocked()) return;
+    if (chart.open(opts)) audio.sfx?.click?.();
   } else {
-    mapOpen = false;
-    world.exitMapView();
-    cancelAnimationFrame(mapRAF);
-    $('mapIcons').classList.add('hidden');
-    $('mapIcons').innerHTML = '';
-    $('mapHint').classList.add('hidden');
-    $('mapBtn').classList.remove('on');
-    document.body.classList.remove('shop-aside');   // the stall slides back in
+    chart.close();
   }
-}
-
-function mapTick() {
-  if (!mapOpen) return;
-  const pts = world.mapProject() || [];
-  const box = $('mapIcons');
-  const seen = new Set();
-  for (const p of pts) {
-    const key = p.player ? 'pl:' + p.player : p.id;
-    seen.add(key);
-    let el = box.querySelector(`[data-key="${CSS.escape(key)}"]`);
-    if (!el) {
-      el = document.createElement('div');
-      el.dataset.key = key;
-      if (p.player) {
-        const pl = room.players.find((q) => q.pid === p.player);
-        el.className = 'mapav' + (p.player === you ? ' you' : '');
-        el.style.setProperty('--pc', pl?.color || '#888');
-        el.textContent = (pl?.name || '?').slice(0, 1).toUpperCase();
-        el.title = pl ? `${pl.name}${p.player === you ? ' (you)' : ''}` : '';
-      } else if (p.type === 'sword') {
-        // the trader's mark: a red X that descends onto the islet, labelled "?"
-        const drop = !swordDropSeen; swordDropSeen = true;
-        el.className = 'mapchip swordx' + (drop ? ' drop' : '');
-        el.innerHTML = `<span class="mi mapx">✕</span><span class="ml">?</span>`;
-      } else {
-        const poi = MAP_POI[p.type] || { icon: 'relic', cls: '' };
-        el.className = `mapchip ${poi.cls}${p.type === 'lair' && p.defeated ? ' done' : ''}`;
-        el.innerHTML = `<span class="mi">${icon(poi.icon)}</span>` +
-          `<span class="ml">${esc(mapChipLabel(p))}</span>`;
-      }
-      box.appendChild(el);
-    }
-    el.style.transform = `translate(${p.x.toFixed(1)}px, ${p.y.toFixed(1)}px)`;
-  }
-  for (const el of [...box.children]) {
-    if (!seen.has(el.dataset.key)) el.remove();
-  }
-  mapRAF = requestAnimationFrame(mapTick);
 }
 
 /* ── action tray (bottom-center) ────────────────────────────────────────── */
@@ -1838,7 +1640,6 @@ function renderShop() {
  * panel's slide-in and its frequent re-renders. */
 let mapTabEl = null;
 let mapTabRAF = 0;
-let swordDropSeen = true;                 // set false to arm the X's descend on the next map open
 function positionMapTab() {
   const panel = $('shopPanel');
   if (!mapTabEl || !mapTabEl.parentNode || !panel || panel.classList.contains('hidden')) {
@@ -1947,9 +1748,9 @@ function openTreasureMap() {
 /* the stall slides aside, your board map opens, the X drops onto the islet */
 function openBoardChart() {
   const tm = document.getElementById('treasureMap'); if (tm) tm.remove();
-  swordDropSeen = false;                              // let the descend animation play
   document.body.classList.add('shop-aside');         // move the shop box out of the way
-  toggleMap(true);
+  // opened from the trader's own card: centred on the islet, the X drops in
+  toggleMap(true, { force: true, focusNode: room?.sword_node, dropX: true });
 }
 
 /* The WIN cinematic — the Dark Presence falls: darkness pours out of the
@@ -2243,7 +2044,7 @@ function renderBattle() {
   const hud = $('battleHud');
   const b = battleView();
   // hold the whole battle screen until the boat has sailed up to the island
-  const show = b && (['battle', 'question', 'reveal', 'dodge', 'jchoose'].includes(room.phase) ||
+  const show = b && (['battle', 'question', 'reveal', 'jchoose'].includes(room.phase) ||
       (room.phase === 'minigame' && room.minigame?.battle)) &&
     (room.phase !== 'reveal' || room.reveal?.kind === 'battle') &&
     !world.arriving();
@@ -2275,10 +2076,11 @@ function renderBattle() {
   $('bfoe').innerHTML =
     `<div class="btitle">${icon(mark, 26)} ${esc(b.name)}</div>` +
     `<div class="bsub" style="color:${dcolor}">${subParts.join(' · ')}</div>` +
-    (b.boss ? roundPips : '') +
-    (b.escalation > 0 ? ` <span class="escalated" title="A rival already felled this guardian — it rises harder for you. Reach the trial first to face its weakest form.">Risen ×${b.escalation}</span>` : '') +
+    (b.boss && !b.enraged ? roundPips : '') +
+    (b.enraged ? ' <span class="escalated enraged" title="Wounded below half: it winds up a heavy blow every OTHER exchange now.">ENRAGED</span>' : '') +
+    (b.escalation > 0 ? ` <span class="escalated" title="Worn down before you came — by rivals who felled it, or by your own earlier falls here. It rises weaker: catch-up for whoever trails.">Weakened ×${b.escalation}</span>` : '') +
     (b.charging
-      ? `<div class="chargewarn">${icon('guard', 13)} CHARGING — a heavy blow comes. Dodge it.</div>`
+      ? `<div class="chargewarn">${icon('guard', 13)} CHARGING — a heavy blow comes. BRACE to turn it.</div>`
       : '');
 
   /* enemy cards — fat HP cells only; the count reads from the cells */
@@ -2340,42 +2142,58 @@ function renderBattle() {
   };
   // HEAL picks its FORMAT first — a sub-menu of the three question kinds
   // replaces the stance buttons; tapping one casts the mending hymn that way
+  const cfg = room.config?.combat || {};
+  const heals = (me?.upgrades || []).includes('ambrosia') ? (cfg.heal_ambrosia ?? 4) : (cfg.heal ?? 2);
+  const ups = me?.upgrades || [];
   if (pendingHeal) {
-    const heals = (me?.upgrades || []).includes('ambrosia') ? 3 : 1;
     mk(`${icon('strike', 16)} MULTIPLE CHOICE`, 'battlebtn heal',
        () => sendMove('heal', 0, 'mc'),
-       `Multiple choice: answer one hard (Tier III) trivia question to mend ${heals} hull. A miss heals nothing.`);
+       `Multiple choice: answer one hard (Tier III) trivia question to mend ${heals} hull and ward off the foe's blow. A miss heals nothing and the blow lands.`);
     mk(`${icon('scroll', 16)} JEOPARDY`, 'battlebtn heal',
        () => sendMove('heal', 0, 'jeopardy'),
-       `Jeopardy: pick a clue and type the answer to mend ${heals} hull. A miss heals nothing.`);
+       `Jeopardy: pick a clue and type the answer to mend ${heals} hull and ward off the foe's blow. A miss heals nothing and the blow lands.`);
     mk(`${icon('fitting', 16)} PUZZLE`, 'battlebtn heal',
        () => sendMove('heal', 0, 'puzzle'),
-       `Puzzle: solve one combat puzzle to mend ${heals} hull. A miss heals nothing.`);
+       `Puzzle: solve one combat puzzle to mend ${heals} hull and ward off the foe's blow. A miss heals nothing and the blow lands.`);
     mk('cancel', 'battlebtn ghost', () => { pendingHeal = false; renderBattle(); },
        'Back to the stance choices.');
     return;
   }
   const st = TIER_ROMAN[b.strike_tier] || 'I';
   const darkLord = !!b.is_pharos;
+  // the defence rule every tooltip repeats: your ANSWER decides the blow
+  const guardNote = 'Then the foe strikes back: a right answer blunts its blow to half, a wrong one takes it in full.';
+  // BRACE — offered only while a boss winds up a telegraphed HEAVY blow
+  if (b.can_brace ?? (b.boss && b.charging)) {
+    mk(`${icon('guard', 18)} BRACE<span class="tierchip">I</span>`,
+       'battlebtn guard', () => move('guard'),
+       `BRACE: a HEAVY blow is coming. Answer an easy Tier I question — right, you turn it aside completely and drive it back for ${cfg.riposte ?? 1}; wrong, it lands in full.`);
+  }
+  const strikeDmg = darkLord ? (cfg.strike_boss ?? 2)
+    : (st === 'II' ? (cfg.strike_boss ?? 2) : (cfg.strike ?? 1))
+      + (ups.includes('ram') ? 1 : 0) + (ups.includes('titan_ram') ? 2 : 0);
   mk(`${icon('strike', 18)} STRIKE<span class="tierchip">${st}</span>`,
      'battlebtn strike', () => move('attack'),
      darkLord
-       ? 'STRIKE: answer a Tier II question. A right answer chips the Dark Presence for 1 — bonuses (horn, relics) do not apply here.'
-       : `STRIKE: answer a Tier ${st} question right to deal 1 damage${b.horn ? '; the War Horn adds +2' : ''}. Right or wrong, the foe strikes back — time your dodge.`);
+       ? `STRIKE: answer a Tier II question for ${strikeDmg} damage — bonuses (horn, rams) do not apply to the Dark Presence. ${guardNote}`
+       : `STRIKE: answer a Tier ${st} question for ${strikeDmg} damage${b.horn ? ' (+2 from the War Horn)' : ''}. The surest question — and the surest guard. ${guardNote}`);
+  const magicDmg = (cfg.magic ?? 3) + (ups.includes('trident') ? 1 : 0);
   mk(`${icon('magic', 18)} MAGIC<span class="tierchip">III</span>`,
      'battlebtn magic', () => move('magic'),
-     b.boss
-       ? 'MAGIC: answer a hard Tier III question for 3 damage. Hit or miss, the boss strikes back — time your dodge.'
-       : 'MAGIC: answer a hard Tier III question for 3 damage. Miss and the spell backfires, costing you 1 hull.');
+     `MAGIC: answer a hard Tier III question for ${magicDmg} damage. ${guardNote}`
+       + (!b.boss && (cfg.backfire ?? 0) > 0 ? ` A missed spell also backfires for ${cfg.backfire}.` : ''));
   // HEAL — a mending hymn: pick your field, answer a Tier III question, knit the hull
+  const whole = me && me.hull >= me.max_hull;
   mk(`${icon('heart', 18)} HEAL<span class="tierchip">III</span>`,
      'battlebtn heal', () => { pendingHeal = true; renderBattle(); },
-     `HEAL: mend ${(me?.upgrades || []).includes('ambrosia') ? 3 : 1} hull — pick a challenge format, then answer a Tier III question. A miss heals nothing, and you take no swing this turn.`);
+     whole ? 'HEAL: your hull is already whole.'
+       : `HEAL: mend ${heals} hull — pick a challenge format, then answer a Tier III question. Right, the hymn also wards off the foe's blow; wrong, nothing mends and the blow lands in full.`,
+     whole);
   // the Sword of Damocles: a third option, but only against the Dark Presence
   if (b.is_pharos && (me?.upgrades || []).includes('sword_of_damocles')) {
     mk(`${icon('sword', 18)} SWORD<span class="tierchip">III</span>`,
        'battlebtn sword', () => move('sword'),
-       'SWORD of Damocles: answer a Tier III question for 5 damage — no backfire on a miss. Only against the Dark Presence.');
+       `SWORD of Damocles: answer a Tier III question for ${cfg.sword ?? 5} damage. ${guardNote} Only against the Dark Presence.`);
   }
   // the engine says who may be fled (battle.can_flee); older snapshots fall back to "not a boss"
   if (b.can_flee ?? !b.boss) {
@@ -2533,7 +2351,13 @@ function renderQuestion() {
     let note = rv.was_correct ? 'Correct! ' : (rv.chosen === -1 ? 'Time expired. ' : 'Wrong. ');
     note += stripEmoji(rv.note || '');
     const sideMine = rv.side?.[you];
-    if (sideMine) note += sideMine.ok ? ' (Your side answer pays a scroll!)' : ' (Your side answer missed.)';
+    if (sideMine) {
+      // at a big table only every 2nd/3rd right side answer pays (`paid`;
+      // an older server omits it and always paid)
+      note += !sideMine.ok ? ' (Your side answer missed.)'
+        : (sideMine.paid ?? 1) > 0 ? ' (Your side answer pays a scroll!)'
+          : ' (Your side answer was right — the next one pays.)';
+    }
     $('qnote').textContent = note;
     mySideAnswer = null;
   }
@@ -2629,7 +2453,10 @@ function renderMinigame() {
   const fresh = mg.key !== key;
   if (fresh) mg = { key, sel: null, rot: 0, cells: null, taps: [], watched: false, grid: null };
 
-  if (m.battle) {
+  if (m.event) {                               // an event's puzzle (events.js)
+    $('mgkind').textContent = eventMinigameTitle(m);
+    $('mgisle').textContent = MG_LABEL[m.kind] || 'a puzzle';
+  } else if (m.battle) {
     $('mgkind').textContent = `Combat · ${MG_LABEL[m.kind] || 'Trial'}`;
     $('mgisle').textContent = 'solve it — or take the hit';
   } else if (m.kraken) {
@@ -3216,10 +3043,11 @@ function renderModal() {
           Isles of Peace. Beyond each lies a realm, and the deeper you press, the
           harder its packs bite.</li>
         <li><strong>Fight</strong> — answer to STRIKE (tier I–II) or cast
-          MAGIC (III). When a foe strikes back, time your <strong>DODGE</strong>
-          on the beat — read it right and the blow is <strong>halved</strong>
-          (tyrants telegraph a heavier one). Pitch &amp; planks patch the hull,
-          even mid-battle.</li>
+          MAGIC (III). Every foe strikes back — a <strong>right answer</strong>
+          blunts its blow to <strong>half</strong>, a wrong one takes it full.
+          No reflexes needed: when a tyrant winds up a heavy blow,
+          <strong>BRACE</strong> (an easy question) to turn it aside. Pitch
+          &amp; planks patch the hull, even mid-battle.</li>
         <li><strong>Haul it home</strong> — slay a realm's tyrant to take its
           sigil seal. Shipwreck drops it back at the lair; sail home and bank
           it to make it safe.</li>

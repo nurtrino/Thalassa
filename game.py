@@ -25,18 +25,24 @@ loops are how you tune where you land. Live trial guardians and the Pharos
 cannot be sailed through; the Pharos admits only captains with
 RELICS_TO_WIN banked seals.
 
-Battles are stance, target, trivia:
-    STRIKE  tier-I/II question → 1 damage      miss → the front enemy hits
-    MAGIC   tier-III question  → 3 damage      miss → 1 backfire self-damage
-    GUARD   tier-I question    → riposte: read the blow, turn it aside AND
-            drive it back on the attacker for its own power (2x on a heavy)
-    FLEE    2 scrolls, 50/50: slip away clean, or take a free hit (no
+Battles are stance, target, trivia — and EVERY exchange the foe strikes
+back. Defence is knowledge, never reflexes: a RIGHT answer blunts the
+counter to half (BLUNT), a wrong one takes it full.
+    STRIKE  tier-I question → 1 damage (tier II and 2 damage against a boss
+            or tough 3+ HP units; rams and the war horn add to it)
+    MAGIC   tier-III question → 3 damage (+1 trident)
+    HEAL    tier-III, your choice of format → mend 2 (4 with Ambrosia) and
+            the hymn wards the blow off; refused at full Health
+    BRACE   (stance "guard") only while a boss telegraphs a HEAVY: tier-I →
+            the heavy is turned aside and driven back for RIPOSTE_DMG
+    SWORD   the Dark Presence only: tier-III → 5 damage
+    FLEE    FLEE_COST scrolls, 50/50: slip away clean, or take a free hit (no
             retreat from a trial or the Warden)
 
-BOSSES fight like bosses: they counter EVERY exchange (a correct answer no
-longer slips you out of reach), and every blow lands in the 2–4 band — every
-HEAVY_EVERY-th is a telegraphed heavy at the top of it. Beating one takes
-preparation: hull fittings, planks, aegis charms, and reading the dodges.
+BOSSES telegraph a HEAVY (×HEAVY_MULT, capped at HEAVY_CAP) every
+HEAVY_EVERY-th exchange — every other once ENRAGED at half health. A boss
+rises WEAKER for whoever trails (rivals who felled it, your own falls).
+Beating one takes preparation: hull fittings, planks, aegis charms.
 
 Scrolls are the economy: temples pay them, shops spend them — hint stones,
 gale charms, pitch & planks, aegis charms, war horns, permanent ship
@@ -48,6 +54,7 @@ from __future__ import annotations
 import math
 import random
 
+import events
 import puzzles
 import questions
 from board import (Board, DOMAIN_INFO, DOMAINS, REGION_POOL, REGION_MODELS,
@@ -60,22 +67,41 @@ MAX_PLAYERS = 6
 TIER_REWARD = {1: 1, 2: 2, 3: 3}   # scrolls for a correct shrine wager
 TIER3_PENALTY = 1
 MAX_HULL = 6
-STRIKE_DMG = 1                     # easy question, reliable chip damage
+STRIKE_DMG = 1                     # easy question, reliable chip damage (packs)
+STRIKE_BOSS_DMG = 2                # …a boss draws a tier-II question and takes 2
+TOUGH_HP = 3                       # …and so do pack units this tough
 MAGIC_DMG = 3                      # hard question, big swing
 SWORD_DMG = 5                      # Sword of Damocles: tier-III question, 5 damage
-HEAL_SMALL = 1                     # the mending hymn's base heal
-HEAL_BIG = 3                       # …with Ambrosia of the Gods
-MAGIC_BACKFIRE = 1                 # a missed spell burns the caster
+HEAL_SMALL = 2                     # the mending hymn's base heal
+HEAL_BIG = 4                       # …with Ambrosia of the Gods
+MAGIC_BACKFIRE = 0                 # extra self-burn on a missed spell vs packs, ON TOP of
+                                   # the full counter (0: a miss just leaves you open,
+                                   # exactly like a missed STRIKE — never cheaper)
+# ── defence: knowledge, never reflexes ──
+# Every exchange the foe counters. A RIGHT answer keeps your guard up and
+# BLUNTS the blow (BLUNT × its power, to the half-heart); a wrong one lets
+# it land full. A right mending hymn wards the blow off entirely. Against a
+# boss's telegraphed HEAVY you may BRACE instead: a tier-I question — right,
+# the heavy is turned aside and driven back for RIPOSTE_DMG; wrong, it lands.
+BLUNT = 0.5
+RIPOSTE_DMG = 1
+AEGIS_MIN = 2                      # an Aegis Charm waits for a real blow (≥2)
 MAP_COST = 30                      # scrolls the trader charges to unroll his map
 STREAK_AT = 3                      # correct-answer streak that pays a bonus
-SIDE_REWARD = 1                    # scrolls for a correct side answer
+SIDE_REWARD = 1                    # scrolls for a correct side answer…
+SIDE_RIVALS = 3                    # …paid on every right one at a table with up to
+                                   # this many rivals; at a bigger table, every
+                                   # ceil(rivals / SIDE_RIVALS)-th — so the risk-free
+                                   # side income stays flat as the table grows
 FLEE_COST = 1                      # scrolls to gamble on escaping a battle
 GALE_BONUS = 2                     # extra movement from a Gale Charm
 HORN_BONUS = 2                     # extra STRIKE damage from a War Horn
 PLANKS_HEAL = 3                    # Health restored by Pitch & Planks
 HEAVY_EVERY = 3                    # bosses telegraph a heavy every Nth exchange
 HEAVY_MULT = 2                     # ...that lands for double damage
-DODGE_SECS = 3.0                   # window to time the dodge before it lands
+HEAVY_CAP = 6                      # ...but never for more than this
+ENRAGE_AT = 0.5                    # at/below this share of its health a boss ENRAGES:
+                                   # it winds up a heavy every OTHER exchange
 ATTACK_RUN_CAP = 2                 # an enemy may strike at most twice in a row
 ITEM_CAP = 2                       # max carried of each consumable charm
 GALE_STACK_CAP = ITEM_CAP * GALE_BONUS   # most wind one roll can hold (armed gales)
@@ -142,10 +168,19 @@ SHOP_ITEMS = {
     "planks":  {"name": "Pitch & Planks", "cost": 3,
                 "desc": f"Patch {PLANKS_HEAL} Health, even mid-battle"},
     "aegis_charm": {"name": "Aegis Charm", "cost": 4,
-                "desc": "Blocks the next damage you take"},
+                "desc": f"Blocks the next blow of {AEGIS_MIN}+ damage you take"},
     "horn":    {"name": "War Horn",     "cost": 4,
                 "desc": f"+{HORN_BONUS} on your next STRIKE"},
 }
+
+
+BOSS_LOOT = 10                     # scrolls for felling a realm boss
+
+
+def unit_loot(e: dict) -> int:
+    """Spoils for one fallen pack unit, by its toughness: 1–2 HP → 1,
+    3–4 → 2, 5 → 3. (A 5-HP brute used to pay a boss's 10.)"""
+    return max(1, (int(e["max_hp"]) + 1) // 2)
 
 
 def round_half(x: float) -> float:
@@ -206,6 +241,7 @@ class Player:
         self.next_roll_bonus = 0           # armed Gale Charms
         self.map_bought = False            # paid the trader to reveal the sword islet
         self.streak = 0
+        self.side_hits = 0                 # right side answers toward the next scroll
         self.puzzles_solved = 0
         self.cheated_death = False         # Phoenix Feather: spent once per game
         self.skip_turns = 0                # turns owed to the kraken
@@ -213,6 +249,7 @@ class Player:
         # own map of it — every stop their lantern has ever shown. Monotonic;
         # persists all game, so the crossing home is walked on known ground.
         self.seen: set[str] = set()
+        self.buffs: dict[str, int] = {}    # event boons/banes: id → uses left (events.py)
 
     def has(self, upgrade: str) -> bool:
         return upgrade in self.upgrades
@@ -228,6 +265,7 @@ class Player:
             "map_bought": self.map_bought,
             "streak": self.streak, "skip_turns": self.skip_turns,
             "connected": self.connected, "bot": self.is_bot,
+            "buffs": dict(self.buffs),
         }
 
 
@@ -246,7 +284,6 @@ class Game:
         self.qctx: dict | None = None      # kind: shrine|battle|puzzle
         self.question: dict | None = None
         self.question_deadline: float | None = None
-        self.dodge_deadline: float | None = None
         self.jboard: dict | None = None      # the Jeopardy category board
         self.jchoose_deadline: float | None = None
         self._pending_jeopardy: dict | None = None   # clue chosen off the board
@@ -265,6 +302,8 @@ class Game:
         self.pharos_open = False
         self.winner: str | None = None
         self.log: list[str] = []
+        self.ev = events.new_state()       # events, world wonders (events.py)
+        self.events_on = True              # False: a bare rules engine (unit tests)
 
     # ── plumbing ─────────────────────────────────────────────────────────────
     def _bump(self, phase: str):
@@ -461,6 +500,7 @@ class Game:
     def _forget(self, pid: str):
         """Scrub a departed captain from table state that is keyed by pid."""
         self.side_answers.pop(pid, None)
+        events.forget(self, pid)
         if self.gate_walk and self.gate_walk.get("pid") == pid:
             self.gate_walk = None
         for nid in self.board.lairs():
@@ -524,13 +564,14 @@ class Game:
         self.kraken = None
         self.jboard = None
         self.jchoose_deadline = None
-        self.dodge_deadline = None
         self._pending_jeopardy = None
         self._pending_puzzle = None
         self.upgrade_offer = None
+        events.clear_turn(self)
 
     def _start_turn(self):
         self._clear_turn_state()
+        events.on_turn_start(self)         # the world turns once a round
         self._bump("roll")
 
     # ── movement ─────────────────────────────────────────────────────────────
@@ -544,6 +585,7 @@ class Game:
         if p.next_roll_bonus:
             self._say(f"🌬 A gale fills {p.name}'s sails — +{p.next_roll_bonus}.")
             p.next_roll_bonus = 0
+        steps = max(1, steps + events.roll_mod(self, p))   # fair wind / becalmed
         self.reachable = self._reachable_for(p, steps)
         # in the Vale, every stop this roll can land on is ALWAYS shown — and
         # so are the trails BETWEEN here and there, or a gale-boosted roll
@@ -708,7 +750,7 @@ class Game:
                     self._say(f"⚱ {p.name} reclaims the fragment of {node['name']}.")
                 self._end_turn()
                 return
-            self.board.spawn_boss(nid)
+            self.board.spawn_boss(nid, p.pid)
             self.battle = {"node": nid, "stance": None, "round": 0,
                            "charging": False,
                            "used_items": [], "first_hit_taken": False}
@@ -741,17 +783,7 @@ class Game:
             node["monster"] = self.board._sword_guardians(self.rng)
             monster = node["monster"]
 
-        # ── the KRAKEN: hub crossings only. One in ten sailings, it rises and
-        # bars the way with a gauntlet of three mind-riddles — miss one and it
-        # drags your ship in circles for a turn. Poseidon's Favor parts it.
-        if (ntype == "sea" and not node.get("region") and not monster
-                and not p.has("poseidon_favor")
-                and self.rng.random() < KRAKEN_CHANCE):
-            self.kraken = {"node": nid, "asked": 0}
-            self._say(f"🐙 The KRAKEN rises before {p.name} — answer its "
-                      f"{KRAKEN_RIDDLES} riddles of the mind, or lose a turn!")
-            self._kraken_deal()
-            return
+        # (the KRAKEN is now one EVENT among many — see events.py / event_data.py)
 
         # Danger by ground: an ELITE hunting ground bites EVERY time — the
         # Vale's door guard is a true toll — while weak packs keep a
@@ -826,6 +858,17 @@ class Game:
             self._bump("minigame")
             return
 
+        # ── EVENTS: a quiet landing may meet something (events.py). When the
+        # event resolves it calls _land_tail to finish the landing.
+        if events.on_land(self, p, nid):
+            return
+        self._land_tail(p, nid)
+
+    def _land_tail(self, p: Player, nid: str):
+        """The rest of a landing once nothing rose up: the stop does what it
+        does (the pass, a shrine, a haven…). Events resume here too."""
+        node = self.board.nodes[nid]
+        ntype = node["type"]
         if ntype == "gate":
             # the pass CARRIES YOU THROUGH: a beat after landfall the server
             # walks you on to the far side's NEAREST first waypoint, so you
@@ -927,8 +970,13 @@ class Game:
             raise GameError("There is no tower here.")
         if not self._pharos_ok(p):
             raise GameError("The door is sealed — bank three sigil seals to open it.")
-        if not self.board.alive_monster(nid):
-            self.board.reset_warden()          # a fresh Warden for this challenger
+        # a fresh Warden for this challenger (every fall resets it) — eased
+        # by each of their OWN earlier falls in here (catch-up; it never
+        # eases for a rival's)
+        falls = (self.board.nodes[nid].get("falls") or {}).get(p.pid, 0)
+        m = self.board.alive_monster(nid)
+        if not m or m.get("escalation", 0) != falls:
+            self.board.reset_warden(falls)
         self.battle = {"node": nid, "stance": None, "round": 0,
                        "charging": False,
                        "used_items": [], "first_hit_taken": False}
@@ -1116,8 +1164,8 @@ class Game:
             raise GameError("That charm works on its own.")
 
     def _absorb(self, p: Player, dmg: int) -> tuple[int, bool]:
-        """Aegis Charms eat the next damage automatically."""
-        if dmg > 0 and p.items.get("aegis_charm", 0) > 0:
+        """Aegis Charms eat the next real blow (AEGIS_MIN+) automatically."""
+        if dmg >= AEGIS_MIN and p.items.get("aegis_charm", 0) > 0:
             p.items["aegis_charm"] -= 1
             self._say(f"🛡 {p.name}'s aegis charm shatters — the blow is turned aside.")
             return 0, True
@@ -1184,7 +1232,7 @@ class Game:
         if not monster:
             return
         idx = next((i for i, pl in enumerate(self.players) if pl.pid == pid), None)
-        # the panel can be opened at ANY moment — mid-question, mid-dodge, on
+        # the panel can be opened at ANY moment — mid-question, mid-reveal, on
         # a rival's turn. Strike whatever was in flight first, or the summoned
         # fight starts with a stale question / minigame / incoming blow.
         self._abandon_turn()
@@ -1239,106 +1287,85 @@ class Game:
         del h[:-ATTACK_RUN_CAP]
         self._attack_queue(enemies)          # keep the queue topped up
 
-    # ── the dodge (Paper-Mario action command) ────────────────────────────
-    # There is no guard stance: when a foe strikes back, the captain gets a
-    # DODGE_SECS beat to time a dodge. Read it right and half the blow is
-    # nulled; the timing window itself lives client-side and is TIGHT.
-    def dodge(self, pid: str, hit, full=False) -> None:
-        self._require_turn(pid, "dodge")
-        self._finish_dodge(bool(hit), bool(full))
+    # ── the counter-blow: defence is KNOWLEDGE, never reflexes ────────────
+    # There is no timed dodge any more (it rewarded quick fingers over the
+    # captain who knew the answer). When a foe strikes back, YOUR ANSWER
+    # decides how the blow lands: right → blunted to half; wrong → full. A
+    # right mending hymn wards it off, and a right BRACE against a boss's
+    # telegraphed heavy turns it aside entirely. The blow resolves in the
+    # same reveal as your move; the client plays it straight after.
+    @staticmethod
+    def _tough(m: dict) -> bool:
+        """A boss, or a pack of TOUGH_HP+ units: STRIKE draws a tier-II
+        question for STRIKE_BOSS_DMG (1-a-hit against 3–5 HP units made
+        deep packs a MAGIC-or-sink grind)."""
+        return bool(m.get("boss")) or any(e["max_hp"] >= TOUGH_HP for e in m["enemies"])
 
-    def dodge_timeout(self) -> None:
-        if self.phase == "dodge":
-            self._finish_dodge(False, False)
+    @staticmethod
+    def _blow_power(front: dict, boss: bool, heavy: bool):
+        if boss and heavy:
+            return min(HEAVY_CAP, front["power"] * HEAVY_MULT)
+        return front["power"]
 
-    def _finish_dodge(self, dodged: bool, full: bool = False) -> None:
-        p = self.current
-        inc = (self.battle or {}).get("incoming") or {}
-        self.battle["incoming"] = None
-        self.dodge_deadline = None
-        m = self.board.nodes[self.battle["node"]]["monster"]
+    def _counter(self, p: Player, m: dict, stance: str, correct: bool,
+                 heavy: bool, ep: dict) -> str:
+        """The foe's answer to your move. Returns its log line."""
+        enemies = m["enemies"]
         boss = bool(m.get("boss"))
-        attacker = inc.get("attacker", "the foe")
-        heavy = bool(inc.get("heavy"))
-        power = int(inc.get("power", 1))
-        # the blow gets its own reveal, AFTER the answer's verdict has had its
-        # beat on screen — carry your move's stats so the snapshot stays whole
-        enemy_phase = dict(inc.get("move_phase") or {})
-        enemy_phase.pop("pending", None)
-        enemy_phase["enemy_turn"] = True
-
-        # the dodge wheel has THREE outcomes now: nail the bright CORE and you
-        # slip the blow entirely; a gold READ still lets HALF through (a
-        # half-heart on a weak foe — you're not perfectly clear); freeze up or
-        # miss the window and it lands full.
-        full = bool(full) and dodged
-        if not dodged:
-            base = power                       # missed the beat → the whole blow
-        elif full:
-            base = 0                           # a PERFECT core read → slip it clean
+        front_idx = self._attack_queue(enemies)[0]
+        front = enemies[front_idx]
+        self._advance_attacker(enemies)
+        power = self._blow_power(front, boss, heavy)
+        braced = correct and stance in ("guard", "heal")
+        blunted = correct and not braced
+        dmg = 0 if braced else round_half(power * (BLUNT if blunted else 1))
+        attacker = front["name"]
+        blow = "HEAVY blow" if heavy else "blow"
+        blocked = False
+        if dmg >= AEGIS_MIN and p.items.get("aegis_charm", 0) > 0:
+            p.items["aegis_charm"] -= 1
+            blocked = True
+            note = f"🛡 {attacker}'s {blow} shatters your aegis charm — turned aside!"
+            dmg = 0
         else:
-            base = round_half(power / 2)       # a gold read → HALF gets through
-        hit_dmg, blocked = self._absorb(p, base)
-        note = ""
-        if blocked:
-            note = "🛡 The aegis charm turns the blow. "
-            enemy_phase["blocked"] = True
-        elif p.has("aegis") and hit_dmg > 0 and not self.battle["first_hit_taken"]:
-            hit_dmg = max(0.5, round_half(hit_dmg / 2))
-            self.battle["first_hit_taken"] = True
-            note = "Your Aegis shard flares — "
-        enemy_phase["attacker"] = attacker
-        enemy_phase["heavy"] = heavy
-        enemy_phase["dodged"] = dodged
-        enemy_phase["dmg"] = hit_dmg
-        if not blocked:
-            blow = "HEAVY blow" if heavy else "blow"
-            if dodged and hit_dmg <= 0:
-                note += f"🌀 You read {attacker}'s {blow} and slip clear!"
-            elif dodged:
-                note += (f"🌀 You twist aside — {attacker}'s {blow} "
-                         f"only grazes for {fmt_hp(hit_dmg)}!")
+            pre = ""
+            if dmg > 0 and p.has("aegis") and not self.battle["first_hit_taken"]:
+                self.battle["first_hit_taken"] = True
+                dmg = max(0.5, round_half(dmg / 2))
+                pre = "Your Aegis shard flares — "
+            if braced and stance == "guard":
+                note = f"🛡 You read it — {attacker}'s {blow} is turned aside!"
+            elif braced:
+                note = f"✚ The hymn wards off {attacker}'s {blow}."
+            elif blunted:
+                note = (f"{pre}🛡 Your guard holds — {attacker}'s {blow} "
+                        f"only lands for {fmt_hp(dmg)}.")
             else:
-                note += (f"💥 {attacker} lands a HEAVY blow for {fmt_hp(hit_dmg)}!"
-                         if heavy else f"💥 {attacker} strikes for {fmt_hp(hit_dmg)}!")
-        note = note.strip()
-        p.hull -= hit_dmg
-
-        battle_over = False
-        player_dead = False
-        if p.hull <= 0:
-            self._cheat_death(p)            # Phoenix Feather may pull you back to 1
-        if p.hull <= 0:
-            battle_over = True
-            player_dead = True
-            node = self.board.nodes[self.battle["node"]]
-            if node["type"] == "pharos":
-                self.board.reset_warden()   # a fresh Warden per challenger
-            self._shipwreck(p)
-        elif boss:
-            # the exchange count drives the telegraphed heavy blows
-            self.battle["round"] += 1
-            self.battle["charging"] = (
-                self.battle["round"] % HEAVY_EVERY == HEAVY_EVERY - 1)
-            if self.battle["charging"]:
-                note += f" ⚠ {m['name']} rears back, gathering a heavy blow…"
-
-        # the ENEMY-TURN reveal: a bare beat for the blow itself (no question
-        # card — that verdict already had its own reveal a moment ago)
-        self._emit_battle_reveal(
-            bool(inc.get("was_correct")), -2, None, {},
-            "enemy", note, 0,
-            battle_over, player_dead, enemy_phase)
+                note = (f"{pre}💥 {attacker} lands a HEAVY blow for {fmt_hp(dmg)}!"
+                        if heavy else f"{pre}💥 {attacker} strikes for {fmt_hp(dmg)}!")
+        p.hull -= dmg
+        ep.update(counter=True, attacker=attacker, attacker_idx=front_idx,
+                  heavy=heavy, power=power, dmg=dmg, blocked=blocked,
+                  braced=braced, blunted=blunted and dmg > 0)
+        return note
 
     # ── battle (Paper-Mario turns: your move, then the enemies') ─────────────
     def stance(self, pid: str, stance: str, target: int = 0, mode: str | None = None):
         self._require_turn(pid, "battle")
-        if _str(stance) not in ("attack", "magic", "sword", "heal"):
-            raise GameError("Choose STRIKE, MAGIC, HEAL, or the SWORD.")
+        if _str(stance) not in ("attack", "magic", "sword", "heal", "guard"):
+            raise GameError("Choose STRIKE, MAGIC, HEAL, BRACE, or the SWORD.")
         _int(target)
         if mode is not None:
             _str(mode)
         node = self.board.nodes[self.battle["node"]]
+        if stance == "guard" and not self.battle.get("charging"):
+            # BRACE answers a telegraphed heavy — it is not a turtle shell
+            # to hide in every exchange (that was an endless stall)
+            raise GameError("Brace when a heavy blow is coming.")
+        if stance == "heal" and self.current.hull >= self.current.max_hull:
+            # a hymn at full Health mends nothing — refusing it closes the
+            # free-question loop (stall a weak pack, skim scrolls)
+            raise GameError("Your hull is already whole.")
         if stance == "sword":
             if not self.current.has("sword_of_damocles"):
                 raise GameError("You bear no Sword of Damocles.")
@@ -1377,10 +1404,11 @@ class Game:
         enemies = m["enemies"]
         if not (0 <= target < len(enemies)) or enemies[target]["hp"] <= 0:
             target = next(i for i, e in enumerate(enemies) if e["hp"] > 0)
-        boss = bool(m.get("boss")) or (not m.get("pack")
-                                       and any(e["max_hp"] >= 5 for e in enemies))
-        # STRIKE draws the easy tier; MAGIC and the SWORD both draw the hard tier-III pool
-        tier = (2 if boss else 1) if stance == "attack" else 3
+        # STRIKE draws the easy tier (tier II against a boss or tough units,
+        # for STRIKE_BOSS_DMG); BRACE the easiest; MAGIC and the SWORD both
+        # draw the hard tier-III pool
+        tier = ((2 if self._tough(m) else 1) if stance == "attack"
+                else 1 if stance == "guard" else 3)
         self.battle["stance"] = stance
         self.battle["target"] = target
 
@@ -1618,20 +1646,27 @@ class Game:
         return 0
 
     def _settle_side_answers(self) -> dict:
-        """Rivals who guessed the open question right skim a scroll."""
+        """Rivals who guessed the open question right skim a scroll — on
+        every right guess at a small table, every 2nd/3rd at a big one (with
+        five rivals answering every question, side income used to be half of
+        all scrolls, risk-free). Side guesses never touch the streak (they
+        kept it hot and paid a second, streak scroll on top)."""
         side = {}
+        every = max(1, -(-(len(self.players) - 1) // SIDE_RIVALS))
         if self.question is not None:
             for spid, sidx in self.side_answers.items():
                 sp = self.player_by_pid(spid)
                 if not sp:
                     continue
                 ok = sidx == self.question.get("correct")
+                paid = 0
                 if ok:
-                    sp.scrolls += SIDE_REWARD
-                    self._streak_bonus(sp)     # pays its own +1 at a streak
-                else:
-                    sp.streak = 0
-                side[spid] = {"ok": ok, "chosen": sidx}
+                    sp.side_hits += 1
+                    if sp.side_hits >= every:
+                        sp.side_hits = 0
+                        sp.scrolls += SIDE_REWARD
+                        paid = SIDE_REWARD
+                side[spid] = {"ok": ok, "chosen": sidx, "paid": paid}
         self.side_answers = {}
         return side
 
@@ -1690,150 +1725,167 @@ class Game:
 
     def _resolve_battle(self, correct: bool, idx: int, correct_idx,
                         side: dict | None = None, challenge: str = "trivia"):
-        """One full battle exchange — your move, then the enemies'. Fed by a
-        trivia answer OR a combat puzzle result; the rules don't care which."""
+        """One full battle exchange — your move, then the foe's counter, in
+        ONE reveal. Fed by a trivia answer OR a combat puzzle result; the
+        rules don't care which."""
         p = self.current
         note = ""
         gained = 0
         battle_over = False
         player_dead = False
-        if True:
-            m = self.board.nodes[self.battle["node"]]["monster"]
-            enemies = m["enemies"]
-            stance = self.battle["stance"]
-            boss = bool(m.get("boss"))
-            heavy = bool(boss and self.battle.get("charging"))
-            tgt = enemies[self.battle.get("target", 0)]
-            enemy_phase = {"evaded": False, "backfire": False, "blocked": False,
-                           "heavy": False, "attacker": None, "dmg": 0,
-                           "target_idx": self.battle.get("target", 0),
-                           "dealt": 0, "killed": False}
-            if correct:
-                self._streak_bonus(p)
+        m = self.board.nodes[self.battle["node"]]["monster"]
+        enemies = m["enemies"]
+        stance = self.battle["stance"]
+        boss = bool(m.get("boss"))
+        # tough units (3+ HP) draw the boss's tier-II STRIKE — and take its 2
+        big = self._tough(m)
+        heavy = bool(boss and self.battle.get("charging"))
+        tgt = enemies[self.battle.get("target", 0)]
+        enemy_phase = {"evaded": False, "backfire": False, "blocked": False,
+                       "heavy": False, "attacker": None, "dmg": 0,
+                       "target_idx": self.battle.get("target", 0),
+                       "dealt": 0, "killed": False, "counter": False,
+                       "braced": False, "blunted": False, "riposte": 0,
+                       "backfire_dmg": 0, "stance": stance,
+                       "dodged": False}          # vestigial (the dodge is gone)
+        if correct and stance in ("attack", "magic", "sword"):
+            self._streak_bonus(p)
+        elif not correct:
+            p.streak = 0
+        # (a right BRACE or hymn keeps the streak alive but never pays a
+        # streak scroll — neither may become a scroll-a-round stall)
+
+        # ── your move ────────────────────────────────────────────────────────
+        dmg = 0
+        victim = tgt                       # which enemy my blow lands on
+        dark_lord = self.board.nodes[self.battle["node"]]["type"] == "pharos"
+        if correct and stance == "attack":
+            if dark_lord:
+                # against the Dark Presence a STRIKE never takes fittings,
+                # relics or the horn (the Sword is your real weapon)
+                dmg = STRIKE_BOSS_DMG
+                note = f"⚔ Your blade bites {tgt['name']} for {dmg}."
             else:
-                p.streak = 0
+                dmg = ((STRIKE_BOSS_DMG if big else STRIKE_DMG)
+                       + (1 if p.has("ram") else 0)
+                       + (2 if p.has("titan_ram") else 0))
+                horn = self.battle.get("horn")
+                if horn:
+                    dmg += HORN_BONUS
+                    self.battle["horn"] = False
+                note = f"{'📯 ' if horn else ''}⚔ Your blade bites {tgt['name']} for {dmg}!"
+        elif correct and stance == "magic":
+            dmg = MAGIC_DMG + (1 if p.has("trident") else 0)
+            note = f"✨ Arcane fire sears {tgt['name']} for {dmg}!"
+        elif correct and stance == "sword":
+            dmg = SWORD_DMG
+            note = f"🗡 The Sword of Damocles falls on {tgt['name']} for {dmg}!"
+        elif correct and stance == "guard":
+            dmg = RIPOSTE_DMG
+            enemy_phase["riposte"] = dmg
+            note = f"🛡 You brace and drive it back — {tgt['name']} takes {dmg}!"
+        elif correct and stance == "heal":
+            amt = HEAL_BIG if p.has("ambrosia") else HEAL_SMALL
+            healed = min(amt, p.max_hull - p.hull)
+            p.hull += healed
+            enemy_phase["healed"] = healed     # the client plays a mend, not a hit
+            note = f"✚ A mending hymn knits the hull — +{healed} Health!"
+        elif stance == "heal":
+            enemy_phase["healed"] = 0
+            note = "✚ The hymn falters — no mending comes."
+        elif stance == "guard":
+            note = "🛡 You misread the wind-up —"
+        if dmg:
+            victim["hp"] -= dmg
+            enemy_phase["dealt"] = dmg
+            if victim["hp"] <= 0:
+                enemy_phase["killed"] = True
+                note += f" {victim['name']} falls!"
 
-            # ── your move ────────────────────────────────────────────────────
-            dmg = 0
-            victim = tgt                       # which enemy my blow lands on
-            dark_lord = self.board.nodes[self.battle["node"]]["type"] == "pharos"
-            if correct and stance == "attack":
-                if dark_lord:
-                    # against the Dark Lord a STRIKE only ever CHIPS for 1 — no
-                    # fittings, no relics, no horn (the Sword is your real weapon)
-                    dmg = STRIKE_DMG
-                    note = f"⚔ Your blade chips {tgt['name']} for {dmg}."
-                else:
-                    dmg = (STRIKE_DMG + (1 if p.has("ram") else 0)
-                           + (2 if p.has("titan_ram") else 0))
-                    horn = self.battle.get("horn")
-                    if horn:
-                        dmg += HORN_BONUS
-                        self.battle["horn"] = False
-                    note = f"{'📯 ' if horn else ''}⚔ Your blade bites {tgt['name']} for {dmg}!"
-            elif correct and stance == "magic":
-                dmg = MAGIC_DMG + (1 if p.has("trident") else 0)
-                note = f"✨ Arcane fire sears {tgt['name']} for {dmg}!"
-            elif correct and stance == "sword":
-                dmg = SWORD_DMG
-                note = f"🗡 The Sword of Damocles falls on {tgt['name']} for {dmg}!"
-            elif correct and stance == "heal":
-                amt = HEAL_BIG if p.has("ambrosia") else HEAL_SMALL
-                healed = min(amt, p.max_hull - p.hull)
-                p.hull += healed
-                enemy_phase["healed"] = healed     # the client plays a mend, not a hit
-                note = (f"✚ A mending hymn knits the hull — +{healed} Health!" if healed
-                        else "✚ The hull is already whole — the hymn steadies the crew.")
-            elif not correct and stance == "heal":
-                enemy_phase["healed"] = 0
-                note = "✚ The hymn falters — no mending comes."
-            if dmg:
-                victim["hp"] -= dmg
-                enemy_phase["dealt"] = dmg
-                if victim["hp"] <= 0:
-                    enemy_phase["killed"] = True
-                    note += f" {victim['name']} falls!"
-
-            alive = [e for e in enemies if e["hp"] > 0]
-            if not alive:
+        alive = [e for e in enemies if e["hp"] > 0]
+        if not alive:
+            battle_over = True
+            node = self.board.nodes[self.battle["node"]]
+            if node["type"] == "pharos":
+                self.winner = p.pid
+                note = f"🏆 The Dark Lord falls — {p.name} takes the PHAROS!"
+            else:
+                note += f" {m['name']} — defeated!"
+                if node["type"] == "lair":
+                    node["defeated"].append(p.pid)
+                    node["monster"] = None      # your trial is done, forever
+                    p.cargo.append(node["region"])
+                    # victory carries you home: no long haul back through
+                    # the realm — the tide bears you to Home Port and the
+                    # seal goes straight into the vault (hull patched, as
+                    # any homecoming does)
+                    p.prev_node = p.node
+                    p.node = "home"
+                    self._bank(p)
+                    note += " ⚓ The tide bears you HOME — the seal is banked."
+                # spoils: a realm boss pays BOSS_LOOT; a pack pays by the
+                # toughness of what fell (see unit_loot)
+                loot = BOSS_LOOT if boss else sum(unit_loot(e) for e in enemies)
+                p.scrolls += loot
+                gained = loot
+                if node.get("encounter") or node["type"] == "sea":
+                    node["monster"] = None     # the waters fall quiet — for now
+                # the islet's guardians are down — the sword is yours to draw
+                if (node.get("sword") and m.get("pack")
+                        and not p.has("sword_of_damocles")):
+                    p.upgrades.append("sword_of_damocles")
+                    self._sword_claimed = True
+                    note += (" 🗡 Beyond the fallen guard a sword juts from a "
+                             "weathered stone — you set your hand to it.")
+        else:
+            # ── the foe's move ───────────────────────────────────────────────
+            # a missed spell burns its caster first (packs; the counter still
+            # comes — a missed spell is never cheaper than a missed STRIKE)
+            if MAGIC_BACKFIRE and not correct and stance == "magic" and not boss:
+                p.hull -= MAGIC_BACKFIRE
+                enemy_phase["backfire"] = True
+                enemy_phase["backfire_dmg"] = MAGIC_BACKFIRE
+                note = f"🔥 The spell backfires — {MAGIC_BACKFIRE} damage!"
+            note = (note + " " + self._counter(p, m, stance, correct, heavy,
+                                               enemy_phase)).strip()
+            if p.hull <= 0:
+                self._cheat_death(p)      # Phoenix Feather may pull you back to 1
+            if p.hull <= 0:
                 battle_over = True
+                player_dead = True
                 node = self.board.nodes[self.battle["node"]]
                 if node["type"] == "pharos":
-                    self.winner = p.pid
-                    note = f"🏆 The Dark Lord falls — {p.name} takes the PHAROS!"
-                else:
-                    note += f" {m['name']} — defeated!"
-                    if node["type"] == "lair":
-                        node["defeated"].append(p.pid)
-                        node["monster"] = None      # your trial is done, forever
-                        p.cargo.append(node["region"])
-                        # victory carries you home: no long haul back through
-                        # the realm — the tide bears you to Home Port and the
-                        # seal goes straight into the vault (hull patched, as
-                        # any homecoming does)
-                        p.prev_node = p.node
-                        p.node = "home"
-                        self._bank(p)
-                        note += " ⚓ The tide bears you HOME — the seal is banked."
-                    # spoils: one scroll per basic foe, ten for a boss-tier one
-                    loot = sum(10 if e["max_hp"] >= 5 else 1 for e in enemies)
-                    p.scrolls += loot
-                    gained = loot
-                    if node.get("encounter") or node["type"] == "sea":
-                        node["monster"] = None     # the waters fall quiet — for now
-                    # the islet's guardians are down — the sword is yours to draw
-                    if (node.get("sword") and m.get("pack")
-                            and not p.has("sword_of_damocles")):
-                        p.upgrades.append("sword_of_damocles")
-                        self._sword_claimed = True
-                        note += (" 🗡 Beyond the fallen guard a sword juts from a "
-                                 "weathered stone — you set your hand to it.")
-            else:
-                # ── the enemies' move ────────────────────────────────────────
-                # EVERY foe answers EVERY exchange now — no more "your right
-                # answer makes them whiff." The DODGE is the only way a blow
-                # is turned aside. The counter does NOT land yet: first the
-                # reveal shows how YOUR move went, then the foe winds up and
-                # the DODGE action command interrupts.
-                front_idx = self._attack_queue(enemies)[0]
-                front = enemies[front_idx]
-                if not correct and stance == "magic" and not boss:
-                    hit, blocked = self._absorb(p, MAGIC_BACKFIRE)
-                    enemy_phase["backfire"] = True
-                    enemy_phase["dmg"] = hit
-                    note = ("🛡 The aegis charm eats the backfire."
-                            if blocked else f"🔥 The spell backfires — {hit} damage!")
-                    p.hull -= hit
-                else:
-                    self._advance_attacker(enemies)
-                    # bosses ALL land in the 2–4 band (a telegraphed heavy sits
-                    # at the top of it); packs strike for their own power
-                    if boss:
-                        power = min(4, max(2, front["power"] * (HEAVY_MULT if heavy else 1)))
-                    else:
-                        power = front["power"]
-                    enemy_phase["attacker"] = front["name"]
-                    enemy_phase["pending"] = True   # a blow hangs over the reveal
-                    self.battle["incoming"] = {
-                        "attacker_idx": front_idx, "attacker": front["name"],
-                        "power": power, "heavy": heavy,
-                        "was_correct": correct,
-                        "move_phase": dict(enemy_phase),
-                    }
-
-                if p.hull <= 0:               # only the backfire bites here
-                    self._cheat_death(p)      # Phoenix Feather may pull you back to 1
-                if p.hull <= 0:
-                    battle_over = True
-                    player_dead = True
-                    node = self.board.nodes[self.battle["node"]]
-                    if node["type"] == "pharos":
-                        self.board.reset_warden()   # a fresh Warden per challenger
-                    self._shipwreck(p)
+                    self.board.reset_warden()   # a fresh Warden per challenger
+                if node["type"] in ("lair", "pharos"):
+                    # catch-up: your trial rises weaker for your next try
+                    falls = node.setdefault("falls", {})
+                    falls[p.pid] = falls.get(p.pid, 0) + 1
+                self._shipwreck(p)
+            elif boss:
+                note += self._boss_rhythm(m, heavy)
 
         self._emit_battle_reveal(correct, idx, correct_idx, side or {},
                                  challenge, note, gained,
                                  battle_over, player_dead, enemy_phase)
+
+    def _boss_rhythm(self, m: dict, heavy: bool) -> str:
+        """After a boss's blow: count the exchange and set up the next one.
+        It telegraphs a HEAVY every HEAVY_EVERY-th exchange; once ENRAGED
+        (at or below ENRAGE_AT of its health) every other one."""
+        b = self.battle
+        b["round"] += 1
+        e = m["enemies"][0]
+        note = ""
+        if not m.get("enraged") and e["hp"] <= e["max_hp"] * ENRAGE_AT:
+            m["enraged"] = True
+            note += f" 🔥 {m['name']} is wounded and ENRAGED — its heavy blows come faster!"
+        if m.get("enraged"):
+            b["charging"] = not heavy
+        else:
+            b["charging"] = b["round"] % HEAVY_EVERY == HEAVY_EVERY - 1
+        if b["charging"]:
+            note += f" ⚠ {m['name']} rears back, gathering a heavy blow — BRACE!"
+        return note
 
     def _emit_battle_reveal(self, correct, idx, correct_idx, side, challenge,
                             note, gained, battle_over, player_dead,
@@ -1875,11 +1927,6 @@ class Game:
         rv = self.reveal or {}
         self.question = None
         self.question_deadline = None
-        # a counter hangs over this reveal — now that YOUR move has been shown
-        # plainly, the foe winds up and the DODGE action command interrupts
-        if self.battle and self.battle.get("incoming") and not rv.get("battle_over"):
-            self._bump("dodge")
-            return
         if self.winner:
             self._bump("finished")
         elif self.upgrade_offer:
@@ -1904,6 +1951,13 @@ class Game:
             # a payload of the wrong shape is a malformed message, not a
             # wrong answer: refuse it without spending the attempt
             raise GameError("Malformed message.") from None
+        if mg.get("event"):
+            # an EVENT puzzle (events.py): retry until solved, except the
+            # one-attempt kinds, whose miss stands
+            if ok or mg["kind"] in ("simon", "memory", "ravens", "visual_memory"):
+                events.puzzle_done(self, ok)
+                return
+            raise GameError("Not solved yet — try again.")
         if mg.get("battle"):
             if ok:
                 self.minigame = None
@@ -1949,7 +2003,9 @@ class Game:
         if self.phase != "minigame":
             return
         mg = self.minigame
-        if mg.get("battle"):
+        if mg.get("event"):
+            events.puzzle_done(self, False)
+        elif mg.get("battle"):
             self.minigame = None
             self._resolve_battle(False, -2, None, challenge="puzzle")
         elif mg.get("kraken"):
@@ -1964,7 +2020,9 @@ class Game:
         if self.phase != "minigame":
             return
         mg = self.minigame
-        if mg.get("battle"):
+        if mg.get("event"):
+            events.puzzle_done(self, bool(success))
+        elif mg.get("battle"):
             self.minigame = None
             self._resolve_battle(success, -2, None, challenge="puzzle")
         elif mg.get("kraken"):
@@ -1984,12 +2042,12 @@ class Game:
                          "data": deal, "limit": deal["limit"],
                          "deadline": None, "kraken": True,
                          "kraken_no": self.kraken["asked"],
-                         "kraken_need": KRAKEN_RIDDLES}
+                         "kraken_need": self.kraken.get("need", KRAKEN_RIDDLES)}
         self._bump("minigame")
 
     def _kraken_next(self):
         k = self.kraken
-        if k["asked"] >= KRAKEN_RIDDLES:
+        if k["asked"] >= k.get("need", KRAKEN_RIDDLES):
             self.minigame = None
             self.kraken = None
             self._say(f"🐙 The kraken, satisfied, sinks back into the deep — "
@@ -2144,10 +2202,10 @@ class Game:
         self._grow_vale()                  # fresh private labyrinths too
         self.winner = None
         self.battle = None
-        self.dodge_deadline = None
         self.gate_walk = None
         self.pharos_open = False
         self.kraken = None
+        events.reset(self)                 # no leftover wonders on the new sea
         self.used_puzzles = set()
         self.log = []
         self.flash = None                  # last voyage's verdict banner
@@ -2170,11 +2228,14 @@ class Game:
                 "ambush": bool(self.battle.get("ambush")),
                 "round": self.battle.get("round", 0),
                 "charging": bool(self.battle.get("charging")),
+                # BRACE is offered only against a telegraphed heavy
+                "can_brace": bool(m.get("boss") and self.battle.get("charging")),
+                "enraged": bool(m.get("enraged")),
                 "enemies": [{"name": e["name"], "hp": max(0, e["hp"]),
                              "max_hp": e["max_hp"], "power": e["power"],
                              "model": e.get("model")}
                             for e in m["enemies"]],
-                "strike_tier": 2 if boss else 1,
+                "strike_tier": 2 if self._tough(m) else 1,
                 # the RULE, not the look: only true trials (lair bosses, the
                 # Warden, the staged Sphinx) refuse a retreat. "boss" above is
                 # also set for packs of 5-HP brutes, which CAN be fled.
@@ -2328,14 +2389,10 @@ class Game:
                         "cells": [{"category": c["category"], "value": c["value"]}
                                   for c in self.jboard["cells"]]}
                        if self.phase == "jchoose" and self.jboard else None),
-            # the incoming blow awaiting its dodge (Paper-Mario action beat)
-            "dodge": ({"attacker": self.battle["incoming"]["attacker"],
-                       "attacker_idx": self.battle["incoming"]["attacker_idx"],
-                       "power": self.battle["incoming"]["power"],
-                       "heavy": self.battle["incoming"]["heavy"],
-                       "deadline": self.dodge_deadline}
-                      if self.phase == "dodge" and self.battle
-                      and self.battle.get("incoming") else None),
+            # VESTIGIAL: the timed dodge beat is gone — defence is decided by
+            # your answer and the BRACE stance. Always None, so an older
+            # client that still reads it never finds a blow to time.
+            "dodge": None,
             "side_answered": list(self.side_answers.keys()),
             "reveal": reveal,
             "battle": battle,
@@ -2346,12 +2403,22 @@ class Game:
             "flash": self.flash,
             "winner": self.winner,
             "log": self.log,
+            # events: the open card/game/table, the last result card, the
+            # world wonders on the chart (events.snapshot)
+            **events.snapshot(self, viewer_pid, shown),
             "config": {"relics_to_win": RELICS_TO_WIN, "tier_reward": TIER_REWARD,
                        "streak_at": STREAK_AT, "max_hull": MAX_HULL,
                        "flee_cost": FLEE_COST, "shop_items": SHOP_ITEMS,
                        "relics": RELICS, "item_cap": ITEM_CAP,
                        "die_sides": 3, "heavy_every": HEAVY_EVERY,
                        "heavy_mult": HEAVY_MULT, "planks_heal": PLANKS_HEAL,
+                       # combat numbers the battle tooltips quote
+                       "combat": {"strike": STRIKE_DMG, "strike_boss": STRIKE_BOSS_DMG,
+                                  "magic": MAGIC_DMG, "sword": SWORD_DMG,
+                                  "heal": HEAL_SMALL, "heal_ambrosia": HEAL_BIG,
+                                  "backfire": MAGIC_BACKFIRE, "blunt": BLUNT,
+                                  "riposte": RIPOSTE_DMG, "heavy_cap": HEAVY_CAP,
+                                  "aegis_min": AEGIS_MIN},
                        # every monster model a realm can field, so the client
                        # preloads a region's whole bestiary on arrival
                        "region_models": REGION_MODELS,

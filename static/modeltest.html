@@ -25,7 +25,8 @@
  * and image-based ambient. What you see here is what the game renders.
  *
  *   /static/modeltest.html?set=monsters&page=0&look=hub
- *     set   monsters | standins | captains | props | structures   (default monsters)
+ *     set   monsters | standins | captains | props | structures | procedural
+ *           (procedural = static/models/catalog.js; default monsters)
  *     page  0..n                      per=12 models a page (cols=6)
  *     look  hub | ice | desert | jungle | autumn | pharos         (lighting script)
  *     gfx   low | medium | high       mode=idle|walk|cast|charge  (creature animation)
@@ -48,6 +49,8 @@ import { repairStats } from '/static/modelmat.js';
 import { getMonster, animateMonster, MONSTER_IDS, STAND_INS, BOSS_IDS } from '/static/monsters.js';
 import { propGroup, PROP_IDS, PROP_VARIANT_IDS, preloadProps } from '/static/props.js';
 import { glbProp, STRUCTURE_IDS, structTemplate } from '/static/structures.js';
+import { CATALOG, CATALOG_IDS } from '/static/models/catalog.js';
+import { stats as modelStats } from '/static/models/kit.js';
 
 const q = new URLSearchParams(location.search);
 const SETS = {
@@ -57,6 +60,7 @@ const SETS = {
              'captain:#9b5de5', 'captain:#f8f9fa', 'captain:#222831', 'captain'],
   props: [...PROP_IDS, ...PROP_VARIANT_IDS],
   structures: STRUCTURE_IDS,
+  procedural: CATALOG_IDS,      // static/models/ — procedural landmarks, props, event props
 };
 const SET_NAMES = Object.keys(SETS);
 const LOOKS = ['hub', 'ice', 'desert', 'jungle', 'autumn', 'pharos'];
@@ -119,7 +123,7 @@ function measure(obj) {
   obj.updateMatrixWorld(true);
   const box = new THREE.Box3();
   const visit = (o) => {
-    if (!o.visible || o.name === 'crown') return;
+    if (!o.visible || o.name === 'crown' || o.userData.noFit) return;
     if (o.isMesh) {
       if (!o.geometry.boundingBox) o.geometry.computeBoundingBox();
       box.union(_mb.copy(o.geometry.boundingBox).applyMatrix4(o.matrixWorld));
@@ -143,6 +147,10 @@ async function place(id, i) {
     obj.rotation.y = FACE;
     monsters.push(obj);
     note = STAND_INS[mid] ? `stand-in: ${STAND_INS[mid].use}` : BOSS_IDS.has(mid) ? 'boss' : (tint || '');
+  } else if (setName === 'procedural') {
+    obj = CATALOG[id]();
+    const st = modelStats(obj);
+    note = `${(st.tris / 1000).toFixed(1)}k tris · ${st.calls} calls`;
   } else if (setName === 'props') {
     obj = propGroup(id, 1);
     await Promise.all(preloadProps([id]));
@@ -162,6 +170,8 @@ async function place(id, i) {
   if (fit && isFinite(size.x)) {
     const k = FIT / Math.max(size.x, size.y * 1.05, size.z, 0.01);
     holder.scale.setScalar(k);
+    // keep point lights lighting the shrunken model as they would at true scale
+    holder.traverse((o) => { if (o.isPointLight) { o.distance *= k; o.intensity *= k * k; } });
   }
   const tag = document.createElement('div');
   tag.className = 'tag';

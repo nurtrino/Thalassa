@@ -134,7 +134,8 @@ export function makeGroundMaterial({ bump = 0.6, tide = true, extra = {} } = {})
 }
 
 /* ── the island ──────────────────────────────────────────────────────────── */
-export function makeTerrain({ seed, R, H, mode = 'hill', palette = {}, lobes = 0, shelf = null, cover = null }) {
+export function makeTerrain({ seed, R, H, mode = 'hill', palette = {}, lobes = 0, shelf = null, cover = null,
+                              fit = false, cove = null, cliff = null, lagoon = 0 }) {
   const dry = !!palette.dry;             // stands on sand / forest floor, not in the sea
   if (shelf === null) shelf = !dry;
   const rng = mulberry32(seed);
@@ -168,15 +169,54 @@ export function makeTerrain({ seed, R, H, mode = 'hill', palette = {}, lobes = 0
   // the coastline: noise around the unit circle — organic and closed
   const eoff = rng() * 90;
   const ephase = rng() * 6.28;
-  const edge = (a) => (0.78 + 0.52 * rugged
+  // a COVE bites a bay out of the coast at cove.a (depth 0..~0.5, width rad)
+  const coveK = (a) => {
+    if (!cove) return 1;
+    const d = Math.atan2(Math.sin(a - cove.a), Math.cos(a - cove.a)) / (cove.w ?? 0.5);
+    return 1 - (cove.depth ?? 0.35) * Math.exp(-d * d * 2.2);
+  };
+  const edge0 = (a) => (0.78 + 0.52 * rugged
                         * fbm(Math.cos(a) * 2.3 + eoff, Math.sin(a) * 2.3 + eoff))
-                      * (1 + lobes * Math.sin(2 * a + ephase));
-  const profile = (rr) => {
+                      * (1 + lobes * Math.sin(2 * a + ephase)) * coveK(a);
+  // FIT: scale the coastline so its farthest point sits exactly at R — the
+  // footprint gameplay plans lanes around (board.py ISLE_FOOT) is then the
+  // real one; without it the noise could throw a headland out to ~1.8 R
+  let fitK = 1;
+  if (fit) {
+    let m = 0;
+    for (let i = 0; i < 96; i++) {
+      const a = (i / 96) * Math.PI * 2;
+      m = Math.max(m, edge0(a) * Math.hypot(ex * Math.cos(a), ez * Math.sin(a)));
+    }
+    fitK = m > 0 ? 1 / m : 1;
+  }
+  const edge = (a) => edge0(a) * fitK;
+  const profile0 = (rr) => {
     if (mode === 'mesa') return H * (1 - smooth(0.60, 0.93, rr));
+    // TERRACES: a temple plateau, a broad step below it, then the beach
+    if (mode === 'terrace') return H * (1 - 0.45 * smooth(0.34, 0.46, rr) - 0.55 * smooth(0.66, 0.93, rr));
     if (mode === 'peak') return H * Math.pow(Math.max(0, 1 - rr), 1.35);
     if (mode === 'flat') return H * (1 - smooth(0.74, 0.98, rr));
     if (mode === 'atoll') return H * (smooth(0.14, 0.4, rr) - smooth(0.55, 0.92, rr));
     return H * (1 - smooth(0.15, 0.95, rr)) * (0.75 + 0.25 * Math.cos(rr * 3));
+  };
+  // a LAGOON: the heart of an atoll drowned under clear shallow water
+  const profile = lagoon > 0
+    ? (rr) => profile0(rr) - (H + 0.9) * lagoon * (1 - smooth(0.12, 0.34, rr))
+    : profile0;
+  // CLIFFS on one side: the land holds its height right to the coast and
+  // drops sheer (cliff.a = bearing, cliff.k = strength 0..1)
+  const cliffK = (a) => {
+    if (!cliff) return 0;
+    const c = Math.cos(a - cliff.a);
+    return c > 0 ? (cliff.k ?? 0.8) * c * c : 0;
+  };
+  const profileAt = (rr, a) => {
+    const k = cliffK(a);
+    const base = profile(rr);
+    if (k <= 0) return base;
+    const top = Math.max(base, H * 0.85 * (1 - smooth(0.9, 0.995, rr)));
+    return base + (top - base) * k;
   };
   const heightAt = (rr) => Math.max(0, profile(Math.min(rr, 1)));
   const relief = (px, pz, rr) =>
@@ -196,7 +236,10 @@ export function makeTerrain({ seed, R, H, mode = 'hill', palette = {}, lobes = 0
       // the land, easing onto a low beach berm at the coast (no lip, no cliff edge)
       // …then down the foreshore so the WATERLINE sits at the nominal coast
       // (rr = 1): the isle's footprint is exactly the radius gameplay expects
-      return Math.max(0, profile(rr)) * relief(x, z, rr) + BEACH * smooth(0.55, 0.9, rr)
+      const a = Math.atan2(z / ez, x / ex);
+      const land = profileAt(rr, a);
+      // (a lagoon's floor sits UNDER the sea: no relief lifting it to land)
+      return (land < 0 ? land : land * relief(x, z, rr)) + BEACH * smooth(0.55, 0.9, rr)
              - (BEACH + 0.36) * smooth(0.9, 1.0, rr);
     }
     // foreshore → shelf → drop-off, with a little wander so the shallows aren't a ring
@@ -207,18 +250,29 @@ export function makeTerrain({ seed, R, H, mode = 'hill', palette = {}, lobes = 0
   };
   const surfaceY = (x, z) => {
     const rr = Math.min(1, radiusOf(x, z));
-    return Math.max(0, profile(rr)) * relief(x, z, rr);
+    return Math.max(0, profileAt(rr, Math.atan2(z / ez, x / ex))) * relief(x, z, rr);
   };
   const place = (a, rr) => {
     const wr = rr * R * edge(a);
     const x = Math.cos(a) * wr * ex, z = Math.sin(a) * wr * ez;
-    return { x, y: Math.max(0, profile(Math.min(rr, 1))) * relief(x, z, rr), z };
+    return { x, y: Math.max(0, profileAt(Math.min(rr, 1), a)) * relief(x, z, rr), z };
+  };
+  /* the true coast (waterline) at bearing `a` — for docks and stacks */
+  const coastAt = (a) => {
+    // place() takes the PARAMETRIC angle; solve for the world bearing a
+    const pa = Math.atan2(Math.sin(a) / ez, Math.cos(a) / ex);
+    const wr = R * edge(pa);
+    return { x: Math.cos(pa) * wr * ex, z: Math.sin(pa) * wr * ez, pa };
   };
 
   /* ── mesh: regular grid, trimmed to the shelf's footprint ── */
   const reach = shelf ? 1.95 : 1.06;
-  const ext = R * 1.32 * Math.max(ex, ez) * reach;       // edge() tops out ≈ 1.3
-  const N = Math.max(28, Math.min(76, Math.round(ext * 2 / 0.72)));
+  // edge() tops out ≈ 1.3 unfitted; a fitted coast never passes R
+  const ext = R * (fit ? 1.03 : 1.32 * Math.max(ex, ez)) * reach;
+  // (a fitted isle spends its grid on a tighter square: cap it so an island
+  // stays near ~4k triangles however large the Pharos rock grows)
+  const N = fit ? Math.max(28, Math.min(58, Math.round(ext * 2 / 0.9)))
+                : Math.max(28, Math.min(76, Math.round(ext * 2 / 0.72)));
   const step = (ext * 2) / N;
   const W = N + 1;
   const hgt = new Float32Array(W * W);
@@ -364,7 +418,7 @@ export function makeTerrain({ seed, R, H, mode = 'hill', palette = {}, lobes = 0
       cc.copy(P.rock).lerp(P.sand, 0.25 + n * 0.35).multiplyScalar(0.85 + crng() * 0.25), 0.62);
   }
 
-  return { mesh, heightAt, place, surfaceY, rng };
+  return { mesh, heightAt, place, surfaceY, rng, coastAt, R };
 }
 
 /* ── ground-cover geometry (shared, built once) ──────────────────────────── */

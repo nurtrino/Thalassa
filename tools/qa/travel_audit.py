@@ -18,6 +18,15 @@ geometry defect that makes sailing look or feel broken:
   · dead_end             — a hub island with one lane (realm roads are
                            deliberately linear; the hub should loop).
   · disconnected         — any node unreachable from Home Port.
+  · waypoint_on_shelf    — a sea waypoint (buoy, islet, rocks) sits on an
+                           island's beach or its underwater shelf.
+  · lane_blocked_by_islet — a lane runs through an islet / rock stack that
+                           stands on ANOTHER lane's waypoint.
+  · route_choice         — exact-roll landing choices (rolls 1–5) from the
+                           hub's islands fell below the lattice's design.
+
+Footprints come from board.py (ISLE_FOOT / footprint() / shelf()), the
+same table the client's terrain is fitted to (static/islands.js ISLE_R).
 
 Usage:
     python tools/qa/travel_audit.py [--seeds N] [--json out.json]
@@ -37,17 +46,15 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(
 
 import board as board_mod  # noqa: E402
 
-# Visual island footprints — mirrors ISLE_R in static/islands.js. buildIsland
-# scales non-sea islands by up to ×1.23 (0.88 + rng*0.35); use the worst case.
-ISLE_R = {"home": 13.0, "shrine": 10.0, "puzzle": 10.0, "haven": 11.0,
-          "shop": 10.0, "monster": 11.0, "lair": 14.0, "pharos": 17.0,
-          "gate": 2.0, "sea": 1.5}
-MAX_SCALE = 1.23
+# Visual island footprints: the client fits every island's coast INSIDE its
+# radius (static/gfx/terrain.js fit) and buildIsland never exceeds ISLE_R
+# (static/islands.js) — board.py keeps the matching table.
+ISLE_R = dict(board_mod.ISLE_FOOT)
 
 
 def vis_r(node):
-    r = ISLE_R.get(node["type"], 4.8)
-    return r * (1.0 if node["type"] == "sea" else MAX_SCALE)
+    """Coast radius of the island (or islet / buoy) at a node."""
+    return board_mod.footprint(node)
 
 
 def dist(a, b):
@@ -71,9 +78,10 @@ ISLAND_TYPES = {"home", "shrine", "puzzle", "haven", "shop",
 # the hub waypoint target reads as an endless dolly through empty water.
 # The sail animation runs ~700ms + 32ms/wu (scene.js startTravel): 110 wu
 # ≈ 4.2s of sailing, the ceiling before travel starts to drag.
-LONG_HOP = 110.0       # hub lanes aim for ~60; the board caps hops near ~90
-SHORT_HOP = 7.0        # closer than this and the ship barely moves
-CLUMP_MARGIN = 6.0     # open water wanted between two coasts
+LONG_HOP = board_mod.HOP_BAND[1]     # hub lanes aim for ~60; never past this
+SHORT_HOP = board_mod.HOP_BAND[0]    # closer than this and the ship barely moves
+CLUMP_MARGIN = 8.0     # open water wanted between two coasts
+LANE_MARGIN = board_mod.LANE_MARGIN  # water a lane keeps off a third coast
 
 
 def audit_board(b, seed):
@@ -114,7 +122,7 @@ def audit_board(b, seed):
                 f"({na.get('region') or 'hub'})",
                 a=a, b=bb, length=round(d, 1))
         elif d < SHORT_HOP and not vale:
-            add("short_hop", "WARN",
+            add("short_hop", "ERROR",
                 f"{a}→{bb} is only {d:.1f} wu — a twitch, not a sail",
                 a=a, b=bb, length=round(d, 1))
 
@@ -143,10 +151,42 @@ def audit_board(b, seed):
                     f"lane {a}→{bb} cuts through {c['id']} "
                     f"({c['type']}, r≈{vis_r(c):.0f}, clearance {d:.1f})",
                     a=a, b=bb, island=c["id"], clearance=round(d, 1))
-            elif d < vis_r(c) + 2.5:
-                add("lane_grazes_island", "WARN",
-                    f"lane {a}→{bb} grazes {c['id']} ({d:.1f} wu off its coast)",
+            elif d < vis_r(c) + LANE_MARGIN:
+                # inside the margin the hull (4–5 wu either side of the lane)
+                # runs over the beach and its shelf
+                add("lane_grazes_island", "ERROR",
+                    f"lane {a}→{bb} grazes {c['id']} ({d - vis_r(c):.1f} wu "
+                    f"off its coast, want {LANE_MARGIN:.0f})",
                     a=a, b=bb, island=c["id"], clearance=round(d, 1))
+
+    # ── sea waypoints: never on a beach or shelf; islets never block lanes ─
+    seas = [n for n in nodes.values() if n["type"] == "sea"
+            and n.get("region") != "autumn"]
+    for w in seas:
+        for c in islands:
+            d = dist(w, c)
+            need = board_mod.shelf(c) + vis_r(w)
+            if d < need:
+                add("waypoint_on_shelf", "ERROR",
+                    f"waypoint {w['id']} ({w.get('look', '-')}) sits "
+                    f"{d:.1f} wu from {c['id']} ({c['type']}) — on its "
+                    f"shelf (want ≥ {need:.0f})",
+                    node=w["id"], island=c["id"], d=round(d, 1))
+    solid_seas = [w for w in seas if w.get("look") in ("islet", "rocks")
+                  and not w.get("region")]
+    for a, bb in b.edges:
+        na, nb_ = nodes[a], nodes[bb]
+        if na.get("region") == "autumn" or nb_.get("region") == "autumn":
+            continue
+        for w in solid_seas:
+            if w["id"] in (a, bb):
+                continue
+            d = seg_point_dist(na["x"], na["z"], nb_["x"], nb_["z"],
+                               w["x"], w["z"])
+            if d < vis_r(w) + LANE_MARGIN:
+                add("lane_blocked_by_islet", "ERROR",
+                    f"lane {a}→{bb} runs {d:.1f} wu from {w['look']} "
+                    f"{w['id']}", a=a, b=bb, node=w["id"], d=round(d, 1))
 
     # ── island overlap / clumping ─────────────────────────────────────────
     for i, na in enumerate(islands):
@@ -215,6 +255,13 @@ def audit_board(b, seed):
                         f"(closest stops {mind:.0f} wu apart)",
                         a=ka, b=kb, min_dist=round(mind, 1))
 
+    # ── route choice: exact-roll landing options from the hub isles ──────
+    rc = route_choice(b)
+    if rc < ROUTE_CHOICE_MIN:
+        add("route_choice", "ERROR",
+            f"mean landing choices per (isle, roll 1–5) is {rc:.2f} "
+            f"(< {ROUTE_CHOICE_MIN})", value=round(rc, 2))
+
     # ── hub dead ends ────────────────────────────────────────────────────
     for n in nodes.values():
         if (not n.get("region") and n["type"] in ISLAND_TYPES
@@ -228,11 +275,66 @@ def audit_board(b, seed):
     return F, hops
 
 
+ROUTE_CHOICE_MIN = 3.0
+
+
+def reachable(b, start, steps):
+    """The engine's exact-roll movement on a bare board (game.py
+    _reachable_for): no doubling straight back unless boxed in, the Pharos
+    is a wall you may only land on, passes / havens / lairs halt or take any
+    roll. Returns the set of legal landing stops."""
+    nodes, nb = b.nodes, b.neighbors
+    cur = {(start, None)}
+    stops = set()
+    for step in range(steps):
+        last = step == steps - 1
+        nxt = set()
+        for node, came in cur:
+            nbrs = nb[node]
+            fwd = [x for x in nbrs if x != came] or list(nbrs)
+            if not last and all(nodes[x]["type"] == "pharos" for x in fwd):
+                fwd = list(nbrs)
+            for x in fwd:
+                t = nodes[x]["type"]
+                if t == "pharos":
+                    stops.add(x)
+                    continue
+                if t == "gate":
+                    stops.add(x)
+                    continue
+                if t in ("lair", "haven"):
+                    stops.add(x)
+                nxt.add((x, node))
+        cur = nxt
+        if not cur:
+            break
+    stops.update(n for n, _ in cur)
+    return stops
+
+
+def route_choice(b):
+    """Mean number of distinct landing stops over every hub island × roll
+    1–5 — the lattice's loops are what make exact rolls steerable."""
+    tot = cnt = 0
+    for n in b.nodes.values():
+        if n.get("region") or n["type"] not in ISLAND_TYPES - {"pharos"}:
+            continue
+        for roll in range(1, 6):
+            tot += len(reachable(b, n["id"], roll))
+            cnt += 1
+    return tot / max(1, cnt)
+
+
+CHOICE = []          # route_choice per audited board (for the summary)
+
+
 def run(seeds=20, base=1000):
     all_f, all_hops = [], []
+    CHOICE.clear()
     for s in range(base, base + seeds):
         b = board_mod.Board(seed=s)
         f, hops = audit_board(b, s)
+        CHOICE.append(route_choice(b))
         all_f.extend(f)
         all_hops.extend(hops)
     return all_f, all_hops
@@ -244,6 +346,10 @@ def summarize(findings, hops, seeds):
              f"hops: n={len(hops)} median={statistics.median(hops):.0f} "
              f"p95={sorted(hops)[int(len(hops) * .95)]:.0f} "
              f"max={max(hops):.0f} min={min(hops):.1f}"]
+    if CHOICE:
+        lines.append(f"route choice (landing stops per hub isle × roll 1–5): "
+                     f"mean {statistics.mean(CHOICE):.2f}, "
+                     f"worst board {min(CHOICE):.2f}")
     for (kind, sev), n in sorted(by_kind.items(),
                                  key=lambda kv: (kv[0][1] != "ERROR", kv[0])):
         lines.append(f"{sev:5} {kind:22} ×{n}  (~{n / seeds:.1f}/board)")
@@ -257,7 +363,19 @@ def main():
     ap.add_argument("--seeds", type=int, default=20)
     ap.add_argument("--base", type=int, default=1000)
     ap.add_argument("--json", default=None)
+    ap.add_argument("--board", default=None,
+                    help="audit another board.py (e.g. a baseline copy)")
     args = ap.parse_args()
+    if args.board:
+        import importlib.util
+        global board_mod
+        spec = importlib.util.spec_from_file_location("board_alt", args.board)
+        alt = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(alt)
+        for k in ("ISLE_FOOT", "footprint", "shelf", "LANE_MARGIN", "HOP_BAND"):
+            if not hasattr(alt, k):
+                setattr(alt, k, getattr(board_mod, k))
+        board_mod = alt
 
     findings, hops = run(args.seeds, args.base)
     print(summarize(findings, hops, args.seeds))

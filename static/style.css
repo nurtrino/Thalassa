@@ -937,7 +937,10 @@ body.touring #gfxBtn { display: none !important; }
   clip-path: polygon(50% 0, 100% 50%, 50% 100%, 0 50%);
 }
 .roundpips i.on { background: var(--gilt); filter: drop-shadow(0 0 3px rgba(240, 208, 96, .8)); }
-/* a guardian a rival already felled — risen harder for a late challenger */
+/* a guardian worn down before you came (rivals' kills, your own falls) —
+   it rises WEAKER: catch-up for whoever trails. ENRAGED reuses the chip. */
+.escalated.enraged { color: #ffe1d6; background: rgba(120, 22, 10, .85);
+  border-color: rgba(224, 90, 60, .9); }
 .escalated {
   display: inline-block;
   font-family: var(--disp); font-weight: 800; font-size: 11.5px;
@@ -1760,27 +1763,6 @@ body.shop-aside #shopPanel {
 .tm-cap { font-family: var(--disp); font-size: 15px; letter-spacing: .03em; color: #5a3f12; margin: 6px 0 2px; }
 .tm-hint { font-size: 12.5px; font-style: italic; color: #7a5a2a; }
 
-/* the red X the chart stamps on the hidden islet, on the board map (labelled ?) */
-.mapchip.swordx .mapx {
-  font-weight: 900; font-size: 17px; line-height: 1;
-  color: #e5452c; text-shadow: 0 0 6px rgba(224, 58, 47, .8), 0 1px 2px rgba(0, 0, 0, .8);
-  animation: swordxpulse 1.6s ease-in-out infinite;
-}
-.mapchip.swordx .ml { color: #ffcf6a; font-weight: 800; font-size: 15px; }
-@keyframes swordxpulse { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.18); } }
-/* …descending onto the island the first time you chart it. Animate the ✕ span
- * (not the chip — mapTick owns the chip's positioning transform), so the drop
- * plays without knocking the marker off the island. */
-.mapchip.swordx.drop .mapx {
-  animation: xdrop .7s cubic-bezier(.3, 1.4, .5, 1) both,
-             swordxpulse 1.6s ease-in-out .7s infinite;
-}
-@keyframes xdrop {
-  0% { transform: translateY(-46px) scale(2.4); opacity: 0; }
-  60% { opacity: 1; }
-  100% { transform: translateY(0) scale(1); opacity: 1; }
-}
-
 /* ── the Sword of Damocles claim cinematic ───────────────────────────────── */
 #swordClaim {
   position: fixed; inset: 0; z-index: 60;
@@ -1914,126 +1896,6 @@ body.touring #mapBtn, body.touring #dice, body.touring #shopPanel { display: non
   margin-top: 10px;
   font-family: var(--disp); font-weight: 700; font-size: 10.5px;
   letter-spacing: .3em; text-transform: uppercase; color: rgba(240, 230, 200, .55);
-}
-
-/* the Amber Vale's "chart" — a question mark; the Vale is different for
-   every captain, so there is nothing to draw */
-#valeChart {
-  position: fixed; inset: 0; z-index: 20;
-  display: flex; align-items: center; justify-content: center;
-  background: rgba(6, 9, 13, .45);
-  backdrop-filter: blur(2px);
-  cursor: pointer;
-}
-#valeChart .vc-card {
-  text-align: center;
-  padding: 34px 44px 30px;
-  background: linear-gradient(168deg, rgba(22, 30, 24, .94), rgba(12, 16, 13, .96));
-  border: 1px solid rgba(240, 162, 79, .45);
-  border-radius: 14px;
-  box-shadow: 0 18px 60px rgba(3, 6, 10, .8), 0 0 44px rgba(240, 162, 79, .12) inset;
-  max-width: min(440px, 86vw);
-}
-#valeChart .vc-mark {
-  font-family: var(--disp); font-weight: 900;
-  font-size: clamp(84px, 18vw, 130px); line-height: 1;
-  color: #f0a24f;
-  text-shadow: 0 0 34px rgba(240, 162, 79, .5), 0 4px 18px rgba(3, 6, 10, .9);
-}
-#valeChart .vc-line {
-  margin-top: 12px;
-  font-family: var(--disp); font-weight: 700; font-size: 15px;
-  letter-spacing: .12em; text-transform: uppercase;
-  color: var(--gilt);
-}
-#valeChart .vc-sub {
-  margin-top: 8px;
-  font-family: var(--body); font-style: italic; font-size: 15px;
-  line-height: 1.5; color: #e8dcc0;
-}
-
-/* ═══ CHART — live aerial view of the current region ═════════════════════ */
-#mapBtn {
-  position: fixed; top: var(--s3); right: 128px; z-index: 10;
-  width: 44px; height: 44px; padding: 9px;
-  color: var(--bronze);
-  background: rgba(14, 24, 34, .72);
-  border: 1px solid rgba(201, 162, 39, .4);
-  border-radius: 10px;
-  backdrop-filter: blur(4px);
-  transition: transform var(--fast), border-color var(--fast), color var(--fast);
-}
-#mapBtn:hover { transform: translateY(-1px); color: var(--gilt); border-color: rgba(240, 208, 96, .7); }
-#mapBtn.on { color: #0e1822; background: var(--bronze); }
-#mapBtn svg { width: 100%; height: 100%; }
-
-/* floating isle icons over the aerial view */
-#mapIcons { position: fixed; inset: 0; z-index: 12; pointer-events: none; }
-.mapchip {
-  position: absolute; left: 0; top: 0; pointer-events: auto;
-  width: 30px; height: 30px; margin: -15px 0 0 -15px;
-  display: flex; align-items: center; justify-content: center;
-  color: #f2e7c8;
-  background: rgba(14, 24, 34, .78);
-  border: 1.5px solid rgba(201, 162, 39, .65);
-  border-radius: 50%;
-  box-shadow: 0 2px 8px rgba(4, 8, 12, .55);
-  cursor: help;
-}
-.mapchip .mi { width: 16px; height: 16px; display: block; }
-.mapchip .mi svg { width: 100%; height: 100%; display: block; }
-.mapchip .ml {
-  position: absolute; bottom: calc(100% + 6px); left: 50%; transform: translateX(-50%);
-  display: none;
-  font-family: var(--disp); font-weight: 700; font-size: 12px; letter-spacing: .04em;
-  white-space: nowrap; color: #f5ecd2;
-  background: rgba(10, 17, 25, .92);
-  border: 1px solid rgba(201, 162, 39, .5);
-  border-radius: 6px; padding: 3px 9px;
-}
-.mapchip:hover { z-index: 3; border-color: var(--gilt); }
-.mapchip:hover .ml { display: block; }
-.mapchip.haven  { border-color: rgba(63, 168, 255, .85); color: #bfe4ff; }
-.mapchip.lair   { border-color: rgba(224, 85, 58, .85); color: #ffc9b8; }
-.mapchip.lair.done { opacity: .55; }
-.mapchip.pharos { border-color: rgba(163, 108, 255, .9); color: #e2d1ff; }
-.mapchip.gate   { border-color: rgba(120, 160, 190, .85); }
-.mapchip.foe    { border-color: rgba(200, 120, 60, .7); opacity: .9; }
-
-/* captains on the aerial view */
-.mapav {
-  position: absolute; left: 0; top: 0; pointer-events: auto;
-  width: 24px; height: 24px; margin: -12px 0 0 -12px;
-  display: flex; align-items: center; justify-content: center;
-  font-family: var(--disp); font-weight: 800; font-size: 12px; color: #fff;
-  background: var(--pc, #888);
-  border: 2px solid rgba(255, 250, 233, .95);
-  border-radius: 50%;
-  box-shadow: 0 2px 8px rgba(4, 8, 12, .6);
-}
-.mapav.you { box-shadow: 0 0 0 3px rgba(240, 208, 96, .8), 0 2px 8px rgba(4, 8, 12, .6); }
-
-/* the control hint bar */
-#mapHint {
-  position: fixed; left: 50%; bottom: 14px; transform: translateX(-50%);
-  z-index: 12;
-  font-family: var(--body); font-size: 13px; color: #e7dcc0;
-  background: rgba(12, 20, 29, .85);
-  border: 1px solid rgba(201, 162, 39, .45);
-  border-radius: 999px;
-  padding: 7px 18px;
-  backdrop-filter: blur(4px);
-  white-space: nowrap;
-}
-#mapHint strong { font-family: var(--disp); letter-spacing: .1em; text-transform: uppercase; font-size: 11.5px; color: var(--gilt); }
-#mapHint kbd {
-  font-family: var(--body); font-size: 11.5px; color: #0e1822;
-  background: #cfc3a2; border-radius: 4px; padding: 0 5px;
-}
-
-@media (max-width: 700px) {
-  #mapBtn { right: 118px; width: 38px; height: 38px; padding: 8px; top: var(--s2); }
-  #mapHint { font-size: 11px; padding: 6px 12px; max-width: 94vw; white-space: normal; text-align: center; }
 }
 
 .stallnote {
@@ -2349,13 +2211,6 @@ body.touring #mapBtn, body.touring #dice, body.touring #shopPanel { display: non
 #devFightMenu .dev-btn { background: #17202b; }
 #devFightMenu .dev-btn:hover { background: #24405c; }
 
-/* dev teleport: when unlocked, the aerial-chart isles become jump targets */
-body.dev .mapchip { cursor: pointer; }
-body.dev .mapchip:hover {
-  border-color: #7fe0a0;
-  box-shadow: 0 0 0 2px rgba(127, 224, 160, .55), 0 2px 8px rgba(4, 8, 12, .55);
-}
-
 /* ═══ QA POLISH PASS (reviewer panel, docs/QA-REVIEWS.md) ════════════════ */
 
 /* FLEE stands apart from the stance trio — butted against GUARD it was the
@@ -2382,7 +2237,7 @@ body.dev .mapchip:hover {
   .itemslot, .beltslot { min-width: 44px; min-height: 44px; }
 }
 
-/* ═══ BATTLE REWORK: turn rail, dodge beat, readable foe HP ══════════════ */
+/* ═══ BATTLE REWORK: turn rail, readable foe HP ══════════════════════════ */
 
 /* foe HP reads at a glance: fatter cells + a numeric count beside them */
 .ehprow { display: flex; align-items: center; justify-content: center; gap: 7px; }
@@ -2392,95 +2247,10 @@ body.dev .mapchip:hover {
 }
 .hpbar.foe .hpcell { width: 30px; height: 15px; background: rgba(10, 14, 20, .55); }
 
-/* the DODGE beat: full-screen tap zone, collapsing ring onto a target */
-#dodgeQte {
-  position: fixed; inset: 0; z-index: 16;
-  display: flex; flex-direction: column; align-items: center;
-  justify-content: center; gap: 18px;
-  background: radial-gradient(circle at 50% 46%, rgba(6, 10, 16, .18), rgba(6, 10, 16, .55));
-  touch-action: none; cursor: pointer;
-}
-#dodgeQte .dodgecap {
-  font-family: var(--disp); font-weight: 700; font-size: clamp(16px, 3vw, 24px);
-  letter-spacing: .08em; color: var(--bone);
-  text-shadow: 0 2px 10px rgba(0, 0, 0, .9);
-}
-#dodgeQte .dodgecap strong { color: #ef6448; }
-/* the loud warning banner over the telegraphed heavy blow */
-#dodgeQte .dodgewarn {
-  display: inline-flex; align-items: center; gap: 8px;
-  font-family: var(--disp); font-weight: 800;
-  font-size: clamp(20px, 4.4vw, 40px); letter-spacing: .1em;
-  padding: 6px 20px; border-radius: 10px;
-  text-shadow: 0 2px 12px rgba(0, 0, 0, .9);
-}
-#dodgeQte .dodgewarn.heavy {
-  color: #ffcf6b; border: 2px solid rgba(255, 196, 77, .8);
-  background: rgba(70, 44, 8, .55);
-}
-#dodgeQte .dodgehint {
-  font-family: var(--body); font-style: italic; font-size: 13px;
-  color: var(--mist); text-shadow: 0 1px 4px rgba(0, 0, 0, .8);
-}
-/* the timing wheel: a dark clock face, a GOLD arc shaded onto its ring, a
-   thin WHITE hand sweeping clockwise. Tap while the hand crosses the gold. */
-.dodgewheel {
-  position: relative; width: 160px; height: 160px; border-radius: 50%;
-  background: radial-gradient(circle, rgba(10, 16, 24, .55) 58%, rgba(16, 24, 34, .85) 100%);
-  border: 3px solid rgba(201, 162, 39, .55);
-  box-shadow: 0 0 22px rgba(3, 8, 13, .8), inset 0 0 18px rgba(3, 8, 13, .7);
-}
-/* the gold window — a conic sector (inline background) cut into a ring band */
-.dodgewheel .dq-arc {
-  position: absolute; inset: 4px; border-radius: 50%;
-  -webkit-mask: radial-gradient(circle, transparent 62%, #000 63%);
-  mask: radial-gradient(circle, transparent 62%, #000 63%);
-  filter: drop-shadow(0 0 8px rgba(240, 208, 96, .7));
-}
-/* the little white clock hand, pivoting from the centre */
-.dodgewheel .dq-hand {
-  position: absolute; left: 50%; bottom: 50%;
-  width: 3.5px; height: 46%;
-  margin-left: -1.75px;
-  transform-origin: bottom center;
-  background: linear-gradient(180deg, #ffffff, rgba(255, 255, 255, .35));
-  border-radius: 3px;
-  box-shadow: 0 0 9px rgba(255, 255, 255, .85);
-  will-change: transform;
-}
-.dodgewheel .dq-hand::before {           /* tip knob riding the ring */
-  content: '';
-  position: absolute; top: -5px; left: 50%;
-  width: 11px; height: 11px; margin-left: -5.5px;
-  border-radius: 50%;
-  background: #fff;
-  box-shadow: 0 0 10px rgba(255, 255, 255, .9);
-}
-.dodgewheel .dq-hand::after {             /* centre pin */
-  content: '';
-  position: absolute; bottom: -4px; left: 50%;
-  width: 9px; height: 9px; margin-left: -4.5px;
-  border-radius: 50%;
-  background: var(--gilt);
-  box-shadow: 0 0 6px rgba(240, 208, 96, .8);
-}
-.dodgewheel .dq-verdict {
-  position: absolute; inset: 0; display: grid; place-items: center;
-  font-family: var(--disp); font-weight: 800; font-size: 19px;
-  letter-spacing: .1em; pointer-events: none;
-}
-.dodgewheel .dq-verdict.hit { color: #7cffb2; text-shadow: 0 0 18px rgba(60, 220, 130, .8); }
-.dodgewheel .dq-verdict.miss { color: #ff7a6b; text-shadow: 0 0 18px rgba(224, 70, 40, .8); }
-#dodgeQte.dodged .dodgewheel { border-color: #7cffb2; }
-#dodgeQte.flubbed .dodgewheel { border-color: #55606e; }
-#dodgeQte.dodged .dq-hand, #dodgeQte.flubbed .dq-hand { opacity: .5; }
-
+/* (the timed DODGE beat and its timing wheel are gone: defence is decided
+   by your answer, and by BRACE against a telegraphed heavy) */
 @media (max-width: 700px) {
-  .dodgewheel { width: 132px; height: 132px; }
   .hpbar.foe .hpcell { width: 24px; height: 13px; }
-}
-@media (prefers-reduced-motion: reduce) {
-  #dodgeQte { background: rgba(6, 10, 16, .55); }
 }
 
 /* ── the JEOPARDY! category board ──────────────────────────────────────────

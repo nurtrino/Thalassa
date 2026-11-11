@@ -64,8 +64,64 @@ flames that the emissive map missed). The per-model tables are `MONSTER_FINISH`
 ball and a gold `crown` ring to each creature at bounding-box guesses; they
 float off the sculpt. The loader removes `eye` and `core` (the real eyes and
 crystal cores glow from the emissive map / painted-glow key instead) and
-rebuilds `crown` as a small gold circlet hovering over the boss's highest
-point, which the animator turns and bobs.
+rebuilds `crown` as a 3D gold circlet with a ruby, seated on the boss's head
+(the highest point of the front of the body), which the animator sways.
+
+---
+
+## Round 2 — inventory of every old model on screen, and what replaced it
+
+The procedural models live in `static/models/` (no new binary assets):
+
+| file | what |
+|---|---|
+| `models/kit.js` | the workshop: cached materials (vertex colour × tiling grain: stone, ashlar, marble, plaster, wood, cloth, tiles, bronze, gold), `Parts` (merge a model per material → few draw calls), `lathe` (crease rows, flutes), soft-bevelled `box`, `tube`, `blob`, **`rockGeometry`** (the one rock generator: fracture planes, strata, bleached tops, moss/snow cover), HDR `flame`, `animate(obj, fn)` (self-animation via onBeforeRender, no scene hook) |
+| `models/landmarks.js` | Pharos (+ isle dressing, sealed gate), shrine temples, puzzle spire, haven camps, checkpoint lamp, market, home-port town, harbour lighthouse, lair altar, relic urn, realm gates, wall-pass lintel + fire-bowl pillars, `battleStructure()` (battle-set temples / lighthouse) |
+| `models/props.js` | `makeRock`, `makeRockCluster`, fishing caique, crate / amphora / barrel geometries, flotsam raft, turn marker, reach beacon, sea lane, foot trail |
+| `models/eventprops.js` | the event set pieces (API in the file header) |
+| `models/catalog.js` | every procedural model by id — `modeltest.html?set=procedural` (labels show triangles and draw calls) |
+
+| model (old) | where it is used | verdict | status / replacement |
+|---|---|---|---|
+| `pharos` GLB + sphere fire + vertical beam cylinder | the Pharos | redesign | **done** `makePharos()`: stepped podium, battered square tier with pilasters and window rows, octagon, drum, 8-column lantern, verdigris dome, sun-disc finial; lantern fire (`pharosfire`), twin soft beams sweeping the horizon, one point light |
+| Pharos isle (bare sand mesa) | the Pharos | redesign | **done** `dressPharosIsle()`: rocky shoulder (shore layer), curved harbour mole with lamp, ruined peristyle with lintels, cypresses/olives; dry-grass palette |
+| `makePharosGate` (flat boxes — and it was **never mounted**) | Pharos door | redesign | **done** marble door frame with gable, bronze panelled/studded leaves on `doorPivotL/R`, gold-ringed `sigil0..2`; now mounted, so scene.js's seal sockets and door swing work again |
+| `temple`, `temple_ice/desert/jungle/autumn` GLBs (five near-identical gazebos) + a point light each | shrines | redesign | **done** `makeShrineTemple(hex, realm, spent, seed)`: tholos or tetrastyle prostyle (hub picks by domain), fluted columns, painted frieze in the domain colour, tiled roofs, realm weathering (snow + icicles, sand, moss + creepers, autumn ivy); domain-coloured HDR flame on a tripod / altar; *spent* = darker stone and dull embers. No point light |
+| `obelisk` GLB (464 tris) + point light | puzzle isles | redesign | **done** `makePuzzleSpire()`: slate obelisk with glowing glyph inlays on a labyrinth-mosaic plaza ringed by glyph stelae, a slowly turning gilt armillary sphere with a glowing orb; solved = dim and nearly still |
+| `tents` GLB + point light | havens (sea, desert, Vale) | redesign | **done** `makeCampHaven({kind})`: striped awnings, net rack, campfire, stores (sea); bell tents + awning (desert / Vale); fishing caiques drawn up by the jetty (`boatsAt`) |
+| checkpoint post + sphere | havens | redesign | **done** `makeCheckpointBeacon()`: bronze lamp-stand with azure glazed lantern, fading beam (children order kept: halo is `children[3]`) |
+| `market` GLB (23k tris) | shop isles | redesign | **done** `makeMarketSquare()`: round agora, open double-colonnade stoa, four striped stalls with fruit / cloth / fish / pots, fountain |
+| `lighthouse` GLB ("melted") + point light | home port | redesign | **done** `makeLighthouse()` (whitewashed tower, blue cupola, lit lantern) |
+| home port (dock + tower + palms) | home | redesign | **done** `makeHomeTown()`: whitewashed cube houses with blue doors/shutters stepping up from a stone quay, blue-domed chapel with bell, caiques; layout follows the harbour bearing |
+| gate portal (displaced boxes, cones, `_grandColumn`) + 2 point lights | the four realm passes (hub side) | redesign | **done** `makeGatePortal(..., realm)`: battered ashlar pylons with crenellations, a 15-voussoir arch over the open channel, the realm's emblem (snowflake / sun / serpent / antlers) glowing over the keystone, colossal fluted columns, swallow-tail banners, bronze fire bowls with blooming fire; one light |
+| wall pass lintel (displaced box) + cylinder braziers, 2 lights per pass | `wall.js` | redesign | **done** `makePassLintel`, `makeBrazierPillar`; one light per pass (was two); realm backdrops likewise |
+| lair altar (displaced cylinders/cones) + point light | sail lairs | redesign | **done** `makeLairAltar()`: faceted basalt dais, altar block, four curling bone horns, bronze fire bowls in the realm accent; no light |
+| relic urn (flat sphere) | lairs | redesign | **done** `makeRelicBeacon()`: gilt amphora on a stone pedestal (still `beacon`, spun by scene.js) |
+| `makeRock` (displaced dodecahedron, flat) | island dressing, sea rocks, puzzle, monster isles | redesign | **done** `models/props.js makeRock` (sea stacks now on the shore layer → surf) |
+| `makeColumn` (box + cylinder) | Pharos terrace | redesign | **done** (peristyle above) |
+| `makeFlotsam` (flat boxes) | salvage on lanes | redesign | **done** lashed plank raft, crates, barrel, coin heap + glint (`bob`) |
+| hub monster stake (cylinder + displaced sphere) | calm hunting grounds | fix | **done** `footkit.warningStake` (the foot realms' skull stake) |
+| monster totem point light | every monster isle | fix | **done** removed (the ember haze blooms) |
+| `makeCypress/Olive/Pine/DeadScrub/JungleTree` | nowhere (dead code) | remove | **done** |
+| turn marker (flat cone) | scene.js | redesign | **done** faceted gold gem + glow, HDR, fog-free |
+| reach beacons (flat rings, cone chevron) | scene.js | redesign | **done** soft-edged ring, pool of light, fading shaft, gold gem chevron (same roles) |
+| sea lanes (`LineDashedMaterial`) | scene.js | redesign | **done** `makeSeaLane`: soft painted wake-dashes on a faint S, fading toward both stops |
+| foot trail (a draw call per cylinder stone) | scene.js | redesign | **done** `makeFootTrail`: one merged mesh of irregular flagstones per lane |
+| boss crown (flat gold ring hovering over the top) | bosses | redesign | **done** thick 3D circlet with beaded points and a ruby, seated on the head (front-of-body top), sways a touch |
+| battle-set `temple`, `temple_autumn`, `lighthouse` GLBs | hub / autumn battles | redesign | **done** via `battleStructure()` (islands.js hands it to the battle sets) |
+| `obelisk`, `tents` GLBs in the desert battle set | desert battle | keep for now | still GLB (battle sets are the realm owner's) |
+| buoy (`makeBuoy`) | sea waypoints | keep | already a good lathe model |
+| barrow beacon | Vale | keep | it is a light pillar, not a model |
+| name tags | ships | keep | canvas UI, reads well |
+| `dock`, `ice_temple` | jetties, ice lair | keep | |
+| `gate_portal`, `ship` GLBs | not mounted | keep on disk | |
+
+Creature stand-ins — **kept** (judged side by side in the contact sheet): the
+nine stand-ins are 9–14k-triangle hand-painted sculpts; a procedural
+blob-and-tube wolf, fox, crow or stag would read as a toy next to the jackal,
+boar and vulture sculpts under the same light, so none was swapped. Only the
+grey wolf's tint was fixed (it read as a pale blue-white jackal; now a darker
+warm grey).
 
 ---
 
@@ -155,15 +211,15 @@ tree until a real autumn tree is generated.
 
 | id | used for | height | tris | finish |
 |---|---|---|---|---|
-| `pharos` | the Pharos (final island) | 31.2 | 3k | marble |
-| `lighthouse` | haven islands | 4.6 | 4k | marble (plaster) |
-| `temple` | hub shrines | 4.6 | 3k | marble |
-| `temple_ice`, `temple_desert`, `temple_jungle`, `temple_autumn` | realm shrines | 4.6 | 3k | ice / stone / marble |
+| `pharos` | not mounted on the board any more (procedural `makePharos`) | 31.2 | 3k | marble |
+| `lighthouse` | not mounted (procedural `makeLighthouse`) | 4.6 | 4k | marble (plaster) |
+| `temple` | not mounted (procedural `makeShrineTemple`) | 4.6 | 3k | marble |
+| `temple_ice`, `temple_desert`, `temple_jungle`, `temple_autumn` | not mounted (procedural shrines) | 4.6 | 3k | ice / stone / marble |
 | `ice_temple` | the ice boss lair | 9.0 | 44k | ice |
-| `market` | shop islands | 5.0 | 23k | marble |
+| `market` | not mounted (procedural `makeMarketSquare`) | 5.0 | 23k | marble |
 | `dock` | jetties on every inhabited island | 5–5.6 long | 3k | wood |
-| `obelisk` | puzzle spires | 5.4 | 0.5k | stone, gold cap glows |
-| `tents` | desert / camp nodes | 2.3 | 9k | cloth |
+| `obelisk` | desert battle set only (puzzle spires are procedural) | 5.4 | 0.5k | stone, gold cap glows |
+| `tents` | desert battle set only (havens are procedural) | 2.3 | 9k | cloth |
 | `ship` | **kept, not mounted** (the player galley is procedural `makeShip`) | — | 4k | wood |
 | `gate_portal` | **kept, not mounted** (the realm gates are procedural `makeGatePortal`) | — | 4k | stone |
 

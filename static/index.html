@@ -9,6 +9,7 @@
 <link rel="preload" href="/static/fonts/cinzel-var.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="preload" href="/static/fonts/alegreya-var.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="stylesheet" href="/static/style.css">
+<link rel="stylesheet" href="/static/chart.css">
 <script type="importmap">
 { "imports": { "three": "/static/vendor/three.module.min.js", "three/addons/": "/static/vendor/addons/" } }
 </script>
@@ -109,7 +110,7 @@
       <div class="howto-card">
         <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="#c9a227" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l7 2.8v6c0 4.2-3 7.3-7 9.2-4-1.9-7-5-7-9.2v-6Z"/><path d="M12 7.5v5"/></svg>
         <strong>Fight</strong>
-        <span>Answer to strike. Time your dodge to slip the blow.</span>
+        <span>Answer to strike. A right answer also blunts the foe's blow.</span>
       </div>
       <div class="howto-card">
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2.6l2.3 7.1L21.4 12l-7.1 2.3L12 21.4l-2.3-7.1L2.6 12l7.1-2.3Z" fill="none" stroke="#c9a227" stroke-width="1.8" stroke-linejoin="round"/></svg>
@@ -133,19 +134,13 @@
   <div id="itembelt"></div>
 </div>
 
-<!-- chart button (z 10) — toggles the live aerial view of the region -->
-<button id="mapBtn" class="hidden" aria-label="Aerial chart" title="Aerial chart (M)">
+<!-- chart button (z 10) — opens the voyage chart (static/chart.js, z 13) -->
+<button id="mapBtn" class="hidden" aria-label="Chart of the voyage" title="Chart (M)">
   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
     <path d="M9 4 3.6 6.1v13.3L9 17.3l6 2.1 5.4-2.1V4L15 6.1Z"/>
     <path d="M9 4v13.3M15 6.1v13.3"/>
   </svg>
 </button>
-
-<!-- ── aerial chart overlay: floating isle icons + control hint (z 12) ──── -->
-<div id="mapIcons" class="hidden"></div>
-<div id="mapHint" class="hidden">
-  <strong>Aerial chart</strong> · WASD / right-drag to pan · scroll to zoom · hover an isle to name it · <kbd>M</kbd>/<kbd>Esc</kbd> closes
-</div>
 
 <!-- player inspector (z 25) -->
 <div id="uppanel" class="hidden"></div>
@@ -163,9 +158,6 @@
   <div id="bship"></div>
   <div id="bactions"></div>
 </div>
-
-<!-- the DODGE action beat (z 16 — over the battle, under flashes) -->
-<div id="dodgeQte" class="hidden"></div>
 
 <!-- the JEOPARDY! category board (pick a clue before the typed question) -->
 <div id="jboard" class="hidden"></div>

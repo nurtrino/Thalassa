@@ -54,8 +54,8 @@ def fast(monkeypatch):
     for name, value in dict(
             QUESTION_SECS=30.0, JEOPARDY_SECS=30.0, JCHOOSE_SECS=30.0,
             REVEAL_SECS=0.03, BOT_TEMPO=0.0, BOT_POLL_SECS=0.005,
-            GATE_WALK_SECS=0.02, TIMER_GRACE=0.02, DODGE_GRACE=0.02,
-            DODGE_SECS=30.0, IDLE_POLL_SECS=0.01, IDLE_TURN_SECS=0.0,
+            GATE_WALK_SECS=0.02, TIMER_GRACE=0.02,
+            IDLE_POLL_SECS=0.01, IDLE_TURN_SECS=0.0,
             GONE_TURN_SECS=0.3, AWAY_TURN_SECS=0.1, AUTO_STEP_SECS=0.02,
             ABANDON_RESET_SECS=300.0, BOT_STUCK_SECS=20.0,
             WS_RATE=5000.0, WS_BURST=5000.0).items():
@@ -370,8 +370,6 @@ async def play_one(cap, right=True):
             await S.broadcast()
         else:
             await cap.send("solve", payload=payload)
-    elif phase == "dodge":
-        await cap.send("dodge", hit=True, full=False)
     elif phase == "upgrade_pick":
         await cap.send("pick", upgrade=g.upgrade_offer[0])
     await settle(lambda: game().nonce != nonce or game().phase != phase,
@@ -529,14 +527,17 @@ def test_reconnect_mid_battle_keeps_the_fight(fast, monkeypatch):
             assert a2.room["battle"]["enemies"]
             await a2.send("stance", stance="attack", target=0)
             await a2.until(lambda: a2.room["question"], "the battle question")
-            # …and drop again in the DODGE beat: the blow still resolves
+            # …and drop again while the exchange plays out: the foe's blow
+            # resolves in the same reveal, no reflex beat to strand on
             await a2.send("answer", idx=game().question["correct"])
-            await b.phase("dodge")
+            await b.phase("reveal")
             await a2.close()
             a3 = await live.cap(token=a.token)
-            assert a3.room["phase"] == "dodge" and a3.room["dodge"]["deadline"]
-            await a3.send("dodge", hit=True, full=True)
-            await b.phase("reveal", "battle", "trade", "roll")
+            assert a3.room["phase"] in ("reveal", "battle", "trade", "roll")
+            assert a3.room["dodge"] is None          # vestigial, always empty
+            # an OLD client's dodge tap is refused harmlessly
+            assert "unknown" in (await a3.error("dodge", hit=True, full=True)).lower()
+            await b.phase("battle", "trade", "roll")
     run(main())
 
 
@@ -751,7 +752,7 @@ def test_humans_play_through_every_phase(fast, monkeypatch):
                          "the pass to carry b through")
             seen.update(await play_until(caps, lambda: game().current.pid != b.you))
 
-            # battles: all three decks, the dodge beat, and a kill
+            # battles: all three decks and a kill
             for mode in ("mc", "jeopardy", "puzzle"):
                 await to_my_roll(caps, a)
                 await dev(a, fight={"kind": "pack", "tier": 0, "count": 1},
@@ -782,8 +783,9 @@ def test_humans_play_through_every_phase(fast, monkeypatch):
                         await asyncio.sleep(0.005)
                 seen.update(await play_until(
                     caps, lambda: game().phase == "roll" and game().current.pid != a.you))
-            assert {"battle", "question", "jchoose", "minigame", "dodge",
+            assert {"battle", "question", "jchoose", "minigame",
                     "trade"} <= seen, seen
+            assert "dodge" not in seen                # the reflex beat is gone
             assert seen >= {"roll", "sail", "shrine", "haven", "shop", "pharos",
                             "upgrade_pick"}, seen
             # nobody was ever put on autopilot, and both sockets are still served
@@ -1155,13 +1157,14 @@ def test_idle_default_for_timed_phases_is_the_engines_own_timeout(fast):
     g._force_mode = "mc"
     g.stance(a, "attack", 0)
     g.set_question({"text": "Q?", "options": list("abcd"), "correct": 1})
-    assert S.idle_step(g, a) == "timeout" and g.phase == "reveal"
-    assert g.reveal["was_correct"] is False
-    g.advance_after_reveal()
-    assert g.phase == "dodge"
     hull = g.player_by_pid(a).hull
     assert S.idle_step(g, a) == "timeout" and g.phase == "reveal"
-    assert g.player_by_pid(a).hull < hull              # the blow landed in full
+    assert g.reveal["was_correct"] is False
+    # no reflex beat follows: the foe's blow landed in full in that reveal
+    assert g.reveal["enemy_phase"]["counter"] and not g.reveal["enemy_phase"]["blunted"]
+    assert g.player_by_pid(a).hull < hull
+    g.advance_after_reveal()
+    assert g.phase == "battle"
 
     g, (a, b) = _solo_table()
     _fight(g, a)

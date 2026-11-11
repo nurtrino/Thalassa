@@ -1,6 +1,7 @@
 """Engine tests — the Race to the Pharos."""
 import pytest
 
+import events
 import game as G
 import questions
 from board import Board, RELICS_TO_WIN
@@ -50,23 +51,13 @@ def cast(g, pid, target=0):
     g.stance(pid, "magic", target)
 
 
-def advance_to_dodge(g):
-    """A counter no longer interrupts the instant you answer: first the
-    YOUR-move reveal shows the verdict, THEN the foe winds up into the DODGE
-    beat. Advance the pending reveal so the dodge phase is reached."""
-    if g.phase == "reveal" and g.battle and g.battle.get("incoming"):
-        g.advance_after_reveal()
-    return g.phase
-
-
 def land_blow(g, hit=False, full=False):
-    """An enemy's counter waits on the DODGE beat, which itself follows the
-    your-move reveal. Advance through both to resolve it. hit=True is a read
-    dodge (gold band → half the blow nulled); hit+full nails the bright core
-    for a clean, FULL dodge; False lets it land full."""
-    advance_to_dodge(g)
-    if g.phase == "dodge":
-        g.dodge(g.current.pid, hit, full)
+    """Kept for the older tests' rhythm: the foe's counter used to wait on a
+    timed DODGE beat after the reveal. It now resolves INSIDE the answer's
+    reveal (a right answer blunts it) — nothing is left to land. ``hit`` /
+    ``full`` are ignored."""
+    assert g.phase != "dodge"
+    return g.phase
 
 
 def force_land(g, pid, nid):
@@ -348,6 +339,7 @@ def test_vale_guarded_door_is_the_short_way():
 
 def test_vale_hoard_pays_three_scrolls_once():
     g, (p0, p1) = make_game()
+    g.events_on = False                      # the hoard alone, no forest event
     p = g.player_by_pid(p0)
     cache = next(nid for nid, n in g.board.nodes.items()
                  if n.get("region") == "autumn" and n.get("cache"))
@@ -744,9 +736,11 @@ def test_lair_bosses_are_solo_personal_trials():
     assert len(b.nodes["pharos"]["monster"]["enemies"]) == 1
 
 
-def test_lair_boss_escalates_for_later_challengers():
-    # the first to reach a lair fights the weakest form; every rival who
-    # already conquered it leaves the guardian risen harder and titled.
+def test_lair_boss_eases_for_later_challengers():
+    # CATCH-UP: the first to reach a lair fights the full-strength form;
+    # every rival who already conquered it leaves it WEAKER (and titled) for
+    # whoever trails — it used to rise stronger and shut the stragglers out.
+    import board as B
     b = Board(3)
     nid = b.lairs()[0]
     base = b.spawn_boss(nid)
@@ -757,12 +751,15 @@ def test_lair_boss_escalates_for_later_challengers():
 
     # simulate two rivals having already felled it
     b.nodes[nid]["defeated"].extend(["p1", "p2"])
-    risen = b.spawn_boss(nid)
-    assert risen["escalation"] == 2
-    assert risen["enemies"][0]["max_hp"] == base_hp + 10   # +5 per prior victor
-    assert risen["enemies"][0]["power"] == base_pow + 2    # +1 per, capped at 2
-    assert risen["name"].split(",")[0] == base["name"]     # same guardian, titled
-    assert "," in risen["name"]
+    eased = b.spawn_boss(nid)
+    assert eased["escalation"] == 2
+    assert eased["enemies"][0]["max_hp"] == base_hp - 2 * B.BOSS_EASE_HP
+    assert eased["enemies"][0]["power"] == base_pow       # same bite
+    assert eased["name"].split(",")[0] == base["name"]    # same guardian, titled
+    assert "," in eased["name"]
+    # never below the floor, however many went before
+    b.nodes[nid]["defeated"].extend(f"r{i}" for i in range(20))
+    assert b.spawn_boss(nid)["enemies"][0]["max_hp"] == B.BOSS_MIN_HP
 
 
 # ── shrine wagers ────────────────────────────────────────────────────────────
@@ -861,7 +858,7 @@ def test_boss_trial_is_personal_and_yields_fragment():
 def test_strike_miss_takes_monster_counter():
     g, (p0, p1) = make_game()
     mon = find_node(g, "monster")
-    set_pack(g, mon, [3])
+    set_pack(g, mon, [2])
     g.board.nodes[mon]["monster"]["enemies"][0]["power"] = 2
     battle_at(g, p0, mon)
     strike(g, p0)
@@ -886,18 +883,18 @@ def test_magic_hits_hard_and_backfires():
     put_question(g, correct=1)
     g.answer(p0, 1)                                       # correct → 3 damage
     assert pack(g, mon)[0]["hp"] == 2
-    # a right answer no longer makes the foe whiff — it counters; dodge it
-    assert advance_to_dodge(g) == "dodge"
-    land_blow(g, hit=True, full=True)                     # a clean read slips it
-    assert g.player_by_pid(p0).hull == G.MAX_HULL         # no hit taken
+    # a right answer keeps your guard up: the counter is BLUNTED to half
+    ep = g.reveal["enemy_phase"]
+    assert ep["counter"] and ep["blunted"] and ep["dmg"] == 0.5
+    assert g.player_by_pid(p0).hull == G.MAX_HULL - 0.5
     g.advance_after_reveal()
     assert g.phase == "battle"
     cast(g, p0)
     put_question(g, correct=0)
-    g.answer(p0, 2)                                       # miss → backfire 1
+    g.answer(p0, 2)                                       # miss → the full counter
     p = g.player_by_pid(p0)
-    assert p.hull == G.MAX_HULL - G.MAGIC_BACKFIRE
-    assert g.reveal["enemy_phase"]["backfire"]
+    assert p.hull == G.MAX_HULL - 0.5 - 1 - G.MAGIC_BACKFIRE
+    assert g.reveal["enemy_phase"]["dmg"] == 1 and not g.reveal["enemy_phase"]["blunted"]
     assert pack(g, mon)[0]["hp"] == 2                     # monster untouched
 
 
@@ -912,8 +909,7 @@ def test_battle_rounds_until_dead_monster():
         strike(g, p0)
         put_question(g)
         g.answer(p0, 0)                                   # always correct
-        land_blow(g, hit=True, full=True)                # every foe counters — dodge it clean
-        g.advance_after_reveal()
+        g.advance_after_reveal()                         # (each right answer blunts its counter)
     assert pack(g, mon)[0]["hp"] <= 99 - 6                # damage accumulated over the rounds
 
 
@@ -988,7 +984,7 @@ def test_shipwreck_stashes_fragment_at_altar():
     strike(g, p0)
     put_question(g, correct=0)
     g.answer(p0, 1)                                        # wrong → hit incoming
-    land_blow(g)                                           # …no dodge → sunk
+    land_blow(g)                                           # …the full counter → sunk
     assert p.node == "home" and p.hull == p.max_hull
     assert p.cargo == [] and p.scrolls == 4
     assert p0 in node["stash"]                   # waiting at the altar
@@ -1014,7 +1010,9 @@ def test_bank_and_pharos_open_and_win():
     if g.phase == "sail":
         g.sail(p1, next(iter(g.reachable)))
     while g.phase not in ("roll",):                        # settle to p0's turn
-        if g.phase == "shrine" or g.phase == "haven":
+        # (p1's one-step landing depends on the rolled chart: a market or
+        # the trade beat must be passed too, not only shrines and havens)
+        if g.phase in ("shrine", "haven", "shop", "trade"):
             g.pass_turn(p1)
         elif g.phase == "battle":
             g.flee(p1)
@@ -1022,6 +1020,8 @@ def test_bank_and_pharos_open_and_win():
             put_question(g)
             g.answer(p1, 3)
             g.advance_after_reveal()
+        elif g.phase == "event":
+            events.idle_default(g, p1)
         else:
             break
     # p0 storms the Pharos
@@ -1091,15 +1091,13 @@ def test_clearing_the_guardians_yields_the_sword():
     force_land(g, p0, swid)
     assert g.phase == "battle" and not p.has("sword_of_damocles")   # guardians rise
 
-    def resolve():                                # drain reveal → dodge → reveal
+    def resolve():                                # drain the exchange's reveal
         seen = False
         for _ in range(6):
             if g.phase == "reveal":
                 if g.reveal.get("sword_claimed"):
                     seen = True
                 g.advance_after_reveal()
-            elif g.phase == "dodge":
-                g.dodge(g.current.pid, True, False)   # a clean dodge blocks all
             else:
                 break
         return seen
@@ -1184,7 +1182,9 @@ def test_heal_mends_one_and_needs_a_format():
     assert g.qctx["mode"] == "mc" and g.qctx["tier"] == 3 and g.qctx["heal"]
     put_question(g, correct=0)
     g.answer(p0, 0)
-    assert p.hull == 4                       # +1, right away
+    assert p.hull == 3 + G.HEAL_SMALL        # +2, and the right hymn wards the blow
+    ep = g.reveal["enemy_phase"]
+    assert ep["healed"] == G.HEAL_SMALL and ep["braced"] and ep["dmg"] == 0
 
 
 def test_ambrosia_makes_heal_mend_three():
@@ -1198,7 +1198,7 @@ def test_ambrosia_makes_heal_mend_three():
     g.stance(p0, "heal", mode="mc")
     put_question(g, correct=0)
     g.answer(p0, 0)
-    assert p.hull == 4                       # +3
+    assert p.hull == 1 + G.HEAL_BIG          # +4
 
 
 def test_missed_heal_mends_nothing():
@@ -1211,7 +1211,8 @@ def test_missed_heal_mends_nothing():
     g.stance(p0, "heal", mode="mc")
     put_question(g, correct=0)
     g.answer(p0, 1)                          # wrong
-    assert p.hull == 3                       # no mend (the foe's counter still looms)
+    assert g.reveal["enemy_phase"]["healed"] == 0
+    assert p.hull == 3 - 1                   # no mend, and the counter lands full
 
 
 def test_heal_via_puzzle_and_jeopardy_route_and_mend():
@@ -1225,17 +1226,18 @@ def test_heal_via_puzzle_and_jeopardy_route_and_mend():
     g.stance(p0, "heal", mode="puzzle")
     assert g.phase == "minigame" and g.minigame.get("battle")
     g.resolve_minigame(True)
-    assert p.hull == 3                       # +1 on the solve
+    assert p.hull == 2 + G.HEAL_SMALL        # +2 on the solve
     # JEOPARDY format → the category board (high band)
     g2, (q0, q1) = make_game()
     mon2 = find_node(g2, "monster")
     set_pack(g2, mon2, [4])
     battle_at(g2, q0, mon2)
+    g2.player_by_pid(q0).hull = 3
     g2.stance(q0, "heal", mode="jeopardy")
     assert g2.phase == "jchoose" and g2.jboard["band"] == "high"
 
 
-def test_strike_only_chips_the_dark_lord_for_one():
+def test_strike_bites_the_dark_lord_for_two_without_bonuses():
     g, (p0, p1) = make_game()
     # every STRIKE bonus stacked — none of it applies to the Dark Lord
     p = _pharos_battle(g, p0, upgrades=["ram", "titan_ram"])
@@ -1245,7 +1247,7 @@ def test_strike_only_chips_the_dark_lord_for_one():
     put_question(g, correct=0)
     g.answer(p0, 0)
     hp1 = g.board.alive_monster("pharos")["enemies"][0]["hp"]
-    assert hp0 - hp1 == 1                     # capped at 1, upgrades ignored
+    assert hp0 - hp1 == G.STRIKE_BOSS_DMG     # the boss STRIKE, upgrades ignored
 
 
 def test_phoenix_feather_cheats_death_once():
@@ -1257,9 +1259,8 @@ def test_phoenix_feather_cheats_death_once():
     p.upgrades.append("phoenix_feather")
     p.hull = 1
     strike(g, p0)
-    put_question(g, correct=1)               # wrong → the foe counters
-    g.answer(p0, 1)
-    land_blow(g, hit=False)                   # take the full blow — would sink you
+    put_question(g, correct=1)               # wrong → the foe counters in full
+    g.answer(p0, 0)                           # …and that blow would sink you
     assert p.cheated_death and p.hull == 1    # pulled from the ash, still afloat
     assert g.battle is not None               # the fight goes on
     p.hull = 0
@@ -1693,12 +1694,11 @@ def test_relic_cost_is_enforced():
 def test_adamant_ram_stacks_strike_damage():
     g, (p0, p1), lair = boss_battle()
     p = g.player_by_pid(p0)
-    plain = G.STRIKE_DMG
+    plain = G.STRIKE_BOSS_DMG                         # a boss takes the tier-II strike
     p.upgrades = ["ram", "titan_ram"]                 # +1 and +2 on top of base
     strike(g, p0)
     put_question(g)
     g.answer(p0, 0)
-    land_blow(g)                                      # boss counter → dodge beat
     assert g.reveal["enemy_phase"]["dealt"] == plain + 3
 
 
@@ -1764,7 +1764,8 @@ def test_war_horn_boosts_next_strike():
     strike(g, p0)
     put_question(g)
     g.answer(p0, 0)
-    assert pack(g, mon)[0]["hp"] == 5 - (G.STRIKE_DMG + G.HORN_BONUS)
+    # a 5-HP unit is TOUGH: the tier-II strike (2) plus the horn
+    assert pack(g, mon)[0]["hp"] == 5 - (G.STRIKE_BOSS_DMG + G.HORN_BONUS)
 
 
 def test_aegis_charm_blocks_the_next_damage():
@@ -1773,12 +1774,12 @@ def test_aegis_charm_blocks_the_next_damage():
     p.items["aegis_charm"] = 1
     mon = find_node(g, "monster")
     set_pack(g, mon, [3])
+    g.board.nodes[mon]["monster"]["enemies"][0]["power"] = G.AEGIS_MIN
     battle_at(g, p0, mon)
     strike(g, p0)
     put_question(g, correct=0)
-    g.answer(p0, 1)                                   # miss → counter incoming
-    land_blow(g)                                      # charm eats it at the beat
-    assert p.hull == G.MAX_HULL
+    g.answer(p0, 1)                                   # miss → a full blow of AEGIS_MIN
+    assert p.hull == G.MAX_HULL                       # …the charm eats it
     assert p.items["aegis_charm"] == 0
     assert g.reveal["enemy_phase"]["dmg"] == 0
 
@@ -2055,15 +2056,17 @@ def test_hub_islands_never_ambush():
 
 
 def test_hub_sea_is_calm_but_not_empty():
-    """Home-water crossings can meet the KRAKEN (a mind-gauntlet) or a small
-    skirmish — never a realm horror. Most crossings stay quiet."""
+    """Home-water crossings can meet the KRAKEN (now one EVENT among many —
+    events.py), another event, or a small skirmish — never a realm horror.
+    Plain sailing is still common."""
     import random as _r
     g, (p0, p1) = make_game(seed=0)
+    g.ev["world"] = []                                     # no wonder in the way
     hub_seas = [nid for nid, n in g.board.nodes.items()
                 if n["type"] == "sea" and not n.get("region")]
     assert hub_seas
-    krakens = skirmishes = quiet = 0
-    for seed in range(60):
+    krakens = skirmishes = quiet = others = 0
+    for seed in range(300):
         sea = hub_seas[seed % len(hub_seas)]
         g.board.nodes[sea]["monster"] = None
         g.kraken = None
@@ -2074,13 +2077,19 @@ def test_hub_sea_is_calm_but_not_empty():
         g.phase = "sail"
         p.prev_node = p.node
         p.node = sea
+        g.ev["seen"] = {}
+        g.ev["last_heavy"] = {}
         g._land(p, sea)
-        if g.phase == "minigame" and g.minigame.get("kraken"):
+        if g.phase == "event" and g.ev["active"]["id"] == "kraken":
             krakens += 1
+            events.choose(g, p.pid, 0)                     # answer its riddles
             assert g.minigame["kind"] == "ravens"          # a test of pure IQ
             assert g.minigame["limit"] == P.TIME_LIMITS["ravens"]
             g.kraken = None
             g.minigame = None
+            g._next_turn()
+        elif g.phase == "event":
+            others += 1
             g._next_turn()
         elif g.phase == "battle":
             skirmishes += 1
@@ -2088,13 +2097,14 @@ def test_hub_sea_is_calm_but_not_empty():
             assert not m.get("boss")                       # nothing lordly out here
             assert len(m["enemies"]) <= 3
             for e in m["enemies"]:
-                assert e["max_hp"] <= 4                    # a LIGHT pack only
+                assert e["max_hp"] <= 5                    # a home-water pack only
             g.battle = None
         else:
             quiet += 1
     assert krakens >= 1                                    # the kraken does rise
     assert skirmishes >= 1                                 # raiders still prowl
-    assert quiet > krakens + skirmishes                    # but calm is the norm
+    assert others > krakens                                # one event among many
+    assert quiet > skirmishes + krakens                    # plain sailing is common
 
 
 # ── boss fights demand strategy ──────────────────────────────────────────────
@@ -2104,148 +2114,6 @@ def boss_battle(seed=3):
     force_land(g, pids[0], lair)
     assert g.phase == "battle"
     return g, pids, lair
-
-
-def test_boss_counters_even_when_you_hit():
-    g, (p0, p1), lair = boss_battle()
-    p = g.player_by_pid(p0)
-    strike(g, p0)
-    put_question(g)
-    g.answer(p0, 0)                               # correct strike
-    assert g.phase == "reveal"                    # your move is shown first…
-    assert advance_to_dodge(g) == "dodge"         # …THEN the counter winds up
-    land_blow(g)
-    assert g.reveal["enemy_phase"]["dealt"] >= 1  # you drew blood
-    assert p.hull < G.MAX_HULL                    # ...and still got hit back
-    assert not g.reveal["enemy_phase"]["evaded"]
-
-
-def test_pack_counters_even_on_a_clean_hit():
-    # a right answer no longer makes a pack whiff — every foe counters, and the
-    # DODGE is the only defence. A GOLD read of a weak (power-1) pack still lets
-    # HALF through: a half-heart chip. Only the bright CORE slips it clean.
-    g, (p0, p1) = make_game()
-    mon = find_node(g, "monster")
-    set_pack(g, mon, [4])                         # set_pack gives power 1
-    battle_at(g, p0, mon)
-    strike(g, p0)
-    put_question(g)
-    g.answer(p0, 0)                               # correct hit
-    assert g.reveal["enemy_phase"].get("pending")  # a counter hangs over it
-    assert advance_to_dodge(g) == "dodge"          # you must dodge it
-    land_blow(g, hit=True)                          # gold read: 1 / 2 = ½
-    assert g.reveal["enemy_phase"]["dmg"] == 0.5
-    assert g.player_by_pid(p0).hull == G.MAX_HULL - 0.5   # a half-heart chips through
-
-
-def test_guard_stance_is_gone():
-    g, (p0, p1), lair = boss_battle()
-    with pytest.raises(GameError):
-        g.stance(p0, "guard")                     # dodging replaced guarding
-
-
-def test_boss_heavy_telegraph_cycle_and_dodge():
-    g, (p0, p1), lair = boss_battle()
-    p = g.player_by_pid(p0)
-    p.max_hull = 30
-    p.hull = 30
-    # exchanges are pinned to trivia here (bosses draw decks at random now) so
-    # the telegraph CYCLE is what's under test, not which deck each round dealt
-    # exchange 1
-    g._force_mode = "mc"
-    g.stance(p0, "attack")
-    put_question(g, correct=0)
-    g.answer(p0, 1)                               # miss → the counter comes
-    land_blow(g)                                  # frozen: it lands full
-    g.advance_after_reveal()
-    assert g.battle["charging"] is False
-    # exchange 2
-    g._force_mode = "mc"
-    g.stance(p0, "attack")
-    put_question(g, correct=0)
-    g.answer(p0, 1)
-    land_blow(g)
-    g.advance_after_reveal()
-    assert g.battle["charging"] is True           # after 2, the heavy telegraphs
-    hull_before = p.hull
-    # exchange 3 is the heavy: a GOLD read halves the doubled blow (only the
-    # bright core would slip it clean) — you still take the chip
-    g._force_mode = "mc"
-    g.stance(p0, "attack")
-    put_question(g, correct=2)
-    g.answer(p0, 2)
-    assert advance_to_dodge(g) == "dodge"
-    power = g.battle["incoming"]["power"]
-    land_blow(g, hit=True)
-    ep = g.reveal["enemy_phase"]
-    assert ep["heavy"] and ep["dodged"]
-    assert ep["dmg"] == G.round_half(power / 2) > 0
-    assert hull_before - p.hull == ep["dmg"]
-    g.advance_after_reveal()
-    assert not g.battle["charging"]               # the cycle resets
-
-
-def test_gold_dodge_lets_half_through():
-    # a GOLD read (hit, not the bright core) turns HALF the blow aside — you
-    # still take the chip; only nailing the core slips it entirely
-    g, (p0, p1), lair = boss_battle()
-    p = g.player_by_pid(p0)
-    p.max_hull = 30
-    p.hull = 30
-    strike(g, p0)
-    put_question(g, correct=0)
-    g.answer(p0, 1)                               # miss → the blow comes
-    assert advance_to_dodge(g) == "dodge"
-    power = g.battle["incoming"]["power"]
-    land_blow(g, hit=True)                        # gold read → half through
-    ep = g.reveal["enemy_phase"]
-    assert ep["dodged"] and ep["dmg"] == G.round_half(power / 2) > 0
-    assert p.hull == 30 - ep["dmg"]               # a real chip, not zero
-
-
-def test_core_dodge_fully_nulls_the_blow():
-    # nailing the bright core (full=True) still slips the blow entirely; the
-    # core reads as "PERFECT!" on the wheel, but a plain gold dodge blocks too
-    g, (p0, p1), lair = boss_battle()
-    p = g.player_by_pid(p0)
-    p.max_hull = 30
-    p.hull = 30
-    strike(g, p0)
-    put_question(g, correct=0)
-    g.answer(p0, 1)                               # miss → the blow comes
-    assert advance_to_dodge(g) == "dodge"
-    land_blow(g, hit=True, full=True)             # core → clean dodge
-    ep = g.reveal["enemy_phase"]
-    assert ep["dodged"] and ep["dmg"] == 0
-    assert p.hull == 30                            # not a scratch
-
-
-def test_core_dodge_fully_nulls_a_heavy_blow():
-    # the whole point of the core: a telegraphed HEAVY blow (2–4 dmg, doubled
-    # when unread) can be walked away from without a scratch if you hit centre.
-    # Two exchanges to charge the heavy; pin them to trivia for a clean drive.
-    g, (p0, p1), lair = boss_battle()
-    p = g.player_by_pid(p0)
-    p.max_hull = 40
-    p.hull = 40
-    for _ in range(2):                            # exchanges 1 & 2 charge the heavy
-        g._force_mode = "mc"
-        g.stance(p0, "attack")
-        put_question(g, correct=0)
-        g.answer(p0, 1)
-        land_blow(g, hit=True, full=True)         # core → take nothing on the way
-        g.advance_after_reveal()
-    assert g.battle["charging"] is True           # the heavy now telegraphs
-    hull_before = p.hull
-    # exchange 3 — the HEAVY blow; core-dodge it clean
-    g._force_mode = "mc"
-    g.stance(p0, "attack")
-    put_question(g, correct=0)
-    g.answer(p0, 1)
-    land_blow(g, hit=True, full=True)
-    ep = g.reveal["enemy_phase"]
-    assert ep["heavy"] and ep["dodged"] and ep["dmg"] == 0
-    assert p.hull == hull_before
 
 
 def test_ravens_battle_wrong_pick_resolves_the_round():
@@ -2269,82 +2137,10 @@ def test_ravens_battle_wrong_pick_resolves_the_round():
     wrong = (correct + 1) % len(g.minigame["data"]["options"])
     g.minigame_submit(p0, wrong)                   # wrong tile → the round is spent
     assert g.phase != "minigame"                   # not stuck waiting on a retry
-    # the botched round hands the foe its counter (reveal → dodge/blow)
-    assert g.battle and (g.battle.get("incoming") or g.phase in ("reveal", "dodge"))
-
-
-def test_dodge_timeout_lands_the_full_blow():
-    g, (p0, p1), lair = boss_battle()
-    p = g.player_by_pid(p0)
-    p.max_hull = 30
-    p.hull = 30
-    power = g.board.alive_monster(lair)["enemies"][0]["power"]
-    strike(g, p0)
-    put_question(g, correct=0)
-    g.answer(p0, 1)
-    assert advance_to_dodge(g) == "dodge"
-    g.dodge_timeout()                             # asleep at the tiller
+    # the botched round hands the foe its counter, in full, in that reveal
+    assert g.battle and g.phase == "reveal"
     ep = g.reveal["enemy_phase"]
-    assert not ep.get("dodged") and ep["dmg"] == power
-    assert 30 - p.hull == power
-
-
-def test_boss_heavy_hits_double_when_not_dodged():
-    g, (p0, p1), lair = boss_battle()
-    p = g.player_by_pid(p0)
-    p.max_hull = 30
-    p.hull = 30
-    power = g.board.alive_monster(lair)["enemies"][0]["power"]
-    for _ in range(2):                            # two exchanges charge the heavy
-        g._force_mode = "mc"
-        g.stance(p0, "attack")                    # trivia counter
-        put_question(g, correct=0)
-        g.answer(p0, 1)
-        land_blow(g)
-        g.advance_after_reveal()
-    hull_before = p.hull
-    g._force_mode = "mc"
-    g.stance(p0, "attack")                        # heavy round, missed dodge
-    put_question(g, correct=0)
-    g.answer(p0, 1)
-    land_blow(g)
-    assert g.reveal["enemy_phase"]["heavy"]
-    assert hull_before - p.hull == power * G.HEAVY_MULT
-
-
-def test_boss_blows_stay_in_the_two_to_four_band():
-    # bosses no longer enrage; every counter lands in 2–4 (a telegraphed heavy
-    # sits at the top of the band, never above it)
-    g, (p0, p1), lair = boss_battle()
-    p = g.player_by_pid(p0)
-    p.max_hull = 60
-    p.hull = 60
-    e = g.board.alive_monster(lair)["enemies"][0]
-    e["power"] = 4                                # a stout boss + heavy would be 8…
-    e["hp"] = 99                                  # keep it standing through the run
-    seen = []
-    for _ in range(6):
-        if g.phase != "battle":
-            break
-        g._force_mode = "mc"                      # trivia every round for the harness
-        g.stance(p0, "attack")
-        put_question(g, correct=0)
-        g.answer(p0, 1)                           # miss → the counter comes
-        before = p.hull
-        land_blow(g)                              # no dodge → the full blow lands
-        seen.append(before - p.hull)
-        g.advance_after_reveal()
-    assert seen and all(2 <= d <= 4 for d in seen)   # …but it's capped at 4
-    assert "enraged" not in g.to_dict(p0).get("battle", {})
-
-
-def test_boss_battle_state_is_published():
-    g, (p0, p1), lair = boss_battle()
-    snap = g.to_dict(p0)
-    b = snap["battle"]
-    assert b["boss"] and b["model"] and b["round"] == 0
-    assert b["charging"] is False and "enraged" not in b
-    assert all(e["model"] for e in b["enemies"])
+    assert ep["counter"] and not ep["blunted"] and ep["dmg"] > 0
 
 
 def test_warden_resets_between_challengers():
@@ -2421,18 +2217,16 @@ def test_kick_adjusts_turn_order():
 
 # ── the kraken's gauntlet ─────────────────────────────────────────────────────
 def _summon_kraken(g, pid):
-    """Land on hub water with a seed that rolls under KRAKEN_CHANCE."""
-    import random as _r
+    """The kraken is an EVENT now: raise it on hub water and take its riddles."""
     sea = next(nid for nid, n in g.board.nodes.items()
                if n["type"] == "sea" and not n.get("region"))
     g.board.nodes[sea]["monster"] = None
     p = g.player_by_pid(pid)
-    seed = next(s for s in range(400) if _r.Random(s).random() < G.KRAKEN_CHANCE)
-    g.rng = _r.Random(seed)
-    g.phase = "sail"
     p.prev_node = p.node
     p.node = sea
-    g._land(p, sea)
+    events.dev_force(g, pid, "kraken")
+    assert g.phase == "event" and g.ev["active"]["id"] == "kraken"
+    events.choose(g, pid, 0)                          # "Answer its riddles"
     assert g.phase == "minigame" and g.minigame.get("kraken")
     return sea
 
@@ -2440,7 +2234,9 @@ def _summon_kraken(g, pid):
 def test_kraken_three_riddles_then_freedom():
     g, (p0, p1) = make_game()
     _summon_kraken(g, p0)
-    for i in range(G.KRAKEN_RIDDLES):
+    need = g.minigame["kraken_need"]
+    assert need == 2                                  # less of a slog than before
+    for i in range(need):
         assert g.minigame["kind"] == "ravens"
         assert g.minigame["kraken_no"] == i + 1
         g.resolve_minigame(True)
@@ -2475,14 +2271,18 @@ def test_kraken_never_rises_for_poseidons_favor():
     p.upgrades.append("poseidon_favor")
     sea = next(nid for nid, n in g.board.nodes.items()
                if n["type"] == "sea" and not n.get("region"))
-    for seed in range(50):
+    g.ev["world"] = []
+    for seed in range(200):
         g.board.nodes[sea]["monster"] = None
         g.rng = _r.Random(seed)
         g.phase = "sail"
+        g.ev["active"] = None
         p.prev_node = p.node
         p.node = sea
         g._land(p, sea)
         assert not (g.phase == "minigame" and (g.minigame or {}).get("kraken"))
+        assert not (g.ev["active"] and events.EVENTS_BY_ID[g.ev["active"]["id"]]
+                    .get("hostile"))              # no sea-monster event at all
         g.battle = None
         g.minigame = None
 
