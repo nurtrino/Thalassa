@@ -1148,7 +1148,7 @@ function cycladicHouse(P, x, y, z, ry, w, d, h, rng, { roof = null, chapel = fal
   if (kind === 'vault') {
     // a white barrel vault along the long side, gable ends flush
     const g = new THREE.CylinderGeometry(d / 2, d / 2, w, 14, 1, false, 0, Math.PI);
-    g.rotateZ(Math.PI / 2); g.rotateX(Math.PI / 2);
+    g.rotateZ(Math.PI / 2);                     // axis along x, the curved half up
     wall.add(g, 0xfbf9f4, at(0, h - 0.02, 0, 0));
   } else if (kind === 'terrace' || kind === 'dome') {
     // roof terrace: a soft parapet all round, a chimney with its little cap

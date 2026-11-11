@@ -48,7 +48,7 @@ const LOOKS = {
            clouds: { cover: 0.08, scale: 1.4, speed: 0.006, soft: 0.22, lit: 0xffffff, shade: 0xc9b89a } },
     fog: { color: 0xecd6a2, sunColor: 0xfff0c2, sunGlow: 0.5, heightFalloff: 0.014, heightBase: 5, heightAmount: 0.85 },
     // the shade is COOL (sky-blue fill against the hot sun): dunes read by colour, not just value
-    env: 0.8, fill: { sky: 0xd4e0ff, ground: 0xc79a5c, intensity: 0.19 },
+    env: 0.58, fill: { sky: 0xe9e2ee, ground: 0xd8a868, intensity: 0.30 },
     cloudShadow: { strength: 0.34, size: 300, speed: 3.4, cover: 0.3 },
     shadow: { strength: 0.95, radius: 2.0 },
     exposure: 0.88, bloom: { strength: 0.34, radius: 0.6, threshold: 1.1 },
