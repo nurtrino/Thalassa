@@ -375,5 +375,18 @@ export function createWorldFx() {
 
   function clear() { for (const wid of [...recs.keys()]) drop(wid); }
 
-  return { sync, clear };
+  /* where the set pieces of a stage stand (and how wide): scene.js keeps a
+     berthing hull clear of them, so no galley parks through the penguins */
+  function spots(stageId) {
+    const out = [];
+    for (const rec of recs.values()) {
+      if (rec.stageId !== stageId) continue;
+      const look = LOOK[rec.model] || {};
+      if (look.centre) continue;               // a whirlpool, a fog bank: meant to be sailed INTO
+      out.push({ x: rec.to.x, z: rec.to.z, pad: Math.max(0, (look.r || 5) - 4) });
+    }
+    return out;
+  }
+
+  return { sync, clear, spots };
 }

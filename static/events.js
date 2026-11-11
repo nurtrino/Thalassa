@@ -151,15 +151,35 @@ function artBand(art, stage) {
        stroke-linecap="round" stroke-linejoin="round">${motif(art)}</g></svg>`;
 }
 
-/* glyphs for the code-breaker (owl · olive · wave · star) */
-const GLYPHS = [
-  '<circle cx="24" cy="26" r="6"/><circle cx="40" cy="26" r="6"/><path d="M32 32l-3 5h6Z"/><path d="M16 16l6 5M48 16l-6 5"/><path d="M18 40c4 10 24 10 28 0"/>',
-  '<path d="M14 50C24 34 36 22 52 14"/><path d="M26 38c-8-2-12-8-10-14 8 0 12 6 10 14Z"/><path d="M38 28c-2-8 2-14 10-14 0 8-4 12-10 14Z"/><ellipse cx="24" cy="50" rx="5" ry="7"/>',
-  '<path d="M6 30c8-8 14-8 20 0s12 8 20 0 10-6 12-4"/><path d="M6 44c8-8 14-8 20 0s12 8 20 0 10-6 12-4"/>',
-  '<path d="M32 8l6 16 18 2-14 11 4 17-14-9-14 9 4-17L8 26l18-2Z"/>',
-];
-const glyph = (i, size = 40) => `<svg viewBox="0 0 64 64" width="${size}" height="${size}" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">${GLYPHS[i] || ''}</svg>`;
-const GLYPH_NAMES = ['owl', 'olive', 'wave', 'star'];
+/* glyphs for the code-breaker, one set of four per stage (the event text
+   names them): the Isles' owl · olive · wave · star, the Vale's acorn · leaf ·
+   moon · feather. Other stages (the desert's seal names none) use the Isles set. */
+const GLYPH_SETS = {
+  hub: {
+    names: ['owl', 'olive', 'wave', 'star'],
+    art: [
+      '<circle cx="24" cy="26" r="6"/><circle cx="40" cy="26" r="6"/><path d="M32 32l-3 5h6Z"/><path d="M16 16l6 5M48 16l-6 5"/><path d="M18 40c4 10 24 10 28 0"/>',
+      '<path d="M14 50C24 34 36 22 52 14"/><path d="M26 38c-8-2-12-8-10-14 8 0 12 6 10 14Z"/><path d="M38 28c-2-8 2-14 10-14 0 8-4 12-10 14Z"/><ellipse cx="24" cy="50" rx="5" ry="7"/>',
+      '<path d="M6 30c8-8 14-8 20 0s12 8 20 0 10-6 12-4"/><path d="M6 44c8-8 14-8 20 0s12 8 20 0 10-6 12-4"/>',
+      '<path d="M32 8l6 16 18 2-14 11 4 17-14-9-14 9 4-17L8 26l18-2Z"/>',
+    ],
+  },
+  autumn: {
+    names: ['acorn', 'leaf', 'moon', 'feather'],
+    art: [
+      // acorn: cap with a stalk, nut below
+      '<path d="M32 6v6"/><path d="M14 26c0-8 8-14 18-14s18 6 18 14Z"/><path d="M20 20h24"/><path d="M18 26c0 16 6 28 14 32 8-4 14-16 14-32"/>',
+      // leaf: pointed oval with a midrib and veins
+      '<path d="M10 54C10 28 28 10 54 10c0 26-18 44-44 44Z"/><path d="M10 54L42 22"/><path d="M22 42h10M30 34h10M22 42v-10M30 34v-10"/>',
+      // moon: a crescent
+      '<path d="M40 8a24 24 0 1 0 16 36A20 20 0 0 1 40 8Z"/>',
+      // feather: quill with barbs
+      '<path d="M12 56L48 12"/><path d="M48 12c6 8 4 22-8 30-8 6-16 6-20 4"/><path d="M48 12c-10 0-22 6-28 18-4 8-2 14 0 16"/><path d="M30 36l8 2M26 30l-2-6M36 28l6 0"/>',
+    ],
+  },
+};
+const glyphSet = (stage) => GLYPH_SETS[stage] || GLYPH_SETS.hub;
+const glyph = (i, size = 40, set = GLYPH_SETS.hub) => `<svg viewBox="0 0 64 64" width="${size}" height="${size}" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">${set.art[i] || ''}</svg>`;
 const CUP_SVG = '<svg viewBox="0 0 54 46" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linejoin="round"><path d="M10 40 16 6h22l6 34Z"/><path d="M6 42h42"/></svg>';
 const JAR_SVG = '<svg viewBox="0 0 26 36" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M9 3h8M10 3v4c-5 3-7 8-6 15 1 7 4 11 9 11s8-4 9-11c1-7-1-12-6-15V3"/><path d="M8 9c-4 0-5 4-2 6M18 9c4 0 5 4 2 6"/></svg>';
 
@@ -292,16 +312,31 @@ function renderCard(room, you, opts) {
   els.modal.classList.remove('hidden');
   els.modal.classList.toggle('watch', !actor && ev.step !== 'table');
 
+  // once a game starts the card goes compact (.play): no art band, the story
+  // clamped to a couple of lines, so the board and its buttons fit the screen.
+  // The header stays put; the rest scrolls inside .evscroll, so the card's
+  // parchment (on the non-scrolling .evcard) always fills the whole frame.
+  const play = ev.step === 'game';
+  const prev = els.card.querySelector('.evscroll');
+  const keepTop = prev && els.card.dataset.key === key ? prev.scrollTop : 0;
+  els.card.dataset.key = key;
+  els.card.classList.toggle('play', play);
   let body = `<div class="evhead"><span>${ev.step === 'table' ? 'The whole table' : 'An encounter'}</span>` +
-    `<span class="evwhere">${esc(stageLabel(ev.stage))}</span></div>` +
-    `<div class="evart">${artBand(ev.art, ev.stage)}</div><div class="evbody">` +
-    `<h2>${esc(ev.title)}</h2><p class="evtext">${esc(ev.text)}</p>` +
+    `<span class="evwhere">${esc(stageLabel(ev.stage))}</span></div><div class="evscroll">` +
+    (play ? '' : `<div class="evart">${artBand(ev.art, ev.stage)}</div>`) + '<div class="evbody">' +
+    `<h2>${esc(ev.title)}</h2><p class="evtext" title="${play ? esc(ev.text) : ''}">${esc(ev.text)}</p>` +
     (ev.intro ? `<p class="evintro">${esc(ev.intro)}</p>` : '');
   if (ev.step === 'card') body += cardOptions(ev, actor, room);
   else if (ev.step === 'game') body += gameBody(ev, actor, room, you, seated);
   else if (ev.step === 'table') body += tableBody(ev, room, you, seated);
-  body += '</div>';
+  body += '</div></div>';
   els.card.innerHTML = body;
+  const sc = els.card.querySelector('.evscroll');
+  sc.scrollTop = keepTop;
+  // a soft fade at the bottom edge while more of the card lies below
+  const cue = () => sc.classList.toggle('more', sc.scrollTop + sc.clientHeight < sc.scrollHeight - 4);
+  sc.addEventListener('scroll', cue, { passive: true });
+  requestAnimationFrame(cue);
   wire(ev, actor, room, you);
   const first = els.card.querySelector('.evopt:not(:disabled), .evbtn:not(:disabled)');
   if (actor && first && !els.card.contains(document.activeElement)) first.focus({ preventScroll: true });
@@ -328,7 +363,7 @@ function gameBody(ev, actor, room, you, seated) {
   h += ({
     knucklebones: gKnuckle, higher_lower: gHiLo, codebreak: gCode, shells: gShells,
     weigh: gWeigh, crossing: gCross, rps: gRps, nim: gNim, haggle: gHaggle, ...REALM_GAMES,
-  }[g.kind] || (() => ''))(g, actor);
+  }[g.kind] || (() => ''))(g, actor, ev);
   h += '</div>';
   if (!actor) {
     h += `<p class="evwho"><strong>${esc(nameOf(room, ev.pid))}</strong> is playing…</p>`;
@@ -369,15 +404,16 @@ function gHiLo(g, actor) {
       `${btn('Stop', 'data-mv="stop"', 'cool', 's', g.streak >= 2 ? 'collect' : 'walk away')}</div>` : '');
 }
 
-function gCode(g, actor) {
+function gCode(g, actor, ev) {
   const sel = scratch.sel;
+  const set = glyphSet(ev && ev.stage);
   const slots = Array.from({ length: g.length || 3 }, (_, i) =>
     `<button class="evslot ${sel[i] !== undefined ? 'full' : ''}" data-slot="${i}" aria-label="slot ${i + 1}">` +
-    `${sel[i] !== undefined ? glyph(sel[i]) : ''}</button>`).join('');
-  const glyphs = GLYPHS.map((_, i) => `<button class="evglyph" data-glyph="${i}" data-key="${i + 1}" ` +
-    `${sel.includes(i) || sel.length >= (g.length || 3) ? 'disabled' : ''} aria-label="${GLYPH_NAMES[i]}">${glyph(i)}</button>`).join('');
+    `${sel[i] !== undefined ? glyph(sel[i], 40, set) : ''}</button>`).join('');
+  const glyphs = set.art.map((_, i) => `<button class="evglyph" data-glyph="${i}" data-key="${i + 1}" ` +
+    `${sel.includes(i) || sel.length >= (g.length || 3) ? 'disabled' : ''} aria-label="${set.names[i]}">${glyph(i, 40, set)}</button>`).join('');
   const rows = (g.guesses || []).map((r) => `<div class="evguess">` +
-    r.glyphs.map((x) => `<span class="g">${glyph(x, 30)}</span>`).join('') +
+    r.glyphs.map((x) => `<span class="g" title="${set.names[x] || ''}">${glyph(x, 30, set)}</span>`).join('') +
     `<span class="fb">${'<i class="evpeg placed"></i>'.repeat(r.placed)}${'<i class="evpeg present"></i>'.repeat(r.present)} ` +
     `${r.placed} placed · ${r.present} present</span></div>`).join('');
   return `<div class="evsmall">Three different glyphs. ${g.tries - (g.guesses || []).length} tries left.</div>` +

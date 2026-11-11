@@ -606,6 +606,7 @@ export function createWorld(container, handlers = {}) {
      vessel ARRIVES from (so it never sails round an island to park on its
      far side) and away from any other ship already parked or bound there
      (so hulls never overlap). `from` is the approach point (or null). */
+  let wonderSpots = null;            // (stageId) → [{x, z, pad}], set once worldFx exists
   const HULL_GAP = 9.0;              // two galleys side by side, bow to stern clear
   const FOOT_GAP = 1.7;              // two captains standing at one stop
 
@@ -618,10 +619,12 @@ export function createWorld(container, handlers = {}) {
       if (r.stageId !== st?.id) continue;
       out.push(r.anim ? r.anim.route.pts[r.anim.route.pts.length - 1] : r.root.position);
     }
+    // …and the wonders standing by a stop (a floe of penguins, a loot raft)
+    if (st && wonderSpots) for (const q of wonderSpots(st.id)) out.push(q);
     return out;
   }
   function clearOf(p, taken, gap) {
-    for (const q of taken) if (Math.hypot(p.x - q.x, p.z - q.z) < gap) return false;
+    for (const q of taken) if (Math.hypot(p.x - q.x, p.z - q.z) < gap + (q.pad || 0)) return false;
     return true;
   }
   /* try `base + offsets[i]` until one is clear of every other vessel */
@@ -1084,7 +1087,9 @@ export function createWorld(container, handlers = {}) {
     restoreFog(cross.fog);
     dropGlow();
     if (rec && rec.hold) { rec.hold = null; resyncShips = true; }
+    const pid = cross.pid;
     cross = null;
+    handlers.onArrive?.(pid);
   }
 
   function skipCrossing() {
@@ -1321,8 +1326,9 @@ export function createWorld(container, handlers = {}) {
   function animatingPid() {
     // my own crossing owns the view (and holds the dice) until the reveal
     if (cross && ships[cross.pid] && cross.phase !== 'reveal') return cross.pid;
+    // (only vessels on the stage in view: an off-stage voyage is not watched)
     for (const pid in ships) {
-      if (ships[pid].anim) return pid;
+      if (ships[pid].anim && ships[pid].stageId === activeBoardId) return pid;
     }
     return null;
   }
@@ -1576,6 +1582,8 @@ export function createWorld(container, handlers = {}) {
   function arriving(room) {
     const mover = room?.turn;
     const rec = mover && ships[mover];
+    // (a pass crossing counts to its last frame: no tray under the arch)
+    if (cross && cross.pid === mover) return true;
     return !!(rec && rec.anim && rec.stageId === activeBoardId);
   }
 
@@ -1945,7 +1953,20 @@ export function createWorld(container, handlers = {}) {
     let arrived = null;
     for (const pid in ships) {
       const rec = ships[pid];
-      if (rec.stageId !== st.id) continue;
+      if (rec.stageId !== st.id) {
+        // a voyage on a stage nobody is watching finishes at once: left
+        // un-ticked it never ended, and held the dice ("the dust still
+        // settles") and the camera for every captain on another stage
+        if (rec.anim && !(cross && cross.pid === rec.pid)) {
+          const an = rec.anim;
+          routeAt(an.route, an.total, rec.root.position, _vA, an.seg);
+          rec.root.rotation.y = Math.atan2(-_vA.z, _vA.x);
+          if (rec.hold) crossedPass(rec);
+          rec.anim = null;
+          if (rec.arrivalPending) { rec.arrivalPending = false; arrived = arrived || rec.pid; }
+        }
+        continue;
+      }
       let moving = false;
       if (rec.anim) {
         const an = rec.anim;
@@ -2147,6 +2168,7 @@ export function createWorld(container, handlers = {}) {
         const n = nodeById[id];
         return new THREE.Vector3(n.x, (st.islands[id]?.plateauY ?? 0) + 1, n.z);
       });
+      reachAll = ids.map((id, i) => ({ id, v: reachPts[i] }));
       // frame the stops within a sane radius of the ship (a big fork can fan
       // stops far apart); the far ones are the chart's job. Keep ≥ the nearest.
       const sp = ships[myPid]?.root.position;
@@ -2160,6 +2182,78 @@ export function createWorld(container, handlers = {}) {
     }
     return reachKey && !reachManual ? reachPts : null;
   }
+  /* EDGE POINTERS — a legal stop the frame cannot hold (a narrow phone holds
+     ~50 units of sea side to side; a roll can fan stops 110 apart) gets a
+     gilded chip on the screen edge, pointing its way and naming it. Tapping
+     the chip sails there, so no legal stop is ever out of reach of a thumb. */
+  let reachAll = [];
+  const EDGE_LABEL = { sea: 'Open water', rocks: 'Open water', haven: 'Haven', shrine: 'Oracle', shop: 'Trader',
+    puzzle: 'Puzzle spire', monster: 'Hunting ground', gate: 'Mountain pass', home: 'Home Port',
+    lair: 'Boss lair', pharos: 'The Pharos' };
+  const edgeEl = document.createElement('div');
+  edgeEl.id = 'reachEdge';
+  container.appendChild(edgeEl);
+  const edgeChips = new Map();
+  let edgeShown = false;
+  function edgeChip(id) {
+    let c = edgeChips.get(id);
+    if (c) return c;
+    c = document.createElement('button');
+    c.type = 'button';
+    c.className = 'redge';
+    c.innerHTML = '<span class="redge-arrow"><svg viewBox="0 0 24 24" width="18" height="18"><path d="M5 12h12M12 6l6 6-6 6" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/></svg></span><span class="redge-name"></span>';
+    c.addEventListener('pointerdown', (e) => e.stopPropagation());
+    c.addEventListener('click', (e) => { e.stopPropagation(); handlers.onNodeClick?.(id, false); });
+    edgeEl.appendChild(c);
+    edgeChips.set(id, c);
+    return c;
+  }
+  function tickReachEdge(st) {
+    const r = lastRoom;
+    const on = reachKey && r && r.phase === 'sail' && r.turn === myPid && !cross && !cine && !tour
+      && !battleOn && activeBoardId !== 'autumn' && !animatingPid();
+    if (!on) {
+      if (edgeShown) { edgeShown = false; for (const c of edgeChips.values()) c.remove(); edgeChips.clear(); }
+      return;
+    }
+    edgeShown = true;
+    const w = container.clientWidth, h = container.clientHeight;
+    const portrait = w < h * 0.8;
+    // the clear window between the HUD bars (NDC)
+    const xm = portrait ? 0.8 : 0.9, yTop = portrait ? 0.6 : 0.68, yBot = portrait ? -0.46 : -0.5;
+    const live = new Set();
+    const placed = [];
+    for (const { id, v } of reachAll) {
+      _vD.copy(v).project(camera);
+      let x = _vD.x, y = _vD.y;
+      const behind = _vD.z > 1;
+      if (behind) { x = -x; y = -y; }
+      if (!behind && Math.abs(x) <= 0.97 && y <= 0.84 && y >= -0.62) continue;   // in view: its own glow does the job
+      live.add(id);
+      const k = Math.min(xm / Math.max(Math.abs(x), 1e-4), (y > 0 ? yTop : -yBot) / Math.max(Math.abs(y), 1e-4));
+      if (k < 1 || behind) { x *= k; y *= k; }
+      x = Math.max(-xm, Math.min(xm, x)); y = Math.max(yBot, Math.min(yTop, y));
+      let px = (x * 0.5 + 0.5) * w, py = (-y * 0.5 + 0.5) * h;
+      // chips for stops in the same quarter stack along the edge
+      const along = Math.abs(x) >= xm - 0.02 ? 'y' : 'x';
+      for (let n = 0; n < 8; n++) {
+        const hit = placed.find((q) => Math.abs(q.px - px) < 118 && Math.abs(q.py - py) < 36);
+        if (!hit) break;
+        if (along === 'y') py += (py >= hit.py ? 38 : -38); else px += (px >= hit.px ? 122 : -122);
+      }
+      px = Math.max(62, Math.min(w - 62, px));
+      placed.push({ px, py });
+      const c = edgeChip(id);
+      const n = nodeById[id];
+      const name = (n.type !== 'sea' && n.name) || EDGE_LABEL[n.type] || 'A stop';
+      const nm = c.lastChild;
+      if (nm.textContent !== name) nm.textContent = name;
+      c.style.transform = `translate(${px.toFixed(0)}px, ${py.toFixed(0)}px) translate(-50%, -50%)`;
+      c.firstChild.style.transform = `rotate(${(Math.atan2(-(y), x) * 180 / Math.PI).toFixed(0)}deg)`;
+    }
+    for (const [id, c] of edgeChips) if (!live.has(id)) { c.remove(); edgeChips.delete(id); }
+  }
+
   function reachAim(st, aim) {
     const pts = reachTargets(st);
     if (!pts || !pts.length) return;
@@ -2485,6 +2579,7 @@ export function createWorld(container, handlers = {}) {
 
   /* ── world wonders (events.py → room.world) — static/worldfx.js ─────── */
   const worldFx = createWorldFx();
+  wonderSpots = worldFx.spots;
   const worldCtx = {
     stages, stageHasNode, groundY, t: 0, camera,
     get nodeById() { return nodeById; },
@@ -2599,6 +2694,7 @@ export function createWorld(container, handlers = {}) {
     worldFx.sync(lastRoom, worldCtx);
     if (tour) tickTour(performance.now());
     else tickCamera(st, t, dt);
+    tickReachEdge(st);                    // a chip on the edge for any legal stop out of frame
     tickSunShadow(st);
     lightStage(st);
     setCloudShadows(pipe.quality !== 'low');

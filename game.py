@@ -1443,6 +1443,10 @@ class Game:
         r = self.rng.random()
         mode = ("puzzle" if r < 0.3125
                 else ("mc" if r < 0.625 else "jeopardy"))
+        # BRACE is the promised EASY answer: always a tier-I multiple-choice
+        # question, never a 60–90 s puzzle or a typed clue
+        if stance == "guard":
+            mode = "mc"
         forced = getattr(self, "_force_mode", None)     # DEV_CHEATS test hook only
         if forced:
             mode = forced

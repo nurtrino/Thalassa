@@ -46,7 +46,7 @@ storm the Pharos.
    | **STRIKE** | tier I (II vs bosses and 3+ HP units) | 1 damage (2 vs bosses / tough units); rams and the war horn add to it |
    | **MAGIC** | tier III | 3 damage (+1 with the trident) |
    | **HEAL** | tier III, your choice of format | mend 2 (4 with Ambrosia) and ward off the blow; not at full Health |
-   | **BRACE** | tier I — only while a boss winds up a heavy | turn the heavy aside completely and drive it back for 1 |
+   | **BRACE** | tier I, always multiple-choice — only while a boss winds up a heavy | turn the heavy aside completely and drive it back for 1 |
    | **SWORD** | tier III — the Dark Presence only | 5 damage |
    | **FLEE** | 1 scroll | 50/50 escape; never from a boss |
 

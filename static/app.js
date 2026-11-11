@@ -611,14 +611,14 @@ function showRealmBanner(info) {
   const d = document.createElement('div');
   bannerEl = d;
   d.style.cssText =
-    'position:fixed;left:50%;top:26%;transform:translateX(-50%);z-index:18;' +
+    'position:fixed;left:50%;top:40%;transform:translateX(-50%);z-index:18;' +   // (below the wonder chips' column)
     'pointer-events:none;text-align:center;opacity:0;' +
     // a translucent dark scrim so the accent stays readable on ANY stage —
     // gold on sand and ice-blue on sun glare both failed without it
     'padding:10px 26px;border-radius:12px;background:rgba(6,10,16,.42);' +
     '-webkit-backdrop-filter:blur(2.5px);backdrop-filter:blur(2.5px)';
   d.innerHTML =
-    `<div style="font-family:var(--disp,serif);font-weight:800;font-size:clamp(22px,4.6vw,42px);` +
+    `<div style="font-family:var(--disp,serif);font-weight:800;font-size:clamp(20px,4vw,40px);` +
     `letter-spacing:.24em;text-transform:uppercase;color:${info.accent};` +
     `text-shadow:0 2px 14px rgba(3,6,10,.95),0 0 34px ${info.accent}55;white-space:nowrap">${esc(info.name)}</div>` +
     `<div style="margin:6px auto 0;width:180px;height:1px;` +
@@ -1043,8 +1043,14 @@ function playBattleBeats(rv) {
   // and drop them when the blow visibly connects
   const fighter = room && room.players.find((p) => p.pid === room.turn);
   const heroDmg = (ep.dmg > 0 ? ep.dmg : 0) + (ep.backfire_dmg > 0 ? ep.backfire_dmg : 0);
-  bHullShown = (heroDmg && fighter) ? fighter.hull + heroDmg : null;
-  const landHit = () => { bHullShown = null; refreshBHearts(); renderPlayers(); };
+  // (a killing blow: the server has ALREADY mended the hull at the haven, so
+  //  hold the count captured before the reveal and drop it to nothing on the
+  //  hit — the shipwreck beat used to show a full row of hearts)
+  const dead = !!(rv.battle_over && rv.player_dead);
+  const pre = bHullShown;
+  bHullShown = dead ? (pre != null ? pre : Math.max(1, heroDmg))
+    : (heroDmg && fighter) ? fighter.hull + heroDmg : null;
+  const landHit = () => { bHullShown = dead ? 0 : null; refreshBHearts(); renderPlayers(); };
   refreshBHearts();
   const idx = ep.target_idx ?? 0;
   const stance = ep.stance
@@ -1237,6 +1243,14 @@ function render() {
   world.update(room, you);
   // the VICTORY / YOU DIED beat lives only over the closing battle reveal
   if (room.phase !== 'reveal') clearBattleEnd();
+  // a card is coming up: the ship inspector steps aside (it used to sit on
+  // the left third of an event card opened under it)
+  if (room.phase !== render._phase) {
+    render._phase = room.phase;
+    if (['event', 'question', 'jchoose', 'minigame', 'battle', 'shop', 'finished'].includes(room.phase)) {
+      $('uppanel').classList.add('hidden');
+    }
+  }
   const inLobby = room.phase === 'lobby';
   $('lobby').classList.toggle('hidden', !inLobby);
   $('hud').classList.toggle('hidden', inLobby);
@@ -2254,7 +2268,7 @@ function renderBattle() {
   if (b.can_brace ?? (b.boss && b.charging)) {
     mk(`${icon('guard', 18)} BRACE<span class="tierchip">I</span>`,
        'battlebtn guard', () => move('guard'),
-       `BRACE: a HEAVY blow is coming. Answer an easy Tier I question — right, you turn it aside completely and drive it back for ${cfg.riposte ?? 1}; wrong, it lands in full.`);
+       `BRACE: a HEAVY blow is coming. Answer an easy Tier I multiple-choice question — right, you turn it aside completely and drive it back for ${cfg.riposte ?? 1}; wrong, it lands in full.`);
   }
   const strikeDmg = darkLord ? (cfg.strike_boss ?? 2)
     : (st === 'II' ? (cfg.strike_boss ?? 2) : (cfg.strike ?? 1))
@@ -2263,7 +2277,7 @@ function renderBattle() {
      'battlebtn strike', () => move('attack'),
      darkLord
        ? `STRIKE: answer a Tier II question for ${strikeDmg} damage — bonuses (horn, rams) do not apply to the Dark Presence. ${guardNote}`
-       : `STRIKE: answer a Tier ${st} question for ${strikeDmg} damage${b.horn ? ' (+2 from the War Horn)' : ''}. The surest question — and the surest guard. ${guardNote}`);
+       : `STRIKE: answer a Tier ${st} question for ${strikeDmg} damage${b.horn ? ' (+2 from the War Horn)' : ''}. The gentlest challenge (a question, a typed clue or a puzzle) — and the surest guard. ${guardNote}`);
   const magicDmg = (cfg.magic ?? 3) + (ups.includes('trident') ? 1 : 0);
   mk(`${icon('magic', 18)} MAGIC<span class="tierchip">III</span>`,
      'battlebtn magic', () => move('magic'),
