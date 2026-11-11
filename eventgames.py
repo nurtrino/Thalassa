@@ -383,6 +383,11 @@ def gen_crossing(rng, params):
     return {"kind": "crossing", "near": list(CROSSERS), "far": [], "boat": "near",
             "trips": 0, "max_trips": int(params.get("max_trips", 11)),
             "done": False, "result": None, "score": 0, "eaten": None,
+            # what this telling calls the three passengers (the Piranha
+            # Crossing's jaguar cub, monkey and bananas): display names only,
+            # the rules still run on wolf / goat / cabbage
+            "names": {k: str(v) for k, v in (params.get("names") or {}).items()
+                      if k in CROSSERS},
             "secret": {}}
 
 
