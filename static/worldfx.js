@@ -36,7 +36,9 @@ const _v = new THREE.Vector3();
      beacon — the colour of its light pool and shaft (null: none)
      centre — sits ON its stop (it surrounds the ship), else beside it
      off    — extra clearance beside the stop for big pieces
-     face   — turns to face where it is travelling */
+     face   — turns to face where it is travelling
+     faceStop — its front (+x) turns to the stop it stands beside, and
+                eases toward the camera (≤ ~70° off that) so a face is seen */
 const LOOK = {
   merchant: { ride: true, beacon: 0xffc860, face: true },
   dolphins: { beacon: 0x9fe8ff, off: 3 },
@@ -260,14 +262,16 @@ export function createWorldFx() {
         rec.pos.copy(_v);
         rec.to.copy(_v);
         obj.position.copy(_v);
-        // a fixed piece faces off at a pleasing angle; a traveller picks its heading as it goes
-        rec.yaw = (w.wid * 1.37) % (Math.PI * 2);
+        // a fixed piece faces off at a pleasing angle; a traveller picks its heading as it goes;
+        // `faceStop` pieces (a face, a figure) turn their +x to the stop the ship berths at
+        rec.yaw = (LOOK[w.model] || {}).faceStop ? Math.atan2(-(n.z - _v.z), n.x - _v.x) : (w.wid * 1.37) % (Math.PI * 2);
         st.scene.add(obj);
       }
       if (rec.node !== w.node) {                 // it moved this round: glide
         rec.node = w.node;
         anchor(w, n, ctx, foot);
         rec.to.copy(_v);
+        if ((LOOK[w.model] || {}).faceStop) rec.yawStop = Math.atan2(-(n.z - _v.z), n.x - _v.x);
       }
     }
     for (const wid of [...recs.keys()]) if (!want.has(wid)) drop(wid);
@@ -293,6 +297,18 @@ export function createWorldFx() {
         let d = want - rec.yaw;
         d = Math.atan2(Math.sin(d), Math.cos(d));
         rec.yaw += d * 0.05;
+      }
+      if (look.faceStop && ctx.camera) {
+        // a face must be SEEN: turn (slowly, like a drifting berg) from the
+        // stop toward wherever the camera is, at most ~70° off the stop
+        const cx = ctx.camera.position.x - o.position.x, cz = ctx.camera.position.z - o.position.z;
+        const base = rec.yawStop ?? (rec.yawStop = rec.yaw);
+        let d = Math.atan2(-cz, cx) - base;
+        d = Math.atan2(Math.sin(d), Math.cos(d));
+        const want = base + Math.max(-1.2, Math.min(1.2, d));
+        let e = want - rec.yaw;
+        e = Math.atan2(Math.sin(e), Math.cos(e));
+        rec.yaw += e * 0.02;
       }
       u.rider.rotation.y = rec.yaw;
       if (rec.foot || look.ground) {

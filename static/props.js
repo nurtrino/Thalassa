@@ -13,7 +13,7 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { finishModel, finishOf, setModelColor } from './modelmat.js';
-import { makeRock } from './models/props.js';
+import { makeRock, makeSandArch } from './models/props.js';
 import { mulberry32 } from './util.js';
 
 /* every prop file on disk */
@@ -118,8 +118,11 @@ const loader = new GLTFLoader();
 const templates = new Map();   // id → Promise<Group|null> (never rejects)
 const _none = Promise.resolve(null);
 
+/* ids propGroup() builds procedurally (models/props.js) — never fetched */
+const PROCEDURAL_PROPS = new Set(['boulder', 'sand_arch']);
+
 function ensure(id) {
-  if (REMOVED_PROPS.has(id)) return _none;
+  if (REMOVED_PROPS.has(id) || PROCEDURAL_PROPS.has(id)) return _none;
   let p = templates.get(id);
   if (p) return p;
   const variant = PROP_VARIANTS[id];
@@ -179,6 +182,15 @@ export function preloadProps(ids = PROP_IDS) {
 let _boulderSeed = 0;
 export function propGroup(id, scale = 1, castShadow = true) {
   const g = new THREE.Group();
+  if (id === 'sand_arch') {
+    // the desert's ruined arch, built from the kit (the GLB arch is a mossy
+    // grey sculpt: wrong stone for the Reach, and it read flat-shaded there)
+    const a = makeSandArch(0x5a7c + (_boulderSeed++) * 31);
+    a.scale.setScalar(scale);
+    if (!castShadow) a.traverse((o) => { if (o.isMesh) o.castShadow = false; });
+    g.add(a);
+    return g;
+  }
   if (id === 'boulder') {
     // the boulder GLB was a smooth lump: every boulder is now the kit's
     // craggy procedural rock (models/kit.js rockGeometry), ~1.4 u tall

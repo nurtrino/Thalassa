@@ -235,37 +235,87 @@ function dustTexture() {
     return t;
   });
 }
+/* streaked dust wrapped round the funnel: diagonal bands, alpha fading at
+   the bottom and top edges (u round, v up) */
+function twisterTexture() {
+  return cached('tex:twister', () => {
+    const W = 128, Hh = 128;
+    const cv = document.createElement('canvas');
+    cv.width = W; cv.height = Hh;
+    const c = cv.getContext('2d');
+    const img = c.createImageData(W, Hh);
+    const rng = mulberry32(41);
+    const ph = Array.from({ length: 5 }, () => rng() * 6.28);
+    for (let y = 0; y < Hh; y++) {
+      for (let x = 0; x < W; x++) {
+        const u = x / W, v = y / Hh;
+        let k = 0;
+        for (let i = 0; i < 5; i++) k += Math.sin((u * (i + 2) + v * (1.5 + i * 0.4)) * Math.PI * 2 + ph[i]);
+        k = 0.5 + k / 10;
+        const edge = smooth(0.0, 0.18, v) * smooth(1.0, 0.7, v);
+        const i4 = (y * W + x) * 4;
+        img.data[i4] = img.data[i4 + 1] = img.data[i4 + 2] = 200 + Math.round(55 * k);
+        img.data[i4 + 3] = Math.round(255 * edge * (0.35 + 0.65 * k));
+      }
+    }
+    c.putImageData(img, 0, 0);
+    const t = new THREE.CanvasTexture(cv);
+    t.wrapS = THREE.RepeatWrapping;
+    t.colorSpace = THREE.SRGBColorSpace;
+    return t;
+  });
+}
+/* A sandstorm that reads as a COLUMN from the board camera: a twisting
+   funnel of streaked dust (two counter-turning shells, narrow at the foot,
+   flaring at the top), puffs boiling up its length and spilling off the
+   crown, a low skirt of dust round the foot and a dark scour on the sand. */
 export function makeSandstorm(opts = {}) {
   const g = new THREE.Group();
   const rng = mulberry32(opts.seed ?? 5);
-  const dark = new THREE.SpriteMaterial({ map: dustTexture(), color: 0xa8784a, transparent: true, opacity: 0.85, depthWrite: false });
-  const light = new THREE.SpriteMaterial({ map: dustTexture(), color: 0xe0b47a, transparent: true, opacity: 0.7, depthWrite: false });
+  const H = opts.h ?? 14;
+  const funnelGeo = cached('geo:twister', () => lathe([[0.9, 0], [1.1, 0.12], [1.5, 0.35], [2.3, 0.6], [3.4, 0.85], [4.3, 1.0]], 24));
+  const shells = [];
+  for (const [col, op, k, sp] of [[0xa8784a, 0.75, 1.0, 1.4], [0xe0b47a, 0.5, 1.22, -0.9]]) {
+    const m = new THREE.Mesh(funnelGeo, new THREE.MeshBasicMaterial({ color: col, map: twisterTexture(), transparent: true,
+      opacity: op, depthWrite: false, side: THREE.DoubleSide }));
+    m.scale.set(k, H, k);
+    m.renderOrder = 3;
+    g.add(m);
+    shells.push([m, sp]);
+  }
+  const dark = new THREE.SpriteMaterial({ map: dustTexture(), color: 0xa8784a, transparent: true, opacity: 0.75, depthWrite: false });
+  const light = new THREE.SpriteMaterial({ map: dustTexture(), color: 0xe8c08a, transparent: true, opacity: 0.6, depthWrite: false });
   const puffs = [];
-  const N = 18, H = opts.h ?? 13;
+  const N = 16;
   for (let i = 0; i < N; i++) {
     const k = i / (N - 1);
     const sp = new THREE.Sprite(i % 3 ? dark : light);
-    const s = 3.2 + k * 5.5 + rng() * 1.5;
-    sp.scale.set(s * 1.25, s, 1);
+    const s = 1.8 + k * 3.6 + rng() * 1.0;
+    sp.scale.set(s * 1.2, s, 1);
     g.add(sp);
-    puffs.push({ sp, k, r: 0.6 + k * 3.2, y: 0.8 + k * H, a: rng() * 6.28, sp0: 1.3 - k * 0.6 });
+    // hugging the funnel wall: radius follows its flare
+    puffs.push({ sp, k, r: 1.0 + 3.6 * Math.pow(k, 1.6), y: 0.6 + k * H, a: rng() * 6.28, sp0: 1.6 - k * 0.7 });
   }
-  // a skirt of low dust and a dark scour on the ground
+  // a skirt of low dust round the foot
   for (let i = 0; i < 5; i++) {
     const sp = new THREE.Sprite(dark);
-    sp.scale.set(7, 2.6, 1);
+    sp.scale.set(4.2, 1.8, 1);
     g.add(sp);
-    puffs.push({ sp, k: 0, r: 4.2, y: 0.9, a: (i / 5) * 6.28, sp0: 0.5 });
+    puffs.push({ sp, k: 0, r: 2.2, y: 0.6, a: (i / 5) * 6.28, sp0: 0.9 });
   }
   const scour = new THREE.Mesh(cached('geo:wbpool', () => new THREE.CircleGeometry(1, 40).rotateX(-Math.PI / 2)),
     new THREE.MeshBasicMaterial({ color: 0x3a2412, map: softDiscTexture(), transparent: true, opacity: 0.35, depthWrite: false }));
-  scour.scale.setScalar(6.5);
+  scour.scale.setScalar(4.5);
   scour.position.y = 0.06;
   g.add(scour);
   return finish(g, (t) => {
+    for (const [m, sp] of shells) m.rotation.y = t * sp;
+    // the whole column leans and snakes a little
+    const lean = Math.sin(t * 0.4) * 0.05;
+    for (const [m] of shells) { m.rotation.z = lean; m.rotation.x = Math.cos(t * 0.33) * 0.04; }
     for (const p of puffs) {
       const a = p.a + t * p.sp0;
-      const sway = Math.sin(t * 0.5 + p.k * 3) * p.k * 1.4;
+      const sway = Math.sin(t * 0.4) * p.k * H * 0.05;
       p.sp.position.set(Math.cos(a) * p.r + sway, p.y + Math.sin(t * 0.9 + p.a) * 0.3, Math.sin(a) * p.r);
     }
   }, opts);
@@ -465,13 +515,14 @@ export function makeGoldfish(opts = {}) {
   return finish(g, (t) => {
     const a = t * 0.55;
     const k = (t % PERIOD) / PERIOD;
-    const leap = k < 0.5 ? Math.sin((k / 0.5) * Math.PI) : 0;
+    // between leaps it cruises AT the surface, golden back and fin awash
+    // (it used to sink out of sight half the time)
+    const leap = k < 0.6 ? Math.sin((k / 0.6) * Math.PI) : 0;
     const x = Math.cos(a) * r, z = Math.sin(a) * r;
-    fish.position.set(x, -0.6 + leap * 2.8, z);
+    fish.position.set(x, -0.32 + leap * 3.0 + (k >= 0.6 ? Math.sin(t * 3) * 0.04 : 0), z);
     fish.rotation.set(0, -a - Math.PI / 2, 0);
-    fish.rotateZ(k < 0.5 ? Math.cos((k / 0.5) * Math.PI) * 0.8 : 0);
+    fish.rotateZ(k < 0.6 ? Math.cos((k / 0.6) * Math.PI) * 0.8 : 0);
     fish.rotateX(Math.sin(t * 9) * 0.08);
-    fish.visible = fish.position.y > -0.5;
     // the splash ring where it went in, and a glitter of drops
     const ks = (k + 0.5) % 1;
     ring.position.x = Math.cos(a - 0.5) * r;

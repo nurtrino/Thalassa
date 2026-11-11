@@ -21,6 +21,7 @@
  */
 import * as THREE from 'three';
 import { mulberry32 } from '../util.js';
+import { toCreasedNormals } from 'three/addons/utils/BufferGeometryUtils.js';
 import { bindAtmosphere } from './atmosphere.js';
 
 export const SHORE_LAYER = 3;          // meshes on this layer are baked into the shore map
@@ -471,13 +472,15 @@ function lumpGeometry(seed, detail, jitter) {
   g.computeVertexNormals();
   return g;
 }
-function bushGeometry() { return _bushGeo || (_bushGeo = lumpGeometry(3.1, 1, 0.38)); }
-function stoneGeometry() { return _stoneGeo || (_stoneGeo = lumpGeometry(8.7, 0, 0.5)); }
+// bushes shade as one soft mass; stones keep crisp breaks between smooth
+// faces (both read as faceted prototype lumps with plain face normals)
+function bushGeometry() { return _bushGeo || (_bushGeo = toCreasedNormals(lumpGeometry(3.1, 2, 0.3), Math.PI)); }
+function stoneGeometry() { return _stoneGeo || (_stoneGeo = toCreasedNormals(lumpGeometry(8.7, 1, 0.45), 0.7)); }
 function coverMaterial() {
   return _coverMat || (_coverMat = new THREE.MeshStandardMaterial({
     vertexColors: true, roughness: 0.88, metalness: 0 }));
 }
 function stoneMaterial() {
   return _stoneMat || (_stoneMat = new THREE.MeshStandardMaterial({
-    vertexColors: true, roughness: 0.82, metalness: 0, flatShading: true }));
+    vertexColors: true, roughness: 0.82, metalness: 0 }));
 }

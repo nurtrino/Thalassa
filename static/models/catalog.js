@@ -78,6 +78,7 @@ export const CATALOG = {
   rocks: () => P.makeRockCluster(mulberry32(6), 1.1, 0xa49c8c),
   sea_stack: () => P.makeSeaStack(mulberry32(7), 1.0),
   sea_stack_b: () => P.makeSeaStack(mulberry32(9), 1.0, 0x9a8f80),
+  sand_arch: () => P.makeSandArch(3),
   boulder_big: () => P.makeRock(mulberry32(11), 2.4, 0xa49c8c, { detail: 3 }),
   fishing_boat: () => P.makeFishingBoat({ seed: 1 }),
   flotsam: () => P.makeFlotsam(mulberry32(2)),

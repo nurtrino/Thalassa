@@ -27,6 +27,7 @@ import { buildMountainWall, buildRealmBackdrop } from './wall.js';
 import { getMonster, animateMonster, preloadMonsters, disposeMonster, BOSS_IDS } from './monsters.js';
 import { createBattleStage } from './battle.js';
 import { createWorldFx } from './worldfx.js';
+import { spectralSwap } from './ghostswap.js';
 import { installAtmosphere, applyLook, updateAtmosphere, setCloudShadows } from './gfx/atmosphere.js';
 import { lookFor } from './gfx/looks.js';
 import { makeSky, bakeEnvironment } from './gfx/sky.js';
@@ -37,7 +38,7 @@ import { makeShoreMap } from './gfx/shoremap.js';
 import { planRoute, routeAt, routeS, helm, easeVoyage, obstacleIndex, smooth01 } from './travel.js';
 import { REALM_INFO } from './themes.js';
 import { islandRoom, laneBearing } from './isleshape.js';
-import { makeTurnMarker as modelTurnMarker, makeReachBeacon, makeSeaLane, makeFootTrail } from './models/props.js';
+import { makeTurnMarker as modelTurnMarker, makeReachBeacon, makeSeaLane, makeFootTrail, makeTrailArrowKit } from './models/props.js';
 
 const FADE_MS = 480;               // fade-to-black hold before the swap
 const GOLD = 0xffd75e;
@@ -180,27 +181,11 @@ export function createWorld(container, handlers = {}) {
   // ONE long arrow per branch: a stretchable shaft plus a fixed head, so the
   // shaft can run the trail without distorting the arrowhead. Both lie flat;
   // pre-yaw the head's tip points -Z (yaw = atan2(-ux,-uz) aims it down-trail).
-  const ARROW_SHAFT_GEO = (() => {
-    const g = new THREE.PlaneGeometry(1.7, 1);   // x = width, z = length (post-rotate)
-    g.rotateX(-Math.PI / 2);
-    return g;
-  })();
-  const ARROW_HEAD_LEN = 3.4;
-  const ARROW_HEAD_GEO = (() => {
-    const s = new THREE.Shape();            // triangle pointing +Y (pre-rotate)
-    s.moveTo(0, ARROW_HEAD_LEN);
-    s.lineTo(2.1, 0);
-    s.lineTo(-2.1, 0);
-    s.closePath();
-    const g = new THREE.ShapeGeometry(s);
-    g.rotateX(-Math.PI / 2);                // flat; tip now points -Z
-    g.translate(0, 0, 0);                   // base at z=0, tip at z=-HEAD_LEN
-    return g;
-  })();
-  const ARROW_MAT = new THREE.MeshBasicMaterial({
-    color: 0xffd061, transparent: true, opacity: 0.94,
-    // depthTest off: an arrow is UI — the towering trees must never bury it
-    depthWrite: false, depthTest: false, fog: false, side: THREE.DoubleSide });
+  // (models/props.js: a soft painted ribbon of light + glowing head, not
+  // flat gold plates; depthTest off — an arrow is UI, trees never bury it)
+  const ARROW = makeTrailArrowKit();
+  const ARROW_SHAFT_GEO = ARROW.shaftGeo, ARROW_HEAD_GEO = ARROW.headGeo;
+  const ARROW_HEAD_LEN = ARROW.headLen;
   const STRIP_GEO = new THREE.BoxGeometry(1, 1, 1);   // invisible click-ribbons
   const STRIP_MAT = new THREE.MeshBasicMaterial({
     transparent: true, opacity: 0, depthWrite: false });
@@ -574,12 +559,15 @@ export function createWorld(container, handlers = {}) {
         if (len < gapA + gapB + 2) continue;
         if (na.mode === 'foot' || nb.mode === 'foot') {
           // A foot trail is a real line of worn flagstones through the ground.
-          const stoneHex = st.theme.id === 'autumn' ? 0x8d7c60 : 0xe6d7ae;
-          // one merged mesh of worn, irregular flagstones (models/props.js)
+          const vale = st.theme.id === 'autumn';
+          const stoneHex = vale ? 0xa48e6a : 0xe6d7ae;
+          // one merged mesh of worn, irregular flagstones (models/props.js);
+          // in the Vale they dissolve before the fog's end (else far trails
+          // read as rows of dark specks on the horizon)
           st.laneGroup.add(makeFootTrail(
             na.x + _vC.x * gapA, na.z + _vC.z * gapA,
             na.x + _vC.x * (len - gapB), na.z + _vC.z * (len - gapB),
-            { hex: stoneHex, seed: hashStr('trail:' + a + '~' + b) }));
+            { hex: stoneHex, seed: hashStr('trail:' + a + '~' + b), fadeFar: vale ? 48 : 0 }));
           continue;
         }
         // a sea lane: a soft row of painted wake-dashes on the swell, fading
@@ -1223,6 +1211,7 @@ export function createWorld(container, handlers = {}) {
 
   function syncShips(room, you) {
     const playersByPid = {};
+    const movedNow = [];
     room.players?.forEach((p, idx) => {
       playersByPid[p.pid] = p;
       const rec = ensureShip(p, idx);
@@ -1249,7 +1238,7 @@ export function createWorld(container, handlers = {}) {
         else releaseHold(rec, true);
       }
       const moved = rec.node !== nodeNow;
-      if (moved) { rec.prevNode = rec.node; rec.node = nodeNow; }
+      if (moved) { rec.prevNode = rec.node; rec.node = nodeNow; movedNow.push(rec); }
 
       // which stage does this ship live in now? (gates belong to two)
       const targetStage = stageHasNode(activeBoardId, rec.node) ? activeBoardId : null;
@@ -1300,6 +1289,24 @@ export function createWorld(container, handlers = {}) {
         marker.material.dispose();
       }
     });
+    // the Ghost Ship's trick: two captains traded places in one update →
+    // each hull dissolves into spectral mist and condenses at the other's
+    // berth (ghostswap.js) instead of the two gliding through each other
+    for (let i = 0; i < movedNow.length; i++) {
+      for (let j = i + 1; j < movedNow.length; j++) {
+        const a = movedNow[i], b = movedNow[j];
+        if (a.node !== b.prevNode || b.node !== a.prevNode || !a.anim || !b.anim) continue;
+        if (a.stageId !== activeBoardId || b.stageId !== activeBoardId) continue;
+        for (const r of [a, b]) {
+          const pending = r.arrivalPending;
+          r.anim = null;
+          r.arrivalPending = false;
+          spectralSwap(stages[activeBoardId].scene, r.root, slotFor(r.node, r.idx, stages[activeBoardId], null, r.pid));
+          // the UI waits on the hull parking: hand it the arrival once the mist clears
+          if (pending) setTimeout(() => onShipArrive(r.pid), 1450);
+        }
+      }
+    }
     for (const pid of Object.keys(ships)) {
       if (!playersByPid[pid]) removeShip(pid);
     }
@@ -1416,14 +1423,14 @@ export function createWorld(container, handlers = {}) {
       const start = 3.5;
       const tip = Math.max(start + 7, Math.min(len - 2, 26));
       const shaftLen = tip - ARROW_HEAD_LEN - start;
-      const shaft = new THREE.Mesh(ARROW_SHAFT_GEO, ARROW_MAT);
+      const shaft = new THREE.Mesh(ARROW_SHAFT_GEO, ARROW.shaftMat);
       shaft.scale.set(1, 1, shaftLen);
       shaft.position.set(head.x + ux * (start + shaftLen / 2), 0.3,
                          head.z + uz * (start + shaftLen / 2));
       shaft.rotation.y = yaw;
       shaft.renderOrder = 30;                      // over stones, trees, smoke
       shaft.userData = { node: dest, walkArrow: true };
-      const ahead = new THREE.Mesh(ARROW_HEAD_GEO, ARROW_MAT);
+      const ahead = new THREE.Mesh(ARROW_HEAD_GEO, ARROW.headMat);
       ahead.position.set(head.x + ux * (tip - ARROW_HEAD_LEN), 0.3,
                          head.z + uz * (tip - ARROW_HEAD_LEN));
       ahead.rotation.y = yaw;
@@ -2479,7 +2486,7 @@ export function createWorld(container, handlers = {}) {
   /* ── world wonders (events.py → room.world) — static/worldfx.js ─────── */
   const worldFx = createWorldFx();
   const worldCtx = {
-    stages, stageHasNode, groundY, t: 0,
+    stages, stageHasNode, groundY, t: 0, camera,
     get nodeById() { return nodeById; },
     islandR: (stageId, nid) => stages[stageId]?.islands?.[nid]?.R ?? 6,
   };

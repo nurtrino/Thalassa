@@ -1010,7 +1010,7 @@ export function buildBattleSet(theme, opts = {}, kit = {}) {
     }
     const sit = (pid, d, s, sc, ry) => { const [x, z] = P(d, s); return prop(pid, x, height(x, z), z, sc, ry); };
     sit('sarcophagus', 47.5, 0.5, 1.5, -1.9); sit('sarcophagus', 48.5, 8.5, 1.5, -1.9);
-    sit('ruined_arch', 37, -21, 2.3, 0.5); sit('bone_pile', 30, -13, 1.8); sit('bone_pile', 20, 13.5, 1.3);
+    sit('sand_arch', 37, -21, 2.3, 0.5); sit('bone_pile', 30, -13, 1.8); sit('bone_pile', 20, 13.5, 1.3);
     sit('amphora_pile', 22, -13.5, 1.4); sit('dead_scrub', 33, 17, 1.6); sit('dead_scrub', 17, -12.5, 1.2);
     sit('palm_tree', 14.5, 8.3, 2.0, 2.2); sit('palm_tree', 18.5, 10.6, 1.5, 0.6); sit('dead_scrub', 13.5, 7.0, 1.1);
     sit('palm_tree', 70, -30, 1.9); sit('palm_tree', 73, -26, 1.6); sit('palm_tree', 75, 30, 1.8);

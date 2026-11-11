@@ -66,6 +66,30 @@ function columnGeo() {
   });
 }
 
+/* the same column at 8 sides with a shorter profile — for colonnades high
+   up or far off (the Pharos lantern); the flutes are in the bump map anyway */
+function columnGeoLite() {
+  return cached('geo:columnLite', () => {
+    const g = lathe([
+      [0.122, 0.0], [0.122, 0.03], [0.122, 0.03], [0.09, 0.07], [0.081, 0.5], [0.072, 0.9],
+      [0.072, 0.9], [0.11, 0.955],
+    ], 8);
+    const ab = box(0.26, 0.045, 0.26, 0);
+    ab.translate(0, 0.978, 0);
+    const p = new Parts();
+    p.add(g, null); p.add(ab, null);
+    const out = p.geometry();
+    out.deleteAttribute('color');
+    const pos = out.attributes.position, uv = out.attributes.uv;
+    for (let i = 0; i < pos.count; i++) {
+      const a = Math.atan2(pos.getZ(i), pos.getX(i)) / (Math.PI * 2) + 0.5;
+      uv.setXY(i, a, pos.getY(i));
+    }
+    out.userData.shared = true;
+    return out;
+  });
+}
+
 function fluteTexture() {
   return cached('tex:flute', () => {
     const cv = document.createElement('canvas');
@@ -379,10 +403,10 @@ export function makePharos() {
   for (let k = 0; k < 3; k++) {
     // podium-1 top (0.9) up to podium-2 top (1.7), in front of the door
     const top = 0.9 + (k + 1) * 0.27, dep = (3 - k) * 0.42;
-    stoneP.add(box(4.4, top - 0.85, dep, 0.04), weathered(marbleShade), M(0, 0.85 + (top - 0.85) / 2, 6.7 + dep / 2));
+    stoneP.add(box(4.4, top - 0.85, dep, 0.02), weathered(marbleShade), M(0, 0.85 + (top - 0.85) / 2, 6.7 + dep / 2));
     // ground up to podium-1 (0.9)
     const top0 = (k + 1) * 0.3, dep0 = (3 - k) * 0.42;
-    stoneP.add(box(5.2, top0, dep0, 0.04), weathered(marbleShade), M(0, top0 / 2, 8.0 + dep0 / 2));
+    stoneP.add(box(5.2, top0, dep0, 0.02), weathered(marbleShade), M(0, top0 / 2, 8.0 + dep0 / 2));
   }
   const y1 = 1.7;
 
@@ -427,7 +451,7 @@ export function makePharos() {
           return M(v.x, v.y, v.z, ry, 1, 1, 1, -lean);
         };
         stoneP.add(box(0.95, 1.7, 0.24, 0), marbleShade, m(0.02));
-        darkP.add(box(0.55, 1.3, 0.1), 0x16120f, m(0.12));
+        darkP.add(box(0.55, 1.3, 0.1, 0), 0x16120f, m(0.12));
       }
     }
   }
@@ -442,8 +466,8 @@ export function makePharos() {
     const yy = y2 + (i % 2 ? 2.4 : 4.6);
     const r = (3.9 + (3.35 - 3.9) * ((yy - y2) / t2h)) * Math.cos(Math.PI / 8) - 0.02;
     const ry = -a + Math.PI / 2;
-    stoneP.add(box(0.7, 1.3, 0.2, 0.03), marbleShade, M(Math.cos(a) * (r + 0.05), yy, Math.sin(a) * (r + 0.05), ry));
-    darkP.add(box(0.36, 1.0, 0.08), 0x16120f, M(Math.cos(a) * (r + 0.14), yy, Math.sin(a) * (r + 0.14), ry));
+    stoneP.add(box(0.7, 1.3, 0.2, 0), marbleShade, M(Math.cos(a) * (r + 0.05), yy, Math.sin(a) * (r + 0.05), ry));
+    darkP.add(box(0.36, 1.0, 0.08, 0), 0x16120f, M(Math.cos(a) * (r + 0.14), yy, Math.sin(a) * (r + 0.14), ry));
   }
   const c2 = y2 + t2h;
   stoneP.add(facet(lathe([[3.35, c2], [3.75, c2 + 0.25], [3.75, c2 + 0.5], [3.75, c2 + 0.5], [2.3, c2 + 0.5]], 8,
@@ -454,9 +478,11 @@ export function makePharos() {
   stoneP.add(lathe([[2.5, y3], [2.35, y3 + 2.4], [2.35, y3 + 2.4], [2.7, y3 + 2.55], [2.7, y3 + 2.75], [2.7, y3 + 2.75], [0, y3 + 2.75]], 24),
     weathered(marble));
   const yL = y3 + 2.75, lanH = 2.5;
+  // (the lantern colonnade is ~30 u up and never seen closer than the
+  // board camera: a lighter column — 8 sides, the same profile)
   for (let i = 0; i < 8; i++) {
     const a = (i / 8) * Math.PI * 2;
-    addColumn(colP, Math.cos(a) * 2.2, yL, Math.sin(a) * 2.2, lanH, 0xf2ece0);
+    colP.add(columnGeoLite().clone(), 0xf2ece0, M(Math.cos(a) * 2.2, yL, Math.sin(a) * 2.2, 0, lanH));
   }
   // lantern ceiling ring + dome + bronze crown
   const yD = yL + lanH;
@@ -478,7 +504,7 @@ export function makePharos() {
   const fire = new THREE.Group();
   fire.name = 'pharosfire';
   fire.position.y = yL + 0.9;
-  const core = new THREE.Mesh(cached('geo:pharoscore', () => new THREE.SphereGeometry(0.9, 16, 12)),
+  const core = new THREE.Mesh(cached('geo:pharoscore', () => new THREE.SphereGeometry(0.9, 10, 8)),
     mat.glow(0xffd98a, 4.0));
   core.userData.keep = true;
   fire.add(core);
@@ -541,7 +567,7 @@ function makePharosGate() {
   frame.add(box(5.4, 0.9, 0.9, 0.08), mrb, M(0, 6.05, 0.2));
   frame.add(box(5.9, 0.3, 1.1, 0.06), mrb2, M(0, 6.65, 0.25));
   frame.add(gable(5.9, 1.1, 0.7), mrb, M(0, 6.8, 0.2));
-  dark.add(box(3.4, 5.6, 0.3), 0x0f0c0a, M(0, 2.8, -0.2));
+  dark.add(box(3.4, 5.6, 0.3, 0), 0x0f0c0a, M(0, 2.8, -0.2));
   const fm = frame.mesh(mat.marble()); gate.add(fm);
   const dm = dark.mesh(mat.plain(), { cast: false }); gate.add(dm);
 
@@ -549,7 +575,7 @@ function makePharosGate() {
   const leafGeo = cached('geo:pharosleaf', () => {
     const p = new Parts();
     p.add(box(1.66, 5.0, 0.2, 0.04), 0x9a7a40);
-    for (const yy of [-1.5, 0.2, 1.7]) p.add(box(1.2, 1.2, 0.08, 0.05), 0xb48e48, M(0, yy, 0.12));
+    for (const yy of [-1.5, 0.2, 1.7]) p.add(box(1.2, 1.2, 0.08, 0), 0xb48e48, M(0, yy, 0.12));
     for (let r = 0; r < 4; r++) {
       for (const xx of [-0.68, 0.68]) p.add(blob(0.05, 0), 0xc29a4a, M(xx, -2.2 + r * 1.45, 0.14));
     }
@@ -567,8 +593,8 @@ function makePharosGate() {
     gate.add(pivot);
   }
   // three sigil sockets in the lintel
-  const ringGeo = cached('geo:sigilring', () => new THREE.TorusGeometry(0.4, 0.07, 8, 24));
-  const discGeo = cached('geo:sigildisc', () => new THREE.CylinderGeometry(0.34, 0.34, 0.1, 20).rotateX(Math.PI / 2));
+  const ringGeo = cached('geo:sigilring', () => new THREE.TorusGeometry(0.4, 0.07, 6, 18));
+  const discGeo = cached('geo:sigildisc', () => new THREE.CylinderGeometry(0.34, 0.34, 0.1, 16).rotateX(Math.PI / 2));
   for (let i = 0; i < 3; i++) {
     const x = (i - 1) * 1.5;
     const ring = new THREE.Mesh(ringGeo, mat.gold());
@@ -1103,8 +1129,8 @@ export function makeLighthouse() {
   p.add(box(2.0, 0.5, 2.0, 0.08), 0xe9e4d8, M(0, 0.25, 0));
   p.add(lathe([[0.82, 0], [0.62, 4.6], [0.62, 4.6], [0.88, 4.7], [0.88, 4.9], [0.88, 4.9], [0, 4.9]], 20),
     (x, y, z, nx, ny, nz, c) => { c.setHex(0xf4f1ea); c.multiplyScalar(0.92 + 0.08 * smooth(0, 1.2, y)); }, M(0, 0.5, 0));
-  for (const yy of [1.9, 3.4]) dark.add(box(0.26, 0.5, 0.1), 0x1b2a44, M(0, 0.5 + yy, 0.76 - yy * 0.042, 0, 1, 1, 1, -0.04));
-  dark.add(box(0.5, 0.95, 0.12), 0x2a5aa8, M(0, 0.95, 0.8, 0, 1, 1, 1, -0.04));
+  for (const yy of [1.9, 3.4]) dark.add(box(0.26, 0.5, 0.1, 0), 0x1b2a44, M(0, 0.5 + yy, 0.76 - yy * 0.042, 0, 1, 1, 1, -0.04));
+  dark.add(box(0.5, 0.95, 0.12, 0), 0x2a5aa8, M(0, 0.95, 0.8, 0, 1, 1, 1, -0.04));
   // lantern: glazing posts + blue cupola
   for (let k = 0; k < 6; k++) {
     const a = (k / 6) * Math.PI * 2;
@@ -1141,7 +1167,7 @@ function cycladicHouse(P, x, y, z, ry, w, d, h, rng, { roof = null, chapel = fal
   };
   wall.add(box(w, h + sink, d, 0.14), lime, at(0, (h - sink) / 2, 0));
   // the painted grey-blue skirting the islanders lime round every house
-  trim.add(box(w + 0.04, 0.16, d + 0.04), 0x9aa7b4, at(0, 0.02, 0));
+  trim.add(box(w + 0.04, 0.16, d + 0.04, 0), 0x9aa7b4, at(0, 0.02, 0));
   const doorC = DOOR_COLS[Math.floor(rng() * DOOR_COLS.length)];
   // ── roof
   const kind = roof || (rng() < 0.38 ? 'vault' : 'terrace');
@@ -1160,7 +1186,7 @@ function cycladicHouse(P, x, y, z, ry, w, d, h, rng, { roof = null, chapel = fal
       const cx = (rng() - 0.5) * (w - 0.6), cz = -d / 2 + 0.3;
       wall.add(box(0.26, 0.5, 0.26, 0.04), 0xf2efe8, at(cx, h + 0.25, cz));
       wall.add(box(0.36, 0.06, 0.36), 0xfbf9f4, at(cx, h + 0.53, cz));
-      trim.add(box(0.12, 0.08, 0.12), 0x6a5a4a, at(cx, h + 0.6, cz));
+      trim.add(box(0.12, 0.08, 0.12, 0), 0x6a5a4a, at(cx, h + 0.6, cz));
     }
   }
   if (kind === 'dome') {
@@ -1168,23 +1194,23 @@ function cycladicHouse(P, x, y, z, ry, w, d, h, rng, { roof = null, chapel = fal
     dome.add(new THREE.CylinderGeometry(r * 1.04, r * 1.08, r * 0.45, 18), 0xf6f3ec, at(0, h + r * 0.22, 0));
     dome.add(lathe([[r, 0], [r * 0.99, r * 0.3], [r * 0.82, r * 0.72], [r * 0.46, r * 1.02], [0.0, r * 1.12]], 18),
       0x2459a8, at(0, h + r * 0.45, 0));
-    trim.add(box(0.06, 0.5, 0.06), 0xc9a24a, at(0, h + r * 1.55 + 0.2, 0));
-    trim.add(box(0.28, 0.06, 0.06), 0xc9a24a, at(0, h + r * 1.55 + 0.3, 0));
+    trim.add(box(0.06, 0.5, 0.06, 0), 0xc9a24a, at(0, h + r * 1.55 + 0.2, 0));
+    trim.add(box(0.28, 0.06, 0.06, 0), 0xc9a24a, at(0, h + r * 1.55 + 0.3, 0));
   }
   // ── the street front: a framed door up a step, flanked by windows
   const dx = (rng() - 0.5) * Math.max(0, w - 1.2);
   const dh = Math.min(0.95, h * 0.62);
-  trim.add(box(0.62, dh + 0.1, 0.05), 0xfdfcf8, at(dx, dh / 2 + 0.05, d / 2 + 0.015));  // lime frame
-  trim.add(box(0.44, dh, 0.06), doorC, at(dx, dh / 2 + 0.02, d / 2 + 0.03));
-  trim.add(box(0.7, 0.1, 0.32), 0xd8d2c4, at(dx, 0.05, d / 2 + 0.16));              // the step
+  trim.add(box(0.62, dh + 0.1, 0.05, 0), 0xfdfcf8, at(dx, dh / 2 + 0.05, d / 2 + 0.015));  // lime frame
+  trim.add(box(0.44, dh, 0.06, 0), doorC, at(dx, dh / 2 + 0.02, d / 2 + 0.03));
+  trim.add(box(0.7, 0.1, 0.32, 0), 0xd8d2c4, at(dx, 0.05, d / 2 + 0.16));              // the step
   const win = (wx, wz, rr, wy = h * 0.6) => {
     // pane, frame, sill, and two shutter leaves folded open against the wall
-    trim.add(box(0.34, 0.4, 0.05), 0x1b2433, at(wx, wy, wz, rr));
+    trim.add(box(0.34, 0.4, 0.05, 0), 0x1b2433, at(wx, wy, wz, rr));
     const o = M(wx, wy, wz, rr).premultiply(m);
     for (const sx of [-1, 1]) {
-      trim.add(box(0.18, 0.42, 0.03), doorC, M(sx * 0.27, 0, 0.02).premultiply(o));
+      trim.add(box(0.18, 0.42, 0.03, 0), doorC, M(sx * 0.27, 0, 0.02).premultiply(o));
     }
-    trim.add(box(0.44, 0.05, 0.12), 0xfdfcf8, M(0, -0.24, 0.04).premultiply(o));
+    trim.add(box(0.44, 0.05, 0.12, 0), 0xfdfcf8, M(0, -0.24, 0.04).premultiply(o));
   };
   const front = w > 1.9 ? [-1, 1] : [dx > 0 ? -1 : 1];
   for (const sx of front) {
@@ -1237,13 +1263,13 @@ function cycladicHouse(P, x, y, z, ry, w, d, h, rng, { roof = null, chapel = fal
     // a stacked upper room, set back off the terrace
     const w2 = w * 0.5, h2 = h * 0.62, d2 = d * 0.5;
     wall.add(box(w2, h2, d2, 0.1), lime, at(-stairSide * w * 0.2, h + h2 / 2, -d * 0.2));
-    trim.add(box(0.28, 0.32, 0.05), 0x1b2433, at(-stairSide * w * 0.2, h + h2 * 0.55, -d * 0.2 + d2 / 2 + 0.02));
+    trim.add(box(0.28, 0.32, 0.05, 0), 0x1b2433, at(-stairSide * w * 0.2, h + h2 * 0.55, -d * 0.2 + d2 / 2 + 0.02));
   }
   if (chapel) {
     // the bell gable on the front edge, its bell in the arch
     wall.add(box(0.9, 1.1, 0.2, 0.05), 0xf6f3ec, at(0, h + 0.55, d / 2 - 0.1));
     trim.add(blob(0.14, 1, 1.2), 0xb08a3a, at(0, h + 0.62, d / 2 - 0.1));
-    trim.add(box(0.06, 0.24, 0.06), 0xc9a24a, at(0, h + 1.25, d / 2 - 0.1));
+    trim.add(box(0.06, 0.24, 0.06, 0), 0xc9a24a, at(0, h + 1.25, d / 2 - 0.1));
   }
 }
 
@@ -1258,13 +1284,13 @@ export function makeHomeTown(g, terrain, R, dockA, seed = 1) {
   const spots = [];
   // the lane: flagged steps with lime-washed edges, quay → crown
   {
-    const n = 9;
+    const n = 15;
     for (let k = 0; k <= n; k++) {
       const rr = 0.86 - (k / n) * 0.66;
       const p = terrain.place(dockA, rr);
       const ry = -dockA + Math.PI / 2;
-      P.quay.add(box(1.2, 0.5, 0.5, 0.04), 0xc9c1b2, M(p.x, p.y - 0.18, p.z, ry));
-      P.trim.add(box(1.22, 0.04, 0.06), 0xfdfcf8, M(p.x, p.y + 0.08, p.z, ry));
+      P.quay.add(box(1.3, 0.5, 0.62, 0.04), 0xc9c1b2, M(p.x, p.y - 0.17, p.z, ry));
+      P.trim.add(box(1.32, 0.04, 0.06, 0), 0xfdfcf8, M(p.x, p.y + 0.09, p.z, ry));
     }
   }
   // houses in two terraces either side of the lane
@@ -1306,7 +1332,7 @@ export function makeHomeTown(g, terrain, R, dockA, seed = 1) {
         P.quay.add(box(L, top + 1.2, 1.5, 0.06), (xx, yy, zz, nx, ny, nz, c) => {
           c.setHex(0xb9b0a0); c.multiplyScalar(yy < -0.25 ? 0.6 : 0.9 + 0.1 * Math.sin(xx * 3.1 + zz * 2.3));
         }, M(mx, (top - 1.2) / 2, mz, ry));
-        P.trim.add(box(L, 0.06, 0.12), 0xfdfcf8, M(mx, top + 0.03, mz, ry).multiply(M(0, 0, 0.7)));
+        P.trim.add(box(L, 0.06, 0.12, 0), 0xfdfcf8, M(mx, top + 0.03, mz, ry).multiply(M(0, 0, 0.7)));
         if (k % 3 === 0) {
           P.trim.add(lathe([[0.1, 0], [0.09, 0.18], [0.13, 0.24], [0.0, 0.27]], 8), 0x3a3632,
             M(mx, top, mz, ry).multiply(M(0, 0, 0.55)));
@@ -1438,7 +1464,7 @@ export function makeGatePortal(accentHex, seed, rockHex = 0x8a8f98, realm = '') 
       const x = end ? qs * (CH + 2.5 + rng() * 12.5) : qs * (CH + 13.2 + rng() * 1.5);
       const z = end ? (rng() < 0.5 ? -1 : 1) * (12.8 + rng() * 2.5) : (rng() - 0.5) * 22;
       rocks.add(rockGeometry(seed + qs * 13 + k, { r, sy: 0.55 + rng() * 0.3, rock: rockHex, cover: 0, strata: 0.8,
-        detail: r > 1.8 ? 2 : 1, wl: 0.25 }), null, M(x, -0.55, z, rng() * 6));
+        detail: 1, wl: 0.25 }), null, M(x, -0.55, z, rng() * 6));
     }
   }
 
@@ -1459,12 +1485,12 @@ export function makeGatePortal(accentHex, seed, rockHex = 0x8a8f98, realm = '') 
     // crenellated crown
     for (let k = 0; k < 3; k++) {
       for (const zz of [-1.9, 0, 1.9]) {
-        ash.add(box(1.3, 1.6, 1.1, 0.12), weather(stoneC), M(tx + (k - 1) * 1.9, 27.4, zz));
+        ash.add(box(1.3, 1.6, 1.1, 0.02), weather(stoneC), M(tx + (k - 1) * 1.9, 27.4, zz));
       }
     }
     // a tall accent-lit window slit on the inner face, in a carved frame
     ash.add(box(0.5, 6.2, 1.8, 0.1), stoneD, M(tx - side * 3.35, 15, 0));
-    glyph.add(box(0.2, 4.6, 0.7), 0xffffff, M(tx - side * 3.62, 15, 0));
+    glyph.add(box(0.2, 4.6, 0.7, 0), 0xffffff, M(tx - side * 3.62, 15, 0));
     // colossal columns framing the channel mouth, fore & aft, with entablature
     for (const zz of [-5, 5]) {
       addColumn(cols, side * (CH - 1.2), 0.9, zz, 12.4, stoneC.clone().lerp(new THREE.Color(0xffffff), 0.25));
@@ -1473,12 +1499,15 @@ export function makeGatePortal(accentHex, seed, rockHex = 0x8a8f98, realm = '') 
     ash.add(box(3.0, 0.75, 13.3, 0.08), stoneC, M(side * (CH - 1.2), 13.85, 0));
     ash.add(box(2.7, 0.6, 13.0, 0.06), stoneD, M(side * (CH - 1.2), 14.5, 0));
     ash.add(box(3.6, 0.45, 13.9, 0.1), stoneC, M(side * (CH - 1.2), 15.0, 0));
-    for (const zz of [-4.5, -1.5, 1.5, 4.5]) glyph.add(box(0.12, 0.34, 0.9), 0xffffff, M(side * (CH - 1.2) - side * 1.37, 14.5, zz));
+    for (const zz of [-4.5, -1.5, 1.5, 4.5]) glyph.add(box(0.12, 0.34, 0.9, 0), 0xffffff, M(side * (CH - 1.2) - side * 1.37, 14.5, zz));
     // bronze fire bowls on fluted stands at BOTH mouths (the hub-side pair
     // frames the low astern shot through the arch as the ship enters)
     for (const zz of [-7, 7]) {
-      bronze.add(lathe([[1.4, 0], [1.2, 0.5], [0.8, 1.0], [0.75, 5.2], [1.0, 5.4], [1.0, 5.4], [1.9, 6.2], [2.0, 6.5], [1.85, 6.55], [0.0, 6.3]], 16),
-        (x, y, z, nx, ny, nz, c) => { c.setHex(y > 5.3 ? 0xa87a3c : 0x8a7454); }, M(side * (CH + 0.8), 0.9, zz));
+      // a fluted marble stand (bronze on a bronze stand went black in shade)
+      ash.add(lathe([[1.4, 0], [1.4, 0.35], [1.4, 0.35], [1.15, 0.6], [0.8, 1.0], [0.75, 5.0], [0.75, 5.0], [1.05, 5.2], [1.05, 5.45], [0, 5.45]], 16,
+        { flutes: 12, depth: 0.1, f0: 1.0, f1: 5.0 }), weather(stoneC), M(side * (CH + 0.8), 0.9, zz));
+      bronze.add(lathe([[0.6, 5.4], [1.9, 6.2], [2.0, 6.5], [1.85, 6.55], [0.0, 6.3]], 16),
+        0xb8863e, M(side * (CH + 0.8), 0.9, zz));
     }
   }
 
@@ -1517,7 +1546,7 @@ export function makeGatePortal(accentHex, seed, rockHex = 0x8a8f98, realm = '') 
     // glowing glyph band along the attic
     for (let i = -6; i <= 6; i++) {
       if (Math.abs(i) < 2) continue;
-      glyph.add(box(0.7, 0.8, 0.12), 0xffffff, M(i * 1.6, springY + R1 + 0.2, 2.06));
+      glyph.add(box(0.7, 0.8, 0.12, 0), 0xffffff, M(i * 1.6, springY + R1 + 0.2, 2.06));
     }
   }
 
@@ -1577,9 +1606,14 @@ export function makeGatePortal(accentHex, seed, rockHex = 0x8a8f98, realm = '') 
 export function makeBrazierPillar(accentHex, h = 9, seed = 1) {
   const g = new THREE.Group();
   const p = new Parts(), b = new Parts();
-  p.add(lathe([[1.7, 0], [1.7, 0.6], [1.5, 0.7], [1.15, 1.0], [1.0, h - 0.6], [1.3, h - 0.4], [1.3, h], [0, h]], 12), 0x6c6660);
-  b.add(lathe([[0.9, 0], [1.5, 0.5], [1.95, 1.3], [2.0, 1.45], [1.85, 1.5], [0, 1.2]], 16), 0x7a5a32, M(0, h, 0));
-  g.add(p.mesh(mat.stone()), b.mesh(mat.bronze()));
+  // a square plinth, a fluted shaft with a moulded base and capital (was a
+  // plain dark cylinder that read as a black post against the sea)
+  const shade = (x, y, z, nx, ny, nz, c) => { c.setHex(0xb3aa9b); c.multiplyScalar(0.7 + 0.3 * smooth(-0.3, 2.5, y)); };
+  p.add(box(3.6, 1.0, 3.6, 0.1), shade, M(0, 0.2, 0));
+  p.add(lathe([[1.55, 0.7], [1.55, 0.95], [1.55, 0.95], [1.2, 1.25], [1.05, 1.4], [0.95, h - 0.7], [0.95, h - 0.7],
+    [1.3, h - 0.45], [1.3, h], [0, h]], 16, { flutes: 16, depth: 0.08, f0: 1.4, f1: h - 0.7 }), shade);
+  b.add(lathe([[0.9, 0], [1.5, 0.5], [1.95, 1.3], [2.0, 1.45], [1.85, 1.5], [0, 1.2]], 16), 0xa87a3c, M(0, h, 0));
+  g.add(p.mesh(mat.ashlar()), b.mesh(mat.bronze()));
   const f = flame({ w: 2.6, h: 3.6, color: new THREE.Color(accentHex).lerp(new THREE.Color(0xffb060), 0.35).getHex(),
     glow: 1.5, seed, halo: 0.6 });
   f.position.y = h + 1.2;

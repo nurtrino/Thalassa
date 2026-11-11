@@ -27,6 +27,10 @@
  *                   'double' for foliage / cloth / open shells
  *   tint, desat     recolour: desaturate the baked albedo, then multiply —
  *                   how one sculpt stands in for another creature
+ *   fill            0..0.3 self-fill: that much of the albedo added as light,
+ *                   so a small figure against the sun keeps its colours
+ *   lift            0..1.5 gamma lift on the albedo: opens up near-black
+ *                   paint (black plumage) so it reads as a colour, not a hole
  *
  * ModelMaterial is a MeshStandardMaterial subclass (same shader, same
  * `type`), so clone() keeps the finish and three's renderer treats it as a
@@ -56,8 +60,12 @@ export class ModelMaterial extends THREE.MeshStandardMaterial {
     this.playerTint = new THREE.Color(1, 1, 1);   // replaces neutral-grey cloth (captain)
     // painted glow: texels whose HUE matches rgb emit light. w = gain (0 = off)
     this.glowKey = new THREE.Vector4(1, 1, 1, 0);
-    // x: hue-match threshold (cosine), y: min brightness, z: emissive-map chroma gate 0..1
+    // x: hue-match threshold (cosine), y: min brightness, z: emissive-map chroma gate 0..1,
+    // w: albedo LIFT (gamma 1/(1+w): 0 = as painted, 1 lifts 0.05 → 0.22)
     this.glowParams = new THREE.Vector4(0.95, 0.3, 1, 0);
+    // x: self-FILL — a little of the albedo added as light, so a small figure
+    // seen against the sun (its shadow side to the camera) keeps its colours
+    this.extra = new THREE.Vector4(0, 0, 0, 0);
   }
 
   copy(src) {
@@ -68,6 +76,7 @@ export class ModelMaterial extends THREE.MeshStandardMaterial {
       this.playerTint.copy(src.playerTint);
       this.glowKey.copy(src.glowKey);
       this.glowParams.copy(src.glowParams);
+      this.extra.copy(src.extra);
     }
     return this;
   }
@@ -79,6 +88,7 @@ export class ModelMaterial extends THREE.MeshStandardMaterial {
     shader.uniforms.uMMPlayer = { value: this.playerTint };
     shader.uniforms.uMMKey = { value: this.glowKey };
     shader.uniforms.uMMGlow = { value: this.glowParams };
+    shader.uniforms.uMMExtra = { value: this.extra };
     shader.fragmentShader = shader.fragmentShader
       .replace('#include <common>', /* glsl */`#include <common>
         uniform vec4 uMMFinish;
@@ -86,6 +96,7 @@ export class ModelMaterial extends THREE.MeshStandardMaterial {
         uniform vec3 uMMPlayer;
         uniform vec4 uMMKey;
         uniform vec4 uMMGlow;
+        uniform vec4 uMMExtra;
         vec3 mmKeyGlow;`)
       .replace('#include <map_fragment>', /* glsl */`#include <map_fragment>
         {
@@ -103,6 +114,9 @@ export class ModelMaterial extends THREE.MeshStandardMaterial {
                        * smoothstep(0.035, 0.12, mmL) * uMMFinish.w;
           mmC = mix(mmC, uMMPlayer * min(mmL * 2.6, 1.15), mmGrey);
           diffuseColor.rgb = mix(mmC, vec3(mmL), uMMFinish.z * (1.0 - mmGrey)) * uMMTint;
+          // lift: a gamma on the albedo that opens up near-black paint (a
+          // black-feathered sculpt) without blowing out its pale parts
+          diffuseColor.rgb = pow(max(diffuseColor.rgb, vec3(0.0)), vec3(1.0 / (1.0 + uMMGlow.w)));
         }`)
       .replace('#include <roughnessmap_fragment>', /* glsl */`#include <roughnessmap_fragment>
         roughnessFactor = mix(uMMFinish.x, uMMFinish.y, roughnessFactor);`)
@@ -114,11 +128,11 @@ export class ModelMaterial extends THREE.MeshStandardMaterial {
           float mmELo = min(totalEmissiveRadiance.r, min(totalEmissiveRadiance.g, totalEmissiveRadiance.b));
           float mmESat = (mmEHi - mmELo) / max(mmEHi, 1e-3);
           totalEmissiveRadiance *= mix(1.0, smoothstep(0.16, 0.40, mmESat), uMMGlow.z);
-          totalEmissiveRadiance += mmKeyGlow;
+          totalEmissiveRadiance += mmKeyGlow + diffuseColor.rgb * uMMExtra.x;
         }`);
   }
 
-  customProgramCacheKey() { return 'thalassa-model-v2'; }
+  customProgramCacheKey() { return 'thalassa-model-v3'; }
 }
 
 /* ── finish presets by material class ────────────────────────────────────── */
@@ -168,6 +182,8 @@ function toModelMaterial(src, spec) {
   m.tint.copy(_white);
   if (spec.tint != null) setColor(m.tint, spec.tint);
   m.glowParams.z = spec.glowGate ?? 1;
+  m.glowParams.w = spec.lift ?? 0;
+  m.extra.x = spec.fill ?? 0;
   if (spec.eyes) {
     const e = spec.eyes;
     setColor(_key, e.key);

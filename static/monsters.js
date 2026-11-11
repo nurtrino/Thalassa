@@ -139,12 +139,12 @@ const MONSTER_FINISH = {
   jackal:        finishOf('hide'),
   boar:          finishOf('hide', { side: 'double' }),     // not watertight (tusks, bristles)
   vulture:       finishOf('hide'),
-  harpy:         finishOf('hide'),
+  harpy:         finishOf('hide', { lift: 0.6 }),            // the black plumage read as a hole in every battle
   faun:          finishOf('hide'),
   stag_king:     finishOf('hide'),
   sphinx:        finishOf('hide', { rough: [0.5, 0.95] }),
   raider:        finishOf('hide', { metal: 1, rough: [0.42, 0.98] }),
-  captain:       finishOf('metal', { rough: [0.34, 0.96] }),
+  captain:       finishOf('metal', { rough: [0.34, 0.96], fill: 0.16 }),   // backlit on foot it went black
   warden:        finishOf('metal', { rough: [0.36, 0.92] }),
   tyrant:        finishOf('metal', { rough: [0.30, 0.90], eyes: eyes(0xff3a10, 3.2, 0.955, 0.4) }),
   colossus:      finishOf('stone', { rough: [0.70, 1.0], eyes: eyes(0xff2a12, 4, 0.96, 0.3) }),

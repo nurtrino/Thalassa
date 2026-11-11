@@ -559,7 +559,9 @@ export function buildIsland(node, theme, domains) {
     }
     if (node.look === 'rocks') {
       for (let i = 0; i < 2 + Math.floor(rng0() * 2); i++) {
-        const rk = makeRock(rng0, 0.9 + rng0() * 1.1, rng0() < 0.4 ? 0xd8d4c8 : pal.rock);
+        // (pale limestone, not near-white: a white blob with surf round it
+        // read as a light pool, not a rock) — tide band at the sea line
+        const rk = makeRock(rng0, 0.9 + rng0() * 1.1, rng0() < 0.4 ? 0xb3ab9c : pal.rock, { wl: -0.2 });
         const a = rng0() * 6.28;
         rk.position.set(Math.cos(a) * rng0() * 2.4, -0.1, Math.sin(a) * rng0() * 2.4);
         g.add(onShore(rk));               // the sea paints surf round the stacks

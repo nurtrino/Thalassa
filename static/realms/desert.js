@@ -962,7 +962,7 @@ export function makeDesertField(theme, nodes, segs, rng, heightAt = null) {
   /* 4 — arches standing alone in the sand */
   for (const [d0, d1, s] of [[26, 48, 1.8], [70, 130, 3.4]]) {
     const p = spot(d0, d1, 12 * s);
-    if (p) prop('ruined_arch', s, p, s * 0.3, 0.12);
+    if (p) prop('sand_arch', s, p, s * 0.3, 0.12);
   }
   /* 5 — the living margin of the road: cairns, dead trees, dry scrub */
   for (let i = 0; i < 8; i++) {

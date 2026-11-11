@@ -3,9 +3,11 @@
  * board's UI markers. (GLB props live in static/props.js; this is the
  * procedural set that replaces the old flat-shaded primitives.)
  *
- *   makeRock(rng, r, colorHex, {moss, snow, sea}) → Mesh   one good boulder
+ *   makeRock(rng, r, colorHex, {moss, snow, sand, wl}) → Mesh one good boulder
+ *                                                   (wl: local sea level → tide band)
  *   makeRockCluster(rng, r, colorHex, opts)       → Mesh   2–4 merged boulders
  *   makeSeaStack(rng, s, colorHex)                → Group  crag standing in the sea
+ *   makeSandArch(seed)                            → Group  ruined sandstone arch (~3 u)
  *                                                   (tide band, shore layer)
  *   makeFishingBoat({seed, hull, sail})           → Group  small caique (+x bow)
  *   makeCrate() / makeAmphora() / makeBarrelGeo() → BufferGeometry (cached,
@@ -21,13 +23,14 @@
  */
 import { THREE, cached, mat, tex, Parts, M, paint, lathe, box, tube, blob, rockGeometry, glowSprite, smooth, mulberry32, SHORE_LAYER } from './kit.js';
 import { softDiscTexture } from '../util.js';
+import { bindAtmosphere } from '../gfx/atmosphere.js';
 
 /* ── rocks ──────────────────────────────────────────────────────────────── */
-export function makeRock(rng, r, colorHex = 0x93999e, { moss = false, snow = false, sand = false, detail = 2 } = {}) {
+export function makeRock(rng, r, colorHex = 0x93999e, { moss = false, snow = false, sand = false, detail = 2, wl = null } = {}) {
   const top = snow ? 0xf4f8fb : moss ? 0x5f7f3a : sand ? 0xe2cf9e : null;
   const geo = rockGeometry(Math.floor(rng() * 1e9), {
     r, sy: 0.6 + rng() * 0.3, detail, rock: colorHex, top,
-    cover: top ? 0.75 : 0, strata: 0.6, base: -0.3,
+    cover: top ? 0.75 : 0, strata: 0.6, base: -0.3, wl,
   });
   const m = new THREE.Mesh(geo, mat.rock());
   m.castShadow = true; m.receiveShadow = true;
@@ -69,6 +72,63 @@ export function makeSeaStack(rng, s = 1, colorHex = 0x8f8d86) {
   m.layers.enable(SHORE_LAYER);
   const g = new THREE.Group();
   g.add(m);
+  return g;
+}
+
+/* a ruined sandstone arch standing alone in the desert, ~3 u tall at s = 1:
+   two piers of coursed, wind-cut blocks (each block its own soft-bevelled
+   piece, offset a little, corners eaten), half the arch still sprung from
+   one pier, its fallen voussoirs and a toppled block half-buried at the
+   foot. Bedded sandstone colours, windward faces scoured paler. */
+export function makeSandArch(seed = 1) {
+  const rng = mulberry32(seed);
+  const p = new Parts(), rub = new Parts();
+  const sand = (k) => (x, y, z, nx, ny, nz, c) => {
+    c.setHex(0xc9a678).multiplyScalar(k);
+    c.multiplyScalar(0.94 + 0.08 * Math.sin(y * 6.0 + x * 0.7));     // bedding
+    if (ny > 0.6) c.lerp(new THREE.Color(0xe8d3a6), 0.35);            // sand-dusted tops
+    c.multiplyScalar(0.78 + 0.22 * smooth(-0.1, 0.8, y));             // sand-stained foot
+  };
+  const W = 1.1, Dp = 0.55;                      // half-span, pier depth
+  for (const side of [-1, 1]) {
+    const nb = side < 0 ? 5 : 3;                 // the right pier has lost its top
+    let y = 0;
+    for (let k = 0; k < nb; k++) {
+      const h = 0.36 + rng() * 0.08;
+      const w = 0.62 + rng() * 0.08;
+      p.add(box(w, h, Dp * (0.96 + rng() * 0.08), 0.06), sand(0.86 + rng() * 0.18),
+        M(side * (W + 0.32) + (rng() - 0.5) * 0.06, y + h / 2, (rng() - 0.5) * 0.05, (rng() - 0.5) * 0.06));
+      y += h + 0.012;
+    }
+    // impost cap on the standing pier
+    if (side < 0) p.add(box(0.8, 0.14, Dp + 0.12, 0.04), sand(1.02), M(side * (W + 0.32), y + 0.07, 0));
+  }
+  // the half arch still standing on the left pier
+  const spring = 5 * 0.4 + 0.15, R0 = W, R1 = W + 0.5, n = 7;
+  for (let i = 0; i < n; i++) {
+    if (i > 3) break;                            // the rest fell
+    const a0 = Math.PI - (i / n) * Math.PI, a1 = Math.PI - ((i + 1) / n) * Math.PI;
+    const sh = new THREE.Shape();
+    const g = 0.015;
+    sh.moveTo(Math.cos(a0 - g) * R0, Math.sin(a0 - g) * R0);
+    sh.lineTo(Math.cos(a0 - g) * R1, Math.sin(a0 - g) * R1);
+    sh.lineTo(Math.cos(a1 + g) * R1, Math.sin(a1 + g) * R1);
+    sh.lineTo(Math.cos(a1 + g) * R0, Math.sin(a1 + g) * R0);
+    sh.closePath();
+    const geo = new THREE.ExtrudeGeometry(sh, { depth: Dp * 0.92, bevelEnabled: true, bevelThickness: 0.03,
+      bevelSize: 0.03, bevelSegments: 1, curveSegments: 1 });
+    geo.translate(0, 0, -Dp * 0.46);
+    p.add(geo, sand(0.9 + rng() * 0.15), M(0, spring, 0));
+  }
+  // fallen voussoirs and a toppled block, half sunk in the sand
+  for (let k = 0; k < 4; k++) {
+    rub.add(box(0.5 + rng() * 0.2, 0.32, 0.45, 0.05), sand(0.8 + rng() * 0.2),
+      M(0.6 + rng() * 1.6, 0.06, (rng() - 0.5) * 1.6, rng() * 3, 1, 1, 1, (rng() - 0.5) * 0.6, (rng() - 0.5) * 0.6));
+  }
+  rub.add(rockGeometry(Math.floor(rng() * 1e9), { r: 0.32, sy: 0.6, detail: 1, rock: 0xbf9d6e, strata: 0.8 }),
+    null, M(-1.8, 0.02, 0.6));
+  const g = new THREE.Group();
+  g.add(p.mesh(mat.stone()), rub.mesh(mat.stone()));
   return g;
 }
 
@@ -213,6 +273,64 @@ export function makeFlotsam(rng) {
   g.add(gl);
   g.name = 'bob';
   return g;
+}
+
+/* ── the Amber Vale's trail arrows ─────────────────────────────────────────
+   The wayfinder used to be flat opaque gold plates (a stretched quad and a
+   triangle) — prototype primitives lying on the forest floor. Now a painted
+   ribbon of light: soft-edged, a bright core line, faint chevrons running
+   along it, and a soft-glowing arrowhead with a pale rim. Same geometry
+   conventions as before (flat; shaft: unit length along z, x = width; head:
+   base at z = 0, tip at z = −len), HDR so the core blooms a touch. */
+function arrowCanvas(key, W, H, draw) {
+  return cached('tex:' + key, () => {
+    const cv = document.createElement('canvas');
+    cv.width = W; cv.height = H;
+    draw(cv.getContext('2d'), W, H);
+    const t = new THREE.CanvasTexture(cv);
+    t.colorSpace = THREE.SRGBColorSpace;
+    return t;
+  });
+}
+export function makeTrailArrowKit() {
+  return cached('kit:trailarrow', () => {
+    const shaftTex = arrowCanvas('arrowshaft', 64, 256, (c, W, H) => {
+      const g = c.createLinearGradient(0, 0, W, 0);
+      g.addColorStop(0, 'rgba(255,214,120,0)');
+      g.addColorStop(0.28, 'rgba(255,214,120,0.55)');
+      g.addColorStop(0.5, 'rgba(255,246,214,1)');
+      g.addColorStop(0.72, 'rgba(255,214,120,0.55)');
+      g.addColorStop(1, 'rgba(255,214,120,0)');
+      c.fillStyle = g; c.fillRect(0, 0, W, H);
+      // faint chevrons along it (they repeat with the stretch: decoration)
+      c.strokeStyle = 'rgba(255,250,232,0.55)'; c.lineWidth = 5; c.lineCap = 'round';
+      for (let y = 20; y < H; y += 64) {
+        c.beginPath(); c.moveTo(W * 0.2, y + 18); c.lineTo(W * 0.5, y); c.lineTo(W * 0.8, y + 18); c.stroke();
+      }
+      // fade in from the captain's feet
+      c.globalCompositeOperation = 'destination-in';
+      const f = c.createLinearGradient(0, H, 0, 0);
+      f.addColorStop(0, 'rgba(0,0,0,0.15)'); f.addColorStop(0.35, 'rgba(0,0,0,1)'); f.addColorStop(1, 'rgba(0,0,0,1)');
+      c.fillStyle = f; c.fillRect(0, 0, W, H);
+    });
+    const headTex = arrowCanvas('arrowhead', 128, 128, (c, W, H) => {
+      const tri = () => { c.beginPath(); c.moveTo(W / 2, 6); c.lineTo(W - 6, H - 8); c.lineTo(W / 2, H - 30); c.lineTo(6, H - 8); c.closePath(); };
+      c.shadowColor = 'rgba(255,200,90,0.9)'; c.shadowBlur = 14;
+      c.fillStyle = 'rgba(255,214,120,0.85)'; tri(); c.fill();
+      c.shadowBlur = 0;
+      c.lineWidth = 6; c.lineJoin = 'round'; c.strokeStyle = 'rgba(255,250,230,1)'; tri(); c.stroke();
+    });
+    const shaftGeo = new THREE.PlaneGeometry(2.2, 1);
+    shaftGeo.rotateX(-Math.PI / 2);
+    const headLen = 3.6;
+    const headGeo = new THREE.PlaneGeometry(4.6, headLen);
+    headGeo.rotateX(-Math.PI / 2);
+    headGeo.translate(0, 0, -headLen / 2 + 0.25);   // base (with its notch) at z ≈ 0, tip at z = −len
+    const mk = (map) => new THREE.MeshBasicMaterial({
+      map, color: new THREE.Color(1.35, 1.2, 0.95), transparent: true,
+      depthWrite: false, depthTest: false, fog: false, side: THREE.DoubleSide });
+    return { shaftGeo, headGeo, headLen, shaftMat: mk(shaftTex), headMat: mk(headTex) };
+  });
 }
 
 /* ── UI markers ─────────────────────────────────────────────────────────── */
@@ -378,7 +496,31 @@ export function makeSeaLane(ax, az, bx, bz, { seed = 1, color = 0xf4f0e2, opacit
 }
 
 /* an on-foot trail: one merged mesh of worn, irregular flagstones */
-export function makeFootTrail(ax, az, bx, bz, { hex = 0xe6d7ae, seed = 1, y = 0.02 } = {}) {
+/* flagstones that dissolve (dithered) past `far` from the camera: in the
+   Amber Vale the fog never quite swallows small dark stones, so far trails
+   read as rows of dark specks along the horizon */
+function fadingRockMat(far) {
+  return cached('mat:rockfade:' + far, () => {
+    const m = new THREE.MeshStandardMaterial({ vertexColors: true, map: mat.rock().map, roughness: 0.92, metalness: 0 });
+    m.onBeforeCompile = (shader) => {
+      bindAtmosphere(shader);
+      shader.uniforms.uFadeFar = { value: far };
+      shader.fragmentShader = shader.fragmentShader
+        .replace('#include <common>', '#include <common>\nuniform float uFadeFar;')
+        .replace('#include <clipping_planes_fragment>', `#include <clipping_planes_fragment>
+          {
+            float fd = length(vViewPosition);
+            float fk = smoothstep(uFadeFar * 0.7, uFadeFar, fd);
+            float dith = fract(sin(dot(floor(gl_FragCoord.xy), vec2(12.9898, 78.233))) * 43758.5453);
+            if (fk > dith) discard;
+          }`);
+    };
+    m.customProgramCacheKey = () => 'thalassa-rockfade';
+    return m;
+  });
+}
+
+export function makeFootTrail(ax, az, bx, bz, { hex = 0xe6d7ae, seed = 1, y = 0.02, fadeFar = 0 } = {}) {
   const dx = bx - ax, dz = bz - az;
   const L = Math.hypot(dx, dz);
   const ux = dx / L, uz = dz / L;
@@ -395,7 +537,7 @@ export function makeFootTrail(ax, az, bx, bz, { hex = 0xe6d7ae, seed = 1, y = 0.
       p.add(geo, null, M(ax + ux * d - uz * side, y, az + uz * d + ux * side, rng() * 6.28));
     }
   }
-  const m = p.mesh(mat.rock(), { cast: false });
+  const m = p.mesh(fadeFar ? fadingRockMat(fadeFar) : mat.rock(), { cast: false });
   m.receiveShadow = true;
   return m;
 }

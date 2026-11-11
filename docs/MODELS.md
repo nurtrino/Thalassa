@@ -109,7 +109,7 @@ The procedural models live in `static/models/` (no new binary assets):
 | foot trail (a draw call per cylinder stone) | scene.js | redesign | **done** `makeFootTrail`: one merged mesh of irregular flagstones per lane |
 | boss crown (flat gold ring hovering over the top) | bosses | redesign | **done** thick 3D circlet with beaded points and a ruby, seated on the head (front-of-body top), sways a touch |
 | battle-set `temple`, `temple_autumn`, `lighthouse` GLBs | hub / autumn battles | redesign | **done** via `battleStructure()` (islands.js hands it to the battle sets) |
-| `obelisk`, `tents` GLBs in the desert battle set | desert battle | keep for now | still GLB (battle sets are the realm owner's) |
+| `obelisk`, `tents` GLBs in the desert battle set | desert battle | keep | judged fine beside the procedural set (Round 3); the battle set's arch is now `sand_arch` |
 | buoy (`makeBuoy`) | sea waypoints | keep | already a good lathe model |
 | barrow beacon | Vale | keep | it is a light pillar, not a model |
 | name tags | ships | keep | canvas UI, reads well |
@@ -132,6 +132,31 @@ blob-and-tube wolf, fox, crow or stag would read as a toy next to the jackal,
 boar and vulture sculpts under the same light, so none was swapped. Only the
 grey wolf's tint was fixed (it read as a pale blue-white jackal; now a darker
 warm grey).
+
+
+## Round 3 — art polish (artifacts and the last old-looking models)
+
+| item | what was wrong | fix (file · function) |
+|---|---|---|
+| rocks, everywhere | `rockGeometry` made rounded potatoes or flat-shaded lumps | **rewritten** (`models/kit.js rockGeometry`): an icosphere (80 / 500 / 980 faces for detail 1 / 2 / 3) cut by 5–9 fracture planes **plus** small chip planes (radial projection → flat, faintly rippled break faces), **creased normals** (`toCreasedNormals`, ~34°: smooth within a face, a hard edge between faces), cool fresh fracture vs warm weathered rind, broad bedding, shadowed overhangs, lichen flecks, damp foot, optional `wl` tide band (dark wet weed under a pale salt line). The strata seams are in a new tiling map (`tex.strata`, used by `mat.rock`) so they stay crisp on coarse meshes |
+| rocks routed through it | several generators bypassed the kit | the `boulder` prop id (all realms, battle sets) is now `models/props.js makeRock` (no GLB fetch); hub sea stacks are `makeSeaStack` (tall crags with tide band, shore layer); ice island boulders (`realms/ice.js snowBoulder`), desert boulders (`realms/desert.js sandstoneBoulders`), the desert cairn and oasis rim stones; the island ground-cover stones/bushes (`gfx/terrain.js`) lost their flat facets. *Not* converted: the battle-set reef/berg `lumps` in `realms/battle_sets.js` (already plane-cut, own material) |
+| floating slab over each pass | was the old wall lintel (already gone); what remained was a hard-edged additive haze quad | `wall.js` haze plane soft-edged (soft disc map) |
+| realm gate from the entering camera | sand-bar "shallows" painted under the arch (quays on the shore layer), black fire-bowl posts, slab entablatures | `makeGatePortal`: quays off the shore layer (rubble round their feet carries the surf), entablature with architrave / glyph frieze / cornice, fire bowls at BOTH mouths on fluted marble stands (the hub pair frames the low astern shot), light centred; `makeBrazierPillar` fluted ashlar shaft on a plinth |
+| Home Port houses | plain white cubes | `cycladicHouse` / `makeHomeTown`: soft lime-washed blocks with grey skirting, roofs that read (parapeted terraces with chimneys, barrel vaults, blue domes), framed doors up a step, windows with open shutters on every face, outside stairs with balustrades, vine pergolas or striped awnings, bougainvillea, stacked upper rooms; a flagged stepped lane from the quay, a harbour front of dressed blocks with bollards, a taverna awning with tables and stores |
+| white blob by a wreck | a near-white rock (0xd8d4c8) at a `rocks` sea stop with surf round it | limestone tone + tide band (`islands.js`) |
+| Pharos 13.5k triangles | invisible bevels | window panes / trim boxes unbevelled, lighter lantern columns (`columnGeoLite`), smaller fire core and sigil rings: **6.2k** (silhouette unchanged) |
+| ice floes | flat hexagon plates | `realms/ice.js floeGeo`: fractured outline (straight breaks between sharp corners, notches), snow blanket inset from the edge, bare blue-ice bevelled rim, a thick vertical edge above the sea, aquamarine skirt; creased normals |
+| desert arch, cairn | grey mossy GLB arch, flat lumps | `models/props.js makeSandArch` (prop id `sand_arch`: coursed sandstone piers, half an arch still sprung, fallen voussoirs) in the Reach and its battle set; cairn = stacked split slabs from `rockGeometry`. The `obelisk` / `tents` GLBs in the desert battle set were judged fine and kept |
+| Vale arrows / horizon specks | flat opaque gold plates; far flagstone trails never fully fogged | `models/props.js makeTrailArrowKit` (soft ribbon of light, chevrons, glowing head; same geometry conventions); Vale trail flagstones dither out before the fog's end (`makeFootTrail({fadeFar})`) |
+| near-black harpies, backlit captain | the harpy sculpt is painted black; the captain's shadow side went black on foot | `modelmat.js` finish gains `lift` (albedo gamma) and `fill` (self-fill); harpy `lift 0.6`, captain `fill 0.16`. The warden was fine |
+| wonders | berg face fixed one way; aurora whale washed to a ghost; sloth a silhouette; sandstorm a smear; whirlpool hidden under the sea; goldfish / dolphins mostly under water | `worldfx.js` `faceStop` look flag (berg giant, sloth turn their face to the stop); berg face measured onto the rock's real front, bold features; whale body alpha-blended night-teal with glowing aurora bands; sloth pale buff, ×1.55, faint self-light; sandstorm = twisting dust funnel (two counter-turning shells) + puffs; whirlpool = dark vortex eye + three counter-turning foam-arm layers + churned rim + flotsam spiralling in, all ON the surface; goldfish cruises awash between leaps, dolphins porpoise at the surface |
+| Ghost Ship swap | two hulls glided through each other | `static/ghostswap.js spectralSwap` (mist out → mist in), hooked in `scene.js syncShips` |
+| console warning | `toNonIndexed()` on ExtrudeGeometry | guarded (`landmarks.js gable`, gate voussoirs, `islands.js` buoy) |
+
+Measured (`kit.stats`): Pharos tower 6.2k · 22 (was 13.5k); realm gate 8.4k ·
+26 (was 9.2k, now with four fire bowls and the rubble apron); home town +
+terrain 26k (houses are now real buildings); rock 500 (detail 2) / 80
+(detail 1) / 980 (detail 3); sea stack ≤ 2k.
 
 ---
 
@@ -179,7 +204,7 @@ Height is the in-game species height (the captain is 1.8).
 
 | id | used for | height | tris | finish |
 |---|---|---|---|---|
-| `boulder` | sea stacks and island rocks, all realms | 1.4 | 2k | stone |
+| `boulder` | **not loaded any more** — the id is built by `makeRock` (Round 3) | 1.4 | 2k | stone |
 | `cairn` | desert waypoints, ice/desert dressing | 1.4 | 7k | stone |
 | `waymarker_stone` | Vale waymarkers; the monster-node marker (with `bone_pile`) | 1.6 | 3k | stone |
 | `mossy_idol` | jungle island set piece | 1.6 | 4k | stone |

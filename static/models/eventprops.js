@@ -32,7 +32,7 @@
  *
  * EVENT_PROPS maps a short id to each builder (used by modeltest.html).
  */
-import { THREE, cached, mat, Parts, M, paint, lathe, box, tube, blob, rockGeometry, flame, glowSprite, animate,
+import { THREE, cached, mat, tex, Parts, M, paint, lathe, box, tube, blob, rockGeometry, flame, glowSprite, animate,
   smooth, mulberry32, facet } from './kit.js';
 import { makeFishingBoat as caique, makeCrate, makeAmphora, makeBarrelGeo } from './props.js';
 import { makeShip } from '../ship.js';
@@ -107,31 +107,88 @@ function spiralTexture() {
     return new THREE.CanvasTexture(cv);
   });
 }
+/* the eye of the vortex, painted ON the sea: deep blue-black at the heart
+   fading out to clear, with darker trough-arms spiralling in (alpha-blended,
+   so it darkens the water under it instead of glowing) */
+function vortexTexture() {
+  return cached('tex:vortex', () => {
+    const S = 256;
+    const cv = document.createElement('canvas');
+    cv.width = cv.height = S;
+    const c = cv.getContext('2d');
+    const img = c.createImageData(S, S);
+    for (let y = 0; y < S; y++) {
+      for (let x = 0; x < S; x++) {
+        const u = (x / S) * 2 - 1, v = (y / S) * 2 - 1;
+        const r = Math.hypot(u, v), a = Math.atan2(v, u);
+        const arm = 0.5 + 0.5 * Math.sin(a * 3 + Math.log(r + 0.02) * 7);
+        const core = 1 - smooth(0.0, 0.55, r);
+        const k = Math.min(1, core * 1.15 + arm * 0.45 * smooth(1.0, 0.3, r) * smooth(0.02, 0.2, r)) * smooth(1.0, 0.82, r);
+        const i = (y * S + x) * 4;
+        const deep = smooth(0.5, 0.0, r);
+        img.data[i] = Math.round(12 + 20 * (1 - deep));
+        img.data[i + 1] = Math.round(34 + 50 * (1 - deep));
+        img.data[i + 2] = Math.round(52 + 60 * (1 - deep));
+        img.data[i + 3] = Math.round(k * 235);
+      }
+    }
+    c.putImageData(img, 0, 0);
+    const t = new THREE.CanvasTexture(cv);
+    t.colorSpace = THREE.SRGBColorSpace;
+    return t;
+  });
+}
+/* The whirlpool reads as a vortex ON the surface (the ocean is opaque, so
+   anything below it is lost): a dark sucking eye, three counter-turning
+   layers of spiral foam arms tightening toward it, a churned rim of foam,
+   and flotsam spiralling in to the centre. */
 export function makeWhirlpool(opts = {}) {
   const r = opts.r ?? 7;
   const g = new THREE.Group();
-  // the funnel: a dark sinking bowl so the eye reads depth at its heart
-  const bowl = new THREE.Mesh(cached('geo:wpbowl', () => {
-    const geo = lathe([[1.0, 0], [0.7, -0.08], [0.4, -0.3], [0.15, -0.75], [0.0, -1.0]], 40);
-    paint(geo, (x, y, z, nx, ny, nz, c) => { c.setHex(0x0f3a4a); c.lerp(new THREE.Color(0x030d14), smooth(-0.1, -0.9, y)); });
-    return geo;
-  }), cached('mat:wpbowl', () => new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.15, metalness: 0,
-    side: THREE.DoubleSide })));
-  bowl.scale.set(r * 0.62, r * 0.32, r * 0.62);
-  bowl.position.y = -0.28;
-  g.add(bowl);
+  const disc = cached('geo:wpdisc', () => new THREE.CircleGeometry(1, 48).rotateX(-Math.PI / 2));
+  const eye = new THREE.Mesh(disc, cached('mat:wpeye', () => new THREE.MeshBasicMaterial({ map: vortexTexture(),
+    transparent: true, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 })));
+  eye.scale.setScalar(r * 0.95);
+  eye.position.y = -0.2;
+  eye.renderOrder = 2;
+  g.add(eye);
   const layers = [];
-  for (const [k, sp, op, y] of [[1.0, 0.55, 0.55, -0.22], [0.72, 0.95, 0.45, -0.34], [0.45, 1.6, 0.4, -0.5]]) {
-    const m = new THREE.Mesh(cached('geo:wpdisc', () => new THREE.CircleGeometry(1, 48).rotateX(-Math.PI / 2)),
-      new THREE.MeshBasicMaterial({ color: 0xe8f6fa, map: spiralTexture(), transparent: true, opacity: op,
-        depthWrite: false }));
+  for (const [k, sp, op, y] of [[1.08, 0.5, 0.7, -0.16], [0.74, 0.95, 0.6, -0.13], [0.44, 1.7, 0.55, -0.1]]) {
+    const m = new THREE.Mesh(disc, new THREE.MeshBasicMaterial({ color: 0xf2fbff, map: spiralTexture(), transparent: true,
+      opacity: op, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -3, polygonOffsetUnits: -3 }));
     m.scale.setScalar(r * k);
     m.position.y = y;
+    m.renderOrder = 3;
     g.add(m);
     layers.push([m, sp]);
   }
+  // the churned rim
+  const rim = new THREE.Mesh(disc, new THREE.MeshBasicMaterial({ color: 0xeaf8ff, map: tex.ring(), transparent: true,
+    opacity: 0.5, depthWrite: false }));
+  rim.scale.setScalar(r * 1.15);
+  rim.position.y = -0.17;
+  rim.renderOrder = 3;
+  g.add(rim);
+  // flotsam caught in it: planks and a barrel circling inward
+  const bits = [];
+  const wood = new Parts();
+  wood.add(box(1.4, 0.1, 0.28, 0), 0x7d5a38);
+  const plankGeo = cached('geo:wpplank', () => wood.geometry());
+  for (let i = 0; i < 4; i++) {
+    const b = new THREE.Mesh(i === 3 ? makeBarrelGeo() : plankGeo, mat.wood());
+    if (i === 3) b.scale.setScalar(0.8);
+    g.add(b);
+    bits.push({ b, ph: i / 4 });
+  }
   return finish(g, (t) => {
     for (let i = 0; i < layers.length; i++) layers[i][0].rotation.y = -t * layers[i][1];
+    eye.rotation.y = -t * 0.3;
+    for (const q of bits) {
+      const k = (t * 0.05 + q.ph) % 1;                  // 0 rim → 1 swallowed
+      const rr = r * (1 - k) * 0.95, a = -t * (0.4 + k * 1.6) - q.ph * 6.28;
+      q.b.position.set(Math.cos(a) * rr, -0.22 - k * k * 0.6, Math.sin(a) * rr);
+      q.b.rotation.set(0.15 * Math.sin(t + q.ph * 9), a + Math.PI / 2, k * 0.5);
+    }
   }, opts);
 }
 
@@ -497,14 +554,16 @@ export function makeDolphin(opts = {}) {
     // swims round a circle; every PERIOD it breaks the surface in a leaping arc
     const a = t * 0.35 + ph;
     const k = ((t + ph) % PERIOD) / PERIOD;          // 0..1 through one leap cycle
+    // between leaps it porpoises along the surface (back and dorsal fin out,
+    // a gentle roll up and under) instead of vanishing below the opaque sea
     const leap = k < 0.42 ? Math.sin((k / 0.42) * Math.PI) : 0;
-    const y = -0.9 + leap * 2.2;
+    const roll = k >= 0.42 ? Math.sin(((k - 0.42) / 0.58) * Math.PI * 2) : 0;
+    const y = -0.42 + leap * 2.4 + roll * 0.12;
     body.position.set(Math.cos(a) * r, y, Math.sin(a) * r);
     body.rotation.set(0, -a - Math.PI / 2, 0);
     // pitch follows the arc: nose up rising, down falling
-    const pitch = k < 0.42 ? Math.cos((k / 0.42) * Math.PI) * 0.75 : 0;
+    const pitch = k < 0.42 ? Math.cos((k / 0.42) * Math.PI) * 0.75 : -roll * 0.12;
     body.rotateZ(pitch);
-    body.visible = y > -0.75;
   }, opts);
 }
 

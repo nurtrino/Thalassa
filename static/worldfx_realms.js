@@ -161,13 +161,23 @@ function makeWalrus() {
 }
 
 /* ── the aurora whale ───────────────────────────────────────────────────── */
+const _wc = new THREE.Color();
+const whaleMat = () => cached('mat:rw:whalebody', () => new THREE.MeshBasicMaterial({
+  vertexColors: true, transparent: true, opacity: 0.88, depthWrite: true, side: THREE.FrontSide, fog: false }));
 function whaleGeo() {
   return cached('geo:rw:whale', () => {
     const p = new Parts();
+    // a body of night-sky colour with the aurora running along it: deep
+    // teal-violet core (so it holds its shape against a pale sky instead of
+    // washing out to a ghost), saturated green/violet bands that glow (HDR
+    // > 1 → bloom), a pale grooved throat
     const glowCol = (x, y, z, nx, ny, nz, c) => {
       const u = (x + 1.6) / 3.2;
-      c.setRGB(0.25, 1.0, 0.62).lerp(new THREE.Color(0.75, 0.42, 1.0), smooth(0.25, 0.9, 1 - u));
-      c.multiplyScalar(0.22 + 0.4 * Math.pow(Math.abs(nz), 1.5) + 0.15 * smooth(-0.2, -0.9, ny));
+      const band = Math.pow(0.5 + 0.5 * Math.sin(u * 15 + y * 9 + z * 2), 4);
+      c.setRGB(0.04, 0.2, 0.22).lerp(new THREE.Color(0.16, 0.06, 0.3), smooth(0.2, 0.9, 1 - u));
+      _wc.setRGB(0.3, 1.6, 0.9).lerp(new THREE.Color(1.1, 0.5, 1.6), smooth(0.25, 0.9, 1 - u));
+      c.lerp(_wc, 0.18 + 0.6 * band * smooth(-0.2, 0.6, ny));
+      if (ny < -0.45) c.lerp(_wc.setRGB(0.6, 0.95, 0.9), 0.45 * (0.5 + 0.5 * Math.sin(z * 40)));   // throat grooves
     };
     p.add(loft((u) => {
       const r = 0.07 + 0.62 * Math.pow(Math.sin(Math.min(1, u * 1.03) * Math.PI * 0.93), 1.05)
@@ -184,7 +194,7 @@ function whaleGeo() {
 function flukeGeo() {
   return cached('geo:rw:fluke', () => {
     const p = new Parts();
-    const col = (x, y, z, nx, ny, nz, c) => { c.setRGB(0.7, 0.45, 1.0).multiplyScalar(0.9); };
+    const col = (x, y, z, nx, ny, nz, c) => { c.setRGB(0.16, 0.06, 0.3).lerp(_wc.setRGB(1.1, 0.5, 1.6), 0.35 + 0.4 * Math.abs(z)); };
     p.add(blob(0.36, 1), col, M(-0.3, 0, 0.45, 0.5, 1.8, 0.12, 0.8));
     p.add(blob(0.36, 1), col, M(-0.3, 0, -0.45, -0.5, 1.8, 0.12, 0.8));
     return p.geometry();
@@ -222,8 +232,8 @@ function ribbonGeo(len, w, seed) {
 function makeAuroraWhale() {
   const g = new THREE.Group();
   const whale = new THREE.Group();
-  const body = new THREE.Mesh(whaleGeo(), auroraMat());
-  const fluke = new THREE.Mesh(flukeGeo(), auroraMat());
+  const body = new THREE.Mesh(whaleGeo(), whaleMat());
+  const fluke = new THREE.Mesh(flukeGeo(), whaleMat());
   fluke.position.x = -1.55;
   const eye = glowSprite(0xeafff4, 0.5, 0.9);
   eye.position.set(0.95, 0.05, 0.42);
@@ -262,27 +272,44 @@ function bergGeo() {
   return cached('geo:rw:berg', () => {
     const p = new Parts();
     // the bulk: a tall ice rock, cut flat under the sea
-    p.add(rockGeometry(1907, { r: 4.2, sy: 1.25, detail: 3, facets: 8, rough: 0.12, rock: 0xa9d3e6,
-      top: 0xf4fbff, cover: 0.85, strata: 0.6, base: -0.55 }), null, M(0, 1.2, 0));
-    // a shoulder berg leaning on it
+    const bulk = rockGeometry(1907, { r: 4.2, sy: 1.25, detail: 3, facets: 8, rough: 0.12, rock: 0xa9d3e6,
+      top: 0xf4fbff, cover: 0.85, strata: 0.6, base: -0.55 });
+    bulk.translate(0, 1.2, 0);
+    // find the berg's real front (+x) where the face goes: the fracture planes
+    // move it from seed to seed, so measure instead of guessing
+    let face = 2.4;
+    const bp = bulk.attributes.position;
+    for (let i = 0; i < bp.count; i++) {
+      if (Math.abs(bp.getZ(i)) < 1.4 && bp.getY(i) > 0.9 && bp.getY(i) < 3.6) face = Math.max(face, bp.getX(i));
+    }
+    face -= 0.25;
+    p.add(bulk, null);
+    // a shoulder berg leaning on it (behind the face)
     p.add(rockGeometry(77, { r: 2.4, sy: 0.9, detail: 2, facets: 6, rough: 0.14, rock: 0x9fcbe0,
       top: 0xf4fbff, cover: 0.8, strata: 0.5, base: -0.5 }), null, M(-3.4, 0.2, 1.4));
-    // the face (on the +x side): brow, closed eyes, nose, beard of icicles
-    const face = 3.55;
-    p.add(blob(0.9, 2), 0xd8eef7, M(face - 0.2, 3.1, 0, 0, 0.7, 0.45, 2.2));          // brow ridge
+    // THE FACE, big enough to read from the board camera: a slab of clear
+    // blue ice as the face plate, a heavy snow brow, deep-shadowed shut
+    // eyes, a great nose, a down-turned snoring mouth, a beard of icicles
+    p.add(blob(1.5, 2), 0xbfe2f2, M(face - 0.55, 2.2, 0, 0, 0.55, 1.35, 1.25));           // face plate
+    p.add(blob(0.95, 2), 0xf4fbff, M(face + 0.05, 3.2, 0, 0, 0.6, 0.42, 2.0));            // brow (snow)
     for (const s of [-1, 1]) {
-      p.add(tube([V(face + 0.32, 2.62, s * 0.5), V(face + 0.42, 2.48, s * 0.85), V(face + 0.3, 2.6, s * 1.2)],
-        0.07, 0.07, 6, 5), 0x3a6a84);                                                   // a shut eye
+      p.add(blob(0.42, 2), 0x2d5a78, M(face + 0.12, 2.7, s * 0.68, 0, 0.35, 0.5, 0.8));   // eye socket
+      p.add(tube([V(face + 0.38, 2.74, s * 0.38), V(face + 0.5, 2.6, s * 0.68), V(face + 0.38, 2.72, s * 1.0)],
+        0.08, 0.08, 6, 5), 0x14324a);                                                    // the shut lid
+      p.add(blob(0.32, 1), 0xd7eef8, M(face + 0.2, 1.95, s * 0.95, 0, 0.5, 0.45, 0.6));  // cheek
     }
-    p.add(blob(0.7, 2), 0xc7e4f1, M(face + 0.35, 1.9, 0, 0, 1.2, 1.0, 0.85));          // nose
-    p.add(tube([V(face + 0.1, 1.1, -0.7), V(face + 0.32, 0.95, 0), V(face + 0.1, 1.1, 0.7)],
-      0.09, 0.09, 6, 5), 0x3a6a84);                                                     // mouth
-    for (let k = 0; k < 9; k++) {                                                        // the beard
-      const z = (k - 4) * 0.36, l = 1.1 + (k % 3) * 0.45 - Math.abs(k - 4) * 0.08;
+    p.add(blob(0.62, 2), 0xd0eaf6, M(face + 0.45, 2.15, 0, 0, 1.25, 1.15, 0.8));          // nose
+    p.add(blob(0.5, 2), 0x1d3e58, M(face + 0.18, 1.35, 0, 0, 0.4, 0.32, 0.95));           // open snoring mouth
+    p.add(tube([V(face + 0.3, 1.62, -0.85), V(face + 0.48, 1.68, 0), V(face + 0.3, 1.62, 0.85)],
+      0.12, 0.12, 6, 5), 0xf4fbff);                                                       // frosted moustache
+    for (let k = 0; k < 11; k++) {                                                         // the beard
+      const z = (k - 5) * 0.3, l = 1.3 + (k % 3) * 0.5 - Math.abs(k - 5) * 0.1;
       p.add(new THREE.ConeGeometry(0.2, l, 6).rotateX(Math.PI), 0xe8f6fc,
-        M(face - 0.05 + Math.abs(k - 4) * -0.05, 0.75 - l / 2, z));
+        M(face + 0.1 - Math.abs(k - 5) * 0.06, 1.05 - l / 2, z));
     }
-    return p.geometry();
+    const geo = p.geometry();
+    geo.userData.face = face;
+    return geo;
   });
 }
 
@@ -303,14 +330,14 @@ function makeBergGiant() {
     puffs.push(s);
   }
   g.userData.realmDispose = () => { for (const s of puffs) s.material.dispose(); };
-  g.rotation.y = 0.3;
+  // (worldfx turns the face, +x, toward the stop — faceStop in REALM_LOOK)
   return animate(g, (t) => {
     // a slow snore: in (the berg swells a little), out (a puff of mist from the nose)
     const breath = Math.sin(t * 0.55);
     berg.scale.set(1 + breath * 0.012, 1 + breath * 0.02, 1 + breath * 0.012);
     for (const s of puffs) {
       const k = ((t * 0.18 + s.userData.ph) % 1);
-      s.position.set(4.3 + k * 2.4, SEA + 1.9 + k * 1.8, Math.sin(k * 6 + s.userData.ph * 9) * 0.4);
+      s.position.set((berg.geometry.userData.face ?? 3.5) + 0.8 + k * 2.4, SEA + 1.6 + k * 1.8, Math.sin(k * 6 + s.userData.ph * 9) * 0.4);
       s.scale.setScalar(0.8 + k * 2.6);
       s.material.opacity = 0.45 * Math.sin(k * Math.PI);
     }
@@ -674,11 +701,13 @@ function snagGeo() {
 function slothGeo() {
   return cached('geo:rw:sloth', () => {
     const p = new Parts();
-    const fur = (x, y, z, nx, ny, nz, c) => { c.setHex(0x8a7a5c).lerp(new THREE.Color(0x6d7a48), smooth(0.2, 0.9, -ny) * 0.4); };
+    // pale buff fur with the green algae tint sloths really wear (it was a
+    // dark brown that went to silhouette under the canopy)
+    const fur = (x, y, z, nx, ny, nz, c) => { c.setHex(0xc4b08a).lerp(new THREE.Color(0x9aa86a), smooth(0.2, 0.9, -ny) * 0.45); };
     // it hangs UNDER the branch: origin at the branch, body below
     p.add(blob(0.55, 2), fur, M(0, -1.05, 0, 0, 1.35, 0.85, 0.75));
     p.add(blob(0.36, 2), fur, M(0.28, -0.75, 0, 0, 1.0, 0.95, 0.95));                     // head (tipped back)
-    p.add(blob(0.24, 2), 0xe2d2b0, M(0.52, -0.8, 0, 0, 0.5, 0.85, 1.0));                 // pale face
+    p.add(blob(0.27, 2), 0xf4ead2, M(0.52, -0.8, 0, 0, 0.55, 0.9, 1.05));                // pale face
     for (const s of [-1, 1]) {
       p.add(tube([V(0.58, -0.68, s * 0.12), V(0.62, -0.78, s * 0.2), V(0.58, -0.92, s * 0.18)], 0.045, 0.045, 4, 5), 0x3a2a1c); // eye mask
       p.add(new THREE.SphereGeometry(0.035, 6, 4), 0x0c0806, M(0.66, -0.8, s * 0.13));
@@ -701,9 +730,10 @@ function makeSloth() {
   snag.position.y = SEA;
   const hang = new THREE.Group();
   hang.position.set(2.4, SEA + 5.62, 0.15);
-  const sloth = new THREE.Mesh(slothGeo(), furMat());
+  const sloth = new THREE.Mesh(slothGeo(), cached('mat:rw:slothfur', () => new THREE.MeshStandardMaterial({
+    vertexColors: true, roughness: 0.85, metalness: 0, emissive: 0x2a2416 })));   // a touch of lift in the shade
   sloth.castShadow = true;
-  sloth.rotation.y = -0.5;
+  sloth.scale.setScalar(1.55);                 // big enough to read from the board camera
   hang.add(sloth);
   g.add(snag, hang);
   g.scale.setScalar(1.3);
@@ -711,7 +741,7 @@ function makeSloth() {
     // the slowest creature on the river: a sway every half-minute, a blink of a head-turn
     hang.rotation.x = Math.sin(t * 0.21) * 0.08;
     hang.rotation.z = Math.sin(t * 0.13) * 0.05;
-    sloth.rotation.y = -0.5 + Math.sin(t * 0.07) * 0.6;
+    sloth.rotation.y = Math.sin(t * 0.07) * 0.5;   // face (+x) toward the stop, turning slowly
   });
 }
 
@@ -761,11 +791,11 @@ function makeJaguar() {
 export const REALM_LOOK = {
   walrus: { ride: true, beacon: 0x9fe8ff, off: 1 },
   aurora_whale: { beacon: 0x7affc8, off: 1 },
-  berg_giant: { beacon: 0xbfe8ff, off: 3, r: 8 },
+  berg_giant: { beacon: 0xbfe8ff, off: 3, r: 8, faceStop: true },
   penguins: { ride: true, beacon: 0xffe39a, off: 1 },
   monkey_raft: { ride: true, beacon: 0xffc860, face: true },
   orchid: { beacon: 0xff6ab8, off: 1 },
-  sloth: { beacon: 0xd8f08a },
+  sloth: { beacon: 0xd8f08a, faceStop: true },
   jaguar: { ride: true, beacon: 0xff5a4a, face: true },
 };
 
