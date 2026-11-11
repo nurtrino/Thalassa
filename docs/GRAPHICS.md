@@ -109,6 +109,17 @@ colour from height *and slope* (sand → two-tone meadow → rock where it is to
 steep for soil), plus instanced ground cover (grass tufts, bushes, pebbles).
 `palette.dry` marks stages that stand on sand or forest floor rather than in
 the sea; `palette.cover` picks `meadow | rocks | none`.
+Shape options: `fit` (scale the coast so its farthest point is exactly `R` —
+every board island uses it, so the footprint the chart plans lanes round is
+the real one), `cove {a, depth, w}` (a bay bitten out at bearing `a`),
+`cliff {a, k}` (land held high to a sheer coast on one side), `lagoon`
+(an atoll's drowned heart), `mode: 'terrace'` (temple plateau over a broad
+step). The returned object also carries `coastAt(bearing)` and `R`.
+`static/isleshape.js` picks these per node type and seed (harbour coves open
+toward the lane the island is reached by, docks sit in them; twin lobes; a
+sea stack inside the footprint; terraces for temples; cliffs) and sizes each
+island to the free water round its node (`islandRoom`), with the footprint
+table `ISLE_FOOT` that `board.py` mirrors.
 `makeGroundMaterial()` is the shared PBR ground (grain + relief maps, wet
 glossy sand at the tide line).
 

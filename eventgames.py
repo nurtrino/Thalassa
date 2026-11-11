@@ -21,6 +21,9 @@ SOLO games (one captain plays, rivals watch and may bet):
                 shows a TELL; his tells never lie, but you must learn them.
   nim           a philosopher's pebble pile: take 1–3, whoever takes the
                 last pebble wins. He errs now and then.
+  haggle        a trader with a hidden reserve price: offer, hear "an
+                insult" or "tempting", offer higher; the closer your deal
+                to his reserve, the better. His patience runs out.
 
 TABLE games (everyone at the table answers at once, sealed):
 
@@ -30,6 +33,8 @@ TABLE games (everyone at the table answers at once, sealed):
   gamble        ante in or stay out; one throw decides for everyone in
   lanes         a regatta: each captain secretly picks a lane
   lowest        lowest UNIQUE number wins
+  race          back one runner of a field with public form; the server
+                runs the race and pays the winner's backers its purse
 
 API (every kind): ``gen(rng, params) -> state`` (public fields + a
 ``secret`` dict that never leaves the server), ``move(state, payload, rng)``
@@ -549,6 +554,66 @@ def bot_nim(st, rng, skill=0.5):
     return {"take": rng.randint(1, min(3, st["pile"]))}
 
 
+# ═══ haggle (a bazaar trader with a hidden reserve price) ════════════════════
+# The trader will sell for no less than a secret RESERVE price. Each offer
+# below it is refused with an honest grumble — "an insult" (four or more
+# short) or "tempting" (one to three short) — and costs him a little
+# patience. An offer at or above the reserve is taken on the spot: the closer
+# to his reserve, the better the bargain (score 4 = his very lowest price).
+# The server keeps the deduced floor / ceiling public, so nobody has to do
+# the bookkeeping in their head. No clock; pure judgement.
+HAGGLE_INSULT = 4
+
+
+def gen_haggle(rng, params):
+    lo, hi = (int(x) for x in params.get("range", [2, 14]))
+    return {"kind": "haggle", "lo": lo, "hi": hi, "floor": lo, "ceil": hi,
+            "patience": int(params.get("patience", 4)), "offers": [],
+            "done": False, "result": None, "score": 0, "paid": None,
+            "secret": {"reserve": rng.randint(lo, hi)}}
+
+
+def move_haggle(st, payload, rng):
+    _need(isinstance(payload, dict) and _is_int(payload.get("offer")), "Name a price.")
+    _need(not st["done"], "The game is over.")
+    x = payload["offer"]
+    _need(st["lo"] <= x <= st["hi"], f"Offer between {st['lo']} and {st['hi']}.")
+    _need(all(x > o["offer"] for o in st["offers"]), "He has already refused that much.")
+    res = st["secret"]["reserve"]
+    if x >= res:
+        st["offers"].append({"offer": x, "reply": "deal"})
+        st["paid"] = x
+        st["reserve"] = res                       # revealed with the handshake
+        _end(st, "win", max(1, 4 - (x - res)))
+        return
+    gap = res - x
+    if gap >= HAGGLE_INSULT:
+        st["offers"].append({"offer": x, "reply": "insult"})
+        st["floor"] = max(st["floor"], x + HAGGLE_INSULT)
+    else:
+        st["offers"].append({"offer": x, "reply": "close"})
+        st["floor"] = max(st["floor"], x + 1)
+        st["ceil"] = min(st["ceil"], x + HAGGLE_INSULT - 1)
+    if len(st["offers"]) >= st["patience"]:
+        st["reserve"] = res
+        _end(st, "lose", 0)
+
+
+def solve_haggle(st):
+    left = st["patience"] - len(st["offers"])
+    if left <= 1:
+        return {"offer": st["ceil"]}              # the last word: a sure deal
+    return {"offer": st["floor"]}                 # probe at the lowest he might take
+
+
+def bot_haggle(st, rng, skill=0.5):
+    if rng.random() < 0.5 + skill * 0.5:
+        return solve_haggle(st)
+    top = max([o["offer"] for o in st["offers"]] + [st["lo"] - 1])
+    lo = max(st["floor"], top + 1)
+    return {"offer": min(st["hi"], lo + rng.randint(0, 3))}
+
+
 # ── the solo registry ───────────────────────────────────────────────────────
 GAMES = {
     "knucklebones": (gen_knucklebones, move_knucklebones, bot_knucklebones,
@@ -561,6 +626,7 @@ GAMES = {
     "crossing": (gen_crossing, move_crossing, bot_crossing, solve_crossing, None),
     "rps": (gen_rps, move_rps, bot_rps, solve_rps, None),
     "nim": (gen_nim, move_nim, bot_nim, solve_nim, None),
+    "haggle": (gen_haggle, move_haggle, bot_haggle, solve_haggle, None),
 }
 
 # what each game's idle default does when a captain walks away: games with a
@@ -570,7 +636,13 @@ GAME_LABEL = {
     "codebreak": "The Seal of Three", "shells": "The Cups and the Pearl",
     "weigh": "The Nine Amphorae", "crossing": "The Crossing",
     "rps": "Stone, Scroll, Shears", "nim": "The Philosopher's Pebbles",
+    "haggle": "The Haggle",
 }
+
+# the realm kinds (floe, pairs, drums, plates) live in eventgames_realms.py
+from eventgames_realms import GAMES as _REALM_GAMES, LABELS as _REALM_LABELS  # noqa: E402
+GAMES.update(_REALM_GAMES)
+GAME_LABEL.update(_REALM_LABELS)
 
 
 def gen(kind: str, rng: random.Random, params: dict | None = None) -> dict:
@@ -611,11 +683,32 @@ def junk_payloads(state: dict) -> list:
     return [None, "", "zzz", -1, 99, 1.5, [], [9, 9, 9], [0, 0, 0], {},
             {"take": 7}, {"take": "dragon"}, {"pick": 99}, {"left": [0], "right": [0]},
             {"left": [0, 1], "right": [2]}, {"left": "x", "right": []}, True,
-            [0, 1, 2, 3], "stone!", {"take": None, "x": 1}]
+            [0, 1, 2, 3], "stone!", {"take": None, "x": 1},
+            {"offer": -3}, {"offer": 999}, {"offer": "a lot"}, {"offer": True}]
 
 
 # ═══ TABLE games ════════════════════════════════════════════════════════════
-TABLE_KINDS = ("bid", "guess", "vote", "gamble", "lanes", "lowest")
+TABLE_KINDS = ("bid", "guess", "vote", "gamble", "lanes", "lowest", "race")
+
+# race: every captain secretly backs one runner of a field whose FORM (its
+# chance in a hundred) is public; the server runs the race (a few legs of
+# commentary, then the winner, drawn by those chances) and pays each backer
+# of the winner that runner's purse — the long shots pay more.
+RACE_FIELD = [["The Favourite", "never loses, often", 5],
+              ["The Plodder", "steady as a temple", 3],
+              ["The Long Shot", "fast when it remembers", 2]]
+RACE_LEGS = ("At the first turn", "Round the far post", "Into the last stretch")
+
+
+def _race_legs(rng, names, weights, winner, legs):
+    out = []
+    for i, leg in enumerate(legs):
+        if i == len(legs) - 1:
+            lead = winner if rng.random() < 0.6 else rng.choices(range(len(names)), weights)[0]
+        else:
+            lead = rng.choices(range(len(names)), weights=[1] * len(names))[0]
+        out.append(f"{leg}: {names[lead]} leads")
+    return out
 
 
 def gen_table(kind: str, rng: random.Random, params: dict | None = None) -> dict:
@@ -639,6 +732,19 @@ def gen_table(kind: str, rng: random.Random, params: dict | None = None) -> dict
         st["cap"] = int(params.get("cap", 8))
     elif kind == "gamble":
         st["ante"] = int(params.get("ante", 1))
+    elif kind == "race":
+        field = params.get("field") or RACE_FIELD
+        names = [f[0] for f in field]
+        weights = [max(1, int(f[2])) for f in field]
+        tot = sum(weights)
+        st["n"] = len(field)
+        st["runners"] = names
+        st["form"] = [f[1] for f in field]
+        st["chance"] = [round(100 * w / tot) for w in weights]
+        winner = rng.choices(range(len(field)), weights=weights)[0]
+        st["secret"]["winner"] = winner
+        st["secret"]["legs"] = _race_legs(rng, names, weights, winner,
+                                          params.get("legs") or RACE_LEGS)
     return st
 
 
@@ -656,6 +762,8 @@ def table_valid(st: dict, value, player) -> bool:
         return _is_int(value) and 0 <= value < st["n"]
     if k == "lowest":
         return _is_int(value) and 1 <= value <= st["max"]
+    if k == "race":
+        return _is_int(value) and 0 <= value < st["n"]
     return False
 
 
@@ -685,4 +793,9 @@ def table_bot(st: dict, rng: random.Random, player, skill: float = 0.5):
         return rng.randrange(st["n"])
     if k == "lowest":
         return rng.choice([1, 1, 2, 2, 2, 3, 3, 4, 5][: 4 + st["max"]])
+    if k == "race":
+        # mostly the form book, now and then a punt on a long shot
+        if rng.random() < 0.3:
+            return rng.randrange(st["n"])
+        return rng.choices(range(st["n"]), weights=st["chance"])[0]
     return None

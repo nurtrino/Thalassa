@@ -1070,7 +1070,7 @@ export function createWorld(container, handlers = {}) {
     hull.scale.setScalar(2);
     hull.name = 'beached';
     // nosed up the sand just past the arch, heeled over on her bilge
-    const x = g.x + f.x * 4 - f.z * 5, z = g.z + f.z * 4 + f.x * 5;
+    const x = g.x + f.x * 11 - f.z * 8, z = g.z + f.z * 11 + f.x * 8;
     const y = st.surf.heightAt ? st.surf.heightAt(x, z) : 0;
     hull.position.set(x, y - 0.55, z);
     hull.rotation.set(0.16, Math.atan2(-f.z, f.x) + 0.35, 0.05);
@@ -1188,7 +1188,8 @@ export function createWorld(container, handlers = {}) {
       const f = passDir(g, into, _vB);
       // start: deck height in the mouth of the arch, looking out over the
       // realm; end: the ordinary chase pose behind the moving vessel
-      _vA.set(g.x - f.x * 3 + f.z * 2, 3.4, g.z - f.z * 3 - f.x * 2);
+      // (on the side away from a beached hull, which lies to starboard)
+      _vA.set(g.x - f.x * 3 + f.z * 3, 3.4, g.z - f.z * 3 - f.x * 3);
       _vC.set(P.x - sfx * 26, 13, P.z - sfz * 26);
       _vA.lerp(_vC, e);
       _vC.set(g.x + f.x * 70, 6, g.z + f.z * 70);

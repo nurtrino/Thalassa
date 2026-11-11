@@ -76,6 +76,33 @@ const M = {
   mushrooms: '<path d="M10 36c0-10 8-16 16-16s16 6 16 16Z"/><path d="M20 36v14h12V36"/><path d="M38 44c0-6 5-10 10-10s10 4 10 10Z"/><path d="M44 44v8h8v-8"/><circle cx="20" cy="28" r="2"/><circle cx="30" cy="26" r="2"/><path d="M4 56h56"/>',
   market: '<path d="M10 28l22-16 22 16"/><path d="M14 28v26M50 28v26"/><path d="M10 28h44"/><path d="M26 54V40h12v14"/><path d="M32 12V6"/><circle cx="20" cy="36" r="3"/><circle cx="44" cy="36" r="3"/>',
   hound: '<path d="M10 30l10-12 6 6c6-2 14-2 20 4l8 2-2 8-8 2c-2 6-8 10-14 10H20c-6 0-10-6-10-12Z"/><circle cx="40" cy="30" r="1.6" fill="currentColor"/><path d="M20 18l-2-10 8 8"/><path d="M8 56c10-6 30-6 46 0"/>',
+  djinn: '<path d="M8 50h30c6 0 10-4 12-8l8-2"/><path d="M14 50c0-6 6-10 14-10s12 4 12 10"/><path d="M28 40c-4-6 4-8 0-14s6-10 4-16"/><circle cx="34" cy="10" r="4"/><path d="M40 14c4 0 8 2 8 6M28 14c-4 0-8 2-8 6"/>',
+  sandal: '<path d="M22 8c8 0 12 6 12 16v20c0 8-4 12-10 12s-10-4-10-12V20c0-8 2-12 8-12Z"/><path d="M14 24l20 4M14 34l20-4"/><path d="M42 20l12-6M42 30h14M42 40l12 6"/>',
+  colossus: '<path d="M16 46V26c0-10 7-16 16-16s16 6 16 16v20"/><path d="M12 22h40l-4-8H16Z"/><circle cx="26" cy="30" r="2" fill="currentColor"/><circle cx="38" cy="30" r="2" fill="currentColor"/><path d="M28 40h8"/><path d="M4 48c10-4 20-4 28 0s18 4 28 0"/><path d="M4 56c10-3 20-3 28 0s18 3 28 0"/>',
+  mummy: '<path d="M20 58V24c0-8 5-14 12-14s12 6 12 14v34"/><path d="M20 22l24 6M20 32l24-4M20 42l24 6M20 52l24-4"/><circle cx="28" cy="20" r="1.6" fill="currentColor"/><circle cx="37" cy="21" r="1.6" fill="currentColor"/><path d="M8 36l12-4M56 36l-12-4"/>',
+  camel: '<path d="M6 40c0-6 4-10 10-10 2-8 8-12 12-6 4-6 10-4 12 4h4l2-10 6-2 4 4-4 2-2 14c0 6-4 8-8 8H12c-4 0-6-2-6-4Z"/><path d="M12 44v14M20 44v14M36 44v14M44 44v14"/><circle cx="54" cy="24" r="1.4" fill="currentColor"/>',
+  oasis: '<path d="M30 50c0-12 2-24 6-34"/><path d="M36 16c-6-4-14-4-18 2M36 16c6-6 14-6 18 0M36 16c-2-6-8-8-12-6M36 16c4-4 10-4 12 0"/><ellipse cx="32" cy="52" rx="22" ry="5"/>',
+  sphinx: '<path d="M6 50h52"/><path d="M12 50V38c0-6 6-10 14-10h10l6-12c2-4 6-6 10-4 4 2 4 8 2 12l-4 6v20"/><path d="M44 14l-6 6M52 12V6"/><circle cx="48" cy="20" r="1.4" fill="currentColor"/><path d="M18 50v-6M30 50v-6"/>',
+  scribe: '<rect x="10" y="16" width="34" height="34" rx="3"/><path d="M16 26h10M16 34h18M16 42h14"/><circle cx="34" cy="26" r="3"/><path d="M56 8 38 34l-2 6 5-4L58 12"/>',
+  bazaar: '<path d="M6 22l6-12h40l6 12"/><path d="M6 22c3 6 7 6 10 0 3 6 7 6 10 0 3 6 7 6 10 0 3 6 7 6 10 0 3 6 7 6 10 0"/><path d="M10 26v30M54 26v30"/><path d="M18 56V42h28v14"/><path d="M22 42c0-4 4-6 10-6s10 2 10 6"/>',
+  scorpion: '<ellipse cx="28" cy="42" rx="10" ry="7"/><path d="M36 38c8-2 12-8 12-16s-4-12-8-10 0 6 4 4"/><path d="M20 38l-8-8-6 2M20 46l-8 8-6-2"/><path d="M24 35l-4-7M30 35v-8M28 49l-2 8M34 48l2 8"/>',
+  tomb: '<path d="M8 56V20L32 6l24 14v36"/><rect x="18" y="26" width="28" height="30"/><path d="M18 36h28M18 46h28M27 26v30M37 26v30"/><path d="M39 49h5v5h-5Z" fill="currentColor"/>',
+  sundial: '<ellipse cx="32" cy="46" rx="24" ry="10"/><path d="M32 46l14-26v26"/><path d="M14 46h18" stroke-dasharray="2 3"/><path d="M12 40h.1M20 36h.1M44 36h.1M52 40h.1"/><circle cx="50" cy="10" r="5"/>',
+  pyramid: '<path d="M6 54 32 10l26 44Z"/><path d="M32 10l6 44"/><path d="M15 40h31M23 26h17"/><path d="M2 58h60"/>',
+  mirage: '<path d="M22 32c0-8 1-14 4-20"/><path d="M26 12c-4-3-10-2-12 2M26 12c4-4 10-3 12 1"/><path d="M22 32c0 8 1 14 4 20" stroke-dasharray="3 4"/><path d="M4 32h56"/><path d="M40 24c4-3 8-3 12 0s8 3 10 0M40 40c4 3 8 3 12 0s8-3 10 0"/>',
+  beetle: '<circle cx="18" cy="38" r="12"/><ellipse cx="42" cy="38" rx="9" ry="7"/><path d="M42 31v14"/><path d="M50 36c4-2 6-2 8 0M35 32l-4-4M35 44l-4 4M48 44l4 6M48 32l4-6"/><path d="M4 54h56"/>',
+  caravan: '<path d="M4 44c2-6 6-8 10-6 2-4 6-4 8 0h4l2-6h4l-2 10H4Z"/><path d="M32 44c2-6 6-8 10-6 2-4 6-4 8 0h4l2-6h4l-2 10H32Z"/><path d="M8 44v10M18 44v10M36 44v10M46 44v10"/><path d="M26 40c3-2 5-2 8 0" stroke-dasharray="2 2"/><path d="M2 56h60"/>',
+  sandstorm: '<path d="M14 54c10 0 26-2 36-6"/><path d="M12 46c12 0 26-2 34-8"/><path d="M14 36c10 0 22-4 28-10"/><path d="M18 26c8 0 16-4 20-10"/><path d="M24 16c4 0 8-3 10-8"/><path d="M48 14h.1M54 24h.1M56 36h.1"/>',
+  odysseus: '<path d="M18 30c0-12 6-20 14-20s14 8 14 20"/><path d="M14 30h36"/><path d="M32 10V4M26 6h12"/><path d="M20 30c0 14 6 24 12 24s12-10 12-24"/><path d="M24 42c4 4 12 4 16 0"/><circle cx="27" cy="35" r="1.4" fill="currentColor"/><circle cx="37" cy="35" r="1.4" fill="currentColor"/>',
+  barrel: '<ellipse cx="24" cy="38" rx="18" ry="14"/><ellipse cx="40" cy="38" rx="4" ry="10"/><path d="M14 30c4 4 12 4 16 0M14 46c4-4 12-4 16 0"/><path d="M48 52h10l-2-4h-6Z"/><path d="M53 48c-2-3 0-6 2-8 1 3 3 4 1 8"/>',
+  automaton: '<rect x="18" y="14" width="28" height="24" rx="4"/><circle cx="27" cy="25" r="3"/><circle cx="38" cy="25" r="3"/><path d="M26 33h12"/><path d="M32 14V6M28 6h8"/><path d="M22 38v8h20v-8"/><circle cx="14" cy="52" r="6"/><circle cx="50" cy="52" r="6"/><path d="M14 44v-2M14 60v2M6 52H4M22 52h2"/>',
+  boulder: '<path d="M10 34c0-12 8-20 20-20s20 8 20 18-10 18-22 18-18-6-18-16Z"/><path d="M22 26l6 4-2 6M38 24l-4 8"/><path d="M50 18l6-6M52 26l8-2"/><path d="M4 56c8-4 16-4 26 0s18 4 28 0"/>',
+  barge: '<path d="M4 42h56l-6 10H10Z"/><path d="M12 42V30h40v12"/><path d="M8 24c8 6 16 6 24 0s16-6 24 0"/><circle cx="16" cy="28" r="2"/><circle cx="32" cy="24" r="2"/><circle cx="48" cy="28" r="2"/><path d="M4 58c8-3 14-3 20 0s14 3 20 0 12-3 16 0"/>',
+  goldfish: '<path d="M10 32c8-12 24-14 36-4-12 10-28 8-36 4Z"/><path d="M46 28l12-8v24l-12-8"/><circle cx="20" cy="30" r="2" fill="currentColor"/><path d="M28 22c2 4 2 10 0 14"/><path d="M14 10l2 4M30 6v4M44 10l-2 4"/>',
+  ghostship: '<path d="M8 44h48l-6 10H14Z"/><path d="M32 44V8"/><path d="M32 10c10 2 16 10 16 22-4-2-8 2-10-2s-6 0-6-2"/><path d="M32 12c-8 2-14 10-14 20 4-2 6 2 8-1s6 0 6-2"/><circle cx="38" cy="22" r="1.4" fill="currentColor"/><circle cx="43" cy="22" r="1.4" fill="currentColor"/>',
+  whale: '<path d="M6 38c0-10 10-16 24-16s22 8 26 14c-2 2-6 2-8 0-4 10-14 14-26 14S6 46 6 38Z"/><path d="M56 36l4-8M56 36l6 2"/><circle cx="16" cy="36" r="1.6" fill="currentColor"/><path d="M14 44c4 2 10 2 14 0"/><path d="M24 20c-2-6 0-10 4-12M24 20c2-6 6-8 10-8"/><path d="M4 58c8-3 16-3 26 0s18 3 28 0"/>',
+  hermes: '<path d="M14 30c0-10 8-16 18-16s18 6 18 16Z"/><path d="M10 30h44"/><path d="M14 22c-6-2-10-6-10-12 6 0 10 4 12 8M50 22c6-2 10-6 10-12-6 0-10 4-12 8"/><rect x="20" y="38" width="24" height="18" rx="2"/><path d="M20 46h24M32 38v18"/>',
+  icarus: '<path d="M32 30c-8-10-20-12-28-8 6 2 10 6 12 10-4 0-8 2-10 4 8 0 18 0 26-6Z"/><path d="M32 30c8-10 20-12 28-8-6 2-10 6-12 10 4 0 8 2 10 4-8 0-18 0-26-6Z"/><circle cx="32" cy="26" r="4"/><path d="M32 34v10M28 50l4-6 4 6"/><circle cx="52" cy="8" r="5"/>',
   sea: '<path d="M4 30c8-6 14-6 20 0s12 6 20 0 12-6 16-2"/><path d="M4 42c8-6 14-6 20 0s12 6 20 0 12-6 16-2"/><path d="M4 54c8-6 14-6 20 0s12 6 20 0 12-6 16-2"/><circle cx="46" cy="14" r="6"/>',
 };
 const ART_ALIAS = { narcissus: 'flower', spider: 'spider', paths: 'paths' };
@@ -89,8 +116,15 @@ function svgIcon(k, size = 24) {
 /* the illustration band: a stage backdrop + a gilt medallion with the motif */
 function artBand(art, stage) {
   const vale = stage === 'autumn';
-  const sky = vale ? ['#4a2412', '#b8641f', '#f2b45a'] : ['#0e2a3c', '#2e6f86', '#e8c27a'];
-  const back = vale
+  const dunes = stage === 'desert';
+  const sky = vale ? ['#4a2412', '#b8641f', '#f2b45a']
+    : dunes ? ['#5a3416', '#c98a3e', '#f7d894'] : ['#0e2a3c', '#2e6f86', '#e8c27a'];
+  const back = dunes
+    ? '<circle cx="250" cy="30" r="15" fill="#fff1c4" opacity=".9"/>' +
+      '<path d="M0 104V78c40-16 80-20 120-8s70 10 110-4 70-6 90 2V104Z" fill="#b8763a" opacity=".85"/>' +
+      '<path d="M0 104V90c50-10 100-10 150-2s110 6 170-6V104Z" fill="#7a4520" opacity=".85"/>' +
+      '<path d="M210 74l14-24 14 24Z" fill="#8a5428" opacity=".7"/>'
+    : vale
     ? '<g fill="#2a140a" opacity=".85">' +
       '<path d="M0 104V70c10-8 18-30 26-30s14 22 22 30c6-14 14-40 24-40s16 26 22 40 12-24 20-24 12 18 16 28V104Z"/>' +
       '<path d="M200 104V74c8-10 16-36 26-36s14 24 22 34c6-12 14-30 22-30s16 22 22 30 10-12 18-12 10 8 10 14V104Z"/></g>' +
@@ -182,7 +216,8 @@ function nameOf(room, pid) {
 }
 
 function stageLabel(stage) {
-  return stage === 'autumn' ? 'The Amber Vale' : stage === 'hub' ? 'The Isles of Peace' : (stage || '');
+  return stage === 'autumn' ? 'The Amber Vale' : stage === 'hub' ? 'The Isles of Peace'
+    : stage === 'desert' ? 'The Bleached Reach' : (stage || '');
 }
 
 /* ── HUD: my boons and banes, the wonders on the chart ─────────────────── */
@@ -290,7 +325,7 @@ function gameBody(ev, actor, room, you, seated) {
   let h = `<div class="evgame"><div class="evprompt">${esc(name)}</div>`;
   h += ({
     knucklebones: gKnuckle, higher_lower: gHiLo, codebreak: gCode, shells: gShells,
-    weigh: gWeigh, crossing: gCross, rps: gRps, nim: gNim,
+    weigh: gWeigh, crossing: gCross, rps: gRps, nim: gNim, haggle: gHaggle,
   }[g.kind] || (() => ''))(g, actor);
   h += '</div>';
   if (!actor) {
@@ -422,6 +457,29 @@ function gNim(g, actor) {
     `<div class="evlog">${hist}</div>`;
 }
 
+/* the haggle: offers climb; his honest grumbles narrow his hidden price */
+function gHaggle(g, actor) {
+  const offers = g.offers || [];
+  const top = offers.length ? Math.max(...offers.map((o) => o.offer)) : g.lo - 1;
+  const lo = Math.max(g.lo, top + 1);
+  if (scratch.value === null || scratch.value === undefined) scratch.value = Math.max(lo, g.floor);
+  scratch.value = Math.max(lo, Math.min(g.hi, scratch.value));
+  const left = g.patience - offers.length;
+  const said = { deal: 'a deal!', close: 'he wavers — tempting, but no', insult: 'he laughs — an insult' };
+  const log = offers.map((o) => `<div>You offered <strong>${o.offer}</strong>: ${said[o.reply] || o.reply}</div>`).join('');
+  const end = g.done ? `<div class="evtell">${g.result === 'win'
+    ? `Sold for ${g.paid}. His lowest price was ${g.reserve}.`
+    : `He walks away. His lowest price was ${g.reserve}.`}</div>` : '';
+  return `<div class="evsmall">Prices run from ${g.lo} to ${g.hi}. Offer too low and he refuses; ` +
+    'at or above his secret lowest price he shakes on it — the closer, the better the bargain.</div>' +
+    `<div class="evtell">His lowest price is between <strong>${g.floor}</strong> and <strong>${g.ceil}</strong>` +
+    ` · patience for ${left} more offer${left === 1 ? '' : 's'}</div>` + end +
+    (actor && !g.done ? `<div class="evstep">${btn('−1', 'data-step="-1"', 'ghost', '-')}<output>${scratch.value}</output>` +
+      `${btn('+1', 'data-step="1"', 'ghost', '+')}</div>` +
+      `<div class="evrow">${btn(`Offer ${scratch.value}`, 'data-offer="1"', '', 'enter')}</div>` : '') +
+    `<div class="evlog">${log}</div>`;
+}
+
 /* ── table events ───────────────────────────────────────────────────────── */
 function tableBody(ev, room, you, seated) {
   const t = ev.table || {};
@@ -450,6 +508,10 @@ function tableBody(ev, room, you, seated) {
       h += `<div class="evrow">${Array.from({ length: st.n }, (_, i) => btn(`Lane ${i + 1}`, `data-ans-int="${i}"`, 'cool', String(i + 1))).join('')}</div>`;
     } else if (k === 'lowest') {
       h += `<div class="evrow">${Array.from({ length: st.max }, (_, i) => btn(String(i + 1), `data-ans-int="${i + 1}"`, '', String(i + 1))).join('')}</div>`;
+    } else if (k === 'race') {
+      h += '<div class="evopts">' + (st.runners || []).map((r, i) =>
+        `<button class="evopt" data-ans-int="${i}" data-key="${i + 1}"><span class="evnum">${i + 1}</span>` +
+        `<span class="evlab">${esc(r)}<small>${esc(st.form?.[i] || '')} · wins ${st.chance?.[i] ?? '?'} times in 100</small></span></button>`).join('') + '</div>';
     }
   } else if (seated) {
     const v = t.mine;
@@ -465,6 +527,7 @@ function tableBody(ev, room, you, seated) {
 function fmtAns(st, v) {
   if (st.kind === 'vote') return st.choices?.[v] ?? String(v);
   if (st.kind === 'lanes') return `lane ${v + 1}`;
+  if (st.kind === 'race') return st.runners?.[v] ?? String(v);
   if (st.kind === 'gamble') return v === 'in' ? 'in' : 'out';
   return String(v);
 }
@@ -530,6 +593,7 @@ function wire(ev, actor, room, you) {
   // table answers
   q('[data-step]').forEach((b) => { b.onclick = () => { scratch.value += +b.dataset.step; redraw(); }; });
   q('[data-ans]').forEach((b) => { b.onclick = () => send({ type: 'event_answer', value: scratch.value }); });
+  q('[data-offer]').forEach((b) => { b.onclick = () => mv({ offer: scratch.value }); });
   q('[data-ans-int]').forEach((b) => { b.onclick = () => send({ type: 'event_answer', value: +b.dataset.ansInt }); });
   q('[data-ans-str]').forEach((b) => { b.onclick = () => send({ type: 'event_answer', value: b.dataset.ansStr }); });
 }

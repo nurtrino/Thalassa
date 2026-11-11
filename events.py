@@ -87,13 +87,22 @@ import puzzles
 
 # ── tunables ────────────────────────────────────────────────────────────────
 # chance a quiet landing meets an event, by stage; then scaled by node class
-CHANCE = {"hub": 0.40, "autumn": 0.50}
+CHANCE = {"hub": 0.40, "autumn": 0.50, "desert": 0.45, "ice": 0.50, "jungle": 0.50}
 CHANCE_DEFAULT = 0.30
-CLASS_MULT = {"sea": 1.0, "islet": 0.8, "haven": 0.45, "shop": 0.45, "shrine": 0.3}
+CLASS_MULT = {"sea": 1.0, "islet": 0.8, "haven": 0.45, "shop": 0.45, "shrine": 0.3,
+              "wild": 0.6}    # wild: a realm hunting ground where nothing rose
 HEAVY_COOLDOWN = 2          # own turns after a heavy event with only light ones
 TABLE_SECS = 40             # generous: everyone answers at once
-WORLD_HUB_MAX = 3
-WORLD_VALE_MAX = 2
+WORLD_HUB_MAX = 5
+WORLD_VALE_MAX = 3
+# how each stage keeps its wonders: "always" = on the chart from turn one (the
+# hub); otherwise they rise near captains travelling the realm. Any stage with
+# WORLD records and no rule here takes the default.
+WORLD_RULES = {"hub": {"always": True, "max": WORLD_HUB_MAX, "min": 3, "p": 0.7},
+               "autumn": {"max": WORLD_VALE_MAX, "min": 2, "p": 0.7},
+               "desert": {"max": 3, "min": 2, "p": 0.7}}
+# (min: below it a round raises two wonders instead of one)
+WORLD_RULE_DEFAULT = {"max": 2, "p": 0.6}
 EVENT_PUZZLES = ("lights_out", "sequence", "anagram", "riddle", "ravens",
                  "sliding", "nonogram")
 PUZZLE_LIMIT_FLOOR = 60     # event puzzles get a generous clock
@@ -124,6 +133,7 @@ from event_data import EVENTS, WORLD             # noqa: E402
 
 EVENTS_BY_ID = {e["id"]: e for e in EVENTS}
 WORLD_BY_ID = {w["id"]: w for w in WORLD}
+WORLD_STAGES = list(dict.fromkeys(w["stage"] for w in WORLD))   # hub first, as listed
 
 
 def new_state() -> dict:
@@ -156,6 +166,8 @@ def node_class(g, nid: str) -> str | None:
         return "shrine" if n.get("charges", 0) > 0 else "islet"
     if t == "puzzle":
         return "islet" if n.get("solved") else None
+    if t == "monster":                  # a realm hunting ground that stayed quiet
+        return None if g.board.alive_monster(nid) else "wild"
     if t in ("haven", "shop"):
         return t
     return None
@@ -218,7 +230,9 @@ def eligible(g, p, nid: str) -> list[dict]:
     st = _st(g)
     out = []
     for ev in EVENTS:
-        if ev["stage"] != stage or ev.get("world") or cls not in ev.get("where", ("sea",)):
+        where = ev.get("where", ("sea",))
+        if ev["stage"] != stage or ev.get("world") or not (
+                cls in where or (cls == "wild" and "sea" in where)):
             continue
         if ev.get("hostile") and p.has("poseidon_favor"):
             continue
@@ -243,6 +257,8 @@ def on_land(g, p, nid: str) -> bool:
         return False
     st = _st(g)
     node = g.board.nodes[nid]
+    if node["type"] in ("gate", "lair"):   # the pass carries you on; a lair is a trial
+        return False
     # a WORLD entity met here takes precedence over a random event
     for w in st["world"]:
         if p.pid in w["met"]:
@@ -332,7 +348,7 @@ def _value(out: dict | None) -> float:
         v -= 1.5
     if out.get("reveal"):
         v += 1.5
-    if out.get("move"):
+    if out.get("move") or out.get("swap"):
         v += 0.5
     for k in ("game", "puzzle"):
         if out.get(k):
@@ -469,6 +485,20 @@ def _conclude(g, p, act: dict, out: dict | None, lines: list | None = None,
         if _move(g, p, out["move"]):
             flow = "move"
             lines.append("you are carried onward")
+    if out.get("swap") and p.node == act["node"] and flow is None:
+        q = _swap(g, p)
+        if q is not None:
+            flow = "move"
+            lines.append(f"you and {q.name} have traded places")
+        else:
+            lines.append("there is nobody to trade places with")
+    if out.get("rival"):
+        q = _rival(g, p)
+        if q is not None:
+            sub = []
+            _apply_simple(g, q, out["rival"], sub)
+            if sub:
+                lines.append(f"{q.name}: " + ", ".join(sub))
     if out.get("upgrade"):
         pool = [u for u in G.UPGRADES if not p.has(u)]
         if pool:
@@ -505,6 +535,29 @@ def _conclude(g, p, act: dict, out: dict | None, lines: list | None = None,
         g._land_tail(p, nid)
 
 
+def _swap(g, p):
+    """The ghost ship's trick: trade places with a rival on quiet water in the
+    same waters (never into a fight, a door or someone's private trail)."""
+    stage = stage_of(g.board.nodes[p.node])
+    pool = [q for q in g.players if q.pid != p.pid and q.node in g.board.nodes
+            and stage_of(g.board.nodes[q.node]) == stage
+            and g.board.nodes[q.node].get("owner") is None
+            and _quiet_stop(g, q.node) and q.node != p.node]
+    if not pool or not _quiet_stop(g, p.node):
+        return None
+    q = g.rng.choice(pool)
+    p.prev_node, q.prev_node = p.node, q.node
+    p.node, q.node = q.node, p.node
+    return q
+
+
+def _rival(g, p):
+    """A captain other than ``p`` (an outcome that lands on someone else —
+    a parcel delivered to the wrong ship)."""
+    pool = [q for q in g.players if q.pid != p.pid]
+    return g.rng.choice(pool) if pool else None
+
+
 def _start_fight(g, p, nid: str, spec):
     import game as G
     node = g.board.nodes[nid]
@@ -536,7 +589,8 @@ def _move(g, p, spec: dict) -> bool:
     def ok(nid):
         n = g.board.nodes[nid]
         return (stage_of(n) == stage and n.get("owner") in (None, p.pid)
-                and n["type"] not in ("gate", "lair", "pharos", "monster"))
+                and n["type"] not in ("gate", "lair", "pharos", "monster")
+                and not (n.get("sphinx") and not n.get("sphinx_done")))
 
     toward = spec.get("toward", "random")
     targets = {nid for nid, n in g.board.nodes.items() if ok(nid) and (
@@ -811,6 +865,21 @@ def _resolve_table(g):
         else:
             lines.append("no number stood alone — nobody wins")
         results = dict(picks)
+    elif kind == "race":
+        sec = tst["secret"]
+        win = sec["winner"]
+        lines.extend(sec["legs"])
+        lines.append(f"{tst['runners'][win]} wins the race!")
+        pays = spec.get("pays") or []
+        purse = pays[win] if win < len(pays) else spec.get("prize")
+        backers = [pid for pid, v in ans.items() if v == win and pid in by]
+        for pid in backers:
+            sub = [f"{by[pid].name} backed the winner"]
+            _apply_simple(g, by[pid], purse, sub)
+            lines.append(" · ".join(sub))
+        if not backers:
+            lines.append("nobody backed the winner")
+        results = {"winner": win, **{pid: v for pid, v in ans.items() if pid in by}}
     t["results"] = results
     _conclude(g, p, act, {"log": spec.get("log")}, lines, ok=None)
 
@@ -1013,7 +1082,8 @@ def legal_moves(g, pid) -> list[tuple[str, str, object]]:
                 "vote": list(range(len(tst.get("choices", [])))),
                 "gamble": ["out"] + (["in"] if p.scrolls >= tst.get("ante", 1) else []),
                 "lanes": list(range(tst.get("n", 0))),
-                "lowest": list(range(1, tst.get("max", 0) + 1))}.get(k, [])
+                "lowest": list(range(1, tst.get("max", 0) + 1)),
+                "race": list(range(tst.get("n", 0)))}.get(k, [])
         return [(f"table {v!r}", "event_answer", v) for v in vals
                 if EG.table_valid(tst, v, p)]
     if g.current.pid != pid:
@@ -1147,16 +1217,22 @@ def _tick_world(g):
                 w["met"] = []                      # a new meeting place
         keep.append(w)
     st["world"] = keep
-    # new wonders: the Isles of Peace keep a few on the chart; the Vale
-    # stirs when someone walks it
-    hub = [w for w in st["world"] if WORLD_BY_ID[w["id"]]["stage"] == "hub"]
-    if len(hub) < WORLD_HUB_MAX and (st["turn"] <= 1 or g.rng.random() < 0.55):
-        _spawn_random(g, "hub", count=2 if st["turn"] <= 1 else 1)
-    in_vale = [q for q in g.players
-               if stage_of(g.board.nodes.get(q.node, {})) == "autumn"]
-    vale = [w for w in st["world"] if WORLD_BY_ID[w["id"]]["stage"] == "autumn"]
-    if in_vale and len(vale) < WORLD_VALE_MAX and g.rng.random() < 0.6:
-        _spawn_random(g, "autumn", near=g.rng.choice(in_vale).node)
+    # new wonders, by stage (WORLD_RULES): the Isles of Peace keep a few on
+    # the chart from the first turn; a realm stirs when someone travels it
+    for stage in WORLD_STAGES:
+        rule = WORLD_RULES.get(stage, WORLD_RULE_DEFAULT)
+        have = [w for w in st["world"] if WORLD_BY_ID[w["id"]]["stage"] == stage]
+        if rule.get("always"):
+            if len(have) < rule["max"] and (st["turn"] <= 1 or g.rng.random() < rule["p"]):
+                low = st["turn"] <= 1 or len(have) < rule.get("min", 0)
+                _spawn_random(g, stage, count=min(2 if low else 1, rule["max"] - len(have)))
+            continue
+        walkers = [q for q in g.players
+                   if stage_of(g.board.nodes.get(q.node, {})) == stage]
+        if walkers and len(have) < rule["max"] and g.rng.random() < rule["p"]:
+            low = len(have) < rule.get("min", 0)
+            _spawn_random(g, stage, near=g.rng.choice(walkers).node,
+                          count=min(2 if low else 1, rule["max"] - len(have)))
 
 
 def _spawn_random(g, stage: str, count: int = 1, near: str | None = None):
@@ -1264,5 +1340,17 @@ def bot_wonder_score(g, p, nid: str):
         if kind in ("wreck", "festival", "feymarket", "dolphins"):
             return 25
         if kind == "ring":
+            return 10
+        # realm wonders say what a bot thinks of them in their record ("bot")
+        pref = WORLD_BY_ID.get(kind, {}).get("bot")
+        if pref == "fight":
+            return 20 if p.hull >= p.max_hull - 1 and p.hull >= 5 else -1
+        if pref == "shun":
+            return -1
+        if pref == "shop":
+            return 30 if p.scrolls >= 3 else 8
+        if pref == "seek":
+            return 25
+        if pref == "curious":
             return 10
     return None

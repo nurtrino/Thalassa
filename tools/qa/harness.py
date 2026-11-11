@@ -177,6 +177,15 @@ class Client:
             elif ph == "minigame":
                 await self.send({"type": "solve", "payload": None},
                                 settle=1200)
+            elif ph == "event":            # a world event card: take the cautious way
+                ev = r.get("event") or {}
+                opts = ev.get("options") or []
+                ok = [i for i, o in enumerate(opts) if (o or {}).get("ok", True)]
+                if ok:
+                    await self.send({"type": "event_choose", "idx": ok[-1]},
+                                    settle=1200)
+                else:
+                    await self.page.wait_for_timeout(1500)
             elif ph == "upgrade_pick":
                 r2 = await self.room()
                 ups = (r2.get("upgrade_offer") or ["fitting"])

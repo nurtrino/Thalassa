@@ -1067,6 +1067,15 @@ VALE = [
 
 EVENTS = HUB + VALE
 
+# the Bleached Reach and the second Isles set live in their own files
+import event_data_desert as _desert  # noqa: E402
+import event_data_hub2 as _hub2  # noqa: E402
+EVENTS += _desert.EVENTS + _hub2.EVENTS
+# the Frostfang Reach and the Verdigris Deep, likewise
+import event_data_ice as _ice  # noqa: E402
+import event_data_jungle as _jungle  # noqa: E402
+EVENTS += _ice.EVENTS + _jungle.EVENTS
+
 # ── WORLD entities: visible on the board, alive for a few rounds ───────────
 WORLD = [
     {"id": "merchant", "stage": "hub", "title": "The Wandering Merchant",
@@ -1120,3 +1129,5 @@ WORLD = [
      "weight": 2, "meet": "meet_hound", "log": "a baying echoes through the trees",
      "gone": "answers a distant horn and is gone"},
 ]
+WORLD += _desert.WORLD + _hub2.WORLD
+WORLD += _ice.WORLD + _jungle.WORLD

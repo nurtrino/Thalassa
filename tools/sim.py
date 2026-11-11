@@ -1758,13 +1758,22 @@ class Table:
                                          .get("escalation"))}
 
     # ── the main loop ────────────────────────────────────────────────────────
-    def _ledger(self, actor: str, purse: dict, wrecks: int):
+    def _ledger(self, actor: str, purse: dict, wrecks: int, ev_seq: int = -1):
         """Where scrolls come from and go (bots tables — the economy report)."""
         g = self.g
         label = self._last_label
         rv = g.reveal if g.phase == "reveal" else None
+        # an event concluded this step (its result card was posted): its
+        # scrolls — prizes, fines, bets — are event money, by stage
+        ev_stage = None
+        if ev_seq >= 0 and g.ev.get("seq", 0) != ev_seq and g.ev.get("card"):
+            ev_stage = EV.EVENTS_BY_ID.get(g.ev["card"]["id"], {}).get("stage", "hub")
         for p in g.players:
             d = p.scrolls - purse.get(p.pid, p.scrolls)
+            if d and ev_stage:
+                self.stats["in_events" if d > 0 else "out_events"] += abs(d)
+                self.stats[f"{'in' if d > 0 else 'out'}_events_{ev_stage}"] += abs(d)
+                continue
             if d > 0:
                 if p.pid != actor:
                     key = "in_side_answers"
@@ -1798,6 +1807,7 @@ class Table:
         self._last_label = ""
         purse = {p.pid: p.scrolls for p in g.players}
         wrecks = self.stats["shipwrecks"]
+        ev_seq = g.ev.get("seq", 0)
         if ph == "reveal":
             self.note("advance reveal")
             g.advance_after_reveal()
@@ -1814,7 +1824,7 @@ class Table:
             if ph == "question":
                 self.side_answers(0.5)
             self.act_random()
-        self._ledger(actor, purse, wrecks)
+        self._ledger(actor, purse, wrecks, ev_seq)
         self.actions += 1
         self.turn_actions += 1
         if self.turn_actions > MAX_TURN_ACTIONS:
@@ -2061,6 +2071,16 @@ def summarize(results: list[dict]) -> str:
                  + ", ".join(f"{k} {tot['events_' + k]:,}"
                              for k in ("instant", "choice", "game", "table", "world"))
                  + f" · actions per turn {sum(r['actions'] for r in rs) / turns_m:.2f}")
+        stages = sorted({k[len("events_"):] for k in tot if k.startswith("events_")}
+                        - {"instant", "choice", "game", "table", "world"})
+        L.append("  events per 100 turns by stage: " + ", ".join(
+            f"{s} {100 * tot['events_' + s] / turns_m:.1f}" for s in stages))
+        if mode == "bots":
+            L.append(f"  event scrolls per 100 turns: in {100 * tot['in_events'] / turns_m:.1f}"
+                     f" · out {100 * tot['out_events'] / turns_m:.1f} · net "
+                     f"{100 * (tot['in_events'] - tot['out_events']) / turns_m:.1f} — by stage (net): "
+                     + ", ".join(f"{s} {100 * (tot['in_events_' + s] - tot['out_events_' + s]) / turns_m:.1f}"
+                                 for s in stages))
     if fails:
         L.append("")
         L.append(f"══ {len(fails)} INVARIANT FAILURE(S) ══")

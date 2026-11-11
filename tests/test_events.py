@@ -52,7 +52,7 @@ def state(g):
 # ═══ content ════════════════════════════════════════════════════════════════
 OUT_KEYS = {"text", "scrolls", "hull", "item", "items", "item_spend", "upgrade",
             "buff", "buffs", "move", "skip", "reveal", "fight", "kraken", "game",
-            "puzzle", "table", "spawn", "remove_world", "log"}
+            "puzzle", "table", "spawn", "remove_world", "log", "swap", "rival"}
 
 
 def _check_out(out, where):
@@ -131,8 +131,8 @@ def test_content_is_large_varied_and_well_formed():
             _check_table(e["table"], e["id"])
     for w in EV.WORLD:
         assert EV.EVENTS_BY_ID[w["meet"]].get("world"), w["id"]
-        assert w["rounds"] >= 3 and w["stage"] in ("hub", "autumn")
-    assert {w["stage"] for w in EV.WORLD} == {"hub", "autumn"}
+        assert w["rounds"] >= 3 and w["stage"] in ("hub", "autumn", "desert", "ice", "jungle")
+    assert {"hub", "autumn"} <= {w["stage"] for w in EV.WORLD}
 
 
 def test_every_game_kind_is_used_somewhere():
