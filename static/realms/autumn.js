@@ -131,6 +131,17 @@ float valeDapple(vec3 wp) {
 const PORT_GLSL = /* glsl */`
 uniform vec4 uPort;
 float valeIGN(vec2 p) { return fract(52.9829189 * fract(dot(p, vec2(0.06711056, 0.00583715)))); }
+// 4×4 ordered (Bayer) threshold: an even, fine weave that reads as see-through
+// rather than the speckled noise IGN gave at Light's reduced resolution
+float valeBayer(vec2 p) {
+  vec2 q = mod(floor(p), 4.0);
+  float b = mod(q.x + 2.0 * q.y, 4.0);          // 2×2 core, then the 4×4 lift
+  vec2 h = floor(q * 0.5);
+  float c = mod(h.x + 2.0 * h.y, 4.0);
+  float m = (b == 0.0 ? 0.0 : b == 1.0 ? 2.0 : b == 2.0 ? 3.0 : 1.0) * 4.0
+          + (c == 0.0 ? 0.0 : c == 1.0 ? 2.0 : c == 2.0 ? 3.0 : 1.0);
+  return (m + 0.5) / 16.0;
+}
 // the sight tunnel: 1 = solid, 0 = dissolved. Fragments inside a circle round
 // the screen centre (rIn..rOut, in half-screen-heights) AND nearer than the
 // focus plane (dNear..dFar × focus distance) are cut away.
@@ -157,7 +168,7 @@ function valePatch(mat, key, { dapple: dk = 0, port = null, portMinY = null, glo
       .replace('#include <common>', `#include <common>\n${DAPPLE_GLSL}\n${PORT_GLSL}`);
     if (port) {
       fs = fs.replace('#include <alphatest_fragment>', `#include <alphatest_fragment>
-        if (${portMinY === null ? '' : `vWPos.y > ${f3(portMinY)} && `}valePort(${port.map(f3).join(', ')}) < valeIGN(gl_FragCoord.xy)) discard;`);
+        if (${portMinY === null ? '' : `vWPos.y > ${f3(portMinY)} && `}valePort(${port.map(f3).join(', ')}) < valeBayer(gl_FragCoord.xy)) discard;`);
     }
     if (dk) {
       fs = fs.replace('#include <lights_fragment_end>', `#include <lights_fragment_end>
@@ -748,9 +759,9 @@ function treeKit() {
     shaft: buildShaft(),
     bark: valePatch(new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.95, metalness: 0,
       map: barkTexture(), bumpMap: barkTexture(), bumpScale: 1.8 }), 'bark-v1',
-      { dapple: 0.9, port: [0.28, 0.52, 0.70, 0.90], portMinY: 1.6 }),
+      { dapple: 0.9, port: [0.40, 0.50, 0.78, 0.90], portMinY: 1.6 }),
     crown: valePatch(new THREE.MeshStandardMaterial(crownOpts), 'crown-v1',
-      { port: [0.62, 1.0, 0.92, 1.36], glow: 1.5 }),
+      { port: [0.70, 0.88, 0.94, 1.30], glow: 1.5 }),
     proxyMat: new THREE.MeshBasicMaterial({ colorWrite: false, depthWrite: false }),
     fernMat: valePatch(new THREE.MeshStandardMaterial({ vertexColors: true, map: fernTexture(), alphaTest: 0.45,
       side: THREE.DoubleSide, roughness: 0.8, metalness: 0 }), 'fern-v1', { dapple: 0.8 }),

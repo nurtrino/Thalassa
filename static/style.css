@@ -2354,6 +2354,11 @@ body.jpicking #bmon { display: none; }
   .battlebtn.flee { margin-left: 0; }
   #bdock { gap: 4px; }
   #bdock > #bturn { font-size: 13px; }
+  .battlebtn { white-space: nowrap; }
+  /* the boss title sits BELOW the corner buttons (gfx / sound), not under them */
+  #bfoe { top: 56px; }
+  #bmon { top: 132px; }
+  .cinebar.top { height: 190px; }
 }
 
 /* phone LANDSCAPE (short and wide): the middle of the frame is the fight —
@@ -2404,3 +2409,28 @@ body.jpicking #bmon { display: none; }
 .hint .hint-in svg { vertical-align: -2px; margin-right: 3px; }
 /* the wonders strip steps aside while the trader's stall is open */
 body:has(#shopPanel:not(.hidden)) #evHud { display: none; }
+
+/* phone portrait (P3): the captains' rows stop short of the corner buttons,
+   and the wonders strip shrinks to its icons instead of tall pills over the sea */
+@media (max-width: 480px) {
+  #players { max-width: calc(100vw - 186px); }
+  #evHud { top: 62px; gap: 4px; }
+  body #evHud .evchipH { font-size: 0; gap: 0; padding: 5px; }
+  body #evHud .evchipH svg { width: 20px; height: 20px; flex-basis: 20px; }
+  body #evHud .evchipH > span { display: none; }
+}
+@media (max-height: 500px) and (orientation: landscape) {
+  /* the CHARGING telegraph stays one slim line — the boss stays in view */
+  #bfoe .chargewarn { width: auto; font-size: 10px; letter-spacing: .08em; padding: 3px 14px; margin-top: 2px;
+    display: inline-block; max-width: 56vw; }
+  #bfoe .roundpips { margin-top: 0; }
+}
+
+/* the minigame's seconds sit just BELOW its clock line — above it they ran
+   into the header's subtitle ("1s" over the Sphinx's line) */
+#mgtimer[data-secs]::after { top: 10px; right: 10px; }
+#mgprompt { padding-right: 48px; }
+/* the Sphinx's riddle docks low and leaves the diorama undimmed — she is
+   actually SEEN posing it, not hidden behind the scroll */
+#mgmodal.sphinxcard { background: rgba(6, 9, 13, .1); backdrop-filter: none; }
+#mgmodal.sphinxcard > * { margin: auto auto max(12px, env(safe-area-inset-bottom)); }

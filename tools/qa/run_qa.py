@@ -413,7 +413,10 @@ SAMPLER = """
         if (sp > 2.5) {
           const fx = Math.cos(yaw), fz = -Math.sin(yaw);
           const slip = Math.acos(Math.max(-1, Math.min(1, (vx * fx + vz * fz) / (Math.hypot(vx, vz) || 1))));
-          window.__qaHelm.maxSlip = Math.max(window.__qaHelm.maxSlip, slip * 180 / Math.PI);
+          if (slip * 180 / Math.PI > window.__qaHelm.maxSlip) {
+            window.__qaHelm.maxSlip = slip * 180 / Math.PI;
+            window.__qaHelm.slipAt = st.id + (foot ? ' (foot)' : '') + ' @' + p.x.toFixed(0) + ',' + p.z.toFixed(0);
+          }
         }
       }
       last[pid] = { t: now, yaw, x: p.x, z: p.z };
@@ -512,7 +515,7 @@ def sail_monitor(outdir):
                         notes.append("leg over 11s: travel drags")
                         bad = True
                 notes.append(f"helm: max turn {helm['maxTurn']:.1f} rad/s, "
-                             f"max slip {helm['maxSlip']:.0f}°, camera min "
+                             f"max slip {helm['maxSlip']:.0f}° ({helm.get('slipAt', '-')}), camera min "
                              f"{helm['camLow']:.1f} wu over ground")
                 if helm["maxSlip"] > 35:
                     notes.append("SLIDE: a vessel moved >35° off its bow")

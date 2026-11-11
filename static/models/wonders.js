@@ -746,12 +746,12 @@ function bigWingGeo() {
   return cached('geo:icaruswing', () => {
     const p = new Parts();
     p.add(tube([V(0, 0, 0), V(1.6, 0.1, 0.2), V(3.4, 0.05, 0.1)], 0.06, 0.04, 8, 5), 0x7a5a3a);     // the frame
-    for (let k = 0; k < 13; k++) {
-      const x = 0.2 + k * 0.25, len = 1.0 + Math.sin((k / 12) * Math.PI) * 0.9;
-      const burnt = k > 8;
-      p.add(blade(len, 0.32, 0.08, 4), (px, py, pz, nx, ny, nz, c) => {
+    for (let k = 0; k < 17; k++) {
+      const x = 0.15 + k * 0.19, len = 1.1 + Math.sin((k / 16) * Math.PI) * 1.0;
+      const burnt = k > 11;
+      p.add(blade(len, 0.62, 0.08, 4), (px, py, pz, nx, ny, nz, c) => {
         c.setHex(burnt ? 0x8a7a68 : 0xf4efe2).lerp(new THREE.Color(burnt ? 0x2a2018 : 0xd8b860), smooth(0.4, 1, px / 4));
-      }, M(x, 0.02 - k * 0.004, 0.1, -Math.PI / 2 - 0.25 + k * 0.03));
+      }, M(x, 0.02 + (k % 2) * 0.012, 0.1, -Math.PI / 2 - 0.3 + k * 0.035));
     }
     for (let k = 0; k < 6; k++) p.add(blob(0.06, 1, 0.5), 0xe8c050, M(0.6 + k * 0.45, 0.05, 0.4 + (k % 2) * 0.3));   // wax drips
     return p.geometry();

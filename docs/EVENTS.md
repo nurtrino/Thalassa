@@ -15,6 +15,7 @@ backs them), table events give everyone a generous 40 seconds.
 | Cards, game renderers, table UI, result card, HUD strip | `static/events.js`, `static/events.css` |
 | World wonders on the 3D board | `static/worldfx.js` (hooked from `scene.js` beside `syncKraken`) |
 | Tests | `tests/test_events.py` (+ the fuzzer: `tools/sim.py`) |
+| The Bleached Reach (desert) and the second Isles set: content · 3D · tests | `event_data_desert.py`, `event_data_hub2.py` · `static/models/wonders.js` · `tests/test_events_desert_hub.py` |
 | The realms (ice, jungle): content · game kinds · cards · 3D · tests | `event_data_ice.py`, `event_data_jungle.py` · `eventgames_realms.py` · `static/events_realms.js` + `.css` · `static/worldfx_realms.js` · `tests/test_events_realms.py` |
 
 ## How an event happens
@@ -106,6 +107,8 @@ better; **Jinxed** keeps the worse.
 | `spawn` | a world wonder id to raise near here |
 | `remove_world: True` | the wonder that triggered this event is gone |
 | `log` | the short name used in the shared log |
+| `swap: True` | the ghost ship's trick: trade places with a random rival on quiet water in the same waters (never across the wall, never into a fight or a door); ends the turn |
+| `rival` | a simple OUTCOME that lands on one random OTHER captain (Hermes' misdelivered parcel) |
 
 ### TABLE
 
@@ -122,6 +125,7 @@ better; **Jinxed** keeps the worse.
 | `gamble` | `"in"` / `"out"` | antes paid; one throw at `odds`; everyone in gets `win` |
 | `lanes` | a lane index | each captain gets the hidden lane's outcome from `lanes: {name: OUTCOME}` |
 | `lowest` | 1…`params.max` | the lowest number nobody else picked wins `prize` |
+| `race` | a runner index | `params.field` = `[[name, form, weight], …]` (each runner's chance in 100 is public); the server runs the race (`params.legs` commentary) and every backer of the winner gets `pays[winner]` — long shots pay more; backing is free |
 
 Answers are sealed (a snapshot shows only *who* has answered, plus your own
 answer to you). The table closes when everyone has answered, when only
@@ -140,9 +144,11 @@ simple outcome keys (scrolls, hull, items, buffs).
 ```
 
 How a stage keeps its wonders is data (`events.WORLD_RULES`): the Isles of
-Peace keep up to three on the chart (two from the first turn); every realm
-(the Vale, the Frostfang Reach, the Verdigris Deep, …) raises up to two near
-captains travelling it (`WORLD_RULE_DEFAULT`). An optional `bot` key says what
+Peace keep three to five on the chart (`max` 5, `min` 3: below the minimum a
+round raises two at once; otherwise a 70% chance a round) — about four alive
+on average; the Amber Vale and the Bleached Reach raise up to three (`min` 2)
+near captains walking them — about 2.8 alive while someone is there; any other
+realm takes `WORLD_RULE_DEFAULT` (up to two). An optional `bot` key says what
 a philosopher's route planner thinks of it: `seek`, `curious`, `shop` (worth
 it with scrolls to spend), `fight` (only with a sound hull) or `shun`. Once a round they
 age, and movers hop along open water. `model` picks the 3D set piece in
@@ -166,6 +172,7 @@ it.
 | `crossing` | wolf / goat / charts across a strait, one passenger at a time | state machine; something left with its eater = lose |
 | `rps` | stone / scroll / shears vs a satyr whose tells never lie | first to 3; tells map one-to-one onto his throws |
 | `nim` | take 1–3 pebbles, last one wins; the sage errs ~30% | server plays the sage |
+| `haggle` | offer a price for the trader's goods; below his hidden reserve he says "an insult" (4+ short) or "tempting" (1–3 short); at or above it he shakes on it. Patience: 4 offers. `score` 4 = his exact lowest price … 1 = 3+ over. The deduced floor / ceiling are public | offers must climb; the solver probes the floor and spends its last offer on the ceiling (always a deal) |
 | `floe` (realms) | cross a 4×6 floe field a row at a time, straight on or one aside; your floe tells how many reachable floes are thin; sounding poles test one; bear prints mark sound ice on every other row; stop to cash out | thin floes hidden; the generator guarantees every sound floe can reach a sound one; `score` = rows crossed (0 if you fall in) |
 | `pairs` (realms) | memory match: 12 tiles, 6 pairs, 12 tries, no clock; seen tiles are marked; stop to cash out | faces hidden until turned; `score` = pairs found |
 | `drums` (realms) | three rounds of "what beat comes next?" — four BOOM/tak patterns that follow one rule, pick the fifth of four | each round's answer is secret; `score` = rounds right |
@@ -254,3 +261,48 @@ loot and crewed by monkeys in stolen hats; a giant pink orchid that breathes
 open and shut on a lily-pad raft of roots, a toothed glowing heart; a dead
 tree in the river with an ancient sloth hanging from a mossy branch; the
 jaguar GLB lounging on a drifting mossy log.
+
+## The Bleached Reach and the second Isles set
+
+The desert is walked, so its events fire on the dune trail and its waypoints
+(`sea`), a quiet hunting ground (`wild`), a spent shrine (`islet`), a charged
+shrine and the haven — never on the pass, the lair or a Sphinx gate. A tow
+(`move`) never carries a captain past an unanswered Sphinx gate (events._move).
+Content: `event_data_desert.py` (25 events + 4 wonders) and
+`event_data_hub2.py` (8 Isles cards + 8 wonders), merged into `event_data`.
+
+**The Bleached Reach (`desert`)**
+
+| kind | events |
+|---|---|
+| choice | A Djinn With a Literal Mind · The Sandal Salesman · A Colossal Head That Wants Company · A Mummy Who Is Mostly Lonely · A Camel With Opinions · A Well Among the Palms |
+| game | The Sphinx's Junior Apprentice (riddle) · The Tax Scribe of Ra (codebreak) · The Bazaar Haggling Duel (haggle) · A Scorpion Plays Knucklebones · The Tomb With a Sliding Door (sliding) · The Sundial Priest's Sum (sequence) · Nine Canopic Jars (weigh) · The Dry River's Ferryman (crossing) · The Architect's Capstones (nim) |
+| instant | Something Under the Sand · Spat On by a Passing Camel · Ancient Graffiti · A Single Generous Palm |
+| table | The Great Camel Race (race) · The Caravanserai Auction (bid) · A Mirage Everyone Can See (vote) · The Date-Seller's Basket (guess) · Three Ways Round the Great Dune (lanes) · The Scarab Pit (gamble) |
+| world | The Salt Caravan (`caravan`: roams; water, a haggle, a ride toward the haven) · A Wandering Sandstorm (`sandstorm`: roams, radius 1, hostile; scatters you) · A Shimmering Oasis (`mirage`: fixed; real or not) · The Golden Dung-Beetle (`beetle`: roams; help it, rob it, or bow) |
+
+**The Isles of Peace, second set**
+
+| kind | events |
+|---|---|
+| cards | Odysseus Asks for Directions · Diogenes Is in Your Light · The Fishwife of Piraeus (haggle) · Talos, Bronze Lifeguard · Sisyphus Lets Go (instant) · A Gull Steals Your Hat (instant) · The Hippocampus Derby (race) · The Argonauts' Lost Property (bid) |
+| world | The Runaway Festival Barge (`barge`: drifts two stops a round; party, tow it in, or call a fleet vote) · The Golden Fish (`goldfish`: roams; pays the first to reach it) · The Ghost Ship (`ghostship`: roams, hostile; swap places with a rival) · The Singing Whales (`whales`: fixed, radius 1) · Hermes, Slightly Lost (`hermes`: two stops a round; a parcel for the wrong captain — `rival`) · Daedalus' Automaton (`automaton`: fixed; nim) · The Wandering Isle (`turtleisle`: hops three stops a round) · Icarus' Crash Site (`icarus`: fixed; salvage) |
+
+**3D.** Every wonder in `static/worldfx.js` now uses a real set piece and a
+marker: a soft additive light pool and a shaft of light (`makeWonderBeacon`,
+coloured by temperament — gold for good fortune, red for hostile, cyan for
+curious), and sea pieces ride the real swell (`st.surf.waveHeight`, as the
+ships do). The old stand-ins are gone: the merchant is `makeMerchantShip`,
+the dolphins are three `makeDolphin`s leaping round the stop, the whirlpool,
+fog bank and wreck are their `eventprops.js` builders, the festival is a ring
+of paper lanterns on floats round the island plus a pavilion on a moored
+raft, and the fey market is a purple pavilion with a fire and motes.
+`static/models/wonders.js` builds the rest procedurally: a three-camel salt
+caravan with a drover; a turning column of blown sand; palms and a pool that
+fade in and out; a giant scarab pushing a golden ball; a garlanded barge with
+a pavilion and a goat; a golden fish leaping with a splash ring; a translucent
+green galley in a mist; two humpbacks (one rolling, one breaching, a spout);
+a winged parcel with a winged hat and a golden trail; a bronze automaton at a
+pebble table on a raft; a sea turtle carrying a palm island; Icarus' wings
+awash beside a sulking boy on a rock. They are in the contact sheet as
+`wd_*` (`/static/modeltest.html?set=procedural`).

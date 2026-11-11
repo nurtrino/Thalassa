@@ -463,8 +463,9 @@ function gNim(g, actor) {
 function gHaggle(g, actor) {
   const offers = g.offers || [];
   const top = offers.length ? Math.max(...offers.map((o) => o.offer)) : g.lo - 1;
-  const lo = Math.max(g.lo, top + 1);
-  if (scratch.value === null || scratch.value === undefined) scratch.value = Math.max(lo, g.floor);
+  // never below what he has already refused, nor below what he would surely refuse
+  const lo = Math.max(g.lo, top + 1, g.floor);
+  if (scratch.value === null || scratch.value === undefined) scratch.value = lo;
   scratch.value = Math.max(lo, Math.min(g.hi, scratch.value));
   const left = g.patience - offers.length;
   const said = { deal: 'a deal!', close: 'he wavers — tempting, but no', insult: 'he laughs — an insult' };

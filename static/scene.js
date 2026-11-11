@@ -1931,7 +1931,9 @@ export function createWorld(container, handlers = {}) {
 
   let shipPrev = 0, shipDt = 0.016;
   function tickShips(st, t, now) {
-    shipDt = shipPrev ? Math.min(0.1, (now - shipPrev) / 1000) : 0.016;
+    // real elapsed time (not the render clamp): the helm must keep pace with
+    // the route progress, which is wall-clock — even on a starved frame
+    shipDt = shipPrev ? Math.min(0.5, (now - shipPrev) / 1000) : 0.016;
     shipPrev = now;
     let arrived = null;
     for (const pid in ships) {
@@ -1946,6 +1948,13 @@ export function createWorld(container, handlers = {}) {
         // the bow follows the curve's tangent at a capped turn rate — no
         // pivoting on the spot, no crabbing sideways; a walker turns quicker
         const foot = rec.mode === 'foot';
+        // a man facing the wrong way turns on his heel BEFORE he steps off
+        // (a hull can't — its route already leaves along the bow)
+        if (foot) {
+          let off = Math.atan2(-_vA.z, _vA.x) - rec.root.rotation.y;
+          off -= Math.round(off / (Math.PI * 2)) * Math.PI * 2;
+          if (Math.abs(off) > 0.6 && s < an.total * 0.5) an.t0 += shipDt * 1000;
+        }
         rec.root.rotation.y = helm(rec.root.rotation.y, _vA.x, _vA.z, shipDt,
                                    foot ? 5.5 : 1.9, foot ? 14 : 7);
         if (foot && st.surf.heightAt) rec.root.position.y = Math.max(0, st.surf.heightAt(rec.root.position.x, rec.root.position.z));
@@ -2136,7 +2145,9 @@ export function createWorld(container, handlers = {}) {
       const sp = ships[myPid]?.root.position;
       if (sp && reachPts.length) {
         reachPts.sort((a, b) => a.distanceToSquared(sp) - b.distanceToSquared(sp));
-        const near = reachPts.filter((v, i) => i === 0 || Math.hypot(v.x - sp.x, v.z - sp.z) <= 95);
+        // (a narrow portrait screen holds less sea side to side: frame closer stops)
+        const R = 95 * Math.min(1, Math.max(0.6, camera.aspect * 1.3));
+        const near = reachPts.filter((v, i) => i === 0 || Math.hypot(v.x - sp.x, v.z - sp.z) <= R);
         reachPts = near;
       }
     }

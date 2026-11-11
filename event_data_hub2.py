@@ -24,9 +24,9 @@ EVENTS = [
              "beard and a haunted look, leans over the rail. 'Ithaca? Rocky, "
              "goats, a wife who is very patient? Been looking for ten years.'",
      "options": [
-         {"label": "Point him the right way", "stakes": "+2 scrolls",
+         {"label": "Point him the right way", "stakes": "+1 scroll · Fair Wind",
           "outcome": {"text": "He weeps, embraces your figurehead, and pays you in "
-                              "Trojan coin.", "scrolls": 2}},
+                              "Trojan coin.", "scrolls": 1, "buff": ["fair_wind", 1]}},
          {"label": "Point him the wrong way, for a laugh", "stakes": "a gamble",
           "roll": [[1, {"text": "He sails off happily into another ten years. You feel "
                                 "awful, but lucky.", "buff": ["fortune", 1]}],
@@ -163,12 +163,12 @@ EVENTS = [
              "still playing, and a goat in charge of the wine. It bumps into you, "
              "cheerfully. The party is very much still going.",
      "options": [
-         {"label": "Climb aboard and party", "stakes": "+1 Health · +1 scroll",
+         {"label": "Climb aboard and party", "stakes": "+1 Health · Fair Wind",
           "outcome": {"text": "You dance with the goat. The goat leads.",
-                      "hull": 1, "scrolls": 1}},
-         {"label": "Steer it into harbour", "stakes": "carried toward a haven · +2",
+                      "hull": 1, "buff": ["fair_wind", 1]}},
+         {"label": "Steer it into harbour", "stakes": "carried toward a haven · +1",
           "outcome": {"text": "You tow it into port and the grateful owners pay salvage.",
-                      "scrolls": 2, "move": {"toward": "haven", "steps": 3},
+                      "scrolls": 1, "move": {"toward": "haven", "steps": 3},
                       "remove_world": True}},
          {"label": "Call the whole fleet over", "stakes": "everyone votes",
           "when": {"players_min": 2},
@@ -198,9 +198,9 @@ EVENTS = [
              "down beside you. It looks up. 'Fine. You caught me. Quickly now, I "
              "have places to be.'",
      "options": [
-         {"label": "Ask for treasure", "stakes": "+3 scrolls",
-          "outcome": {"text": "It spits out three coins and is gone in a flash of gold.",
-                      "scrolls": 3, "remove_world": True}},
+         {"label": "Ask for treasure", "stakes": "+2 scrolls",
+          "outcome": {"text": "It spits out two coins and is gone in a flash of gold.",
+                      "scrolls": 2, "remove_world": True}},
          {"label": "Ask for a fair wind home", "stakes": "Fair Wind ×2 · Fortune",
           "outcome": {"text": "'Easy.' It flicks its tail and the sea turns behind you.",
                       "buffs": [["fair_wind", 2], ["fortune", 1]], "remove_world": True}},
@@ -302,9 +302,9 @@ EVENTS = [
           "outcome": {"text": "You sleep like a baby. When you wake, the island has swum "
                               "somewhere else, and so have you.", "hull": 2,
                       "move": {"toward": "random", "steps": 3}}},
-         {"label": "Scrub its shell", "stakes": "+2 scrolls",
-          "outcome": {"text": "It sighs with pleasure. Under the barnacles: lost coins.",
-                      "scrolls": 2}},
+         {"label": "Scrub its shell", "stakes": "+1 scroll · Fortune",
+          "outcome": {"text": "It sighs with pleasure. Under the barnacles: a lost coin.",
+                      "scrolls": 1, "buff": ["fortune", 1]}},
          {"label": "Apologise and leave", "stakes": "Fortune's Favour",
           "outcome": {"text": "The island blinks at you. Turtles remember kindness.",
                       "buff": ["fortune", 1]}},

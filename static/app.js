@@ -1547,7 +1547,7 @@ function renderTray() {
     const bonus = me?.upgrades?.includes('sandals') ? ' <small>(+1 sandals)</small>' : '';
     trayHint(tray, room.walk
       ? `Rolled <strong>${room.die ?? '?'}</strong>${bonus} — <strong>tap a golden arrow</strong> to walk a trail, or tap a lit stop.`
-      : `Rolled <strong>${room.die ?? '?'}</strong>${bonus} — ${foot ? 'walk' : 'sail'} exactly that far. Tap a glowing stop.`);
+      : `Rolled <strong>${room.die ?? '?'}</strong>${bonus} — ${foot ? 'walk' : 'sail'} exactly that far. Tap a glowing stop — or pick one on the chart.`);
   } else if (world.arriving()) {
     // my own avatar is still moving up to this stop — hold the menu
     // (shrine wager / haven repair / trader's stall) until it arrives
@@ -1567,9 +1567,14 @@ function renderTray() {
     const missing = me.max_hull - me.hull;
     const cost = Math.min(Math.ceil(missing), me.scrolls);
     const healed = Math.min(cost, missing);
-    trayHint(tray, 'A quiet haven — checkpoint set. Repairs cost 1 scroll per hull.');
-    trayBtn(tray, `REPAIR<small>+${fmtHp(healed)} hull · ${cost} scroll${cost === 1 ? '' : 's'}</small>`, 'build',
-            () => send({ type: 'repair' }), cost <= 0 || missing <= 0);
+    trayHint(tray, missing > 0
+      ? 'A quiet haven — checkpoint set. Repairs cost 1 scroll per Health.'
+      : 'A quiet haven — checkpoint set. Your hull is sound.');
+    // (no greyed "REPAIR +0" at full Health — only an offer that means something)
+    if (missing > 0) {
+      trayBtn(tray, `REPAIR<small>+${fmtHp(healed)} Health · ${cost} scroll${cost === 1 ? '' : 's'}</small>`, 'build',
+              () => send({ type: 'repair' }), cost <= 0);
+    }
     trayBtn(tray, 'pass', 'ghost', () => send({ type: 'pass' }));
   } else if (room.phase === 'shop') {
     trayHint(tray, 'A market isle — the trader spreads his wares.');
@@ -2338,7 +2343,9 @@ function renderQuestion() {
       : ctxKind === 'battle'
         ? `Battle · Tier ${TIER_ROMAN[q?.tier ?? rv?.tier ?? 1] || 'I'}`
         : (KIND_LABEL[ctxKind] || 'Challenge');
-    $('qdomain').textContent = dinfo ? `${dinfo.name} · ${dinfo.field}` : 'Wits & Logic';
+    // battles draw general trivia (no domain) — don't call physics "Wits & Logic"
+    $('qdomain').textContent = dinfo ? `${dinfo.name} · ${dinfo.field}`
+      : (ctxKind === 'battle' ? 'General knowledge' : 'Wits & Logic');
   }
 
   /* battle trinkets (owl / lyre) + the carried hint stone */
@@ -2544,6 +2551,7 @@ function renderMinigame() {
   const show = room.phase === 'minigame' && m && !world.arriving()
     && !(m.sphinx && sphinxIntro);
   modal.classList.toggle('hidden', !show);
+  modal.classList.toggle('sphinxcard', !!(show && m.sphinx));
   if (!show) { mg = { key: null }; return; }
 
   const mine = room.turn === you;
