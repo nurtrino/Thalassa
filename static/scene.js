@@ -2077,10 +2077,18 @@ export function createWorld(container, handlers = {}) {
       const rec = viewFollowPid ? ships[viewFollowPid] : null;
       if (rec && rec.stageId === st.id) {
         _vA.copy(rec.root.position);
+        // nearing the berth, the eye leads a little toward it so the stop
+        // the vessel is making for is framed, not just its stern
+        if (rec.anim) {
+          const pts = rec.anim.route.pts, end = pts[pts.length - 1];
+          const left = Math.hypot(end.x - _vA.x, end.z - _vA.z);
+          _vA.lerp(end, 0.3 * smooth01(40, 8, left));
+        }
         _vA.y = 1.6;
         _vB.subVectors(_vA, controls.target);
         if (_vB.lengthSq() > 0.0001) {
-          _vB.multiplyScalar(rec.anim ? 0.1 : 0.06);
+          // frame-rate independent follow (≈ the old 0.1 / 0.06 per frame at 60 fps)
+          _vB.multiplyScalar(1 - Math.exp(-dt * (rec.anim ? 6.3 : 3.7)));
           controls.target.add(_vB);
           camera.position.add(_vB);
         }
@@ -2096,8 +2104,35 @@ export function createWorld(container, handlers = {}) {
       }
     }
     controls.update();
+    guardCamera(st);
     /* keep the tight shadow frustum (and the sun) glued to the action */
     followSun(st, controls.target);
+  }
+
+  /* the eye never sinks into land: over an island it stays above the
+     plateau, over the dunes / forest floor above the ground, and it is
+     pushed out of any berg, stack or trunk it would sit inside */
+  const _camNear = [];
+  function guardCamera(st) {
+    const c = camera.position;
+    let floor = st.surf.heightAt ? Math.max(0, st.surf.heightAt(c.x, c.z)) + 2.2 : 1.2;
+    for (const id in st.islands) {
+      const isle = st.islands[id];
+      const n = nodeById[id];
+      if (!n || (n.type === 'sea' && !seaSolid(n)) || n.type === 'gate') continue;
+      const d = Math.hypot(c.x - n.x, c.z - n.z);
+      if (d < (isle.R ?? 4) * 1.05) floor = Math.max(floor, (isle.plateauY ?? 1) * 1.25 + 3.5);
+    }
+    if (st.obstacles) {
+      _camNear.length = 0;
+      st.obstacles.near(c.x, c.z, c.x, c.z, 2, _camNear);
+      for (const o of _camNear) {
+        const dx = c.x - o.x, dz = c.z - o.z, d = Math.hypot(dx, dz);
+        const need = o.r + 1.5;
+        if (d < need && d > 1e-3) { c.x = o.x + dx / d * need; c.z = o.z + dz / d * need; }
+      }
+    }
+    if (c.y < floor) c.y = floor;
   }
 
   /* ── the OPENING TOUR: fly the Isles of Peace, then every realm, then land
