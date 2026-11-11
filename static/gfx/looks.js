@@ -73,7 +73,7 @@ const LOOKS = {
     sun: { az: 31, el: 16, color: 0xffc080, intensity: 3.4 },
     sky: { zenith: 0x35488a, ground: 0x6b4a2c, curve: 0.55, glow: 1.2, disc: 20,
            clouds: { cover: 0.42, scale: 0.9, speed: 0.007, soft: 0.32, lit: 0xffc890, shade: 0x8a6a72 } },
-    fog: { color: 0xdca878, sunColor: 0xffc878, sunGlow: 1.1, heightFalloff: 0.030, heightBase: 9, heightAmount: 0.7 },
+    fog: { color: 0xdca878, sunColor: 0xffc878, sunGlow: 0.8, heightFalloff: 0.030, heightBase: 9, heightAmount: 0.7 },
     // the shade under the trees is COOL (lavender fill against the amber sun) —
     // that contrast is what makes the light pools on the floor read as gold
     env: 1.15, fill: { sky: 0xc9b6d6, ground: 0x7a5a40, intensity: 0.5 },

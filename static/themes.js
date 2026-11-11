@@ -120,7 +120,7 @@ const THEMES = {
     // swallowing the gate and the horizon whole — only the near woods read.
     // The flat golden trail arrows, landing beacons and barrow beam are all
     // fog-free, so the WAY always shows even when the world beyond it doesn't.
-    fog: { color: 0xdca878, near: 15, far: 60 },
+    fog: { color: 0xdca878, near: 24, far: 62 },
     sun: { color: 0xffc274, intensity: 1.65, position: [250, 85, 150] },
     hemi: { sky: 0xf3d2a0, ground: 0x6e4a2e, intensity: 0.7 },
     ambient: 0x362619,

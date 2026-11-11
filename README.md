@@ -26,6 +26,11 @@ storm the Pharos.
    fittings, havens set your respawn checkpoint and patch the hull, market
    isles sell gear, hunting grounds bite — and open water is never quite
    safe: **sea attacks** rise mid-crossing, the deeper the realm the surer.
+   And things *happen*: quiet stops turn up **events** — a merchant with a
+   bad deal, a goat race, a code-lock on a wreck, a philosopher in a barrel —
+   and **wonders** roam the chart (a sea-serpent, a ghost ship that swaps
+   two captains, singing whales). Some are a choice, some a small game or
+   puzzle; none of them needs quick fingers.
 4. **The realms.** Four passes pierce the mountains, and each realm **forks**
    into two roads to the boss: a **perilous road** — short and straight, but
    every stop is an elite pack in deep water — and a **long road** — a wide
@@ -70,16 +75,17 @@ scrolls, so nobody is ever just waiting.
 
 | Piece | File | Role |
 |---|---|---|
-| Board | `board.py` | Procedural chart: three safe rings + four realm spines with dungeon depth, d3-tuned lane lengths. |
+| Board | `board.py` | Procedural chart: three safe rings + four realm spines with dungeon depth, d3-tuned lane lengths, and a de-clipping pass so no lane crosses an island or grazes a coast. |
+| Travel | `static/travel.js`, `static/isleshape.js` | Ships sail curved routes with a turning circle and berth on the side they arrive from; island silhouettes follow the stop (harbour coves, shrine terraces, spire cliffs, lagoons). Crossing a pass plays an entry sequence — through the arch, a short fade, the camera rising on the realm (any tap skips it). |
 | Engine | `game.py` | Pure rules state machine — phases, wagers, battles (answer-blunted counters, heavies/BRACE/enrage, catch-up bosses), economy, relics. No IO; covered by the unit suite and the fuzzing simulator (`tools/sim.py`). |
 | Questions | `questions.py`, `data/trivia.json`, `data/jeopardy.json` | 2,252 audited multiple-choice questions tagged by difficulty (shrine tiers and STRIKE/MAGIC draw different pools, no repeats until a pool is spent) and a 54k-clue typed-answer deck with a lenient-on-typos, strict-on-guessing matcher. `tools/clean_jeopardy.py` rebuilds the deck. |
-| Events | `events.py`, `event_data.py`, `eventgames.py`, `static/events.js`, `static/worldfx.js` | 57 data-driven events for the Isles of Peace and the Amber Vale — story cards, untimed mini-games (knucklebones, the oracle's tiles, a code-lock, the cups, the amphora balance, the crossing, stone-scroll-shears, pebbles), table events everyone answers at once, and world wonders that roam the chart. Schema: `docs/EVENTS.md`. |
+| Events | `events.py`, `event_data*.py`, `eventgames*.py`, `static/events*.js`, `static/worldfx*.js` | 159 data-driven events across the Isles of Peace and all four realms — story cards with choices, untimed mini-games (knucklebones, the oracle's tiles, a code-lock, the cups, the amphora balance, the crossing, stone-scroll-shears, pebbles, haggling, a goat race, ice-floe hopping, memory pairs, drum echoes, pressure plates), table events everyone answers at once, and 30 world wonders that roam the chart (sea-serpent, kraken, ghost ship, singing whales, a sleeping berg-giant, a sandstorm…). Nothing needs fast hands. Schema: `docs/EVENTS.md`. |
 | Bots | `bots.py` | Philosopher captains: sail/wager/shop/battle heuristics (provision before a trial, BRACE the heavies) + per-tier answer accuracy. |
 | Server | `server.py` | FastAPI + WebSockets: one shared table, d3 dice, timers tied to what they time, an idle-turn clock so an absent captain never freezes the table, bot driver, per-socket send queues and rate limits. |
-| World | `static/gfx/*` + `scene.js`, `islands.js`, `realms/*`, `wall.js`, `themes.js` | The V2 renderer: HDR pipeline (bloom, sun shafts, ACES, film grade), one shared sky/sun/haze model with sky-baked ambient, view-following sun shadows, a real ocean with shallows and surf from a baked shore map, heightfield islands and lit mountain ranges. Five stages (Aegean hub + four realms), each with its own lighting script. See `docs/GRAPHICS.md`. |
+| World | `static/gfx/*` + `scene.js`, `islands.js`, `realms/*`, `wall.js`, `themes.js` | The V2 renderer: HDR pipeline (bloom, sun shafts, ACES, film grade), one shared sky/sun/haze model with sky-baked ambient, view-following sun shadows, drifting cloud shadows over sea and land, a real ocean with shallows and surf from a baked shore map, heightfield islands and lit mountain ranges. Five stages (Aegean hub + four realms), each with its own lighting script. See `docs/GRAPHICS.md`. |
 | Models | `static/assets/{monsters,props,structures}/*.glb` → `static/monsters.js`, `props.js`, `structures.js`, `modelmat.js` | 32 creature/boss sculpts, 36 props, 14 landmarks (AI-sculpted, see `tools/MESHY-PIPELINE.md`), finished per material class for the HDR renderer and animated procedurally by named part. `docs/MODELS.md` is the catalogue (kept / removed / stand-ins / to remake); `/static/modeltest.html` is the contact sheet. |
 | Battles | `static/battle.js`, `static/realms/battle_sets.js`, `static/ship.js` | A composed diorama set per stage with its own key/rim rig; lunges, spell bolts, damage numbers, telegraphed heavies; the player's procedural Greek galley with a sail device per colour. |
-| UI | `static/index.html`, `style.css`, `app.js`, `ui.js` | "Aegean bronze" design system — Cinzel/Alegreya, parchment cards, engraved bronze buttons, SVG icons, compass HUD. |
+| UI | `static/index.html`, `style.css`, `app.js`, `ui.js`, `chart.js` | "Aegean bronze" design system — Cinzel/Alegreya, parchment cards, engraved bronze buttons, SVG icons, compass HUD. The map is a 2D parchment chart (`chart.js`): the realm you are in or the whole world, every captain's token, and gilded rings on the stops your roll can reach — tap one to sail. |
 | Audio | `static/audio.js` | Web Audio SFX + looping soundtrack with battle/puzzle/endgame scenes. |
 
 No build step — plain ES modules; three.js r187 vendored in `static/vendor/`.
@@ -104,7 +110,7 @@ any enemy in the real battle scene.
 |---|---|---|
 | `TRIVIA_API_KEY` | unset | Optional the-trivia-api.com key for live battle questions. Read only from the environment — never commit one. |
 | `TRIVIA_OFFLINE` | unset | `1` = never call the API; use built-in questions. |
-| `QUESTION_SECS` | `35` | Answer window per question. |
+| `QUESTION_SECS` | `50` | Answer window per question. Clocks start when the card is actually on a captain's screen; typed clues get 60 s, puzzles 45–90 s. |
 | `REVEAL_SECS` | `5` | How long the answer reveal stays up. |
 | `ABANDON_RESET_SECS` | `300` | Deserted mid-game table resets after this long. |
 | `BOT_TEMPO` | `1.0` | Bot thinking-time multiplier (0.2 = speed chess). |

@@ -152,12 +152,17 @@ float valePort(float rIn, float rOut, float dNear, float dFar) {
   float inHole = 1.0 - smoothstep(rIn, rOut, rr);
   float gate = 1.0 - smoothstep(uPort.x * dNear, uPort.x * dFar, depth);
   return 1.0 - inHole * gate;
+}
+// anything hugging the lens dissolves before the near plane can slice it open
+// (a trunk beside the camera used to show as a hollow collar)
+float valeNear() {
+  return smoothstep(2.5, 5.0, max(vViewPosition.z, 0.001));
 }`;
 
 const f3 = (x) => x.toFixed(3);
 /* patch a MeshStandardMaterial with the Vale's light: sun pools, the sight
    tunnel, and (for leaves) the glow of low sun shining through them */
-function valePatch(mat, key, { dapple: dk = 0, port = null, portMinY = null, glow = 0 } = {}) {
+function valePatch(mat, key, { dapple: dk = 0, port = null, portMinY = null, portAxis = false, glow = 0 } = {}) {
   dapple();
   mat.onBeforeCompile = (shader) => {
     addWorldVaryings(shader);
@@ -166,9 +171,36 @@ function valePatch(mat, key, { dapple: dk = 0, port = null, portMinY = null, glo
     shader.uniforms.uPort = U.uPort;
     let fs = shader.fragmentShader
       .replace('#include <common>', `#include <common>\n${DAPPLE_GLSL}\n${PORT_GLSL}`);
-    if (port) {
+    if (port && portAxis) {
+      // a TRUNK dissolves as one piece: the test runs on its axis (per instance,
+      // in the vertex shader), so a tree standing in the sight line fades out
+      // whole above the stump instead of being bitten through the middle
+      shader.vertexShader = shader.vertexShader
+        .replace('#include <common>', '#include <common>\nuniform vec4 uPort;\nvarying float vPortAxis;')
+        .replace('#include <begin_vertex>', `#include <begin_vertex>
+        {
+          float hole = 0.0;
+          #ifdef USE_INSTANCING
+          float pSc = length(instanceMatrix[0].xyz);
+          for (int pi = 0; pi < 5; pi++) {
+            vec4 ap = modelViewMatrix * instanceMatrix * vec4(0.0, 2.0 + float(pi) * 3.5, 0.0, 1.0);
+            float pDepth = max(-ap.z, 0.001);
+            float pr = max(length(ap.xy) - 1.7 * pSc, 0.0) / (pDepth * uPort.y);
+            float pIn = 1.0 - smoothstep(${f3(port[0])}, ${f3(port[1])}, pr);
+            float pGate = 1.0 - smoothstep(uPort.x * ${f3(port[2])}, uPort.x * ${f3(port[3])}, pDepth);
+            hole = max(hole, pIn * pGate);
+          }
+          #endif
+          vPortAxis = 1.0 - hole;
+        }`);
+      fs = fs.replace('#include <common>', '#include <common>\nvarying float vPortAxis;')
+        .replace('#include <alphatest_fragment>', `#include <alphatest_fragment>
+        if (${portMinY === null ? '' : `vWPos.y > ${f3(portMinY)} && `}vPortAxis < valeBayer(gl_FragCoord.xy)) discard;
+        if (valeNear() < valeBayer(gl_FragCoord.xy)) discard;`);
+    } else if (port) {
       fs = fs.replace('#include <alphatest_fragment>', `#include <alphatest_fragment>
-        if (${portMinY === null ? '' : `vWPos.y > ${f3(portMinY)} && `}valePort(${port.map(f3).join(', ')}) < valeBayer(gl_FragCoord.xy)) discard;`);
+        if (${portMinY === null ? '' : `vWPos.y > ${f3(portMinY)} && `}valePort(${port.map(f3).join(', ')}) < valeBayer(gl_FragCoord.xy)) discard;
+        if (valeNear() < valeBayer(gl_FragCoord.xy)) discard;`);
     }
     if (dk) {
       fs = fs.replace('#include <lights_fragment_end>', `#include <lights_fragment_end>
@@ -507,13 +539,17 @@ function buildTree(v) {
     return r * (1 + Math.exp(-tt * 16) * 0.5 + Math.exp(-tt * 9) * 1.45 * butt) * lump;
   };
   const pos = [], uv = [], col = [], idx = [];
-  for (let i = 0; i < TS.length; i++) {
-    const y = Y0 + TS[i] * (P.H - Y0);
+  // the crotch: two more rings close the trunk over into a rounded shoulder, so
+  // the limbs fork out of solid wood (the open rim used to show as a hollow
+  // collar round the narrower limbs)
+  const ROWS = TS.map((t) => [t, 1]).concat([[1 + (P.r1 * 0.45) / (P.H - Y0), 0.78], [1 + (P.r1 * 0.8) / (P.H - Y0), 0.3]]);
+  for (let i = 0; i < ROWS.length; i++) {
+    const y = Y0 + ROWS[i][0] * (P.H - Y0);
     const tt = Math.max(0, y / P.H);
-    const [bx, bz] = bend(tt);
+    const [bx, bz] = bend(Math.min(tt, 1));
     for (let s = 0; s <= SEG; s++) {
       const a = (s / SEG) * TAU;
-      const rad = radiusAt(tt, a);
+      const rad = radiusAt(Math.min(tt, 1), a) * ROWS[i][1];
       pos.push(bx + Math.cos(a) * rad, y, bz + Math.sin(a) * rad);
       uv.push((s / SEG) * 3, y / 3.6);
       // damp and dark at the foot, moss up the shaded side of the roots
@@ -522,7 +558,7 @@ function buildTree(v) {
       col.push(k * (1 - moss) + 0.52 * moss, k * (1 - moss) + 0.74 * moss, k * (1 - moss) + 0.40 * moss);
     }
   }
-  for (let i = 0; i < TS.length - 1; i++) {
+  for (let i = 0; i < ROWS.length - 1; i++) {
     for (let s = 0; s < SEG; s++) {
       const a = i * (SEG + 1) + s, b = a + 1, c = a + SEG + 1, d = c + 1;
       idx.push(a, c, b, b, c, d);
@@ -536,7 +572,7 @@ function buildTree(v) {
   trunk.computeVertexNormals();
   {                                           // weld the seam's normals
     const n = trunk.attributes.normal;
-    for (let i = 0; i < TS.length; i++) {
+    for (let i = 0; i < ROWS.length; i++) {
       const a = i * (SEG + 1), b = a + SEG;
       const x = n.getX(a) + n.getX(b), y = n.getY(a) + n.getY(b), z = n.getZ(a) + n.getZ(b);
       const l = Math.hypot(x, y, z) || 1;
@@ -758,8 +794,8 @@ function treeKit() {
     drift: buildDrift(),
     shaft: buildShaft(),
     bark: valePatch(new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.95, metalness: 0,
-      map: barkTexture(), bumpMap: barkTexture(), bumpScale: 1.8 }), 'bark-v1',
-      { dapple: 0.9, port: [0.40, 0.50, 0.78, 0.90], portMinY: 1.6 }),
+      map: barkTexture(), bumpMap: barkTexture(), bumpScale: 1.8 }), 'bark-v2',
+      { dapple: 0.9, port: [0.16, 0.34, 0.80, 0.94], portMinY: 1.6, portAxis: true }),
     crown: valePatch(new THREE.MeshStandardMaterial(crownOpts), 'crown-v1',
       { port: [0.70, 0.88, 0.94, 1.30], glow: 1.5 }),
     proxyMat: new THREE.MeshBasicMaterial({ colorWrite: false, depthWrite: false }),
