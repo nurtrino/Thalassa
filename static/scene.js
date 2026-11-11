@@ -1970,8 +1970,26 @@ export function createWorld(container, handlers = {}) {
       let moving = false;
       if (rec.anim) {
         const an = rec.anim;
-        const k = Math.min(1, (now - an.t0) / an.dur);
-        const s = routeS(an.route, easeVoyage(k), an.seg);
+        const foot = rec.mode === 'foot';
+        let k = Math.min(1, (now - an.t0) / an.dur);
+        let s = routeS(an.route, easeVoyage(k), an.seg);
+        // a man facing the wrong way turns on his heel BEFORE he steps off
+        // (a hull can't — its route already leaves along the bow). The clock
+        // is HELD at the moment he began to turn, whatever the frame took —
+        // on a starved frame the old "push t0 by the clamped dt" leaked and
+        // he walked backwards while still turning.
+        if (foot) {
+          routeAt(an.route, s, _vB, _vA, an.seg);
+          let off = Math.atan2(-_vA.z, _vA.x) - rec.root.rotation.y;
+          off -= Math.round(off / (Math.PI * 2)) * Math.PI * 2;
+          if (Math.abs(off) > 0.6 && s < an.total * 0.5) {
+            if (an.heel == null) an.heel = Math.max(0, an.prevEl ?? 0);
+            an.t0 = now - an.heel;
+            k = Math.min(1, an.heel / an.dur);
+            s = routeS(an.route, easeVoyage(k), an.seg);
+          } else an.heel = null;
+        }
+        an.prevEl = now - an.t0;
         const px0 = rec.root.position.x, pz0 = rec.root.position.z;
         an.seg = routeAt(an.route, s, rec.root.position, _vA, an.seg);
         // speed over the ground this frame: the helm may swing as fast as
@@ -1979,14 +1997,6 @@ export function createWorld(container, handlers = {}) {
         const sog = Math.hypot(rec.root.position.x - px0, rec.root.position.z - pz0) / Math.max(shipDt, 1e-3);
         // the bow follows the curve's tangent at a capped turn rate — no
         // pivoting on the spot, no crabbing sideways; a walker turns quicker
-        const foot = rec.mode === 'foot';
-        // a man facing the wrong way turns on his heel BEFORE he steps off
-        // (a hull can't — its route already leaves along the bow)
-        if (foot) {
-          let off = Math.atan2(-_vA.z, _vA.x) - rec.root.rotation.y;
-          off -= Math.round(off / (Math.PI * 2)) * Math.PI * 2;
-          if (Math.abs(off) > 0.6 && s < an.total * 0.5) an.t0 += shipDt * 1000;
-        }
         rec.root.rotation.y = helm(rec.root.rotation.y, _vA.x, _vA.z, shipDt,
                                    helmRate(sog, foot), foot ? 16 : 12);
         if (foot && st.surf.heightAt) rec.root.position.y = Math.max(0, st.surf.heightAt(rec.root.position.x, rec.root.position.z));

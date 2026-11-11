@@ -2455,14 +2455,17 @@ body:has(#shopPanel:not(.hidden)) #evHud { display: none; }
 
 /* ═══ phone layout fixes (QA report 2: F10, F16, L1, L2) ═════════════════ */
 /* F10 phone portrait: the tray is centred with left:50%, so it shrank to half
-   the screen and stacked hint / TRADER / END TURN into three rows over the
-   turn strip. Give it the full width, keep the hint to one slim line, and
+   the screen, and END TURN (.big = width 100%) took a row of its own, so
+   hint / TRADER / END TURN stacked three rows over the turn strip. Give the
+   tray the full width, put the buttons on one row, keep the hint slim, and
    when a hint sits above buttons lift the turn strip + objective clear. */
 @media (max-width: 520px) and (orientation: portrait) {
   #tray { width: min(96vw, 440px); }
   #tray > .hint { min-height: 0; padding: 5px 12px; font-size: 13px; }
-  body:has(#tray > .hint ~ .act) #turnBanner { bottom: 118px; }
-  body:has(#tray > .hint ~ .act) #objective { bottom: 152px; }
+  #tray > .act.big { width: auto; flex: 1 1 auto; }
+  #tray > .act ~ .act.big { margin-top: 0; }
+  body:has(#tray > .hint ~ .act) #turnBanner { bottom: 104px; }
+  body:has(#tray > .hint ~ .act) #objective { bottom: 138px; }
 }
 /* F16 phone landscape battle: the captains' rows sat half-transparent over
    the top-left of the fight; the battle has its own hearts, so hide them */
@@ -2470,14 +2473,12 @@ body:has(#shopPanel:not(.hidden)) #evHud { display: none; }
   body.battling #players { display: none; }
 }
 /* L1 the foe's health stays ONE row on a phone (up to the 18-pip cap):
-   the pips shrink to share the card's width instead of wrapping */
+   the pips keep their width as the preferred size but may shrink to share
+   the card's width instead of wrapping */
 @media (max-width: 700px), (max-height: 500px) and (orientation: landscape) {
-  #bmon .ecard { max-width: 100%; min-width: 0; }
+  #bmon .ecard { max-width: 100%; }
   #bmon .hpbar.foe { flex-wrap: nowrap; gap: 3px; }
-  #bmon .hpbar.foe .hpcell { flex: 0 1 24px; width: auto; min-width: 5px; }
-}
-@media (max-height: 500px) and (orientation: landscape) {
-  #bmon .hpbar.foe .hpcell { flex-basis: 14px; min-width: 4px; }
+  #bmon .hpbar.foe .hpcell { flex: 0 1 auto; min-width: 4px; }
 }
 /* L2 narrow screens: the puzzle/question header's subtitle wraps instead of
    being cut off ("solve it — or ta…") */

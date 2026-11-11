@@ -92,3 +92,6 @@
 .evcard.play .evplates { margin-top: 8px; gap: 8px; }
 .evcard.play .evplate { padding: 6px 4px; }
 .evcard.play .evplate svg { width: clamp(26px, 5.5vh, 40px); height: clamp(26px, 5.5vh, 40px); }
+@media (max-width: 520px) {
+  .evcard.play .evdrumch { grid-template-columns: 1fr; }   /* long patterns stay on one line */
+}
