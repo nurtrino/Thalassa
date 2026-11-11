@@ -2245,8 +2245,9 @@ export function createWorld(container, handlers = {}) {
   }
   function tickReachEdge(st) {
     const r = lastRoom;
-    const on = reachKey && r && r.phase === 'sail' && r.turn === myPid && !cross && !cine && !tour
-      && !battleOn && activeBoardId !== 'autumn' && !animatingPid();
+    const on = reachKey && r && r.phase === 'sail' && r.turn === myPid && !r.battle && !cross && !cine && !tour
+      && !battleOn && activeBoardId !== 'autumn' && !animatingPid()
+      && ships[myPid]?.stageId === activeBoardId && Object.keys(r.reachable || {}).length > 0;
     if (!on) {
       if (edgeShown) { edgeShown = false; for (const c of edgeChips.values()) c.remove(); edgeChips.clear(); }
       return;
