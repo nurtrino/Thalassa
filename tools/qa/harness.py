@@ -197,7 +197,7 @@ class Client:
 
 @contextlib.asynccontextmanager
 async def browser_client(url, name="Odysseus", width=1600, height=1000,
-                         start=True, join=True):
+                         start=True, join=True, gfx=None):
     """A (optionally joined and sailing) client on a fresh page. join=False
     stays on the title screen without creating a player — important when a
     later client on the same server must be the host."""
@@ -208,6 +208,11 @@ async def browser_client(url, name="Odysseus", width=1600, height=1000,
             args=["--use-angle=swiftshader", "--enable-unsafe-swiftshader"])
         page = await browser.new_page(
             viewport={"width": width, "height": height})
+        # headless Chromium renders in software: pin the Light graphics tier
+        # so timing checks measure the game, not the rasteriser (the visual
+        # suite asks for a richer tier explicitly)
+        gfx = gfx or os.environ.get("QA_GFX", "low")
+        url = f"{url}/?gfx={gfx}"
         c = Client(page, url)
         if join:
             await c.join(name)

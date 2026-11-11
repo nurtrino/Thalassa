@@ -19,7 +19,7 @@ const LOOKS = {
     sun: { az: 38, el: 46, color: 0xfff1d8, intensity: 2.5 },
     sky: { zenith: 0x1856bd, ground: 0x2d7fa6, curve: 0.52, glow: 0.5, disc: 30,
            clouds: { cover: 0.34, scale: 1.0, speed: 0.010, soft: 0.26, lit: 0xffffff, shade: 0x8fa3bd } },
-    fog: { color: 0x5e97d2, sunColor: 0xffdca6, sunGlow: 0.32, heightFalloff: 0.024, heightBase: 5, heightAmount: 0.94 },
+    fog: { color: 0x86b8e4, sunColor: 0xffdca6, sunGlow: 0.32, heightFalloff: 0.024, heightBase: 5, heightAmount: 0.94 },
     env: 0.6, fill: { sky: 0xcfe6ff, ground: 0x4a7f72, intensity: 0.12 },
     shadow: { strength: 0.9, radius: 2.5 },
     exposure: 0.9, bloom: { strength: 0.30, radius: 0.55, threshold: 1.05 },

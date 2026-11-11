@@ -298,8 +298,11 @@ export function createWorld(container, handlers = {}) {
   function buildStage(stageId, room) {
     const theme = themeFor(stageId);
     const scene = new THREE.Scene();
-    scene.background = new THREE.Color(theme.fog.color);
-    scene.fog = new THREE.Fog(theme.fog.color, theme.fog.near, theme.fog.far);
+    // haze COLOUR belongs to the stage's look (so land, sea and sky horizon
+    // agree); the sight DISTANCES are gameplay and stay with the theme
+    const hazeHex = lookFor(stageId).fog.color;
+    scene.background = new THREE.Color(hazeHex);
+    scene.fog = new THREE.Fog(hazeHex, theme.fog.near, theme.fog.far);
     const center = stageCenter(stageId, room);
     const rng = mulberry32(hashStr('stage:' + stageId));
 

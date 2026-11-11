@@ -31,7 +31,7 @@ const THEMES = {
     water: { deep: 0x1f8fbf, shallow: 0x3fd0cf, sparkle: 1.0, chop: 1.0 },
     ground: 'water',
     sky: { zenith: 0x2c86d8, mid: 0x8fd0ee, horizon: 0xfdeed3 },
-    fog: { color: 0xcfe9f3, near: 90, far: 520 },
+    fog: { color: 0x86b8e4, near: 90, far: 520 },   // colour mirrors gfx/looks.js (the look is authoritative)
     sun: { color: 0xfff1d6, intensity: 1.75, position: [180, 260, 120] },
     hemi: { sky: 0xd6ecff, ground: 0x3e7d5a, intensity: 0.85 },
     ambient: 0x28394a,

@@ -270,6 +270,13 @@ def battle(outdir):
                     await c.send({"type": "dev", "battle_mode": deck})
                     await c.send({"type": "stance", "stance": stance})
                     want = "minigame" if deck == "puzzle" else "question"
+                    if deck == "jeopardy":
+                        # typed clues come off a category board: pick one
+                        # rather than waiting out the 12s auto-pick
+                        with contextlib.suppress(Exception):
+                            await c.wait_phase("jchoose", "question", timeout=6000)
+                        if (await c.room())["phase"] == "jchoose":
+                            await c.send({"type": "jpick", "idx": 0})
                     try:
                         await c.wait_phase(want, timeout=9000)
                     except Exception:
@@ -455,9 +462,9 @@ def visual(outdir):
             arts.append(p)
 
         with DevServer() as srv:
-            async with browser_client(srv.url, join=False) as c:
+            async with browser_client(srv.url, join=False, gfx="medium") as c:
                 await keep(c, "vis_title", 2500)
-            async with browser_client(srv.url, name="Penelope") as c:
+            async with browser_client(srv.url, name="Penelope", gfx="medium") as c:
                 await keep(c, "vis_hub", 1400)
                 r = await c.room()
                 nodes = r["board"]["nodes"]
