@@ -130,10 +130,27 @@ export function planRoute(raw, solids, opts = {}) {
   //     along the current heading and swings round in a real turning circle
   const ctrl = [start];
   const direct = start.distanceTo(end);
+  let nFixedHead = 1;
   if (!opts.walk && opts.heading != null && direct > 3) {
-    const lead = Math.min(7, Math.max(2.5, direct * 0.22));
-    ctrl.push(new THREE.Vector3(start.x + Math.cos(opts.heading) * lead, 0,
-                                start.z - Math.sin(opts.heading) * lead));
+    // a real TURNING CIRCLE off the berth: swing along the bow's heading
+    // until it bears on the first point of the lane (never a cusp)
+    const tgt = raw.length > 2 ? raw[1] : end;
+    const Rt = opts.turnRadius ?? 6.5, step = 1.6, dA = step / Rt;
+    let x = start.x, z = start.z, yaw = opts.heading, turned = 0;
+    const firstLeg = Math.max(2, Math.min(5, direct * 0.15));
+    x += Math.cos(yaw) * firstLeg; z -= Math.sin(yaw) * firstLeg;
+    ctrl.push(new THREE.Vector3(x, 0, z));
+    for (let i = 0; i < 40 && turned < Math.PI * 1.6; i++) {
+      const want = Math.atan2(-(tgt.z - z), tgt.x - x);
+      let d = want - yaw;
+      d -= Math.round(d / (Math.PI * 2)) * Math.PI * 2;
+      if (Math.abs(d) < 0.12) break;
+      const t = Math.sign(d) * Math.min(Math.abs(d), dA);
+      yaw += t; turned += Math.abs(t);
+      x += Math.cos(yaw) * step; z -= Math.sin(yaw) * step;
+      ctrl.push(new THREE.Vector3(x, 0, z));
+    }
+    nFixedHead = ctrl.length;            // the turning circle is geometry: keep it
   }
   for (let i = 1; i < raw.length - 1; i++) {
     const p = raw[i].clone();
@@ -142,7 +159,6 @@ export function planRoute(raw, solids, opts = {}) {
   }
   if (end.distanceTo(ctrl[ctrl.length - 1]) < 0.5 && ctrl.length > 1) ctrl.pop();
   ctrl.push(end);
-  const nFixedHead = opts.walk || opts.heading == null || direct <= 3 ? 1 : 2;
 
   // solids the vessel is ALREADY inside the clearance of (it berthed snug
   // against an island, or its berth is snug against one) keep only the
@@ -213,22 +229,68 @@ export function planRoute(raw, solids, opts = {}) {
   const L = curve.getLength();
   const n = Math.max(2, Math.ceil(L / spacing));
   const out = curve.getSpacedPoints(n);
-  // the spline can sag a hair back into a disc between samples: final nudge
-  for (let i = 1; i < out.length - 1; i++) {
-    const p = out[i];
-    p.y = 0;
-    for (const c of eff) {
-      const dx = p.x - c.x, dz = p.z - c.z;
-      const d = Math.hypot(dx, dz);
-      if (d < c.r && d > 1e-4) { p.x = c.x + dx / d * c.r; p.z = c.z + dz / d * c.r; }
+  // the spline can sag a hair back into a disc between samples: nudge out,
+  // then let a few smoothing passes melt the kink the nudge leaves where the
+  // curve meets the disc (smooth → nudge → … converges to a clean arc)
+  const headLen = (() => {
+    let L = 0;
+    for (let i = 1; i < nFixedHead && i < ctrl.length; i++) L += ctrl[i].distanceTo(ctrl[i - 1]);
+    return L;
+  })();
+  const keep = [];
+  { let L = 0; for (let i = 0; i < out.length; i++) { if (i) L += out[i].distanceTo(out[i - 1]); keep.push(i === 0 || i === out.length - 1 || L <= headLen); } }
+  const nudge = () => {
+    for (let i = 1; i < out.length - 1; i++) {
+      if (keep[i]) continue;
+      const p = out[i];
+      p.y = 0;
+      for (const c of eff) {
+        const dx = p.x - c.x, dz = p.z - c.z;
+        const d = Math.hypot(dx, dz);
+        if (d < c.r && d > 1e-4) { p.x = c.x + dx / d * c.r; p.z = c.z + dz / d * c.r; }
+      }
+      if (opts.constrain) opts.constrain(p);
     }
-    if (opts.constrain) opts.constrain(p);
+  };
+  nudge();
+  for (let pass = 0; pass < (opts.walk ? 2 : 6); pass++) {
+    for (let i = 1; i < out.length - 1; i++) {
+      if (keep[i]) continue;
+      const p = out[i], a = out[i - 1], b = out[i + 1];
+      p.x += ((a.x + b.x) * 0.5 - p.x) * 0.5;
+      p.z += ((a.z + b.z) * 0.5 - p.z) * 0.5;
+    }
+    nudge();
   }
   out[0].copy(start);
   out[out.length - 1].copy(end);
   const cum = [0];
   for (let i = 1; i < out.length; i++) cum.push(cum[i - 1] + out[i].distanceTo(out[i - 1]));
-  return { pts: out, cum, total: cum[cum.length - 1] };
+  // TIME along the route: a hull takes a tight turn slower than a straight
+  // run, so the clock is weighted by curvature (cumU) — routeS() maps the
+  // eased voyage fraction through it to a distance
+  const cumU = [0];
+  for (let i = 1; i < out.length; i++) {
+    const a = out[Math.max(0, i - 2)], b = out[i - 1], c = out[i];
+    const a1 = Math.atan2(b.z - a.z, b.x - a.x), a2 = Math.atan2(c.z - b.z, c.x - b.x);
+    let d = a2 - a1;
+    d -= Math.round(d / (Math.PI * 2)) * Math.PI * 2;
+    const seg = cum[i] - cum[i - 1];
+    const kappa = seg > 1e-6 ? Math.abs(d) / seg : 0;
+    cumU.push(cumU[i - 1] + seg * (1 + (opts.walk ? 2 : 11) * Math.min(0.5, kappa)));
+  }
+  return { pts: out, cum, cumU, total: cum[cum.length - 1], totalU: cumU[cumU.length - 1] };
+}
+
+/** distance along the route at voyage fraction f (0..1), curvature-paced */
+export function routeS(route, f, hint = 0) {
+  const { cum, cumU } = route;
+  const u = Math.max(0, Math.min(1, f)) * route.totalU;
+  let i = Math.min(Math.max(0, hint), cum.length - 2);
+  while (i < cum.length - 2 && cumU[i + 1] < u) i++;
+  while (i > 0 && cumU[i] > u) i--;
+  const du = cumU[i + 1] - cumU[i];
+  return cum[i] + (du > 1e-9 ? (u - cumU[i]) / du : 0) * (cum[i + 1] - cum[i]);
 }
 
 /* ── following ─────────────────────────────────────────────────────────── */

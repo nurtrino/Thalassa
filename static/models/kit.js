@@ -401,7 +401,9 @@ export function lathe(profile, segs = 24, { flutes = 0, depth = 0.08, f0 = -1e9,
    debug cube. Flat faces, smooth quarter-round edges and corners.
    seg = bevel rings (1 → 108 triangles, 2 → 300). */
 export function box(w, h, d, b = 0.06, seg = 1) {
-  const bb = Math.min(b, w / 2 - 1e-3, h / 2 - 1e-3, d / 2 - 1e-3);
+  // a bevel under ~3 cm is invisible at board distance: a plain 12-triangle
+  // box is enough (small trim, windows, slats, studs)
+  const bb = b < 0.03 ? 0 : Math.min(b, w / 2 - 1e-3, h / 2 - 1e-3, d / 2 - 1e-3);
   if (bb <= 1e-3) { const g0 = new THREE.BoxGeometry(w, h, d); g0.deleteAttribute('uv'); return g0; }
   const N = 2 * seg + 1;
   const g = new THREE.BoxGeometry(1, 1, 1, N, N, N);

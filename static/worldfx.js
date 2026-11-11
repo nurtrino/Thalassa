@@ -226,6 +226,7 @@ function fairyRing() {
     g.add(s);
     g.userData.motes.push(s);
   }
+  g.scale.setScalar(1.8);
   return g;
 }
 

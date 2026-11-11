@@ -116,6 +116,16 @@ The procedural models live in `static/models/` (no new binary assets):
 | `dock`, `ice_temple` | jetties, ice lair | keep | |
 | `gate_portal`, `ship` GLBs | not mounted | keep on disk | |
 
+Measured (`kit.stats`, triangles · draw calls incl. flame sprites): Pharos
+tower 13.5k · 22 (the isle with terrain, rocks, mole, peristyle 27k · 35);
+shrines 3.6–4.8k · 10; puzzle spire 4.8k · 12; sea haven 3.7k · 12; market
+9.0k · 8; home port town + terrain 10.9k · 12; realm gate 9.2k · 18; lair
+altar 1.5k · 12; relic 0.7k · 3; checkpoint 0.8k · 4; rock 180 · 1; turn
+marker 64 · 2; reach beacon 264 · 5; sea lane 1 call; foot trail 1 call
+(was one call per stone). Point lights removed: one per shrine, puzzle,
+haven, home lighthouse, sail lair and monster isle, and one of the two per
+wall pass and per gate.
+
 Creature stand-ins — **kept** (judged side by side in the contact sheet): the
 nine stand-ins are 9–14k-triangle hand-painted sculpts; a procedural
 blob-and-tube wolf, fox, crow or stag would read as a toy next to the jackal,

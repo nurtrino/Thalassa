@@ -45,10 +45,10 @@ import { propGroup } from '../props.js';
 function columnGeo() {
   return cached('geo:column', () => {
     const g = lathe([
-      [0.122, 0.0], [0.122, 0.022], [0.122, 0.022], [0.112, 0.03], [0.116, 0.046],
-      [0.094, 0.062], [0.088, 0.072], [0.084, 0.42], [0.075, 0.86], [0.072, 0.9],
+      [0.122, 0.0], [0.122, 0.022], [0.122, 0.022], [0.112, 0.034],
+      [0.094, 0.062], [0.086, 0.074], [0.081, 0.5], [0.072, 0.9],
       [0.072, 0.9], [0.081, 0.908], [0.074, 0.918], [0.104, 0.948], [0.114, 0.962],
-    ], 16);
+    ], 12);
     const ab = box(0.26, 0.04, 0.26, 0.008, 1);
     ab.translate(0, 0.982, 0);
     const p = new Parts();
@@ -426,7 +426,7 @@ export function makePharos() {
           const v = new THREE.Vector3(xx, yy, d + o).applyAxisAngle(new THREE.Vector3(0, 1, 0), ry);
           return M(v.x, v.y, v.z, ry, 1, 1, 1, -lean);
         };
-        stoneP.add(box(0.95, 1.7, 0.24, 0.04), marbleShade, m(0.02));
+        stoneP.add(box(0.95, 1.7, 0.24, 0), marbleShade, m(0.02));
         darkP.add(box(0.55, 1.3, 0.1), 0x16120f, m(0.12));
       }
     }
@@ -551,7 +551,7 @@ function makePharosGate() {
     p.add(box(1.66, 5.0, 0.2, 0.04), 0x9a7a40);
     for (const yy of [-1.5, 0.2, 1.7]) p.add(box(1.2, 1.2, 0.08, 0.05), 0xb48e48, M(0, yy, 0.12));
     for (let r = 0; r < 4; r++) {
-      for (const xx of [-0.68, 0.68]) p.add(blob(0.05, 1), 0xc29a4a, M(xx, -2.2 + r * 1.45, 0.14));
+      for (const xx of [-0.68, 0.68]) p.add(blob(0.05, 0), 0xc29a4a, M(xx, -2.2 + r * 1.45, 0.14));
     }
     const geo = p.geometry(); geo.userData.shared = true;
     return geo;

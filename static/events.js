@@ -191,7 +191,11 @@ function renderHud(room, you) {
   const me = room.players.find((p) => p.pid === you);
   const info = room.event_info?.buffs || {};
   const buffs = Object.entries(me?.buffs || {});
-  const world = room.world || [];
+  // the wonders of the stage you stand in (the chart lists the rest)
+  const byId = {};
+  for (const n of room.board?.nodes || []) byId[n.id] = n;
+  const here = byId[me?.node]?.region || null;
+  const world = (room.world || []).filter((w) => (byId[w.node]?.region || null) === here);
   const sig = JSON.stringify([buffs, world.map((w) => [w.wid, w.rounds])]);
   if (sig === hudSig) return;
   hudSig = sig;

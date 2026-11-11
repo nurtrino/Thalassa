@@ -34,7 +34,7 @@ import { makeLightRig } from './gfx/lighting.js';
 import { makeOcean, WATER_Y } from './gfx/ocean.js';
 import { createPipeline } from './gfx/pipeline.js';
 import { makeShoreMap } from './gfx/shoremap.js';
-import { planRoute, routeAt, helm, easeVoyage, obstacleIndex, smooth01 } from './travel.js';
+import { planRoute, routeAt, routeS, helm, easeVoyage, obstacleIndex, smooth01 } from './travel.js';
 import { REALM_INFO } from './themes.js';
 import { islandRoom, laneBearing } from './isleshape.js';
 import { makeTurnMarker as modelTurnMarker, makeReachBeacon, makeSeaLane, makeFootTrail } from './models/props.js';
@@ -1154,12 +1154,14 @@ export function createWorld(container, handlers = {}) {
       const along = (P.x - g.x) * f.x + (P.z - g.z) * f.z;    // < 0 before the arch
       const camAlong = Math.min(along - 16, -36);
       const lat = (P.x - g.x) * -f.z + (P.z - g.z) * f.x;     // off the centre line
-      const latK = lat * smooth01(-30, -70, along);
-      _vC.set(g.x + f.x * camAlong - f.z * latK, 4.4, g.z + f.z * camAlong + f.x * latK);
+      // (astern of the hull wherever it is: by the run-in point it is on the
+      // centre line anyway, so the arch frames up square as it gets there)
+      _vC.set(g.x + f.x * camAlong - f.z * lat, 4.4, g.z + f.z * camAlong + f.x * lat);
       _vA.lerp(_vC, e);
       _vC.set(P.x + sfx * 3, 1.6, P.z + sfz * 3);
       _vD.set(g.x + f.x * 46, 7, g.z + f.z * 46);
-      _vC.lerp(_vD, e);
+      // the eye swings onto the arch only as the hull lines up with it
+      _vC.lerp(_vD, e * (0.55 + 0.45 * smooth01(-46, -20, along)));
       _vA.y = Math.max(_vA.y, groundY(st, _vA.x, _vA.z) + 2.2);
       // ease in from wherever the player left the camera, by the hull's
       // PROGRESS (not by frame time): the same shot at 60 fps or at 5
@@ -1901,7 +1903,7 @@ export function createWorld(container, handlers = {}) {
       if (rec.anim) {
         const an = rec.anim;
         const k = Math.min(1, (now - an.t0) / an.dur);
-        const s = easeVoyage(k) * an.total;
+        const s = routeS(an.route, easeVoyage(k), an.seg);
         an.seg = routeAt(an.route, s, rec.root.position, _vA, an.seg);
         // the bow follows the curve's tangent at a capped turn rate — no
         // pivoting on the spot, no crabbing sideways; a walker turns quicker
