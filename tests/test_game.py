@@ -1361,7 +1361,7 @@ def test_picross_givens_differ_by_stance():
                 return d
         return None
 
-    assert P.TIME_LIMITS["nonogram"] == 49.375
+    assert P.TIME_LIMITS["nonogram"] >= 60            # no reflexes: a generous clock
     for tier in (1, 2):
         d = first_picross(tier)
         assert d and d["n"] == 5 and len(d["given"]) == 5

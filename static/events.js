@@ -15,6 +15,7 @@
  * event_info and players[].buffs; nothing reaches for hidden state.
  */
 import { esc, stripEmoji } from './ui.js';
+import { REALM_M, realmBand, REALM_LABEL, REALM_GAMES, wireRealm } from './events_realms.js';
 
 let send = () => {};
 let els = null;
@@ -106,7 +107,7 @@ const M = {
   sea: '<path d="M4 30c8-6 14-6 20 0s12 6 20 0 12-6 16-2"/><path d="M4 42c8-6 14-6 20 0s12 6 20 0 12-6 16-2"/><path d="M4 54c8-6 14-6 20 0s12 6 20 0 12-6 16-2"/><circle cx="46" cy="14" r="6"/>',
 };
 const ART_ALIAS = { narcissus: 'flower', spider: 'spider', paths: 'paths' };
-const motif = (k) => M[k] || M[ART_ALIAS[k]] || M.sea;
+const motif = (k) => M[k] || REALM_M[k] || M[ART_ALIAS[k]] || M.sea;
 
 function svgIcon(k, size = 24) {
   return `<svg viewBox="0 0 64 64" width="${size}" height="${size}" fill="none" stroke="currentColor" ` +
@@ -116,10 +117,11 @@ function svgIcon(k, size = 24) {
 /* the illustration band: a stage backdrop + a gilt medallion with the motif */
 function artBand(art, stage) {
   const vale = stage === 'autumn';
+  const rb = realmBand(stage);          // the Frostfang Reach / the Verdigris Deep
   const dunes = stage === 'desert';
-  const sky = vale ? ['#4a2412', '#b8641f', '#f2b45a']
+  const sky = rb ? rb.sky : vale ? ['#4a2412', '#b8641f', '#f2b45a']
     : dunes ? ['#5a3416', '#c98a3e', '#f7d894'] : ['#0e2a3c', '#2e6f86', '#e8c27a'];
-  const back = dunes
+  const back = rb ? rb.back : dunes
     ? '<circle cx="250" cy="30" r="15" fill="#fff1c4" opacity=".9"/>' +
       '<path d="M0 104V78c40-16 80-20 120-8s70 10 110-4 70-6 90 2V104Z" fill="#b8763a" opacity=".85"/>' +
       '<path d="M0 104V90c50-10 100-10 150-2s110 6 170-6V104Z" fill="#7a4520" opacity=".85"/>' +
@@ -217,7 +219,7 @@ function nameOf(room, pid) {
 
 function stageLabel(stage) {
   return stage === 'autumn' ? 'The Amber Vale' : stage === 'hub' ? 'The Isles of Peace'
-    : stage === 'desert' ? 'The Bleached Reach' : (stage || '');
+    : stage === 'desert' ? 'The Bleached Reach' : (REALM_LABEL[stage] || stage || '');
 }
 
 /* ── HUD: my boons and banes, the wonders on the chart ─────────────────── */
@@ -325,7 +327,7 @@ function gameBody(ev, actor, room, you, seated) {
   let h = `<div class="evgame"><div class="evprompt">${esc(name)}</div>`;
   h += ({
     knucklebones: gKnuckle, higher_lower: gHiLo, codebreak: gCode, shells: gShells,
-    weigh: gWeigh, crossing: gCross, rps: gRps, nim: gNim, haggle: gHaggle,
+    weigh: gWeigh, crossing: gCross, rps: gRps, nim: gNim, haggle: gHaggle, ...REALM_GAMES,
   }[g.kind] || (() => ''))(g, actor);
   h += '</div>';
   if (!actor) {
@@ -590,6 +592,7 @@ function wire(ev, actor, room, you) {
       mv({ left, right });
     };
   });
+  wireRealm(q, mv);                 // the realm games (events_realms.js)
   // table answers
   q('[data-step]').forEach((b) => { b.onclick = () => { scratch.value += +b.dataset.step; redraw(); }; });
   q('[data-ans]').forEach((b) => { b.onclick = () => send({ type: 'event_answer', value: scratch.value }); });

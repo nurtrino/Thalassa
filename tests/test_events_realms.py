@@ -113,7 +113,8 @@ def test_the_client_knows_every_realm_art_key_world_model_and_game():
             assert re.search(rf"\b{art}:", js) or re.search(
                 rf"\b{art}:", (ROOT / "static" / "events.js").read_text()), art
         for w in mod.WORLD:
-            assert f"'{w['model']}'" in fx, w["model"]
+            assert re.search(rf"\b{w['model']}: make\w+", fx), w["model"]     # a builder
+            assert re.search(rf"\b{w['model']}: {{ ", fx), w["model"]        # its REALM_LOOK
     for k in REALM_KINDS:
         assert re.search(rf"\b{k}:", js), k
 

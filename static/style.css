@@ -2118,6 +2118,21 @@ body.touring #mapBtn, body.touring #dice, body.touring #shopPanel { display: non
   padding: 11px 18px; border-radius: 9px; cursor: pointer; letter-spacing: .08em;
 }
 #victoryOv .vwait { color: #8d97ab; font-style: italic; font-size: 13px; }
+#victoryOv .vbtns { flex-wrap: wrap; }
+#victoryOv .vask { flex-basis: 100%; color: #e9dcb8; font-style: italic; font-size: 14px;
+  margin-bottom: 4px; }
+#victoryOv .vgold:disabled { opacity: .55; cursor: default; }
+#victoryOv .vbtns button { min-height: 44px; }
+/* the board always fits: a short phone (landscape) scrolls it instead of
+   cutting off the buttons */
+#victoryOv { overflow-y: auto; padding: 12px 0; box-sizing: border-box; }
+#victoryOv .vwrap { margin: auto; box-sizing: border-box; }
+@media (max-height: 560px), (max-width: 480px) {
+  #victoryOv .vwrap { padding: 18px 16px; }
+  #victoryOv .vtitle { font-size: 34px; letter-spacing: .22em; }
+  #victoryOv .vsub { margin-bottom: 10px; }
+  #victoryOv .vstat { min-width: 48px; }
+}
 
 /* ── the WIN cinematic: darkness pours from the Pharos, then a flood to white ── */
 /* sits ABOVE the board (z60): the white floods over everything, then clears to
@@ -2310,3 +2325,80 @@ body.touring #mapBtn, body.touring #dice, body.touring #shopPanel { display: non
   letter-spacing: .05em; text-transform: uppercase; text-align: center;
   line-height: 1.15; color: var(--bone); text-shadow: 0 1px 3px rgba(0, 0, 0, .8);
 }
+
+/* ═══ PLAYTEST #1 FIXES ══════════════════════════════════════════════════ */
+/* battle: the beat line, YOUR hearts and the stance buttons stack in one
+   bottom dock — the buttons wrap UPWARD into their own space instead of
+   rising over the hearts (B1), at every size */
+#bdock {
+  position: absolute; left: 0; right: 0;
+  bottom: max(10px, env(safe-area-inset-bottom));
+  display: flex; flex-direction: column; align-items: center; gap: 6px;
+  pointer-events: none;
+}
+#bdock > #bturn, #bdock > #bship, #bdock > #bactions {
+  position: static; transform: none; left: auto; right: auto; bottom: auto;
+}
+#bdock > #bactions { pointer-events: auto; }
+#bdock > #bship .bsub { margin: 0 0 2px; }
+/* the JEOPARDY! board owns the frame while it is up — no enemy cards over it */
+body.jpicking #bmon { display: none; }
+
+@media (max-width: 700px) {
+  /* the tier chip sits beside the word, never on top of its last letter */
+  .battlebtn .tierchip { position: static; display: inline-block; margin-left: 5px;
+    vertical-align: 1px; min-width: 15px; height: 15px; line-height: 14px; font-size: 9px; }
+  .battlebtn { letter-spacing: .1em; }
+  #bdock > #bactions { gap: 6px; max-width: calc(100vw - 16px); }
+  #bdock > #bactions .battlebtn:not(.ghost) { flex: 1 1 calc(33% - 6px); min-width: 0; max-width: 150px; }
+  .battlebtn.flee { margin-left: 0; }
+  #bdock { gap: 4px; }
+  #bdock > #bturn { font-size: 13px; }
+}
+
+/* phone LANDSCAPE (short and wide): the middle of the frame is the fight —
+   foes' cards tuck into the bottom-left corner, the dock into the right */
+@media (max-height: 500px) and (orientation: landscape) {
+  .cinebar.top { height: 70px; }
+  .cinebar.bot { height: 90px; }
+  #bfoe { top: 4px; width: min(520px, 60vw); }
+  .btitle { font-size: 18px; letter-spacing: .1em; }
+  #bfoe .bsub { font-size: 11px; margin: 0; }
+  #bmon {
+    top: auto; bottom: max(8px, env(safe-area-inset-bottom)); left: max(8px, env(safe-area-inset-left));
+    transform: none; width: auto; max-width: 30vw; text-align: left;
+  }
+  #bmon .erow { flex-direction: column; align-items: flex-start; gap: 4px; }
+  #bmon .ecard { min-width: 0; padding: 3px 8px 4px; }
+  #bmon .ecard .ename { font-size: 11px; margin-bottom: 2px; }
+  #bmon .ecard .epow { display: none; }
+  #bmon .hpcell { width: 14px; height: 8px; }
+  #bdock {
+    left: auto; right: max(8px, env(safe-area-inset-right)); width: min(300px, 38vw);
+    align-items: stretch; gap: 4px;
+  }
+  #bdock > #bturn { width: auto; font-size: 12px; }
+  #bdock > #bactions { flex-direction: column; align-items: stretch; max-width: none; gap: 5px; }
+  #bdock > #bactions .battlebtn { padding: 8px 10px 7px; font-size: 13px; min-width: 0; }
+  #bdock > #bactions .battlebtn:not(.ghost) { flex: none; max-width: none; }
+  .battlebtn .tierchip { position: static; display: inline-block; margin-left: 5px;
+    vertical-align: 1px; min-width: 15px; height: 15px; line-height: 14px; font-size: 9px; }
+}
+
+/* every panel fits the viewport and scrolls inside it (H6). A centred flex
+   child taller than its overlay used to hang off the TOP, unreachable:
+   auto margins centre it when it fits and pin it to the top when it does
+   not, so the overlay's own scroll reaches all of it. */
+.overlay > * { margin: auto; flex-shrink: 0; }
+#shopPanel { max-height: calc(100vh - 150px); max-height: calc(100dvh - 150px);
+  overflow-y: auto; overscroll-behavior: contain; }
+#uppanel { max-height: calc(100vh - 76px); max-height: calc(100dvh - 76px); overflow-y: auto; }
+#evResult { max-height: calc(100vh - 150px); max-height: calc(100dvh - 150px); overflow-y: auto; }
+#jboard { overflow-y: auto; justify-content: safe center; }
+@media (max-height: 500px) and (orientation: landscape) {
+  #shopPanel { bottom: 64px; max-height: calc(100dvh - 76px); }
+}
+
+/* hint chips: one inline run (H7) — icons ride the text baseline */
+.hint .hint-in { display: inline; }
+.hint .hint-in svg { vertical-align: -2px; margin-right: 3px; }

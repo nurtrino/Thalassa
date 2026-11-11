@@ -15,6 +15,7 @@ backs them), table events give everyone a generous 40 seconds.
 | Cards, game renderers, table UI, result card, HUD strip | `static/events.js`, `static/events.css` |
 | World wonders on the 3D board | `static/worldfx.js` (hooked from `scene.js` beside `syncKraken`) |
 | Tests | `tests/test_events.py` (+ the fuzzer: `tools/sim.py`) |
+| The realms (ice, jungle): content · game kinds · cards · 3D · tests | `event_data_ice.py`, `event_data_jungle.py` · `eventgames_realms.py` · `static/events_realms.js` + `.css` · `static/worldfx_realms.js` · `tests/test_events_realms.py` |
 
 ## How an event happens
 
@@ -23,8 +24,12 @@ backs them), table events give everyone a generous 40 seconds.
 2. A **world wonder** on that stop (or beside it, for those with `radius: 1`)
    is met first — once per captain per stop it occupies.
 3. Otherwise a chance roll: `CHANCE[stage] × CLASS_MULT[node class]`
-   (hub 0.40, Vale 0.50; open water / trail ×1.0, a spent shrine or solved
-   spire ×0.8, haven/market ×0.45, a charged shrine ×0.3). After a **heavy**
+   (hub 0.40, Vale 0.50, Frostfang Reach / Verdigris Deep 0.50; open water /
+   trail ×1.0, a spent shrine or solved spire ×0.8, a quiet realm hunting
+   ground ×0.6 (class `wild`: no pack rose there; it takes events listed for
+   `sea`), haven/market ×0.45, a charged shrine ×0.3). A landing that starts a
+   fight never reaches this; a gate or a lair never meets an event (not even a
+   radius-1 wonder next door). After a **heavy**
    event (a game, a table, a fight) a captain's chance is cut and only light
    events can fire for their next couple of turns.
 4. An eligible event is drawn by weight (one already seen by that captain is
@@ -50,7 +55,7 @@ backs them), table events give everyone a generous 40 seconds.
 |---|---|
 | `stage` | `"hub"` or a region key (`"autumn"`, `"ice"`, `"jungle"`, `"desert"`) |
 | `kind` | `instant` (resolves at once, the card just reports) · `choice` (2–4 options) · `game` (a choice whose main option deals a game or puzzle; always offer a way out) · `table` (everyone answers) |
-| `where` | node classes: `sea` (open water / Vale trail), `islet` (spent shrine, solved spire), `haven`, `shop`, `shrine` (charged — the wager follows) |
+| `where` | node classes: `sea` (open water / Vale trail; also a quiet realm hunting ground, class `wild`), `islet` (spent shrine, solved spire), `haven`, `shop`, `shrine` (charged — the wager follows) |
 | `weight` | relative odds (default 3) |
 | `once` | `None`, `"game"` (once a voyage), `"player"` (once per captain) |
 | `hostile` | Poseidon's Favor wards it off |
@@ -134,8 +139,12 @@ simple outcome keys (scrolls, hull, items, buffs).
  "gone": "sails over the horizon"}
 ```
 
-The Isles of Peace keep up to three wonders on the chart (two from the first
-turn); the Vale raises up to two near captains walking it. Once a round they
+How a stage keeps its wonders is data (`events.WORLD_RULES`): the Isles of
+Peace keep up to three on the chart (two from the first turn); every realm
+(the Vale, the Frostfang Reach, the Verdigris Deep, …) raises up to two near
+captains travelling it (`WORLD_RULE_DEFAULT`). An optional `bot` key says what
+a philosopher's route planner thinks of it: `seek`, `curious`, `shop` (worth
+it with scrolls to spend), `fight` (only with a sound hull) or `shun`. Once a round they
 age, and movers hop along open water. `model` picks the 3D set piece in
 `static/worldfx.js`; a new region's wonder needs a builder there (or reuse
 one: `serpent`, `hound` and the props-based pieces are generic).
@@ -157,6 +166,10 @@ it.
 | `crossing` | wolf / goat / charts across a strait, one passenger at a time | state machine; something left with its eater = lose |
 | `rps` | stone / scroll / shears vs a satyr whose tells never lie | first to 3; tells map one-to-one onto his throws |
 | `nim` | take 1–3 pebbles, last one wins; the sage errs ~30% | server plays the sage |
+| `floe` (realms) | cross a 4×6 floe field a row at a time, straight on or one aside; your floe tells how many reachable floes are thin; sounding poles test one; bear prints mark sound ice on every other row; stop to cash out | thin floes hidden; the generator guarantees every sound floe can reach a sound one; `score` = rows crossed (0 if you fall in) |
+| `pairs` (realms) | memory match: 12 tiles, 6 pairs, 12 tries, no clock; seen tiles are marked; stop to cash out | faces hidden until turned; `score` = pairs found |
+| `drums` (realms) | three rounds of "what beat comes next?" — four BOOM/tak patterns that follow one rule, pick the fifth of four | each round's answer is secret; `score` = rounds right |
+| `plates` (realms) | press four temple plates in the one order the carved clues allow; a wrong plate resets them and costs a dart (survive two) | the clue set is trimmed to fix exactly one order; `score` = darts left + 1 |
 
 Each has `gen`, `move` (a ValueError leaves the state untouched), `bot` (a
 sensible, not perfect, philosopher), `solve` (the fuzzer's strong line),
@@ -196,9 +209,48 @@ are forfeited).
    and realm open water are both `sea`).
 2. Add the stage's chance to `events.CHANCE` (default 0.30).
 3. New art keys go in the `M` motif table of `static/events.js` (64×64 line
-   art) — unknown keys fall back to a sea motif. A new world `model` needs a
-   builder in `static/worldfx.js`.
+   art) — unknown keys fall back to a sea motif — or, for the realms, in
+   `REALM_M` of `static/events_realms.js` (with the card backdrop in
+   `realmBand`). A new world `model` needs a builder in `static/worldfx.js`,
+   or in `static/worldfx_realms.js` (`BUILD` + its `REALM_LOOK` entry).
 4. A new game kind: a generator/move/bot/solve in `eventgames.py` (register
    it in `GAMES` and `GAME_LABEL`), a renderer in `static/events.js`
    (`gameBody`), and it is covered by the parametrised tests in
    `tests/test_events.py` automatically.
+
+## The Frostfang Reach and the Verdigris Deep
+
+Both realms are sailed, so their events fire on open water, on a quiet
+hunting ground (`wild`), at the realm's haven and at its shrine. Content is in
+`event_data_ice.py` / `event_data_jungle.py`, merged into `event_data.EVENTS`
+and `WORLD`.
+
+**The Frostfang Reach (`ice`)** — 25 events and 4 wonders.
+
+| kind | events |
+|---|---|
+| choice | Boreas Is Sulking · A Mammoth in the Ice · The Polar Bear's Kitchen · Hyperborean Tourists · The Floe Is Cracking · A Hot Spring in the Ice |
+| game | The Aurora Takes Requests (lights-out) · The Ice-Fishing Philosopher (nim) · The Floe Field (floe) · Your Anchor Is on a Floe (floe) · The Auk's Ice-Hole Game (pairs) · A Frost Giant's Little Game (rps) · Coins in a Berg (knucklebones) · Nine Snowballs, One Rock (weigh) · Three Igloos and a Seal (shells) · The Icicle Harp (sequence) |
+| instant | The Seal Choir · A Letter Frozen in the Ice · A Narwhal Escort · A Snowball Ambush |
+| table | The Great Ice-Hole Derby (lanes) · How Many Icicles in the Giant's Beard? (guess) · The Aurora Plays for Everyone (vote) · The Polar Plunge (gamble) · The Walrus Auction (bid) |
+| world | The Walrus Toll-Keeper (`walrus`: fixed; pay, riddle or out-stare) · The Aurora Whale (`aurora_whale`: roams; tows toward the Wyrm or the haven) · The Sleeping Giant (`berg_giant`: fixed, radius 1, hostile; silver or a fight) · The Penguin Parliament (`penguins`: fixed; a fleet-wide vote or a pairs game) |
+
+**The Verdigris Deep (`jungle`)** — 24 events and 4 wonders.
+
+| kind | events |
+|---|---|
+| choice | Monkeys in the Rigging · A Parrot Who Repeats Everything · A Golden Idol, Slightly Cursed · The Mosquito Cloud · A Lost Explorer · The Tree-Frog Apothecary |
+| game | The Temple of the Four Plates (plates) · Drums Across the Water (drums) · The Piranha Crossing (crossing) · Vines That Want a Riddle (riddle) · Fireflies Spelling Something (anagram) · The Glow-Worm Grotto (pairs) · Cracking Coconuts (knucklebones) · The Stone Calendar (higher/lower) · The Sliding Mosaic (sliding) |
+| instant | Rain, Sudden and Total · Something Falls on Your Head · Pink River Dolphins · The Giant Lilies Bloom |
+| table | The Howler Monkey Choir (vote) · How Many Frogs on the Log? (guess) · The Lily-Raft Race (lanes) · The Piranha Lottery (lowest) · The Ruin-Raiders' Auction (bid) |
+| world | The Monkey Traders (`monkey_raft`: roams; mystery bundles, a shell game) · The Hungry Orchid (`orchid`: fixed, radius 1, hostile; a fight or a song) · The Sloth Oracle (`sloth`: fixed; a turn for a secret) · The Jaguar Who Plays Fair (`jaguar`: roams, hostile; rps or a fight) |
+
+The 3D pieces (`static/worldfx_realms.js`): a walrus with tusks and a brass
+badge sprawled on a floe beside a TOLL sign; a translucent whale of green and
+violet light circling in the air with ribbon trails; an iceberg with a
+sleeping face, icicle beard and snore-mist; rows of penguins (one instanced
+mesh) facing a wigged Speaker at an ice lectern; a bamboo raft heaped with
+loot and crewed by monkeys in stolen hats; a giant pink orchid that breathes
+open and shut on a lily-pad raft of roots, a toothed glowing heart; a dead
+tree in the river with an ancient sloth hanging from a mossy branch; the
+jaguar GLB lounging on a drifting mossy log.

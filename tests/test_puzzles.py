@@ -57,8 +57,9 @@ def test_battle_puzzles_are_tiered_and_exclude_slow_kinds():
     assert sizes[3]["tetromino"] == (6, 6)
     assert "sliding" in seen[3] and vm_sizes[3] == {6}
     assert "riddle" not in seen[3]
-    # the sigil clock is size-aware: 15s on the quick 4×4, 65s on the full 6×6
-    assert tet_limits[1] == {15} and tet_limits[3] == {65}
+    # the sigil clock is size-aware: the quick 4×4 vs the full 6×6
+    assert tet_limits[1] == {puzzles.TET4_LIMIT}
+    assert tet_limits[3] == {puzzles.TIME_LIMITS["tetromino"]}
 
 
 def test_memory_puzzle_generate_and_check():

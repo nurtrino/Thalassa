@@ -215,9 +215,10 @@ EVENTS = [
                                                       "cut is real, and so is its "
                                                       "admiration.", "scrolls": 4,
                                               "buff": ["fair_wind", 2]}]],
-                               "lose": {"text": "Splash. You are fished out by the seal, "
-                                                "who will be telling this story for "
-                                                "years.", "hull": -1}}}},
+                               "lose": {"text": "A splash, or cold feet — either way you "
+                                                "end up back aboard, damp and slow, and "
+                                                "the seal will be telling this story for "
+                                                "years.", "buff": ["becalmed", 1]}}}},
          {"label": "Sail the long way round", "stakes": "Becalmed for a roll",
           "outcome": {"text": "The long way is long. The seal looks disappointed in you.",
                       "buff": ["becalmed", 1]}},

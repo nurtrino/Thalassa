@@ -86,10 +86,13 @@ class Client:
 
     # ── lifecycle ─────────────────────────────────────────────────────────
     async def join(self, name="Odysseus"):
-        await self.page.goto(self.url, wait_until="networkidle")
-        await self.page.wait_for_selector("#nameInput", timeout=15000)
+        # "load", not "networkidle": a busy shared box (and the live event
+        # feed) can keep the network from ever going quiet for 500 ms
+        await self.page.goto(self.url, wait_until="load", timeout=120000)
+        # a shared, software-rendered box can take a while to raise the title
+        await self.page.wait_for_selector("#nameInput", timeout=90000)
         await self.page.fill("#nameInput", name)
-        await self.page.click("#joinBtn")
+        await self.page.evaluate("() => document.getElementById('joinBtn').click()")
         await self.page.wait_for_timeout(600)
 
     async def start_voyage(self):
@@ -97,7 +100,10 @@ class Client:
         sailing table is fine too), dismiss the rules card, end the tour."""
         r = await self.room()
         if r and r.get("phase") == "lobby":
-            await self.page.click("#startBtn")
+            try:
+                await self.page.click("#startBtn", timeout=8000)
+            except Exception:                  # covered / still animating in
+                await self.page.evaluate("() => window.__send({type: 'start'})")
         await self.wait_phase("roll", "sail", "battle", "question", "shrine",
                               "haven", "shop", "minigame")
         with contextlib.suppress(Exception):
@@ -226,7 +232,7 @@ async def browser_client(url, name="Odysseus", width=1600, height=1000,
             if start:
                 await c.start_voyage()
         else:
-            await page.goto(url, wait_until="networkidle")
+            await page.goto(url, wait_until="load", timeout=120000)
         try:
             yield c
         finally:

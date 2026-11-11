@@ -54,7 +54,7 @@ def fast(monkeypatch):
     for name, value in dict(
             QUESTION_SECS=30.0, JEOPARDY_SECS=30.0, JCHOOSE_SECS=30.0,
             REVEAL_SECS=0.03, BOT_TEMPO=0.0, BOT_POLL_SECS=0.005,
-            GATE_WALK_SECS=0.02, TIMER_GRACE=0.02,
+            GATE_WALK_SECS=0.02, TIMER_GRACE=0.02, SHOWN_ALLOW_SECS=0.0,
             IDLE_POLL_SECS=0.01, IDLE_TURN_SECS=0.0,
             GONE_TURN_SECS=0.3, AWAY_TURN_SECS=0.1, AUTO_STEP_SECS=0.02,
             ABANDON_RESET_SECS=300.0, BOT_STUCK_SECS=20.0,
@@ -1762,8 +1762,159 @@ def test_env_defaults_and_a_typo_in_the_environment(tmp_path):
         assert out.returncode == 0, out.stderr
         return out.stdout.split()
 
-    assert boot() == ["120.0", "30.0", "20.0", "35.0", "783"]
+    assert boot() == ["120.0", "30.0", "20.0", "50.0", "783"]
     assert boot(DEV_CHEATS="1")[0] == "0.0"
     assert boot(DEV_CHEATS="1", IDLE_TURN_SECS="45")[0] == "45.0"
     assert boot(QUESTION_SECS="thirty", IDLE_TURN_SECS="", DEV_CODE="")[:4] == \
-        ["120.0", "30.0", "20.0", "35.0"]
+        ["120.0", "30.0", "20.0", "50.0"]
+
+
+# ════════════════════════════════════════════════════════════════════════════
+# answer clocks start when the card can be SEEN (playtest H3) — and are
+# generous (no reflexes)
+# ════════════════════════════════════════════════════════════════════════════
+def test_answer_clocks_are_generous():
+    """Nothing in the game may reward fast reflexes: every answer clock is a
+    generous backstop, never the challenge."""
+    import server as S2
+    assert S2.QUESTION_SECS >= 45 or os.environ.get("QUESTION_SECS")
+    assert S2.JEOPARDY_SECS >= 45 and S2.JCHOOSE_SECS >= 45
+    assert S2.EVENT_TABLE_SECS >= 60
+    for kind, limit in puzzles.TIME_LIMITS.items():
+        assert limit is None or limit >= 45, kind
+    assert puzzles.TET4_LIMIT >= 45
+    for tier in (1, 2, 3):
+        rng = random.Random(tier)
+        for _ in range(60):
+            d = puzzles.deal_battle(rng, tier, set())
+            assert d["limit"] is None or d["limit"] >= 45, d["kind"]
+
+
+def test_question_clock_carries_the_arrival_allowance_until_shown(fast, monkeypatch):
+    monkeypatch.setattr(S, "QUESTION_SECS", 30.0)
+    monkeypatch.setattr(S, "SHOWN_ALLOW_SECS", 12.0)
+
+    async def main():
+        g, a, b = _question_table()
+        S.after_phase_change()
+        await settle(lambda: g.question is not None, "the herald")
+        armed = g.question_deadline
+        # the ship may still be sailing in: limit + allowance
+        assert 41.0 < armed - time.time() <= 42.1
+        # a rival's report (another stage, no arrival seen) changes nothing
+        assert S.card_shown(b, "question") is False
+        assert g.question_deadline == armed
+        # a report about some other card changes nothing either
+        assert S.card_shown(a, "minigame") is False
+        # the actor's card is on screen: the plain limit, from now
+        n0 = g.nonce
+        assert S.card_shown(a, "question") is True
+        assert 29.0 < g.question_deadline - time.time() <= 30.1
+        assert g.nonce > n0                    # the new clock is broadcast
+        # once per card
+        again = g.question_deadline
+        assert S.card_shown(a, "question") is False
+        assert g.question_deadline == again
+    run(main())
+
+
+def test_a_silent_client_holds_the_table_only_for_the_allowance(fast, monkeypatch):
+    monkeypatch.setattr(S, "QUESTION_SECS", 0.1)
+    monkeypatch.setattr(S, "SHOWN_ALLOW_SECS", 0.3)
+
+    async def main():
+        g, a, b = _question_table()
+        S.after_phase_change()
+        await settle(lambda: g.question is not None, "the herald")
+        t0 = time.monotonic()
+        await settle(lambda: g.phase in ("reveal", "trade"), "the timeout", 3)
+        assert time.monotonic() - t0 >= 0.3          # it waited the allowance…
+        assert g.reveal["chosen"] == -1              # …then timed out
+    run(main())
+
+
+def test_the_timer_follows_a_clock_restarted_by_shown(fast, monkeypatch):
+    monkeypatch.setattr(S, "QUESTION_SECS", 0.2)
+    monkeypatch.setattr(S, "SHOWN_ALLOW_SECS", 30.0)
+
+    async def main():
+        g, a, b = _question_table()
+        S.after_phase_change()
+        await settle(lambda: g.question is not None, "the herald")
+        assert S.card_shown(a, "question") is True
+        # the sleeping timer re-reads the moved deadline (not limit+allowance)
+        await settle(lambda: g.phase in ("reveal", "trade"), "the timeout", 3)
+        assert g.reveal["chosen"] == -1
+    run(main())
+
+
+def test_shown_over_the_socket_starts_the_clock_without_waking_away(fast, monkeypatch):
+    monkeypatch.setattr(S, "SHOWN_ALLOW_SECS", 15.0)
+
+    async def main():
+        g, (a, b) = _solo_table()
+        spire = next(n for n, d in g.board.nodes.items()
+                     if d["type"] == "puzzle" and not d.get("solved"))
+        # force an interactive, clocked puzzle at the spire
+        monkeypatch.setattr(puzzles, "deal",
+                            lambda rng, used: puzzles.deal_kind(rng, "ravens"))
+        _land_on(g, a, spire)
+        assert g.phase == "minigame"
+        S.after_phase_change()
+        limit = g.minigame["limit"]
+        assert limit >= 45
+        assert abs(g.minigame["deadline"] - (time.time() + limit + 15.0)) < 1.0
+        S.table.away.add(a)
+        ws = object()
+        S.table.sockets[ws] = a
+        try:
+            await S._handle(ws, {"type": "shown", "what": "minigame"})
+        finally:
+            S.table.sockets.pop(ws, None)
+        assert abs(g.minigame["deadline"] - (time.time() + limit)) < 1.0
+        assert a in S.table.away          # an automatic report is not an action
+    run(main())
+
+
+def test_jchoose_clock_takes_the_allowance(fast, monkeypatch):
+    monkeypatch.setattr(S, "JCHOOSE_SECS", 45.0)
+    monkeypatch.setattr(S, "SHOWN_ALLOW_SECS", 10.0)
+
+    async def main():
+        g, (a, b) = _solo_table()
+        g.jboard = {"band": "low", "node": "home", "cells": []}
+        g.phase = "jchoose"
+        g.jchoose_deadline = None
+        S.after_phase_change()
+        assert 54.0 < g.jchoose_deadline - time.time() <= 55.1
+        assert S.card_shown(a, "jchoose") is True
+        assert 44.0 < g.jchoose_deadline - time.time() <= 45.1
+    run(main())
+
+
+def test_a_reload_peek_reclaims_a_seat_but_never_takes_one(fast, monkeypatch):
+    """X2: a page reload says hello with rejoin=True — it silently reclaims
+    the captain's own seat, and never seats a stranger in the lobby."""
+    async def quiet(*a, **k):
+        return True
+    monkeypatch.setattr(S, "broadcast", quiet)
+    monkeypatch.setattr(S, "_send", quiet)
+
+    async def main():
+        g = S.table.game
+        ws1, ws2 = object(), object()
+        try:
+            await S._hello(ws1, {"type": "hello", "token": "tok-a", "name": "Ann",
+                                 "rejoin": True})
+            assert S.table.sockets[ws1] is None and not g.players   # a watcher
+            await S._hello(ws1, {"type": "hello", "token": "tok-a", "name": "Ann"})
+            pid = S.table.sockets[ws1]
+            assert pid and g.player_by_pid(pid).name == "Ann"
+            await S._hello(ws2, {"type": "hello", "token": "tok-a", "name": "Ann",
+                                 "rejoin": True})
+            assert S.table.sockets[ws2] == pid                      # the same seat
+            assert len(g.players) == 1
+        finally:
+            S.table.sockets.pop(ws1, None)
+            S.table.sockets.pop(ws2, None)
+    run(main())

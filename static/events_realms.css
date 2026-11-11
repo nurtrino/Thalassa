@@ -1,0 +1,72 @@
+/* events_realms.css — the realm game kinds (static/events_realms.js):
+   the floe field, the memory tiles, the drum patterns, the pressure plates.
+   Big targets, high contrast, nothing moves on its own. */
+
+/* ── floe ── */
+.evfar, .evshore { text-align: center; font: 700 12px var(--disp); letter-spacing: .12em;
+  text-transform: uppercase; color: #3c5a6a; margin: 4px 0 3px; }
+.evshore { margin: 4px 0 0; padding: 6px; border-radius: 8px; background: rgba(214, 190, 140, .35); }
+.evshore.here { background: rgba(46, 158, 143, .25); color: #134b44; }
+.evfloes { display: flex; flex-direction: column; gap: 4px; padding: 6px; border-radius: 12px;
+  background: linear-gradient(180deg, #24536b, #173a4e); }
+.evfloerow { display: grid; gap: 6px; }
+.evfloe { min-height: 40px; border-radius: 14px 18px 12px 16px; display: flex; flex-direction: column;
+  align-items: center; justify-content: center; gap: 3px; padding: 4px;
+  background: linear-gradient(180deg, #eef6fa, #c9dde7); color: #29495a; font: 600 12.5px var(--body);
+  box-shadow: inset 0 -3px 0 rgba(40, 80, 100, .25); }
+.evfloe.print { background: linear-gradient(180deg, #f6fbfd, #d7e7ef); }
+.evfloe .evprint { font-style: italic; color: #5c4a2a; }
+.evfloe.sound { box-shadow: inset 0 0 0 3px #2e9e8f; }
+.evfloe.thin { background: repeating-linear-gradient(135deg, #9ab9c8 0 6px, #7aa0b2 6px 12px); color: #5e1c10; }
+.evfloe.reach { box-shadow: inset 0 0 0 3px #f0d060, 0 0 0 2px rgba(240, 208, 96, .35); }
+.evfloe.trod { background: linear-gradient(180deg, #dff0ea, #b5d6cb); }
+.evfloe.here { box-shadow: inset 0 0 0 3px #bc432c; }
+.evfloe .evyou { font: 800 13px var(--disp); color: #7c2617; text-transform: uppercase; letter-spacing: .08em; }
+.evfloe .evbtn { padding: 5px 10px; font-size: 13px; min-width: 0; }
+.evfloe .evbtn small { display: none; }
+
+/* ── pairs ── */
+.evpairs { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-top: 10px; }
+.evpair { aspect-ratio: 1 / .8; min-height: 58px; border-radius: 12px; border: 2px solid var(--parch-line);
+  background: linear-gradient(180deg, #6a8f7a, #3f6352); color: #f3ead2; cursor: pointer;
+  display: flex; align-items: center; justify-content: center; position: relative; }
+.evpair .evpairn { font: 700 15px var(--disp); opacity: .7; }
+.evpair.seen::after { content: ''; position: absolute; top: 6px; right: 6px; width: 9px; height: 9px;
+  border-radius: 50%; background: #f0d060; }
+.evpair.up { background: linear-gradient(180deg, #fbf6e9, #efe3c6); color: #4a3811; border-color: #c9a227; }
+.evpair.matched { background: linear-gradient(180deg, #e4f1ea, #c7e0d3); color: #1a5f57; border-color: #2e9e8f; opacity: .85; cursor: default; }
+.evpair:disabled { cursor: default; }
+.evpair:hover:not(:disabled) { border-color: var(--bronze); }
+
+/* ── drums ── */
+.evdrums { display: flex; flex-direction: column; gap: 6px; margin-top: 10px; }
+.evdrumrow { display: flex; align-items: center; gap: 12px; padding: 6px 12px; border-radius: 8px;
+  background: rgba(255, 255, 255, .45); min-height: 40px; }
+.evdrumrow > b { font: 700 14px var(--disp); color: #5b4615; width: 18px; }
+.evdrumrow.q { background: rgba(240, 208, 96, .3); }
+.evbeats { display: inline-flex; align-items: center; gap: 6px; flex-wrap: wrap; font: 800 18px var(--disp); }
+.evbeats i { display: inline-block; border-radius: 50%; }
+.evbeats i.boom { width: 24px; height: 24px; background: radial-gradient(circle at 35% 30%, #8a5a2a, #3a2410); }
+.evbeats i.tak { width: 13px; height: 13px; background: #e7c873; border: 2px solid #8a6c1c; }
+.evdrumch { margin-top: 10px; }
+.evdrumpick { align-items: center; }
+.evlog .evbeats i.boom { width: 14px; height: 14px; }
+.evlog .evbeats i.tak { width: 8px; height: 8px; }
+
+/* ── plates ── */
+.evclues { margin: 10px 0 0; padding-left: 20px; display: flex; flex-direction: column; gap: 4px;
+  font-size: 15.5px; color: var(--sepia); }
+.evplates { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-top: 12px; }
+.evplate { position: relative; display: flex; flex-direction: column; align-items: center; gap: 4px;
+  padding: 10px 4px; border-radius: 12px; border: 2px solid #8a7a58; cursor: pointer;
+  background: linear-gradient(180deg, #c9c1a8, #9d947a); color: #3b3220;
+  box-shadow: 0 4px 0 #6b6046; font: 700 13px var(--disp); text-transform: uppercase; letter-spacing: .06em; }
+.evplate.down { transform: translateY(3px); box-shadow: 0 1px 0 #6b6046; background: linear-gradient(180deg, #a8d4bf, #6faa90); color: #123a2c; }
+.evplate em { position: absolute; top: 4px; right: 8px; font: 800 15px var(--disp); font-style: normal; }
+.evplate:disabled { cursor: default; }
+.evplate:hover:not(:disabled) { border-color: var(--bronze); }
+
+@media (max-width: 520px) {
+  .evplates { grid-template-columns: repeat(2, 1fr); }
+  .evfloe { min-height: 38px; }
+}

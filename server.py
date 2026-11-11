@@ -63,9 +63,19 @@ def _env_float(name: str, default: float) -> float:
         return float(default)
 
 
-QUESTION_SECS = _env_float("QUESTION_SECS", 35)
-JEOPARDY_SECS = _env_float("JEOPARDY_SECS", 20)   # 20s to type (no read lock)
-JCHOOSE_SECS = _env_float("JCHOOSE_SECS", 12)     # pick a category
+# NO REFLEXES: every answer clock is generous enough for a slow reader on a
+# phone. (Old values: question 35, Jeopardy typing 20, category pick 12.)
+QUESTION_SECS = _env_float("QUESTION_SECS", 50)
+JEOPARDY_SECS = _env_float("JEOPARDY_SECS", 60)   # read the clue, then type
+JCHOOSE_SECS = _env_float("JCHOOSE_SECS", 45)     # pick a category
+# A clock may only run while its card can be SEEN. The server arms it at
+# landing, but the client holds the card until the ship / captain finishes
+# arriving (≤ ~10s on foot, plus a pass crossing or the Sphinx's entrance).
+# So every answer clock starts with this allowance on top; when the acting
+# captain's client reports the card on screen ("shown"), the clock restarts
+# from that moment with its plain limit. A silent client therefore can hold
+# the table for at most the allowance.
+SHOWN_ALLOW_SECS = _env_float("SHOWN_ALLOW_SECS", 15)
 REVEAL_SECS = _env_float("REVEAL_SECS", 5)
 ABANDON_RESET_SECS = _env_float("ABANDON_RESET_SECS", 300)
 BOT_TEMPO = _env_float("BOT_TEMPO", 1.0)
@@ -119,7 +129,8 @@ DEV_CODE = os.environ.get("DEV_CODE", "783")
 
 IDLE_PHASES = frozenset({"roll", "sail", "shrine", "haven", "shop", "trade",
                          "pharos", "battle", "upgrade_pick", "event"})
-EVENT_TABLE_SECS = _env_float("EVENT_TABLE_SECS", events.TABLE_SECS)
+# a table event: everyone answers at once — never under a minute
+EVENT_TABLE_SECS = _env_float("EVENT_TABLE_SECS", max(60.0, events.TABLE_SECS))
 TIMED_PHASES = frozenset({"question", "minigame", "jchoose"})
 BOT_PHASES = IDLE_PHASES | TIMED_PHASES
 
@@ -147,6 +158,7 @@ class Table:
         self.idle_key = None
         self.idle_since = time.time()
         self.armed: dict[str, object] = {}     # timer kind → the object it times
+        self.shown: dict[str, dict] = {}       # clock kind → {obj, limit, acked}
         self.stuck_key = None                  # bot-stall detector
         self.stuck_since = time.monotonic()
         self.stuck_tries = 0
@@ -575,14 +587,91 @@ async def fetch_question(nonce: int = 0):
     # question…" forever, because a one-shot task never retried.
     g = table.game
     if g.qctx is ctx and g.phase == "question" and g.question is None:
-        g.set_question(q, deadline=time.time() + limit)
+        g.set_question(q, deadline=_clock_open("question", q, limit))
         if g.question is not None and _arm("question", g.question):
             schedule(question_timer(g.question, limit), "question_timer")
         await broadcast()
 
 
+def _clock(g, kind: str):
+    """(object timed, its deadline) for one answer clock of the live phase,
+    or (None, None)."""
+    if kind == "question" and g.phase == "question" and g.question is not None:
+        return g.question, g.question_deadline
+    if kind == "minigame" and g.phase == "minigame" and g.minigame:
+        return g.minigame, g.minigame.get("deadline")
+    if kind == "jchoose" and g.phase == "jchoose" and g.jboard:
+        return g.jboard, g.jchoose_deadline
+    if kind == "event" and g.phase == "event" and getattr(g, "ev", None):
+        act = g.ev.get("active")
+        if act and act.get("step") == "table":
+            return act["table"], act["table"].get("deadline")
+    return None, None
+
+
+def _clock_open(kind: str, obj, limit: float) -> float:
+    """Arm an answer clock: the deadline it starts with carries the arrival
+    allowance (the card may not be on screen yet); the plain limit is kept
+    for the moment the acting captain reports the card shown."""
+    table.shown[kind] = {"obj": obj, "limit": float(limit), "acked": False}
+    return time.time() + limit + SHOWN_ALLOW_SECS
+
+
+def card_shown(pid: str | None, what) -> bool:
+    """The acting captain's client has the card on screen: restart its clock
+    from now with the plain limit (only ever EARLIER than the armed one, and
+    once per card). Anyone else's report is ignored — a rival watching from
+    another stage sees no arrival and must not cut the actor's time short.
+    → True when a deadline moved (broadcast it)."""
+    g = table.game
+    if pid is None or not g.players or g.phase == "lobby" or g.current.pid != pid:
+        return False
+    kind = what if isinstance(what, str) else ""
+    obj, dl = _clock(g, kind)
+    rec = table.shown.get(kind)
+    if obj is None or dl is None or not rec or rec["obj"] is not obj or rec["acked"]:
+        return False
+    rec["acked"] = True
+    new = time.time() + rec["limit"]
+    if new >= dl:
+        return False
+    if kind == "question":
+        g.question_deadline = new
+    elif kind == "minigame":
+        g.minigame["deadline"] = new
+    elif kind == "jchoose":
+        g.jchoose_deadline = new
+    else:
+        obj["deadline"] = new
+    g.nonce += 1                      # a fresh snapshot carries the new clock
+    return True
+
+
+async def _sleep_past(deadline_of) -> bool:
+    """Sleep until a clock's deadline (+ grace) has passed. The deadline may
+    move EARLIER while we wait (card_shown), so it is re-read after every short
+    nap. False if the clock was cancelled meanwhile (deadline_of → None)."""
+    while True:
+        dl = deadline_of()
+        if dl is None:
+            return False
+        wait = dl + TIMER_GRACE - time.time()
+        if wait <= 0:
+            return True
+        await asyncio.sleep(min(wait, 0.25))
+
+
+def _deadline_of(kind: str, obj):
+    """→ a reader for _sleep_past: this object's live deadline, or None once
+    the table has moved past it (answered, reset, a new voyage)."""
+    def read():
+        o, dl = _clock(table.game, kind)
+        return dl if o is obj else None
+    return read
+
+
 async def question_timer(q: dict, limit: float):
-    await asyncio.sleep(limit + TIMER_GRACE)
+    await _sleep_past(_deadline_of("question", q))
     g = table.game
     if g.question is q and g.phase == "question":
         g.timeout_question()
@@ -616,7 +705,7 @@ async def reveal_timer(rv: dict):
 
 
 async def minigame_timer(mg: dict, limit: float):
-    await asyncio.sleep(limit + TIMER_GRACE)
+    await _sleep_past(_deadline_of("minigame", mg))
     g = table.game
     if g.minigame is mg and g.phase == "minigame":
         g.minigame_timeout()
@@ -625,7 +714,7 @@ async def minigame_timer(mg: dict, limit: float):
 
 
 async def jchoose_timer(board: dict, limit: float):
-    await asyncio.sleep(limit + TIMER_GRACE)
+    await _sleep_past(_deadline_of("jchoose", board))
     g = table.game
     if g.jboard is board and g.phase == "jchoose":
         g.jchoose_timeout()           # no pick → the board chooses for you
@@ -664,7 +753,7 @@ def _arm_event_table(g):
         return
     t = act["table"]
     if t["deadline"] is None:
-        t["deadline"] = time.time() + EVENT_TABLE_SECS
+        t["deadline"] = _clock_open("event", t, EVENT_TABLE_SECS)
         schedule(event_table_timer(t, EVENT_TABLE_SECS), "event_table_timer")
     waiting = events.table_waiting(g)
     # (nobody left to wait on — a kick took the last one — or only captains
@@ -676,7 +765,7 @@ def _arm_event_table(g):
 
 
 async def event_table_timer(t: dict, limit: float):
-    await asyncio.sleep(limit + TIMER_GRACE)
+    await _sleep_past(_deadline_of("event", t))
     g = table.game
     act = g.ev.get("active") if getattr(g, "ev", None) else None
     if g.phase == "event" and act and act.get("table") is t:
@@ -694,12 +783,13 @@ def after_phase_change():
     if g.phase == "question" and g.question is None:
         schedule(fetch_question(g.nonce), "fetch_question")
     elif g.phase == "jchoose" and g.jboard and g.jchoose_deadline is None:
-        g.jchoose_deadline = time.time() + JCHOOSE_SECS
+        g.jchoose_deadline = _clock_open("jchoose", g.jboard, JCHOOSE_SECS)
         schedule(jchoose_timer(g.jboard, JCHOOSE_SECS), "jchoose_timer")
     elif g.phase == "minigame" and g.minigame and g.minigame["deadline"] is None:
         limit = g.minigame["limit"]
         if limit:                            # simon runs without a clock (the
-            g.minigame["deadline"] = time.time() + limit   # idle clock backs it)
+            # idle clock backs it)
+            g.minigame["deadline"] = _clock_open("minigame", g.minigame, limit)
             schedule(minigame_timer(g.minigame, limit), "minigame_timer")
     elif g.phase == "event":
         _arm_event_table(g)
@@ -1208,7 +1298,9 @@ async def _hello(ws: WebSocket, msg: dict):
         # one socket, one seat: a second hello under a new token must not
         # mint another captain (six hellos would fill the fleet from one tab)
         await _send(ws, {"type": "error", "msg": "You already have a seat at this table."})
-    elif g.phase == "lobby":
+    elif g.phase == "lobby" and not msg.get("rejoin"):
+        # (a page reload's silent "rejoin" peek reclaims an existing seat
+        # only — it never seats a captain who has not pressed JOIN)
         try:
             pid = g.add_player(token, name).pid
         except GameError as e:
@@ -1236,6 +1328,12 @@ async def _handle(ws: WebSocket, msg: dict):
         return
     if kind == "hello":
         await _hello(ws, msg)
+        return
+    if kind == "shown":
+        # an automatic report, not a captain's action: it neither wakes an
+        # away captain nor resets the idle clock
+        if ws in table.sockets and card_shown(table.sockets[ws], msg.get("what")):
+            await broadcast()
         return
     if ws not in table.sockets:
         await _send(ws, {"type": "error", "msg": "Say hello first."})

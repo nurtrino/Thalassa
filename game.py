@@ -314,6 +314,26 @@ class Game:
         self.log.append(msg)
         self.log = self.log[-8:]
 
+    # A reveal note speaks TO the captain who acted ("your hubris"). The log
+    # and every other captain's card get it in the third person instead.
+    _THIRD = (("shatters your aegis charm", "shatters {n}'s aegis charm"),
+              ("🛡 You read it —", "🛡 {n} reads it —"),
+              ("Your Aegis shard flares", "{n}'s Aegis shard flares"),
+              ("Your guard holds", "{n}'s guard holds"),
+              ("for your hubris", "for {n}'s hubris"),
+              ("— choose your prize.", "— {n} chooses a prize."),
+              ("Your blade bites", "{n}'s blade bites"),
+              ("You brace and drive it back", "{n} braces and drives it back"),
+              ("You misread the wind-up", "{n} misreads the wind-up"),
+              ("The tide bears you HOME", "The tide bears {n} HOME"))
+
+    @classmethod
+    def _third(cls, note: str, name: str) -> str:
+        for mine, theirs in cls._THIRD:
+            if mine in note:
+                note = note.replace(mine, theirs.format(n=name))
+        return note
+
     def _flash(self, ok: bool, text: str):
         """A one-shot right/wrong banner for the client (kraken riddles, etc.)."""
         self._flash_seq += 1
@@ -1073,7 +1093,8 @@ class Game:
         p.scrolls -= stock["cost"]
         p.items[item] = p.items.get(item, 0) + 1
         self.nonce += 1
-        self._say(f"{p.name} buys a {stock['name']}.")
+        art = "an" if stock["name"][:1].lower() in "aeiou" else "a"
+        self._say(f"{p.name} buys {art} {stock['name']}.")
 
     def buy_map(self, pid: str):
         """The trader unrolls his chart — for a price — and circles the hidden
@@ -1244,7 +1265,8 @@ class Game:
                        "charging": False, "ambush": False,
                        "used_items": [], "first_hit_taken": False}
         self._arm_battle()
-        self._say(f"⚔ [DEV] {monster['name']} rise against {p.name}!")
+        many = len(monster.get("enemies", [])) > 1 and not monster.get("boss")
+        self._say(f"⚔ [DEV] {monster['name']} {'rise' if many else 'rises'} against {p.name}!")
         self._bump("battle")
 
     def _dev_monster(self, spec: dict) -> dict | None:
@@ -1490,7 +1512,8 @@ class Game:
         front = next(e for e in m["enemies"] if e["hp"] > 0)
         hit, blocked = self._absorb(p, front["power"])
         p.hull -= hit
-        self._say(f"✗ {m['name']} cuts off the escape — "
+        many = len(m.get("enemies", [])) > 1 and not m.get("boss")
+        self._say(f"✗ {m['name']} {'cut' if many else 'cuts'} off the escape — "
                   + ("the aegis holds." if blocked else f"{front['name']} strikes for {hit}."))
         if p.hull <= 0:
             self._cheat_death(p)            # Phoenix Feather may pull you back to 1
@@ -1546,7 +1569,9 @@ class Game:
                   f"They rise from the ash at 1 Health.")
         return True
 
-    def _shipwreck(self, p: Player):
+    def _shipwreck(self, p: Player, defer: bool = False):
+        """…defer: a battle's killing blow is logged first — the wreck line is
+        held (self._wreck_msg) and said right after the blow that caused it."""
         returned = []
         for theme in p.cargo:
             for nid in self.board.lairs():
@@ -1571,7 +1596,10 @@ class Game:
         msg = f"☠ {p.name}'s ship goes down! The crew washes ashore at {where}."
         if returned:
             msg += " Lost relics drift back to their lairs."
-        self._say(msg)
+        if defer:
+            self._wreck_msg = msg
+        else:
+            self._say(msg)
 
     # ── questions (shrine / battle / puzzle all resolve here) ────────────────
     def set_question(self, q: dict, deadline: float | None = None):
@@ -1718,9 +1746,15 @@ class Game:
             "was_correct": correct, "note": note, "gained": gained,
             "kind": kind, "domain": ctx.get("domain"), "side": side,
             "battle_over": False, "enemy_phase": None, "monster": None,
+            # the card is rebuilt from the reveal itself — a viewer who never
+            # drew the question phase must not see a stale card's options
+            "text": self.question.get("text", ""),
+            "options": self.question.get("options", []),
+            "tier": ctx.get("tier"),
+            "note_table": self._third(note, p.name),
         }
         if note:
-            self._say(note)
+            self._say(self._third(note, p.name))
         self._bump("reveal")
 
     def _resolve_battle(self, correct: bool, idx: int, correct_idx,
@@ -1808,7 +1842,7 @@ class Game:
             node = self.board.nodes[self.battle["node"]]
             if node["type"] == "pharos":
                 self.winner = p.pid
-                note = f"🏆 The Dark Lord falls — {p.name} takes the PHAROS!"
+                note = f"🏆 The Dark Presence falls — {p.name} takes the PHAROS!"
             else:
                 note += f" {m['name']} — defeated!"
                 if node["type"] == "lair":
@@ -1860,7 +1894,7 @@ class Game:
                     # catch-up: your trial rises weaker for your next try
                     falls = node.setdefault("falls", {})
                     falls[p.pid] = falls.get(p.pid, 0) + 1
-                self._shipwreck(p)
+                self._shipwreck(p, defer=True)
             elif boss:
                 note += self._boss_rhythm(m, heavy)
 
@@ -1891,6 +1925,7 @@ class Game:
                             note, gained, battle_over, player_dead,
                             enemy_phase):
         self._last_enemy_phase = enemy_phase
+        p = self.current
         self.reveal = {
             "correct": correct_idx, "chosen": idx,
             "was_correct": correct, "note": note, "gained": gained,
@@ -1903,6 +1938,10 @@ class Game:
             # the sword-in-the-stone beat: set on the exchange that clears the
             # islet's guardians, so the client can play the draw + shine + claim
             "sword_claimed": getattr(self, "_sword_claimed", False),
+            "text": (self.question or {}).get("text", ""),
+            "options": (self.question or {}).get("options", []),
+            "tier": (self.qctx or {}).get("tier"),
+            "note_table": self._third(note, p.name),
         }
         self._sword_claimed = False
         # typed JEOPARDY! rounds have no options to light up — reveal the answer
@@ -1913,10 +1952,15 @@ class Game:
             self.reveal["typed"] = True
             self.reveal["answer_text"] = ans
             self.reveal["category"] = q.get("category", "")
+            verdict = "Time's up" if idx == -1 else "Wrong"   # -1: the clock ran out
             self._flash(correct, "Correct!" if correct
-                        else (f"Wrong — the answer was {ans}" if ans else "Wrong!"))
+                        else (f"{verdict} — the answer was {ans}" if ans else f"{verdict}!"))
         if note:
-            self._say(note)
+            self._say(self._third(note, p.name))
+        wreck = getattr(self, "_wreck_msg", None)
+        if wreck:                            # the blow first, THEN the wreck
+            self._wreck_msg = None
+            self._say(wreck)
         if battle_over or self.winner:
             self.battle = None
         self._bump("reveal")
@@ -2011,9 +2055,9 @@ class Game:
         elif mg.get("kraken"):
             self._kraken_fail()
         elif mg.get("sphinx"):
-            self._sphinx_fail()
+            self._sphinx_fail(timed_out=True)
         else:
-            self._puzzle_fail(mg["island"])
+            self._puzzle_fail(mg["island"], timed_out=True)
 
     def resolve_minigame(self, success: bool):
         """Bot path: the driver decides success/failure directly."""
@@ -2087,7 +2131,7 @@ class Game:
                   f"{self.current.name} may pass.")
         self._end_turn()
 
-    def _sphinx_fail(self):
+    def _sphinx_fail(self, timed_out: bool = False):
         # Miss the riddle and she sends her pack: the diorama swaps from the
         # riddling Sphinx to a real fight, right here on the gate.
         p = self.current
@@ -2095,7 +2139,10 @@ class Game:
         ans = puzzles.answer_text("riddle", self.minigame.get("data")) if self.minigame else ""
         self._clear_sphinx_stage()
         self.minigame = None
-        self._flash(False, f"Wrong — the answer was {ans}" if ans else "The Sphinx sends her guard!")
+        # (a clock that ran out is "Time's up", never "Wrong")
+        verdict = "Time's up" if timed_out else "Wrong"
+        self._flash(False, f"{verdict} — the answer was {ans}" if ans
+                    else f"{verdict} — the Sphinx sends her guard!")
         node = self.board.nodes.get(nid)
         if node is None:                  # safety: nothing to fight, just move on
             self._next_turn()
@@ -2107,7 +2154,7 @@ class Game:
                        "charging": False, "ambush": True,
                        "used_items": [], "first_hit_taken": False}
         self._arm_battle()
-        self._say(f"🦁 Wrong! The Sphinx sends her guard at {p.name} — "
+        self._say(f"🦁 {verdict}! The Sphinx sends her guard at {p.name} — "
                   f"{monster['name']} close in!")
         self._bump("battle")
 
@@ -2128,13 +2175,15 @@ class Game:
             self._say(f"{p.name} cracks the puzzle — 3 scrolls.")
             self._next_turn()
 
-    def _puzzle_fail(self, nid: str):
+    def _puzzle_fail(self, nid: str, timed_out: bool = False):
         p = self.current
         p.streak = 0
         kind = self.minigame["kind"] if self.minigame else None
         ans = puzzles.answer_text(kind, self.minigame.get("data")) if self.minigame else ""
         self.minigame = None
-        self._flash(False, f"Wrong — the answer was {ans}" if ans else "Time's up!")
+        verdict = "Time's up" if timed_out else "Wrong"
+        self._flash(False, f"{verdict} — the answer was {ans}" if ans
+                    else ("Time's up!" if timed_out else "Not quite!"))
         msg = f"The puzzle of {self.board.nodes[nid]['name']} defeats {p.name} — it can be tried again."
         if kind == "simon" and p.scrolls > 0:
             p.scrolls -= 1                 # the Muses take a tithe for a broken echo

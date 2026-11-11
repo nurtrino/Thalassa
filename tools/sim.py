@@ -478,6 +478,8 @@ class Table:
             self.turn_actions = 0
             self._wrong_tries = 0
             start_turn()
+            if g.players and g.phase != "finished":     # where the turn is spent
+                self.stats["stage_turns_" + EV.stage_of(g.board.nodes.get(g.current.node, {}))] += 1
 
         def counted_shipwreck(p):
             self.stats["shipwrecks"] += 1
@@ -2075,6 +2077,9 @@ def summarize(results: list[dict]) -> str:
                         - {"instant", "choice", "game", "table", "world"})
         L.append("  events per 100 turns by stage: " + ", ".join(
             f"{s} {100 * tot['events_' + s] / turns_m:.1f}" for s in stages))
+        L.append("  events per 100 turns SPENT in each stage: " + ", ".join(
+            f"{s} {100 * tot['events_' + s] / max(1, tot['stage_turns_' + s]):.1f}"
+            f" ({tot['stage_turns_' + s]:,} turns)" for s in stages))
         if mode == "bots":
             L.append(f"  event scrolls per 100 turns: in {100 * tot['in_events'] / turns_m:.1f}"
                      f" · out {100 * tot['out_events'] / turns_m:.1f} · net "

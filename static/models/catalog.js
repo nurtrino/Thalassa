@@ -8,6 +8,7 @@ import * as THREE from 'three';
 import * as L from './landmarks.js';
 import * as P from './props.js';
 import * as E from './eventprops.js';
+import * as W from './wonders.js';
 import { makeTerrain } from '../gfx/terrain.js';
 import { mulberry32 } from '../util.js';
 
@@ -83,5 +84,6 @@ export const CATALOG = {
   foot_trail: () => P.makeFootTrail(-8, 0, 8, 0, { seed: 3 }),
   // event props
   ...Object.fromEntries(Object.entries(E.EVENT_PROPS).map(([k, f]) => ['ev_' + k, () => f({})])),
+  ...Object.fromEntries(Object.entries(W.WONDER_PROPS).map(([k, f]) => ['wd_' + k, () => f({})])),
 };
 export const CATALOG_IDS = Object.keys(CATALOG);

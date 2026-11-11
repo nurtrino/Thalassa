@@ -379,7 +379,10 @@ document.addEventListener('pointerdown', (e) => {
 }, { passive: true });
 document.addEventListener('keydown', () => { audio.init(); audio.startMusic(); }, { passive: true });
 
-$('joinBtn').onclick = () => { audio.init(); audio.startMusic(); audio.sfx.join(); joined = true; connect(); };
+$('joinBtn').onclick = () => { audio.init(); audio.startMusic(); audio.sfx.join(); peeking = false; joined = true; connect(); };
+// a reload into a running voyage rejoins on its own (X2): peek with my token
+let peeking = true;
+connect(true);
 $('resetBtn').onclick = () => {
   if (!confirm('Reset the table? This ends any game in progress and returns everyone to a fresh, empty lobby.')) return;
   fetch('/reset', { method: 'POST' }).finally(() => location.reload());
@@ -396,17 +399,19 @@ document.addEventListener('keydown', (e) => {
 });
 
 /* ── net layer ──────────────────────────────────────────────────────────── */
-function connect() {
+function connect(rejoinOnly = false) {
   clearTimeout(reconnectTimer);
   const name = $('nameInput').value.trim() || 'Captain';
   localStorage.setItem('thalassa_name', name);
   const proto = location.protocol === 'https:' ? 'wss' : 'ws';
-  try { ws?.close(); } catch (e) { /* stale socket */ }
+  // (a replaced socket must not fire the reconnect path behind the new one)
+  if (ws) { ws.onclose = null; try { ws.close(); } catch (e) { /* stale socket */ } }
   ws = new WebSocket(`${proto}://${location.host}/ws`);
   ws.onopen = () => {
     reconnectN = 0;
     setConnVeil(false);
-    send({ type: 'hello', token, name });
+    // rejoinOnly: a page (re)load peeks for MY seat — it never takes a new one
+    send({ type: 'hello', token, name, ...(rejoinOnly ? { rejoin: true } : {}) });
   };
   lastHeard = Date.now();
   ws.onmessage = (ev) => { lastHeard = Date.now(); handle(JSON.parse(ev.data)); };
@@ -464,12 +469,24 @@ function setConnVeil(on) {
 }
 
 function send(obj) { if (ws?.readyState === 1) ws.send(JSON.stringify(obj)); }
-initEvents(send);                            // events.js mounts its cards + HUD strip
+/* the card is actually on MY screen now (the ship has arrived, any entrance
+   has played): the server starts its answer clock from this moment. Sent once
+   per card; the server ignores it from anyone but the acting captain. */
+const ackedCards = new Set();
+function ackShown(what, key) {
+  const k = what + '|' + key;
+  if (ackedCards.has(k) || ws?.readyState !== 1) return;
+  if (ackedCards.size > 64) ackedCards.clear();
+  ackedCards.add(k);
+  send({ type: 'shown', what });
+}
+initEvents(send);                           // events.js mounts its cards + HUD strip
 window.__send = send;                 // debug/testing handles
 window.__room = null;
 window.__you = null;
 window.__world = world;               // scene api: arriving()/animating()/currentStage()
 window.__beginSphinxAmbush = () => beginSphinxAmbush();   // QA: replay her intro
+window.__rerender = () => render();   // QA: re-lay the HUD after poking window.__room
 window.__audio = audio;               // music scene lives on audio._scene
 window.__pharosCine = () => playPharosCutscene();   // preview the seal cutscene
 window.__winPreview = () => {                        // preview the victory sequence
@@ -492,6 +509,20 @@ window.__winPreview = () => {                        // preview the victory sequ
 };
 
 function handle(msg) {
+  if (msg.type === 'snapshot' && peeking) {
+    // the reload peek: am I already seated at this table? Then rejoin
+    // silently — no title card, no JOIN tap. If not, close the peek and
+    // leave the title card exactly as it was.
+    peeking = false;
+    const seated = msg.you && (msg.room?.players || []).some((p) => p.pid === msg.you);
+    if (!seated) {
+      const w = ws; ws = null;
+      if (w) { w.onclose = null; try { w.close(); } catch (e) { /* gone */ } }
+      clearInterval(pingInterval);
+      return;
+    }
+    joined = true;
+  }
   if (msg.type === 'snapshot') {
     const prev = room;
     you = msg.you;
@@ -1137,6 +1168,7 @@ function renderJboard() {
   const el = $('jboard');
   const b = room?.jboard;
   const active = room.phase === 'jchoose' && b && !world.arriving();
+  document.body.classList.toggle('jpicking', !!active);
   if (!active) {
     cancelAnimationFrame(jbTimerRAF); jbTimerRAF = 0;
     el.classList.add('hidden'); el.classList.remove('picked');
@@ -1146,6 +1178,7 @@ function renderJboard() {
   const mine = room.turn === you;
   const fighter = room.players.find((p) => p.pid === room.turn);
   const key = 'jb#' + b.cells.map((c) => c.category + c.value).join('|') + (mine ? '#me' : '');
+  if (mine) ackShown('jchoose', key);
   if (el.dataset.key !== key) {
     el.dataset.key = key;
     // a NEW board is live again: clear the lock from the previous pick, or
@@ -1237,6 +1270,9 @@ function render() {
   // events.js: event cards / games / table events, result card, HUD strip —
   // held back while the acting ship is still sailing up to the stop
   renderEvents(room, you, { hold: world.arriving() });
+  // a table event's shared clock starts when the actor can see the card
+  if (room.phase === 'event' && room.turn === you && room.event?.step === 'table'
+      && !world.arriving()) ackShown('event', `${room.event.id}`);
   renderModal();
   renderVictory();
   renderLog();
@@ -1455,7 +1491,9 @@ function trayBtn(tray, label, cls, onclick, disabled = false) {
 function trayHint(tray, text) {
   const s = document.createElement('span');
   s.className = 'hint';
-  s.innerHTML = text;
+  // ONE inline run inside the flex chip: as bare flex items the text nodes
+  // beside <strong> lost their spaces ("Rolled3—", "Temple ofScience")
+  s.innerHTML = `<span class="hint-in">${text}</span>`;
   tray.appendChild(s);
 }
 
@@ -1468,7 +1506,9 @@ function renderTray() {
   if (room.phase === 'finished') {
     const w = room.players.find((p) => p.pid === room.winner);
     trayHint(tray, `${icon('crown', 15)} <strong>${esc(w?.name || '?')}</strong> holds the Pharos!`);
-    if (you === room.host) trayBtn(tray, 'NEW VOYAGE', 'gold', () => send({ type: 'rematch' }));
+    // after "gaze upon the sea": a way back to the board (the new-voyage
+    // call lives there, behind its confirm — never one stray tap away here)
+    trayBtn(tray, 'THE CAPTAINS', 'gold', showVictoryBoard);
     return;
   }
   if (!mine) {
@@ -1910,9 +1950,44 @@ function buildVictoryBoard() {
     });
   });
   const r = document.getElementById('vRematch');
-  if (r) r.onclick = () => send({ type: 'rematch' });
-  document.getElementById('vHide').onclick = () => d.classList.add('vpeek');
+  if (r) r.onclick = () => askRematch(d);
+  document.getElementById('vHide').onclick = () => {
+    d.classList.add('vpeek');
+    $('hud').classList.remove('hidden');      // the sea, with a way back (tray)
+  };
   // (the victory sting already rang at the win; the cinematic owns the audio)
+}
+
+/* the host's NEW VOYAGE ends this sea for every captain — so it asks first,
+   and the YES only arms after a beat (a double-tap can't carry through) */
+function askRematch(d) {
+  const btns = d.querySelector('.vbtns');
+  if (!btns || btns.dataset.asking) return;
+  btns.dataset.asking = '1';
+  const keep = btns.innerHTML;
+  btns.innerHTML =
+    `<div class="vask">Start a new voyage for every captain? This sea and its scores end.</div>
+     <button id="vRematchYes" class="vgold" disabled>YES, A NEW SEA</button>
+     <button id="vRematchNo" class="vghost">not yet</button>`;
+  const yes = btns.querySelector('#vRematchYes');
+  setTimeout(() => { yes.disabled = false; }, 700);
+  yes.onclick = () => { yes.disabled = true; send({ type: 'rematch' }); };
+  btns.querySelector('#vRematchNo').onclick = () => {
+    delete btns.dataset.asking;
+    btns.innerHTML = keep;
+    const r = btns.querySelector('#vRematch');
+    if (r) r.onclick = () => askRematch(d);
+    btns.querySelector('#vHide').onclick = () => {
+      d.classList.add('vpeek');
+      $('hud').classList.remove('hidden');
+    };
+  };
+}
+
+function showVictoryBoard() {
+  const d = document.getElementById('victoryOv');
+  if (d) { d.classList.remove('vpeek'); return; }
+  buildVictoryBoard();
 }
 
 /* ── item belt (bottom-right) ───────────────────────────────────────────── */
@@ -2035,9 +2110,12 @@ function showBattleTip(anchor, text) {
 function hideBattleTip() { battleTipEl?.classList.remove('show'); }
 function attachBattleTip(bt, text) {
   bt.setAttribute('aria-label', text);          // keep it for screen readers…
-  bt.addEventListener('mouseenter', () => showBattleTip(bt, text));
-  bt.addEventListener('mouseleave', hideBattleTip);
-  bt.addEventListener('mousedown', hideBattleTip);
+  // a real mouse hover only: a finger's tap emulates mouseenter and left the
+  // tip parked over the next button (or the boss) after the tap
+  bt.addEventListener('pointerenter', (e) => { if (e.pointerType === 'mouse') showBattleTip(bt, text); });
+  bt.addEventListener('pointerleave', hideBattleTip);
+  bt.addEventListener('pointerdown', hideBattleTip);
+  bt.addEventListener('click', hideBattleTip);
 }
 
 function renderBattle() {
@@ -2256,7 +2334,7 @@ function renderQuestion() {
     $('qdomain').textContent = 'Type your answer';
   } else {
     $('qkind').textContent = ctxKind === 'shrine'
-      ? `${KIND_LABEL.shrine} · Tier ${TIER_ROMAN[q?.tier ?? 1] || ''}`
+      ? `${KIND_LABEL.shrine} · Tier ${TIER_ROMAN[q?.tier ?? rv?.tier ?? 1] || ''}`
       : ctxKind === 'battle'
         ? `Battle · Tier ${TIER_ROMAN[q?.tier ?? rv?.tier ?? 1] || 'I'}`
         : (KIND_LABEL[ctxKind] || 'Challenge');
@@ -2297,6 +2375,7 @@ function renderQuestion() {
 
   const mine = room.turn === you;
   const amPlayer = !!me;
+  if (room.phase === 'question' && q && mine) ackShown('question', `${q.text}|${q.kind}|${q.tier}`);
   if (room.phase === 'question' && typed) {
     $('qtext').textContent = q.text;
     renderTypedQuestion(q, mine);
@@ -2341,11 +2420,26 @@ function renderQuestion() {
         `<div class="typedreveal ${rv.was_correct ? 'good' : 'bad'}">` +
         `<span class="tlabel">${rv.was_correct ? 'Correct' : 'The answer'}</span>` +
         `<span class="tans">${esc(rv.answer_text || '')}</span></div>`;
-      $('qnote').textContent = stripEmoji(rv.note || '');
+      $('qnote').textContent = stripEmoji((mine ? rv.note : (rv.note_table ?? rv.note)) || '');
       mySideAnswer = null;
       return;
     }
     const opts = $('qopts');
+    // REBUILD the card from the reveal itself: a viewer who never drew this
+    // question (the rival's boat was still arriving, or a bot answered at
+    // once) would otherwise re-mark the PREVIOUS question's buttons
+    if (rv.text) $('qtext').textContent = rv.text;
+    if (Array.isArray(rv.options) && rv.options.length) {
+      opts.dataset.tkey = '';
+      opts.innerHTML = '';
+      rv.options.forEach((opt, i) => {
+        const b = document.createElement('button');
+        b.className = 'opt';
+        b.textContent = opt;
+        if (mySideAnswer === i) b.classList.add('picked');
+        opts.appendChild(b);
+      });
+    }
     [...opts.children].forEach((b, i) => {
       b.disabled = true;
       if (i === rv.correct) b.classList.add('good');
@@ -2353,7 +2447,7 @@ function renderQuestion() {
       if (mySideAnswer === i && i !== rv.correct) b.classList.add('bad');
     });
     let note = rv.was_correct ? 'Correct! ' : (rv.chosen === -1 ? 'Time expired. ' : 'Wrong. ');
-    note += stripEmoji(rv.note || '');
+    note += stripEmoji((mine ? rv.note : (rv.note_table ?? rv.note)) || '');
     const sideMine = rv.side?.[you];
     if (sideMine) {
       // at a big table only every 2nd/3rd right side answer pays (`paid`;
@@ -2367,7 +2461,7 @@ function renderQuestion() {
   }
 }
 
-/* a typed JEOPARDY! clue — 20 seconds to type the answer (no reading lock).
+/* a typed JEOPARDY! clue — a generous clock to type the answer (no reading lock).
    Rebuild only when the clue changes, so live re-renders never wipe typing. */
 let readTimer = 0;
 function renderTypedQuestion(q, mine) {
@@ -2409,11 +2503,11 @@ function renderTypedQuestion(q, mine) {
   wrap.append(input, btn);
   opts.appendChild(wrap);
 
-  // no reading lock — the whole 20-second window is for typing, open from the
+  // no reading lock — the whole window is for typing, open from the
   // first frame (the shrinking timer line is the countdown).
   clearTimeout(readTimer);
   input.disabled = false; btn.disabled = false;
-  $('qnote').textContent = 'Type the answer and press Enter — 20 seconds.';
+  $('qnote').textContent = 'Type the answer and press Enter — take your time, the line shows the clock.';
   try { input.focus(); } catch (e) {}
 }
 
@@ -2453,8 +2547,11 @@ function renderMinigame() {
   if (!show) { mg = { key: null }; return; }
 
   const mine = room.turn === you;
-  const key = `${m.island}:${m.kind}:${m.deadline}`;
+  // keyed on the puzzle itself, NOT its deadline: the clock restarts once the
+  // card is on screen (ackShown) and that must not wipe a half-solved grid
+  const key = JSON.stringify({ ...m, deadline: 0 });
   const fresh = mg.key !== key;
+  if (mine) ackShown('minigame', key);
   if (fresh) mg = { key, sel: null, rot: 0, cells: null, taps: [], watched: false, grid: null };
 
   if (m.event) {                               // an event's puzzle (events.js)
@@ -3056,7 +3153,7 @@ function renderModal() {
           sigil seal. Shipwreck drops it back at the lair; sail home and bank
           it to make it safe.</li>
         <li><strong>Win</strong> — bank ${room.config.relics_to_win} seals to
-          open the Pharos, then land on it and put down the Dark Lord.</li>
+          open the Pharos, then land on it and put down the Dark Presence.</li>
       </ol>
       <p class="tag">Hull 0 = shipwreck: back to your checkpoint, scrolls halved.
         Answer on rivals' turns to skim scrolls.</p>
@@ -3089,19 +3186,9 @@ function renderModal() {
     return;
   }
 
-  if (room.phase === 'finished') {
-    const w = room.players.find((p) => p.pid === room.winner);
-    show(`<h2>${icon('crown', 22)} The Pharos</h2>
-      <p><strong style="color:${w?.color}">${esc(w?.name || '?')}</strong> has put down the
-      Dark Lord and lit the Pharos. The four realms sing their name.</p>
-      ${you === room.host
-        ? '<button id="rematchGo" class="big">NEW VOYAGE — A NEW SEA</button>'
-        : '<p class="tag">the host may launch a new voyage</p>'}`);
-    const rg = $('rematchGo');
-    if (rg) rg.onclick = () => send({ type: 'rematch' });
-    return;
-  }
-
+  // (the end of the voyage has exactly ONE screen — the VICTORY board,
+  // renderVictory. The old winner card here sat invisibly on top of it and
+  // swallowed its taps, one of them a no-confirm rematch.)
   modal.classList.add('hidden');
 }
 

@@ -156,6 +156,7 @@ export function createWorld(container, handlers = {}) {
   let preloadedCaptain = false;
   let preloadedRegion = null;   // last realm whose bestiary we streamed in
   let wasLobby = true;        // to catch the lobby → voyage transition
+  let firstSnap = true;       // this page's first snapshot (a reload skips the tour)
   let cine = null;            // active establishing pan-over, or null
   const seenStages = new Set();
 
@@ -1236,6 +1237,9 @@ export function createWorld(container, handlers = {}) {
       // visual node at the gate until it has actually sailed through the arch
       // (tickShips releases the hold). A jump anywhere else — a dev drop, a
       // respawn at a haven — drops the hold and is honoured at once.
+      // a hold only lives while its sail-up is actually playing on screen
+      if (rec.hold && (!rec.anim || rec.stageId !== activeBoardId)
+          && !(cross && cross.pid === rec.pid)) rec.hold = null;
       if (rec.hold) {
         const far = nodeById[nodeNow];
         const carried = nodeNow === rec.hold.gate
@@ -1739,6 +1743,15 @@ export function createWorld(container, handlers = {}) {
 
     /* establishing pan: once when the voyage begins, and each time you first
      * cross into a new realm (never in the lobby, never mid-battle) */
+    // A RELOAD / rejoin into a running voyage (this page's very first
+    // snapshot is already past the lobby) warms the models silently and
+    // drops you straight back at your ship — no fly-over, no loading curtain
+    // over a live question. Only a voyage seen starting (lobby → play, or a
+    // rematch) gets the tour.
+    if (firstSnap) {
+      firstSnap = false;
+      if (!lobbyMode) { wasLobby = false; warmSilently(); }
+    }
     if (wasLobby && !lobbyMode && activeBoardId && !battleOn) {
       seenStages.add(activeBoardId);
       gateTourThenStart();               // preload → loading bar → fly-over
@@ -1834,9 +1847,33 @@ export function createWorld(container, handlers = {}) {
       return;                                    // Vale-walk taps are ours
     }
 
-    const hit = ray.intersectObjects(
+    // prefer a LEGAL stop among ALL hits: from behind the ship your own
+    // stop's (invisible, tall) proxy covers the lit stops ahead, and taking
+    // the first hit swallowed the tap. Nearest legal hit wins; else nearest.
+    const hits = ray.intersectObjects(
       [...st.proxyList, ...highlights.children, ...valeArrows.children], false)
-      .find((h) => h.object.userData.node);
+      .filter((h) => h.object.userData.node);
+    const legal = (lastRoom && lastRoom.turn === myPid && lastRoom.phase === 'sail')
+      ? new Set([...Object.keys(lastRoom.reachable || {}), ...(lastRoom.walk?.options || [])])
+      : null;
+    let hit = (legal && hits.find((h) => legal.has(h.object.userData.node))) || null;
+    if (!hit && legal && legal.size) {
+      // a near miss on a phone: the lit stop closest on screen within a
+      // finger's width still counts
+      const lim = e.pointerType === 'touch' ? 44 : 26;
+      let bestD = lim, bestId = null;
+      for (const id of legal) {
+        const n = nodeById[id];
+        if (!n || !stageHasNode(activeBoardId, id)) continue;
+        _vD.set(n.x, (st.islands[id]?.plateauY ?? 0) + 1, n.z).project(camera);
+        if (_vD.z > 1) continue;                    // behind the camera
+        const sx = (_vD.x + 1) / 2 * rect.width, sy = (1 - _vD.y) / 2 * rect.height;
+        const d = Math.hypot(sx - (e.clientX - rect.left), sy - (e.clientY - rect.top));
+        if (d < bestD) { bestD = d; bestId = id; }
+      }
+      if (bestId) hit = { object: { userData: { node: bestId } } };
+    }
+    hit = hit || hits[0];
     if (hit) {
       handlers.onNodeClick?.(hit.object.userData.node,
                              !!hit.object.userData.walkArrow);
@@ -2064,6 +2101,94 @@ export function createWorld(container, handlers = {}) {
     return true;
   }
 
+  /* ── AFTER A ROLL: frame the ship AND every stop it may sail to ─────────
+     The chase cam sits low behind the ship, so the lit stops were often all
+     off-screen. While it is my sail decision the follow point leans toward
+     the stops' centre (reachAim) and the eye eases OUT — just far enough —
+     until all of them sit inside a safe screen box (reachFit). A drag or
+     pinch by the player hands the camera back to them for that decision. */
+  let reachKey = '', reachManual = false, reachPts = [];
+  {
+    // a real drag / pinch / wheel — not a tap on a stop — is "manual"
+    let dn = null;
+    const el = renderer.domElement;
+    el.addEventListener('pointerdown', (e) => { dn = [e.clientX, e.clientY]; });
+    el.addEventListener('pointermove', (e) => {
+      if (dn && reachKey && Math.hypot(e.clientX - dn[0], e.clientY - dn[1]) > 18) reachManual = true;
+    });
+    el.addEventListener('pointerup', () => { dn = null; });
+    el.addEventListener('wheel', () => { if (reachKey) reachManual = true; }, { passive: true });
+  }
+  function reachTargets(st) {
+    const r = lastRoom;
+    const ok = r && r.phase === 'sail' && r.turn === myPid && !r.battle && !tour && !cross
+      && !cine && !battleOn && activeBoardId !== 'autumn' && ships[myPid]?.stageId === st.id;
+    const ids = ok ? Object.keys(r.reachable || {}).filter((id) => stageHasNode(st.id, id)).sort() : [];
+    const key = ids.length ? st.id + '#' + ids.join(',') : '';
+    if (key !== reachKey) {
+      reachKey = key; reachManual = false;
+      reachPts = ids.map((id) => {
+        const n = nodeById[id];
+        return new THREE.Vector3(n.x, (st.islands[id]?.plateauY ?? 0) + 1, n.z);
+      });
+    }
+    return reachKey && !reachManual ? reachPts : null;
+  }
+  function reachAim(st, aim) {
+    const pts = reachTargets(st);
+    if (!pts || !pts.length) return;
+    let x = aim.x, z = aim.z;
+    for (const p of pts) { x += p.x; z += p.z; }
+    const k = 1 / (pts.length + 1);
+    // lean halfway to the centroid: the ship stays well in frame
+    aim.x += (x * k - aim.x) * 0.5;
+    aim.z += (z * k - aim.z) * 0.5;
+  }
+  const _reachSph = new THREE.Spherical();
+  const REACH_MAX = 140;            // how far out the eye may ease to frame a roll
+  let reachBase = null;             // {stage, max}: the stage's own zoom cap, restored after
+  function reachFit(st, dt) {
+    const pts = reachTargets(st);
+    const k = Math.min(1, dt * 1.6);
+    if (reachBase && reachBase.stage !== st.id) reachBase = null;   // the stage re-set its caps
+    if (!pts || !pts.length) {
+      // the decision is over: ease back in to the stage's own zoom cap
+      if (!reachBase) return;
+      _vD.subVectors(camera.position, controls.target);
+      _reachSph.setFromVector3(_vD);
+      if (_reachSph.radius > reachBase.max + 0.5) {
+        _reachSph.radius = Math.max(reachBase.max, _reachSph.radius * (1 - k * 0.6));
+        controls.maxDistance = Math.max(reachBase.max, _reachSph.radius);
+        _vD.setFromSpherical(_reachSph);
+        camera.position.copy(controls.target).add(_vD);
+      } else {
+        controls.maxDistance = reachBase.max;
+        reachBase = null;
+      }
+      return;
+    }
+    const portrait = camera.aspect < 0.8;
+    // keep clear of the HUD: the top bar and the bottom tray / belt
+    const xm = portrait ? 0.84 : 0.86, yTop = portrait ? 0.62 : 0.7, yBot = portrait ? -0.5 : -0.55;
+    const ship = ships[myPid].root.position;
+    let out = false;
+    for (let i = -1; i < pts.length && !out; i++) {
+      _vD.copy(i < 0 ? ship : pts[i]).project(camera);
+      out = _vD.z > 1 || Math.abs(_vD.x) > xm || _vD.y > yTop || _vD.y < yBot;
+    }
+    if (!out) return;
+    if (!reachBase) reachBase = { stage: st.id, max: controls.maxDistance };
+    controls.maxDistance = Math.max(controls.maxDistance, REACH_MAX);
+    _vD.subVectors(camera.position, controls.target);
+    _reachSph.setFromVector3(_vD);
+    // ease out AND tip the eye a little more overhead — both widen the
+    // patch of sea in view; stop as soon as everything fits
+    _reachSph.radius = Math.min(REACH_MAX, _reachSph.radius * (1 + k));
+    _reachSph.phi = Math.max(0.62, _reachSph.phi - k * 0.25);
+    _vD.setFromSpherical(_reachSph);
+    camera.position.copy(controls.target).add(_vD);
+  }
+
   function tickCamera(st, t, dt = 0.016) {
     if (window.__freezeCam) {              // dev/screenshot hook only
       followSun(st, controls.target);
@@ -2085,6 +2210,7 @@ export function createWorld(container, handlers = {}) {
           const left = Math.hypot(end.x - _vA.x, end.z - _vA.z);
           _vA.lerp(end, 0.3 * smooth01(40, 8, left));
         }
+        if (!rec.anim && rec.pid === myPid) reachAim(st, _vA);   // after a roll
         _vA.y = 1.6;
         _vB.subVectors(_vA, controls.target);
         if (_vB.lengthSq() > 0.0001) {
@@ -2103,6 +2229,7 @@ export function createWorld(container, handlers = {}) {
           camera.position.add(_vB);
         }
       }
+      reachFit(st, dt);                   // after a roll: every lit stop in view
     }
     controls.update();
     guardCamera(st);
@@ -2152,7 +2279,7 @@ export function createWorld(container, handlers = {}) {
     autumn: ['The Amber Vale',
       'A forest track beneath amber boughs. When your ship goes down, you wake at your last haven.'],
     pharos: ['The Pharos',
-      'Slay tyrants and bank THREE sigil seals to open its door — then face the Dark Lord. First to take the tower wins the sea.'],
+      'Slay tyrants and bank THREE sigil seals to open its door — then face the Dark Presence. First to take the tower wins the sea.'],
   };
 
   const _easeIO = (k) => (k < 0.5 ? 2 * k * k : 1 - Math.pow(-2 * k + 2, 2) / 2);
@@ -2181,6 +2308,13 @@ export function createWorld(container, handlers = {}) {
    * UI (loading bar); a 60s race means a stalled download never soft-locks
    * the game — the tour simply starts with whatever arrived. */
   let loadGate = false;
+  function warmSilently() {             // a rejoin: same preload, no curtain, no tour
+    if (loadGate) return;
+    loadGate = true;
+    const jobs = [...preloadStructures(), ...preloadProps(),
+                  ...preloadMonsters(['captain', ...BOSS_IDS])];
+    Promise.allSettled(jobs).catch(() => {});
+  }
   function gateTourThenStart() {
     if (loadGate) return;
     loadGate = true;
@@ -2501,6 +2635,7 @@ export function createWorld(container, handlers = {}) {
     scene: () => (battleOn ? battleStage.scene : stages[activeBoardId]?.scene),
     camera, controls, ships, stages,
     follow: () => viewFollowPid,
+    reach: () => ({ key: reachKey, manual: reachManual }),   // after-roll framing state
     animating: () => animatingPid(),
     crossing: () => (cross ? { phase: cross.phase, to: cross.to, w: +(cross.w || 0).toFixed(2) } : null),
   };
