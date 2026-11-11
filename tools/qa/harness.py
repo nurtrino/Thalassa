@@ -104,8 +104,10 @@ class Client:
                 await self.page.click("#startBtn", timeout=8000)
             except Exception:                  # covered / still animating in
                 await self.page.evaluate("() => window.__send({type: 'start'})")
+        # (generous: a cold software renderer can take a while to answer)
         await self.wait_phase("roll", "sail", "battle", "question", "shrine",
-                              "haven", "shop", "minigame")
+                              "haven", "shop", "minigame", "event", "trade",
+                              timeout=45000)
         with contextlib.suppress(Exception):
             await self.page.click("#introGo", timeout=4000)
         await self.end_tour()
@@ -177,9 +179,18 @@ class Client:
                 else:                      # can't afford to run — swing away
                     await self.send({"type": "dev", "battle_mode": "mc"})
                     await self.send({"type": "stance", "stance": "attack"})
+            elif ph == "jchoose":          # a JEOPARDY! board: take the first clue
+                await self.send({"type": "jpick", "idx": 0}, settle=900)
             elif ph == "question":
-                await self.send({"type": "answer", "idx": 0})
+                q = r.get("question") or {}
+                if q.get("options") or q.get("choices"):
+                    await self.send({"type": "answer", "idx": 0})
+                else:                      # a typed clue: any guess moves it on
+                    await self.send({"type": "answer", "idx": 0})
+                    await self.send({"type": "answer_text", "text": "zeus"})
                 await self.page.wait_for_timeout(6200)
+            elif ph == "reveal":
+                await self.page.wait_for_timeout(2500)
             elif ph == "minigame":
                 await self.send({"type": "solve", "payload": None},
                                 settle=1200)

@@ -872,7 +872,26 @@ export function createWorld(container, handlers = {}) {
     const raw = [rec.root.position.clone()];
     if (route && route.length > 2) {
       const mids = route.slice(1, -1);
-      for (let i = 0; i < mids.length; i++) {
+      // The hull is not always where the server's last stop was: a move can
+      // be superseded before its sail has gone anywhere (flee a fight, then
+      // sail straight back). A waypoint that lies further from the goal than
+      // the hull already is would send her out and back through a hairpin —
+      // skip the lane up to the first waypoint that is actually ahead.
+      const goal = nodeById[toNode];
+      let first = 0;
+      // (only when she is plainly NOT lying at that last stop — a lane is
+      //  free to swing wide of the goal on an ordinary leg)
+      const lastStop = nodeById[rec.prevNode];
+      const adrift = lastStop && Math.hypot(raw[0].x - lastStop.x, raw[0].z - lastStop.z)
+        > (st?.islands[rec.prevNode]?.R ?? 6) + 22;
+      if (goal && adrift) {
+        const here = Math.hypot(raw[0].x - goal.x, raw[0].z - goal.z);
+        for (let i = 0; i < mids.length; i++) {
+          const n = nodeById[mids[i]];
+          if (n && Math.hypot(n.x - goal.x, n.z - goal.z) > here + 6) first = i + 1;
+        }
+      }
+      for (let i = first; i < mids.length; i++) {
         const n = nodeById[mids[i]];
         if (!n) continue;
         const nxt = nodeById[route[i + 2]];

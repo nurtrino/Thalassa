@@ -95,10 +95,18 @@ hulls up to 152° off their bow, from two causes, both fixed in `travel.js`:
   at cruising speed. `helmRate(speed)` now lets the bow swing as fast as the
   curve needs under way, and stays low at rest (no spinning on the spot).
 
-After the fix, 29 real legs (hub, jungle, desert): worst 33°, typical 12–15°,
-no gap over the 1 wu sample spacing. A walker who must turn on his heel now
-has his clock HELD until he faces the trail (it used to leak on slow frames,
-and he walked backwards). The Vale's fork-to-fork walk was not in the replay.
+- a turning circle may borrow sea-room but never the coast (`hard` radius
+  on every solid); bow-on to a beach the hull comes about in a tighter circle
+  (4.4 / 3.0 / 2.2 wu), and with no room at all turns where she lies first;
+- a move superseded before its sail went anywhere (flee, then sail straight
+  back) used to route out to a far waypoint and back through a hairpin; the
+  route now starts from where the hull actually is.
+
+The replay is now part of the `sail_monitor` suite and carries its verdict
+(slip ≤ 45°, no step over 2.2 wu, nothing stuck turning); the live sampler's
+slip is printed for information only. Typical result: median 9–13°, worst
+33–40°. A walker who must turn on his heel has his clock HELD until he faces
+the trail (it used to leak on slow frames, and he walked backwards).
 
 ## Why static + dynamic
 

@@ -430,6 +430,54 @@ SAMPLER = """
 """
 
 
+ROUTE_CAPTURE = """
+() => {
+  // keep every travel route actually planned during the run (see ROUTE_REPLAY)
+  const T = window.__thalassa; window.__qaRoutes = []; const seen = new WeakSet();
+  setInterval(() => { for (const [pid, rec] of Object.entries(T.ships)) {
+    if (rec.anim && !seen.has(rec.anim)) { seen.add(rec.anim);
+      window.__qaRoutes.push({ stage: rec.stageId, foot: rec.mode === 'foot', route: rec.anim.route,
+        dur: rec.anim.dur, yaw0: rec.root.rotation.y, from: rec.prevNode, to: rec.node }); } } }, 20);
+}
+"""
+
+ROUTE_REPLAY = """
+async () => {
+  // Step every captured route at an ideal 60 fps through the game's own
+  // routeS / routeAt / helm / helmRate (and the heel-turn hold of scene.js
+  // tickShips). This is the TRUE helm quality: the live sampler above reads
+  // a 2-4 fps software renderer, where the chord between two frames on a
+  // tight turn alone is tens of degrees off the bow.
+  const tv = await import('/static/travel.js'); const THREE = await import('three');
+  const out = [];
+  for (const c of window.__qaRoutes) {
+    let yaw = c.yaw0, seg = 0, prev = null, slip = 0, guard = 0, at = null;
+    const pos = new THREE.Vector3(), dir = new THREE.Vector3(), dt = 1 / 60;
+    for (let t = 0; t <= c.dur && guard < 6000; t += dt * 1000, guard++) {
+      const s = tv.routeS(c.route, tv.easeVoyage(Math.min(1, t / c.dur)), seg);
+      seg = tv.routeAt(c.route, s, pos, dir, seg);
+      let off = Math.atan2(-dir.z, dir.x) - yaw; off -= Math.round(off / (2 * Math.PI)) * 2 * Math.PI;
+      if (c.foot ? (Math.abs(off) > 0.6 && s < c.route.total * 0.5) : (Math.abs(off) > 0.7 && s < 2.5)) {
+        yaw = tv.helm(yaw, dir.x, dir.z, dt, tv.helmRate(0, c.foot), c.foot ? 16 : 18); t -= dt * 1000; continue;
+      }
+      const sog = prev ? Math.hypot(pos.x - prev.x, pos.z - prev.z) / dt : 0;
+      yaw = tv.helm(yaw, dir.x, dir.z, dt, tv.helmRate(sog, c.foot), c.foot ? 16 : 18);
+      if (prev && sog > 2.5) {
+        const vx = pos.x - prev.x, vz = pos.z - prev.z;
+        const a = Math.acos(Math.max(-1, Math.min(1, (vx * Math.cos(yaw) - vz * Math.sin(yaw)) / (Math.hypot(vx, vz) || 1)))) * 180 / Math.PI;
+        if (a > slip) { slip = a; at = pos.x.toFixed(0) + ',' + pos.z.toFixed(0); }
+      }
+      prev = pos.clone();
+    }
+    let gap = 0; const P = c.route.pts;
+    for (let i = 1; i < P.length; i++) gap = Math.max(gap, P[i].distanceTo(P[i - 1]));
+    out.push({ stage: c.stage, foot: c.foot, from: c.from, to: c.to, slip, at, gap, stuck: guard >= 6000 });
+  }
+  return out;
+}
+"""
+
+
 async def _sail_some(c, rounds, notes, label):
     """Roll and sail/walk `rounds` times from wherever we stand."""
     you = await c.page.evaluate("() => window.__you")
@@ -487,6 +535,7 @@ def sail_monitor(outdir):
         with DevServer() as srv:
             async with browser_client(srv.url) as c:
                 await c.page.evaluate(SAMPLER)
+                await c.page.evaluate(ROUTE_CAPTURE)
                 # the hub first — this is what players do most
                 await _sail_some(c, 14, notes, "hub")
                 # then each realm: sail realms, both walked realms
@@ -517,9 +566,27 @@ def sail_monitor(outdir):
                 notes.append(f"helm: max turn {helm['maxTurn']:.1f} rad/s, "
                              f"max slip {helm['maxSlip']:.0f}° ({helm.get('slipAt', '-')}), camera min "
                              f"{helm['camLow']:.1f} wu over ground")
-                if helm["maxSlip"] > 35:
-                    notes.append("SLIDE: a vessel moved >35° off its bow")
-                    bad = True
+                # the live slip above is informational (a 2–4 fps renderer makes
+                # it noisy); the verdict is the 60 fps replay of the same routes
+                rep = await c.page.evaluate(ROUTE_REPLAY)
+                if rep:
+                    worst = max(rep, key=lambda r: r["slip"])
+                    gap = max(r["gap"] for r in rep)
+                    slips = sorted(r["slip"] for r in rep)
+                    notes.append(
+                        f"replay @60fps: {len(rep)} routes — slip median "
+                        f"{slips[len(slips) // 2]:.0f}°, max {worst['slip']:.0f}° "
+                        f"({worst['stage']} {worst['from']}→{worst['to']} @{worst['at']}), "
+                        f"largest step {gap:.1f} wu")
+                    if worst["slip"] > 45:
+                        notes.append("SLIDE: a vessel moved >45° off its bow (replay)")
+                        bad = True
+                    if gap > 2.2:
+                        notes.append("JUMP: a route is not one continuous curve")
+                        bad = True
+                    if any(r["stuck"] for r in rep):
+                        notes.append("STUCK: a vessel never finished turning")
+                        bad = True
                 if helm["camLow"] < 0.8:
                     notes.append("CAMERA under the ground")
                     bad = True
