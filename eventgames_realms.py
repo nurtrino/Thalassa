@@ -195,7 +195,9 @@ def gen_pairs(rng, params):
 def move_pairs(st, payload, rng):
     _need(not st["done"], "The game is over.")
     if payload == "stop":
-        _need(st["open"] is None, "Turn the second tile first.")
+        # stopping with one tile turned just lays it back down: the idle clock
+        # cashes a captain out with "stop", and that must never be refused
+        st["open"] = None
         _end(st, "win" if st["found"] >= st["goal"] else "lose", st["found"])
         return
     i = _dict_key(payload, "flip")

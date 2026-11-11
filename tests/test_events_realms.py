@@ -273,8 +273,10 @@ def test_pairs_rules():
     assert st["open"] == {"i": 0, "face": faces[0]} and st["tries"] == 12
     with pytest.raises(ValueError):
         EG.move(st, {"flip": 0}, rng)                  # the same tile twice
-    with pytest.raises(ValueError):
-        EG.move(st, "stop", rng)                       # not with a tile turned
+    import copy
+    early = copy.deepcopy(st)
+    EG.move(early, "stop", rng)                    # stopping with a tile turned lays it down
+    assert early["done"] and early["open"] is None and early["result"] == "lose"
     EG.move(st, {"flip": j}, rng)
     assert st["tries"] == 11 and st["last"]["match"] is False and st["matched"][0] is None
     assert st["seen"][0] and st["seen"][j]
