@@ -1138,6 +1138,20 @@ function cycladicHouse(wall, trim, x, y, z, ry, w, d, h, rng, domeP) {
     if (w < 1.4 && s > 0) continue;
     trim.add(box(0.3, 0.34, 0.05, 0.015), 0x2b5fae, M(s * w * 0.28, h * 0.62, d / 2 + 0.02).premultiply(m));
   }
+  // windows round the other three sides too (dark panes, blue frames), and a
+  // little outside stair on some — no blank sugar cubes from behind
+  const win = (x, z, ry) => {
+    trim.add(box(0.36, 0.42, 0.05, 0.015), 0x2b5fae, M(x, h * 0.6, z, ry).premultiply(m));
+    trim.add(box(0.24, 0.3, 0.06, 0.01), 0x1b2433, M(x, h * 0.6, z, ry).premultiply(m));
+  };
+  win(0, -d / 2 - 0.02, Math.PI);
+  win(w / 2 + 0.02, (rng() - 0.5) * (d - 0.8), Math.PI / 2);
+  win(-w / 2 - 0.02, (rng() - 0.5) * (d - 0.8), -Math.PI / 2);
+  if (rng() < 0.5) {
+    for (let k = 0; k < 4; k++) {
+      wall.add(box(0.55, 0.25 * (k + 1), 0.4, 0.03), 0xf2eee6, M(w / 2 + 0.3, 0.125 * (k + 1) - 0.0, -d / 2 + 0.25 + k * 0.38).premultiply(m));
+    }
+  }
   if (rng() < 0.4) {
     // a stacked upper room, set back
     const w2 = w * 0.55, h2 = h * 0.7;
@@ -1173,9 +1187,9 @@ export function makeHomeTown(g, terrain, R, dockA, seed = 1) {
     for (const q of spots) if (Math.hypot(q.x - p.x, q.z - p.z) < 2.5) { ok = false; break; }
     if (!ok) continue;
     spots.push(p);
-    const w = 1.8 + rng() * 0.9, d = 1.6 + rng() * 0.7, h = 1.4 + rng() * 0.8;
+    const w = 1.5 + rng() * 0.8, d = 1.4 + rng() * 0.6, h = 1.2 + rng() * 0.7;
     // face the harbour: front (+z local) toward the dock direction
-    const ry = Math.atan2(Math.cos(dockA), Math.sin(dockA)) + (rng() - 0.5) * 0.3;
+    const ry = Math.atan2(Math.cos(dockA), Math.sin(dockA)) + (rng() - 0.5) * 0.6;
     cycladicHouse(wall, trim, p.x, p.y - 0.05, p.z, ry, w, d, h, rng, null);
   }
   // the chapel: a whitewashed cube under a blue dome with a bell gable
@@ -1402,21 +1416,6 @@ export function makeGatePortal(accentHex, seed, rockHex = 0x8a8f98, realm = '') 
   ring.position.y = 0.05;
   ring.name = 'foam';
   g.add(ring);
-  return g;
-}
-
-/* the wall pass dressing (wall.js): a carved lintel block with a glowing
-   groove — returns {group, flames} with the flames for wall.js to flicker */
-export function makePassLintel(rockHex, accentHex, seed) {
-  const g = new THREE.Group();
-  const stoneC = new THREE.Color(rockHex).lerp(new THREE.Color(0xd8d0c0), 0.35);
-  const p = new Parts(), gl = new Parts();
-  // long enough that both ends bite deep into the pass walls (never floats)
-  p.add(box(10, 5, 84, 0.3), (x, y, z, nx, ny, nz, c) => { c.copy(stoneC); c.multiplyScalar(0.85 + 0.15 * Math.sin(z * 0.9)); }, M(0, 30, 0), 0.2);
-  p.add(box(11, 0.8, 85, 0.15), stoneC.clone().multiplyScalar(0.8), M(0, 32.8, 0));
-  for (let k = -7; k <= 7; k++) gl.add(box(10.4, 0.8, 0.9), 0xffffff, M(0, 28.2, k * 2.2));
-  const pm = p.mesh(mat.ashlar()); g.add(pm);
-  g.add(gl.mesh(mat.glow(accentHex, 2.2), { cast: false }));
   return g;
 }
 

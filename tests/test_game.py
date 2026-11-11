@@ -8,6 +8,17 @@ from board import Board, RELICS_TO_WIN
 from game import Game, GameError
 
 
+def _run_loop(coro):
+    """Run a coroutine on a private loop (another module's asyncio.run() may
+    have closed the global one)."""
+    import asyncio
+    loop = asyncio.new_event_loop()
+    try:
+        return loop.run_until_complete(coro)
+    finally:
+        loop.close()
+
+
 def _typed_battle(g, pid, mon, answer="Shakespeare"):
     """Force the current battle into a typed Jeopardy round with a known clue."""
     g.battle["stance"] = "attack"
@@ -387,7 +398,7 @@ def test_vale_dev_teleport_into_the_shared_maze():
     async def run():
         return await S.dispatch(a.pid, "dev",
                                 {"code": "783", "node": lair, "land": 0})
-    asyncio.get_event_loop().run_until_complete(run())
+    _run_loop(run())
     assert a.node == lair                             # dropped in cleanly
     S.table.reset()
 
@@ -480,7 +491,7 @@ def test_dev_reset_clears_every_dev_toggle():
 
     async def run():
         return await S.dispatch(a.pid, "dev", {"code": "783", "reset": True})
-    asyncio.get_event_loop().run_until_complete(run())
+    _run_loop(run())
     assert g.no_autowalk is False                      # auto-walk restored
     assert getattr(g, "_force_mode", None) is None     # forced deck cleared
     S.table.reset()
@@ -566,7 +577,7 @@ def test_herald_delivers_despite_nonce_bumps():
     g, a = _stuck_question_game(S)
     scheduled = g.nonce
     g.nonce += 3                                  # unrelated bumps
-    asyncio.get_event_loop().run_until_complete(S.fetch_question(scheduled))
+    _run_loop(S.fetch_question(scheduled))
     assert g.question is not None                 # the herald still arrives
     assert g.question_deadline is not None
     S.table.reset()
@@ -582,7 +593,7 @@ def test_watchdog_heals_a_stuck_table():
         # a question phase with NO question → the watchdog re-summons
         assert S.heal_stuck_phase(g, 5.0) == "refetch"
         await asyncio.sleep(0.05)                 # let the fetch task land
-    asyncio.get_event_loop().run_until_complete(run())
+    _run_loop(run())
     assert g.question is not None
     # a question whose answer timer was lost → timed out and advanced
     g.question_deadline = T.time() - 10

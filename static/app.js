@@ -2103,7 +2103,11 @@ function renderBattle() {
       ? `${icon('compass', 15)} CHOOSE A TARGET`
       : pendingHeal
         ? `${icon('heart', 15)} CHOOSE YOUR CHALLENGE`
-        : (mine ? `${icon('strike', 15)} YOUR MOVE` : `${esc(fighter?.name || '')}'s move…`));
+        : b.charging
+          // the telegraph, right above the buttons (the strip under the
+          // banner can sit behind the HP panel on small screens)
+          ? `${icon('guard', 15)} A HEAVY BLOW IS COMING — ${mine ? '<strong>BRACE</strong> to turn it' : 'will they brace?'}`
+          : (mine ? `${icon('strike', 15)} YOUR MOVE` : `${esc(fighter?.name || '')}'s move…`));
   } else if (room.phase === 'question') {
     setBTurn(mine ? '' : `${esc(fighter?.name || '')} faces the question…`);
   }

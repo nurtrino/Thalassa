@@ -187,12 +187,17 @@ function chestParts(open) {
     p.add(box(1.0, 0.55, 0.62, 0.04), 0x7a4e2a, M(0, 0.275, 0));
     // the barrel-vaulted lid, hinged at the back
     const lid = new THREE.CylinderGeometry(0.31, 0.31, 1.0, 14, 1, false, 0, Math.PI).rotateZ(Math.PI / 2);   // dome up, axis along x
-    const lidM = open ? M(0, 0.55 + 0.25, -0.31 - 0.05, 0, 1, 1, 1, -1.9) : M(0, 0.55, 0);
+    // open: swung back ~70° on its hinge at the back top edge
+    const hinge = (m) => (open ? new THREE.Matrix4().makeTranslation(0, 0.55, -0.31)
+      .multiply(new THREE.Matrix4().makeRotationX(-1.2)).multiply(new THREE.Matrix4().makeTranslation(0, 0, 0.31)).multiply(m)
+      : new THREE.Matrix4().makeTranslation(0, 0.55, 0).multiply(m));
+    const lidM = hinge(new THREE.Matrix4());
     p.add(lid, 0x84552e, lidM);
+    p.add(box(1.0, 0.03, 0.62, 0.01), 0x5a3a20, hinge(new THREE.Matrix4().makeTranslation(0, 0.015, 0)));
     for (const x of [-0.38, 0, 0.38]) {
       b.add(box(0.07, 0.57, 0.66, 0.01), 0x9a7a3a, M(x, 0.28, 0));
       const band = new THREE.TorusGeometry(0.32, 0.03, 4, 14, Math.PI).rotateY(Math.PI / 2);
-      b.add(band, 0x9a7a3a, open ? M(x, 0.55 + 0.25, -0.36, 0, 1, 1, 1, -1.9) : M(x, 0.55, 0));
+      b.add(band, 0x9a7a3a, hinge(new THREE.Matrix4().makeTranslation(x, 0, 0)));
     }
     b.add(box(0.14, 0.18, 0.06, 0.01), 0xc9a24a, M(0, 0.5, 0.33));
     if (open) {

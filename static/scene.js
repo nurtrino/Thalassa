@@ -557,6 +557,7 @@ export function createWorld(container, handlers = {}) {
             disposeDeep(o);
           }
         }
+        st.obstacles = null;                 // re-index the wood for routing
       }
       disposeDeep(st.laneGroup);
       st.laneGroup.clear();
@@ -823,8 +824,10 @@ export function createWorld(container, handlers = {}) {
       if (st.id === 'autumn') continue;
       solids.push({ x: n.x, z: n.z, r: (isle.R ?? 8) * (foot ? 1.0 : 1.08) + hull });
     }
-    // the realm's field: bergs, stacks, dune rocks, the Vale's trunks
-    if (st.field) {
+    // the realm's field: bergs, stacks, dune rocks. (The Vale's wood is
+    // already parted along every revealed trail — syncStage — and its broad
+    // canopies would read as walls a man walks under, so it is not indexed.)
+    if (st.field && st.id !== 'autumn') {
       if (!st.obstacles) st.obstacles = obstacleIndex(st.field);
       _near.length = 0;
       st.obstacles.near(a.x, a.z, b.x, b.z, 120, _near);
@@ -2365,8 +2368,11 @@ export function createWorld(container, handlers = {}) {
   let tPrev = 0, tNow = 0, msPrev = 0;
   renderer.setAnimationLoop(() => {
     clock.update();
-    if (window.__crossHold) {            // dev/QA freeze (see crossStop)
-      const ms = performance.now() - msPrev;
+    // dev/QA: freeze (see crossStop) or slow (__crossSlow = 0..1, the share
+    // of each frame's time withheld) the crossing for slow headless capture
+    const slowK = window.__crossHold ? 1 : (cross ? (window.__crossSlow || 0) : 0);
+    if (slowK) {
+      const ms = (performance.now() - msPrev) * slowK;
       for (const pid in ships) if (ships[pid].anim) ships[pid].anim.t0 += ms;
       if (cross) cross.t0 += ms;
     }

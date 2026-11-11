@@ -76,7 +76,7 @@ The procedural models live in `static/models/` (no new binary assets):
 | file | what |
 |---|---|
 | `models/kit.js` | the workshop: cached materials (vertex colour × tiling grain: stone, ashlar, marble, plaster, wood, cloth, tiles, bronze, gold), `Parts` (merge a model per material → few draw calls), `lathe` (crease rows, flutes), soft-bevelled `box`, `tube`, `blob`, **`rockGeometry`** (the one rock generator: fracture planes, strata, bleached tops, moss/snow cover), HDR `flame`, `animate(obj, fn)` (self-animation via onBeforeRender, no scene hook) |
-| `models/landmarks.js` | Pharos (+ isle dressing, sealed gate), shrine temples, puzzle spire, haven camps, checkpoint lamp, market, home-port town, harbour lighthouse, lair altar, relic urn, realm gates, wall-pass lintel + fire-bowl pillars, `battleStructure()` (battle-set temples / lighthouse) |
+| `models/landmarks.js` | Pharos (+ isle dressing, sealed gate), shrine temples, puzzle spire, haven camps, checkpoint lamp, market, home-port town, harbour lighthouse, lair altar, relic urn, realm gates, fire-bowl pillars, `battleStructure()` (battle-set temples / lighthouse) |
 | `models/props.js` | `makeRock`, `makeRockCluster`, fishing caique, crate / amphora / barrel geometries, flotsam raft, turn marker, reach beacon, sea lane, foot trail |
 | `models/eventprops.js` | the event set pieces (API in the file header) |
 | `models/catalog.js` | every procedural model by id — `modeltest.html?set=procedural` (labels show triangles and draw calls) |
@@ -94,7 +94,7 @@ The procedural models live in `static/models/` (no new binary assets):
 | `lighthouse` GLB ("melted") + point light | home port | redesign | **done** `makeLighthouse()` (whitewashed tower, blue cupola, lit lantern) |
 | home port (dock + tower + palms) | home | redesign | **done** `makeHomeTown()`: whitewashed cube houses with blue doors/shutters stepping up from a stone quay, blue-domed chapel with bell, caiques; layout follows the harbour bearing |
 | gate portal (displaced boxes, cones, `_grandColumn`) + 2 point lights | the four realm passes (hub side) | redesign | **done** `makeGatePortal(..., realm)`: battered ashlar pylons with crenellations, a 15-voussoir arch over the open channel, the realm's emblem (snowflake / sun / serpent / antlers) glowing over the keystone, colossal fluted columns, swallow-tail banners, bronze fire bowls with blooming fire; one light |
-| wall pass lintel (displaced box) + cylinder braziers, 2 lights per pass | `wall.js` | redesign | **done** `makePassLintel`, `makeBrazierPillar`; one light per pass (was two); realm backdrops likewise |
+| wall pass lintel (displaced box) + cylinder braziers, 2 lights per pass | `wall.js` | redesign | **done** the lintel is gone (the pass is wider than any span — it floated in mid-air); `makeBrazierPillar` fire bowls; one light per pass (was two); realm backdrops likewise |
 | lair altar (displaced cylinders/cones) + point light | sail lairs | redesign | **done** `makeLairAltar()`: faceted basalt dais, altar block, four curling bone horns, bronze fire bowls in the realm accent; no light |
 | relic urn (flat sphere) | lairs | redesign | **done** `makeRelicBeacon()`: gilt amphora on a stone pedestal (still `beacon`, spun by scene.js) |
 | `makeRock` (displaced dodecahedron, flat) | island dressing, sea rocks, puzzle, monster isles | redesign | **done** `models/props.js makeRock` (sea stacks now on the shore layer → surf) |

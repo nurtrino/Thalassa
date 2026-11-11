@@ -10,7 +10,7 @@ import * as THREE from 'three';
 import { makeRidge } from './gfx/mountains.js';
 import { mulberry32, hashStr, flat, displace, seedFrom, softDiscTexture } from './util.js';
 import { REALM_INFO } from './themes.js';
-import { makePassLintel, makeBrazierPillar } from './models/landmarks.js';
+import { makeBrazierPillar } from './models/landmarks.js';
 
 const _d = (a, b) => Math.atan2(Math.sin(a - b), Math.cos(a - b)); // wrapped delta
 
@@ -55,10 +55,10 @@ export function buildMountainWall({ radius = 560, gates = [], theme }) {
     gg.position.set(dirX * radius, 0, dirZ * radius);
     gg.rotation.y = -gt.angle;
 
-    // carved ashlar lintel bridging the pass, a glowing glyph groove under
-    // it, and twin fire bowls on stone pillars at the mouth — the fire is HDR
-    // and blooms; ONE accent light per pass (models/landmarks.js)
-    gg.add(makePassLintel(rock.getHex(), accent.getHex(), Math.floor(rng() * 1e9)));
+    // twin fire bowls on stone pillars at the mouth — the fire is HDR and
+    // blooms; ONE accent light per pass (models/landmarks.js)
+    // (no lintel: the carved pass is far wider than any span — a slab across
+    // it only ever floated in mid-air; the realm gate at the node is the arch)
     for (const side of [-1, 1]) {
       const br = makeBrazierPillar(accent.getHex(), 9, Math.floor(rng() * 1e9));
       br.position.set(-6, 0, side * 15);
