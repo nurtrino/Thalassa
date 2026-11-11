@@ -134,7 +134,7 @@ function gFloe(g, actor) {
     `<div class="evstat">Rows crossed ${Math.max(0, g.row + 1)} of ${g.rows} · sounding poles ${g.poles}</div>` +
     `<div class="evfar">the far side</div><div class="evfloes">${rows}</div>${shore}` +
     (creak ? `<div class="evtell">${creak}</div>` : '') +
-    (actor && !g.done ? `<div class="evrow">${rbtn('Stop here', 'stop', 'cool', 's', g.row + 1 >= g.goal ? 'collect' : 'walk away')}</div>` : '');
+    (actor && !g.done ? `<div class="evrow evact">${rbtn('Stop here', 'stop', 'cool', 's', g.row + 1 >= g.goal ? 'collect' : 'walk away')}</div>` : '');
 }
 
 /* ── pairs: a memory match ─────────────────────────────────────────────── */
@@ -161,7 +161,7 @@ function gPairs(g, actor) {
   return `<div class="evsmall">Turn two tiles a try. Twins stay up. Tiles you have seen keep a small mark. No clock — take your time.</div>` +
     `<div class="evstat">Pairs ${g.found} of ${g.pairs} · tries left ${g.tries}</div>${last}` +
     `<div class="evpairs">${tiles}</div>` +
-    (actor && !g.done ? `<div class="evrow">${rbtn('Stop and collect', 'stop', 'cool', 's', `${g.goal}+ pairs pays`, !!g.open)}</div>` : '');
+    (actor && !g.done ? `<div class="evrow evact">${rbtn('Stop and collect', 'stop', 'cool', 's', `${g.goal}+ pairs pays`, !!g.open)}</div>` : '');
 }
 
 /* ── drums: what beat comes next? ──────────────────────────────────────── */

@@ -321,7 +321,9 @@ function renderCard(room, you, opts) {
   const keepTop = prev && els.card.dataset.key === key ? prev.scrollTop : 0;
   els.card.dataset.key = key;
   els.card.classList.toggle('play', play);
-  let body = `<div class="evhead"><span>${ev.step === 'table' ? 'The whole table' : 'An encounter'}</span>` +
+  const label = ev.step === 'table' ? 'The whole table'
+    : play ? (room.event_info?.games?.[ev.game?.kind] || 'An encounter') : 'An encounter';
+  let body = `<div class="evhead"><span>${esc(label)}</span>` +
     `<span class="evwhere">${esc(stageLabel(ev.stage))}</span></div><div class="evscroll">` +
     (play ? '' : `<div class="evart">${artBand(ev.art, ev.stage)}</div>`) + '<div class="evbody">' +
     `<h2>${esc(ev.title)}</h2><p class="evtext" title="${play ? esc(ev.text) : ''}">${esc(ev.text)}</p>` +
@@ -387,7 +389,7 @@ function gKnuckle(g, actor) {
   const bones = (g.throws || []).map((f) => `<span class="evbone ${f === 1 ? 'dog' : ''}">${f}</span>`).join('');
   return `<div class="evbig">${g.pot}</div><div class="evsmall">points in the pot · a 1 (the dog) loses it all</div>` +
     `<div class="evgoals">${goals}</div><div class="evbones">${bones}</div>` +
-    (actor ? `<div class="evrow">${btn('Throw', 'data-mv="throw"', '', 't')}${btn('Stop', 'data-mv="stop"', 'cool', 's', 'keep the pot')}</div>` : '');
+    (actor ? `<div class="evrow evact">${btn('Throw', 'data-mv="throw"', '', 't')}${btn('Stop', 'data-mv="stop"', 'cool', 's', 'keep the pot')}</div>` : '');
 }
 
 function gHiLo(g, actor) {
@@ -400,7 +402,7 @@ function gHiLo(g, actor) {
   const last = g.last ? `<div class="evsmall">You called ${esc(g.last.call)}: ${g.last.from} → ${g.last.to}</div>` : '';
   return `<div class="evtile">${g.tile}</div>${last}` +
     `<div class="evstat">Streak ${g.streak} of ${g.need}</div><div class="evcount">${counts}</div>` +
-    (actor ? `<div class="evrow">${btn('Higher', 'data-mv="higher"', '', 'h')}${btn('Lower', 'data-mv="lower"', '', 'l')}` +
+    (actor ? `<div class="evrow evact">${btn('Higher', 'data-mv="higher"', '', 'h')}${btn('Lower', 'data-mv="lower"', '', 'l')}` +
       `${btn('Stop', 'data-mv="stop"', 'cool', 's', g.streak >= 2 ? 'collect' : 'walk away')}</div>` : '');
 }
 
@@ -418,7 +420,7 @@ function gCode(g, actor, ev) {
     `${r.placed} placed · ${r.present} present</span></div>`).join('');
   return `<div class="evsmall">Three different glyphs. ${g.tries - (g.guesses || []).length} tries left.</div>` +
     (actor ? `<div class="evslots">${slots}</div><div class="evrow">${glyphs}</div>` +
-      `<div class="evrow">${btn('Try the seal', 'data-code="1"', '', 'enter')}</div>` : '') +
+      `<div class="evrow evact">${btn('Try the seal', 'data-code="1"', '', 'enter')}</div>` : '') +
     `<div class="evguesses">${rows}</div>`;
 }
 
@@ -447,7 +449,7 @@ function gWeigh(g, actor) {
   return `<div class="evsmall">${g.weighings_left} weighing${g.weighings_left === 1 ? '' : 's'} left · ` +
     `put equal numbers on each pan · faded jars are cleared by what you have seen</div>${seg}` +
     `<div class="evjars">${jars}</div>` +
-    (actor ? `<div class="evrow">${btn(`Weigh ${nl} vs ${nr}`, `data-weigh="1" ${nl && nl === nr && g.weighings_left > 0 ? '' : 'disabled'}`, '', 'enter')}` +
+    (actor ? `<div class="evrow evact">${btn(`Weigh ${nl} vs ${nr}`, `data-weigh="1" ${nl && nl === nr && g.weighings_left > 0 ? '' : 'disabled'}`, '', 'enter')}` +
       `${btn('Clear pans', 'data-clear="1"', 'ghost', 'c')}</div>` : '') +
     `<div class="evlog">${log}</div>`;
 }
@@ -467,7 +469,7 @@ function gCross(g, actor) {
   const nm = (x) => names[x] || x;
   const chips = (side) => (g[side] || []).map((x) => `<span class="evchip">${esc(nm(x))}</span>`).join('');
   const here = g[g.boat] || [];
-  const btns = actor ? `<div class="evrow">${btn('Cross alone', 'data-take=""', 'ghost', '0')}` +
+  const btns = actor ? `<div class="evrow evact">${btn('Cross alone', 'data-take=""', 'ghost', '0')}` +
     here.map((x, i) => btn(`Take the ${esc(nm(x))}`, `data-take="${esc(x)}"`, '', String(i + 1))).join('') + '</div>' : '';
   return `<div class="evsmall">The skiff holds you and one more. ${esc(nm('wolf'))} eats ${esc(nm('goat'))}; ` +
     `${esc(nm('goat'))} eats ${esc(nm('charts'))}. Trip ${g.trips} of ${g.max_trips}.</div>` +
@@ -481,7 +483,7 @@ function gRps(g, actor) {
   return `<div class="evscore"><span>You ${g.you}</span><span>Satyr ${g.satyr}</span></div>` +
     `<div class="evsmall">First to ${g.need}. His tells never lie — learn them.</div>` +
     `<div class="evtell">${esc(g.tell || '')}</div>` +
-    (actor ? `<div class="evrow">${btn('Stone', 'data-mv="stone"', '', '1', 'breaks shears')}` +
+    (actor ? `<div class="evrow evact">${btn('Stone', 'data-mv="stone"', '', '1', 'breaks shears')}` +
       `${btn('Scroll', 'data-mv="scroll"', '', '2', 'wraps stone')}${btn('Shears', 'data-mv="shears"', '', '3', 'cut scroll')}</div>` : '') +
     `<div class="evlog">${rounds}</div>`;
 }
@@ -491,7 +493,7 @@ function gNim(g, actor) {
   const hist = (g.history || []).slice(-6).map((h) => `<div>${h.who === 'you' ? 'You take' : 'The sage takes'} ${h.take}</div>`).join('');
   return `<div class="evbig">${g.pile}</div><div class="evsmall">pebbles · take 1, 2 or 3 · whoever takes the last pebble wins</div>` +
     `<div class="evpebbles">${peb}</div>` +
-    (actor ? `<div class="evrow">${[1, 2, 3].map((n) => btn(`Take ${n}`, `data-take-n="${n}" ${n > g.pile ? 'disabled' : ''}`, '', String(n))).join('')}</div>` : '') +
+    (actor ? `<div class="evrow evact">${[1, 2, 3].map((n) => btn(`Take ${n}`, `data-take-n="${n}" ${n > g.pile ? 'disabled' : ''}`, '', String(n))).join('')}</div>` : '') +
     `<div class="evlog">${hist}</div>`;
 }
 

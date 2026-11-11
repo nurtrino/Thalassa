@@ -70,3 +70,25 @@
   .evplates { grid-template-columns: repeat(2, 1fr); }
   .evfloe { min-height: 38px; }
 }
+
+/* ── the compact card once a game is under way (.play, see events.css) ──
+   boards scale with the window height so the controls stay on screen. */
+.evcard.play .evfar, .evcard.play .evshore { margin: 2px 0; }
+.evcard.play .evshore { padding: 3px; }
+.evcard.play .evfloes { gap: 3px; padding: 4px; }
+.evcard.play .evfloerow { gap: 4px; }
+.evcard.play .evfloe { min-height: clamp(24px, 4.6vh, 40px); padding: 2px 4px; flex-direction: row; flex-wrap: wrap; gap: 4px; }
+.evcard.play .evfloe .evbtn { min-height: 0; padding: 3px 7px; font-size: 12px; letter-spacing: .04em; }
+.evcard.play .evpairs { gap: 6px; margin-top: 6px; }
+.evcard.play .evpair { aspect-ratio: auto; min-height: 0; height: clamp(42px, 10vh, 92px); }
+.evcard.play .evpair svg { width: clamp(26px, 6vh, 34px); height: clamp(26px, 6vh, 34px); }
+.evcard.play .evdrums { gap: 4px; margin-top: 6px; }
+.evcard.play .evdrumrow { min-height: 0; padding: 3px 10px; }
+.evcard.play .evbeats i.boom { width: 20px; height: 20px; }
+.evcard.play .evbeats i.tak { width: 11px; height: 11px; }
+.evcard.play .evdrumch { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 8px; }
+.evcard.play .evdrumpick { min-height: 44px; padding: 6px 10px; }
+.evcard.play .evclues { margin-top: 6px; gap: 2px; font-size: 14.5px; }
+.evcard.play .evplates { margin-top: 8px; gap: 8px; }
+.evcard.play .evplate { padding: 6px 4px; }
+.evcard.play .evplate svg { width: clamp(26px, 5.5vh, 40px); height: clamp(26px, 5.5vh, 40px); }

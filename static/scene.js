@@ -35,7 +35,7 @@ import { makeLightRig } from './gfx/lighting.js';
 import { makeOcean, WATER_Y } from './gfx/ocean.js';
 import { createPipeline } from './gfx/pipeline.js';
 import { makeShoreMap } from './gfx/shoremap.js';
-import { planRoute, routeAt, routeS, helm, easeVoyage, obstacleIndex, smooth01 } from './travel.js';
+import { planRoute, routeAt, routeS, helm, helmRate, easeVoyage, obstacleIndex, smooth01 } from './travel.js';
 import { REALM_INFO } from './themes.js';
 import { islandRoom, laneBearing } from './isleshape.js';
 import { makeTurnMarker as modelTurnMarker, makeReachBeacon, makeSeaLane, makeFootTrail, makeTrailArrowKit } from './models/props.js';
@@ -1972,7 +1972,11 @@ export function createWorld(container, handlers = {}) {
         const an = rec.anim;
         const k = Math.min(1, (now - an.t0) / an.dur);
         const s = routeS(an.route, easeVoyage(k), an.seg);
+        const px0 = rec.root.position.x, pz0 = rec.root.position.z;
         an.seg = routeAt(an.route, s, rec.root.position, _vA, an.seg);
+        // speed over the ground this frame: the helm may swing as fast as
+        // the curve demands at that speed (travel.js helmRate)
+        const sog = Math.hypot(rec.root.position.x - px0, rec.root.position.z - pz0) / Math.max(shipDt, 1e-3);
         // the bow follows the curve's tangent at a capped turn rate — no
         // pivoting on the spot, no crabbing sideways; a walker turns quicker
         const foot = rec.mode === 'foot';
@@ -1984,7 +1988,7 @@ export function createWorld(container, handlers = {}) {
           if (Math.abs(off) > 0.6 && s < an.total * 0.5) an.t0 += shipDt * 1000;
         }
         rec.root.rotation.y = helm(rec.root.rotation.y, _vA.x, _vA.z, shipDt,
-                                   foot ? 5.5 : 1.9, foot ? 14 : 7);
+                                   helmRate(sog, foot), foot ? 16 : 12);
         if (foot && st.surf.heightAt) rec.root.position.y = Math.max(0, st.surf.heightAt(rec.root.position.x, rec.root.position.z));
         moving = true;
         // a crossing vessel CUTS through the arch a beat before it stops
@@ -2245,7 +2249,7 @@ export function createWorld(container, handlers = {}) {
       placed.push({ px, py });
       const c = edgeChip(id);
       const n = nodeById[id];
-      const name = (n.type !== 'sea' && n.name) || EDGE_LABEL[n.type] || 'A stop';
+      const name = (n.type !== 'sea' && n.type !== 'gate' && n.name) || EDGE_LABEL[n.type] || 'A stop';
       const nm = c.lastChild;
       if (nm.textContent !== name) nm.textContent = name;
       c.style.transform = `translate(${px.toFixed(0)}px, ${py.toFixed(0)}px) translate(-50%, -50%)`;

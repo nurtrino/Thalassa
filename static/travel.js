@@ -121,6 +121,7 @@ export function obstacleIndex(root, { cell = 24, minTop = 0.6, maxR = 30 } = {})
  * opts.constrain(p)  optional: pull a free sample back inside the playable
  *               area (the hub's mountain wall) — mutates p
  */
+const _pc = new THREE.Vector3();
 export function planRoute(raw, solids, opts = {}) {
   const spacing = opts.spacing ?? 1.0;
   const start = raw[0].clone();
@@ -131,35 +132,6 @@ export function planRoute(raw, solids, opts = {}) {
   const ctrl = [start];
   const direct = start.distanceTo(end);
   let nFixedHead = 1;
-  if (!opts.walk && opts.heading != null && direct > 3) {
-    // a real TURNING CIRCLE off the berth: swing along the bow's heading
-    // until it bears on the first point of the lane (never a cusp)
-    const tgt = raw.length > 2 ? raw[1] : end;
-    const Rt = opts.turnRadius ?? 6.5, step = 1.6, dA = step / Rt;
-    let x = start.x, z = start.z, yaw = opts.heading, turned = 0;
-    const firstLeg = Math.max(2, Math.min(5, direct * 0.15));
-    x += Math.cos(yaw) * firstLeg; z -= Math.sin(yaw) * firstLeg;
-    ctrl.push(new THREE.Vector3(x, 0, z));
-    for (let i = 0; i < 40 && turned < Math.PI * 1.6; i++) {
-      const want = Math.atan2(-(tgt.z - z), tgt.x - x);
-      let d = want - yaw;
-      d -= Math.round(d / (Math.PI * 2)) * Math.PI * 2;
-      if (Math.abs(d) < 0.12) break;
-      const t = Math.sign(d) * Math.min(Math.abs(d), dA);
-      yaw += t; turned += Math.abs(t);
-      x += Math.cos(yaw) * step; z -= Math.sin(yaw) * step;
-      ctrl.push(new THREE.Vector3(x, 0, z));
-    }
-    nFixedHead = ctrl.length;            // the turning circle is geometry: keep it
-  }
-  for (let i = 1; i < raw.length - 1; i++) {
-    const p = raw[i].clone();
-    p.y = 0;
-    if (p.distanceTo(ctrl[ctrl.length - 1]) > 1.5) ctrl.push(p);
-  }
-  if (end.distanceTo(ctrl[ctrl.length - 1]) < 0.5 && ctrl.length > 1) ctrl.pop();
-  ctrl.push(end);
-
   // solids the vessel is ALREADY inside the clearance of (it berthed snug
   // against an island, or its berth is snug against one) keep only the
   // clearance the endpoint has — else the first sample would be flung out
@@ -170,6 +142,72 @@ export function planRoute(raw, solids, opts = {}) {
     const r = Math.min(c.r, ds - 0.4, de - 0.4);
     if (r > 0.3) eff.push({ x: c.x, z: c.z, r });
   }
+  if (!opts.walk && opts.heading != null && direct > 3) {
+    // a real TURNING CIRCLE off the berth: swing along the bow's heading
+    // until it bears on the first point of the lane (never a cusp)
+    const tgt = raw.length > 2 ? raw[1] : end;
+    const Rt = opts.turnRadius ?? 6.5, step = 1.6, dA = step / Rt;
+    const firstLeg = Math.max(2, Math.min(5, direct * 0.15));
+    // how far inside a clearance disc (or beyond the wall) a point lies
+    const depth = (x, z) => {
+      let m = 0;
+      for (const c of eff) m = Math.max(m, c.r - Math.hypot(x - c.x, z - c.z));
+      if (opts.constrain) { _pc.set(x, 0, z); opts.constrain(_pc); m = Math.max(m, Math.hypot(_pc.x - x, _pc.z - z)); }
+      return m;
+    };
+    // side: 0 = swing the short way round; ±1 = forced to that hand (the long
+    // way, when the short one would carry the hull across a coast)
+    const circle = (side) => {
+      const head = [];
+      let x = start.x, z = start.z, yaw = opts.heading, turned = 0, worst = 0;
+      x += Math.cos(yaw) * firstLeg; z -= Math.sin(yaw) * firstLeg;
+      worst = Math.max(worst, depth(x, z));
+      head.push(new THREE.Vector3(x, 0, z));
+      for (let i = 0; i < 44 && turned < Math.PI * 1.85; i++) {
+        const want = Math.atan2(-(tgt.z - z), tgt.x - x);
+        let d = want - yaw;
+        d -= Math.round(d / (Math.PI * 2)) * Math.PI * 2;
+        if (Math.abs(d) < 0.12) break;
+        if (side && Math.sign(d) !== side && Math.abs(d) > 0.5) d += side * Math.PI * 2;
+        const t = Math.sign(d) * Math.min(Math.abs(d), dA);
+        yaw += t; turned += Math.abs(t);
+        x += Math.cos(yaw) * step; z -= Math.sin(yaw) * step;
+        worst = Math.max(worst, depth(x, z));
+        head.push(new THREE.Vector3(x, 0, z));
+      }
+      return { head, worst, turned };
+    };
+    // The circle is kept as geometry (never relaxed). Where it crossed a
+    // clearance disc, the samples after it were flung out to the rim — a 7 wu
+    // jump in the route, the hull lurching sideways. So: take the short way
+    // if it is clean; else whichever hand intrudes least (the long way round
+    // costs a little extra); and whatever clearance the chosen circle still
+    // cuts into is conceded to it below, so the route stays one piece.
+    let d0 = Math.atan2(-(tgt.z - start.z), tgt.x - start.x) - opts.heading;
+    d0 -= Math.round(d0 / (Math.PI * 2)) * Math.PI * 2;
+    const hand = Math.sign(d0) || 1;
+    let best = circle(0);
+    if (best.worst > 0.15) {
+      for (const alt of [circle(-hand), circle(hand)]) {
+        if (alt.worst + 0.02 * alt.turned < best.worst + 0.02 * best.turned - 0.3) best = alt;
+      }
+    }
+    for (const h of best.head) ctrl.push(h);
+    nFixedHead = ctrl.length;            // the turning circle is geometry: keep it
+    if (best.worst > 0.15) {
+      for (const c of eff) {
+        for (const h of best.head) c.r = Math.min(c.r, Math.hypot(h.x - c.x, h.z - c.z) - 0.2);
+      }
+      for (let i = eff.length - 1; i >= 0; i--) if (eff[i].r <= 0.3) eff.splice(i, 1);
+    }
+  }
+  for (let i = 1; i < raw.length - 1; i++) {
+    const p = raw[i].clone();
+    p.y = 0;
+    if (p.distanceTo(ctrl[ctrl.length - 1]) > 1.5) ctrl.push(p);
+  }
+  if (end.distanceTo(ctrl[ctrl.length - 1]) < 0.5 && ctrl.length > 1) ctrl.pop();
+  ctrl.push(end);
 
   // 2 · densify the polygon (~2 wu) — corners get ROUNDED by the relaxation
   let pts = [];
@@ -264,6 +302,36 @@ export function planRoute(raw, solids, opts = {}) {
   }
   out[0].copy(start);
   out[out.length - 1].copy(end);
+  // LAST LINE OF DEFENCE — the route must be one continuous curve. Two discs
+  // can fling neighbouring samples to opposite rims; if any step is still far
+  // longer than the spacing, re-lay the samples evenly along the polyline and
+  // melt the corners (no more nudging: a hair of clearance beats a teleport).
+  {
+    let jump = 0;
+    for (let i = 1; i < out.length; i++) jump = Math.max(jump, out[i].distanceTo(out[i - 1]));
+    if (jump > spacing * 2.2) {
+      const len = [0];
+      for (let i = 1; i < out.length; i++) len.push(len[i - 1] + out[i].distanceTo(out[i - 1]));
+      const total = len[len.length - 1], m = Math.max(2, Math.ceil(total / spacing));
+      const even = [];
+      for (let j = 0, i = 0; j <= m; j++) {
+        const d = total * j / m;
+        while (i < len.length - 2 && len[i + 1] < d) i++;
+        const span = len[i + 1] - len[i];
+        even.push(new THREE.Vector3().lerpVectors(out[i], out[i + 1], span > 1e-9 ? (d - len[i]) / span : 0));
+      }
+      const lock = Math.min(even.length - 2, Math.ceil(headLen / spacing));
+      for (let pass = 0; pass < 10; pass++) {
+        for (let i = Math.max(1, lock); i < even.length - 1; i++) {
+          const p = even[i], a = even[i - 1], b = even[i + 1];
+          p.x += ((a.x + b.x) * 0.5 - p.x) * 0.5;
+          p.z += ((a.z + b.z) * 0.5 - p.z) * 0.5;
+        }
+      }
+      out.length = 0;
+      for (const p of even) out.push(p);
+    }
+  }
   const cum = [0];
   for (let i = 1; i < out.length; i++) cum.push(cum[i - 1] + out[i].distanceTo(out[i - 1]));
   // TIME along the route: a hull takes a tight turn slower than a straight
@@ -330,6 +398,16 @@ export function helm(yaw, dx, dz, dt, rate = 2.4, follow = 9) {
   const cap = rate * dt;
   if (step > cap) step = cap; else if (step < -cap) step = -cap;
   return yaw + step;
+}
+
+/** How fast the bow may swing (rad/s) at a given speed over the ground.
+ *  A hull under way must be able to follow the curve it is carving — the old
+ *  fixed 1.9 rad/s was slower than a tight bend demands at cruising speed, so
+ *  the ship slid sideways (up to 130° off her bow, measured on real routes).
+ *  The cap now rises with speed (never tighter than a ~2.2 wu turning
+ *  circle); at rest it stays low, so nothing spins on the spot. */
+export function helmRate(speed, foot = false) {
+  return foot ? Math.max(5.5, speed / 1.2) : Math.max(1.9, speed / 2.2);
 }
 
 /** sine ease-in-out: the hull gathers way and coasts in, with a cruising

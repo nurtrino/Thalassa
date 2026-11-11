@@ -2452,3 +2452,36 @@ body:has(#shopPanel:not(.hidden)) #evHud { display: none; }
 @keyframes redgePulse { 0%, 100% { box-shadow: 0 2px 10px rgba(0,0,0,.45), 0 0 8px rgba(240,208,96,.3); }
   50% { box-shadow: 0 2px 10px rgba(0,0,0,.45), 0 0 18px rgba(240,208,96,.75); } }
 @media (prefers-reduced-motion: reduce) { #reachEdge .redge { animation: none; } }
+
+/* ═══ phone layout fixes (QA report 2: F10, F16, L1, L2) ═════════════════ */
+/* F10 phone portrait: the tray is centred with left:50%, so it shrank to half
+   the screen and stacked hint / TRADER / END TURN into three rows over the
+   turn strip. Give it the full width, keep the hint to one slim line, and
+   when a hint sits above buttons lift the turn strip + objective clear. */
+@media (max-width: 520px) and (orientation: portrait) {
+  #tray { width: min(96vw, 440px); }
+  #tray > .hint { min-height: 0; padding: 5px 12px; font-size: 13px; }
+  body:has(#tray > .hint ~ .act) #turnBanner { bottom: 118px; }
+  body:has(#tray > .hint ~ .act) #objective { bottom: 152px; }
+}
+/* F16 phone landscape battle: the captains' rows sat half-transparent over
+   the top-left of the fight; the battle has its own hearts, so hide them */
+@media (max-height: 500px) and (orientation: landscape) {
+  body.battling #players { display: none; }
+}
+/* L1 the foe's health stays ONE row on a phone (up to the 18-pip cap):
+   the pips shrink to share the card's width instead of wrapping */
+@media (max-width: 700px), (max-height: 500px) and (orientation: landscape) {
+  #bmon .ecard { max-width: 100%; min-width: 0; }
+  #bmon .hpbar.foe { flex-wrap: nowrap; gap: 3px; }
+  #bmon .hpbar.foe .hpcell { flex: 0 1 24px; width: auto; min-width: 5px; }
+}
+@media (max-height: 500px) and (orientation: landscape) {
+  #bmon .hpbar.foe .hpcell { flex-basis: 14px; min-width: 4px; }
+}
+/* L2 narrow screens: the puzzle/question header's subtitle wraps instead of
+   being cut off ("solve it — or ta…") */
+@media (max-width: 520px) {
+  #qdomain, #mgisle { white-space: normal; text-overflow: clip; text-align: right; line-height: 1.25; }
+  #qhead, #mghead { align-items: center; }
+}
