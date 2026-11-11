@@ -35,7 +35,7 @@ const THEMES = {
     sun: { color: 0xfff1d6, intensity: 1.75, position: [180, 260, 120] },
     hemi: { sky: 0xd6ecff, ground: 0x3e7d5a, intensity: 0.85 },
     ambient: 0x28394a,
-    palette: { grass: 0x5cb04b, grass2: 0x3d7d3a, sand: 0xeadfae, rock: 0x93999e },
+    palette: { grass: 0x6aa64a, grass2: 0x46793a, sand: 0xeadfae, rock: 0x93999e },
     flora: 'aegean',
     particles: null,
     wall: { rock: 0x6d7681, snow: 0xf4f8fa, glow: 0xd9a441, snowline: 0.78,

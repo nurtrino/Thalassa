@@ -43,6 +43,14 @@ sky gradient, cloud deck, haze colour and density. Three things read them:
 A material that defines its own `onBeforeCompile` must call
 `bindAtmosphere(shader)`.
 
+**Cloud shadows.** The same patch multiplies the sun's direct light by a
+drifting cloud-shade term (`thalassaCloudShadow`, cheap value noise in world
+xz projected along the sun), and the ocean dims its body colour and puts out
+its glitter under the same shade — so soft shadows travel across the sea, the
+islands and the dunes together. A look sets it with
+`cloudShadow {strength, size, speed, cover}`; coverage defaults to the sky's
+own cloud cover. The Light tier turns it off (`setCloudShadows(false)`).
+
 Ambient light is **baked from the sky**: `bakeEnvironment()` renders the
 stage's sky (minus the sun disc) into a prefiltered cube map used as
 `scene.environment`, so shadowed sides are sky-coloured and glossy surfaces

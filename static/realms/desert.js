@@ -28,6 +28,7 @@ import { mulberry32, hashStr } from '../util.js';
 import { makeGroundMaterial, makeNoise2D, groundGrainTexture, GROUND_TILE } from '../gfx/terrain.js';
 import { lookFor } from '../gfx/looks.js';
 import { propGroup } from '../props.js';
+import { rockGeometry } from '../models/kit.js';
 import {
   smooth, clamp01, makeSegDist, trailStops, makeTrailField, TRAIL_GLSL, NOISE_GLSL,
   addWorldVaryings, tint, merge, lumpGeometry, taperTube, warningStake,
@@ -622,27 +623,28 @@ export function makeCairn(rng, s = 1) {
   const cc = new THREE.Color();
   const n = 5 + Math.floor(rng() * 3);
   let y = 0, r = (0.5 + rng() * 0.12) * s;
+  // split sandstone slabs from the kit's rock generator (fracture faces,
+  // bedding, creased edges), each seated on the one below
   for (let i = 0; i < n; i++) {
-    const g = lumpGeometry(1, 1, 0.2, rng() * 99, 1.3);
     const h = r * (0.42 + rng() * 0.16);
-    g.scale(r * (0.95 + rng() * 0.25), h, r * (0.85 + rng() * 0.2));
-    g.rotateY(rng() * 6.28);
-    g.rotateZ((rng() - 0.5) * 0.14);
-    g.translate((rng() - 0.5) * r * 0.22, y + h * 0.8, (rng() - 0.5) * r * 0.22);
     cc.set(rng() < 0.3 ? 0xb9a27c : 0xd4c19a).multiplyScalar(0.86 + rng() * 0.2);
-    const yb = y;
-    tint(g, cc.getHex(), (px, py) => 0.72 + clamp01((py - yb) / (h * 1.4)) * 0.3);
+    // rockGeometry spans y ∈ [base·r·sy, ~0.85·r·sy]; sy chosen for height h
+    const sy = h / (r * 1.05);
+    const g = rockGeometry(Math.floor(rng() * 1e9), { r, sy, detail: 2, facets: 5, rough: 0.1,
+      rock: cc.getHex(), strata: 0.7, base: -0.25, crease: 0.7 });
+    g.rotateY(rng() * 6.28);
+    g.rotateZ((rng() - 0.5) * 0.12);
+    g.translate((rng() - 0.5) * r * 0.22, y + 0.25 * r * sy, (rng() - 0.5) * r * 0.22);
     parts.push(g);
-    y += h * 1.45;
+    y += h * 0.95;
     r *= 0.8 + rng() * 0.08;
   }
   for (let i = 0; i < 3; i++) {
-    const a = rng() * 6.28, d = (0.6 + rng() * 0.5) * s, q = (0.14 + rng() * 0.14) * s;
-    const g = lumpGeometry(1, 1, 0.2, rng() * 99);
-    g.scale(q * 1.3, q * 0.7, q);
+    const a = rng() * 6.28, d = (0.6 + rng() * 0.5) * s, q = (0.16 + rng() * 0.14) * s;
+    const g = rockGeometry(Math.floor(rng() * 1e9), { r: q * 1.2, sy: 0.6, detail: 1, rough: 0.12,
+      rock: 0xc9b58c, strata: 0.5, base: -0.3, crease: 0.7 });
     g.rotateY(rng() * 6.28);
-    g.translate(Math.cos(a) * d, q * 0.25, Math.sin(a) * d);
-    tint(g, 0xc9b58c, (px, py) => 0.75 + clamp01(py * 3) * 0.25);
+    g.translate(Math.cos(a) * d, q * 0.2, Math.sin(a) * d);
     parts.push(g);
   }
   const m = new THREE.Mesh(merge(parts), slabMaterial());
@@ -775,12 +777,11 @@ export function makeOasis(rng, theme, wellAngle = null) {
     const n = 9 + Math.floor(rng() * 4);
     for (let i = 0; i < n; i++) {
       const a = rng() * 6.28, s = 0.22 + rng() * 0.3;
-      const st = lumpGeometry(1, 1, 0.22, rng() * 99);
-      st.scale(s * (1 + rng() * 0.5), s * 0.6, s);
+      const st = rockGeometry(Math.floor(rng() * 1e9), { r: s * (1 + rng() * 0.3), sy: 0.6, detail: 1,
+        rough: 0.12, rock: 0xcdb994, strata: 0.6, base: -0.3, crease: 0.7 });
       st.rotateY(rng() * 6.28);
       const rr = edge(a) * (1.02 + rng() * 0.16);
-      st.translate(Math.cos(a) * rr, s * 0.2, Math.sin(a) * rr);
-      tint(st, 0xcdb994, (x, y) => 0.72 + clamp01(y * 3) * 0.3);
+      st.translate(Math.cos(a) * rr, s * 0.12, Math.sin(a) * rr);
       parts.push(st);
     }
     const stones = new THREE.Mesh(merge(parts), slabMaterial());
@@ -817,13 +818,13 @@ function sandstoneBoulders(rng, n, where) {
     const p = where(i);
     if (!p) continue;
     const r = p.r ?? (0.35 + rng() * 0.55);
-    const g = lumpGeometry(1, r > 0.6 ? 2 : 1, 0.24, rng() * 99, 1.4);
-    g.scale(r * (1 + rng() * 0.4), r * (0.6 + rng() * 0.25), r);
-    g.rotateY(rng() * 6.28);
-    g.translate(p.x, p.y + r * 0.22, p.z);
+    // the kit's fractured rock (models/kit.js): bedded sandstone, the edges
+    // softened a little by the wind (low crease angle → rounder breaks)
     cc.set(rng() < 0.4 ? 0xb39468 : 0xc9ad7e).multiplyScalar(0.88 + rng() * 0.2);
-    const y0 = p.y;
-    tint(g, cc.getHex(), (px, py) => 0.7 + clamp01((py - y0) / (r * 0.9)) * 0.32);
+    const g = rockGeometry(Math.floor(rng() * 1e9), { r: r * (1 + rng() * 0.3), sy: 0.6 + rng() * 0.25,
+      detail: r > 0.6 ? 2 : 1, rough: 0.12, rock: cc.getHex(), strata: 0.9, base: -0.3, crease: 0.75 });
+    g.rotateY(rng() * 6.28);
+    g.translate(p.x, p.y + r * 0.12, p.z);
     parts.push(g);
   }
   const geo = merge(parts);

@@ -20,6 +20,8 @@ import * as THREE from 'three';
 import { SHORE_LAYER } from '../gfx/terrain.js';
 import { bindAtmosphere } from '../gfx/atmosphere.js';
 import { propGroup } from '../props.js';
+import { rockGeometry } from '../models/kit.js';
+import { toCreasedNormals } from 'three/addons/utils/BufferGeometryUtils.js';
 import { SEA_Y, smooth, lerp, makeNoise3, radialGeo, paint, mergeGeos, xform, laneTools } from './waterkit.js';
 
 /* ── palette (sRGB hex; vertex colours) ──────────────────────────────────── */
@@ -150,30 +152,63 @@ function glacialLump(rng, noise, { R, H, kind = 'crag', detail = 2, p = 30, ex =
   return geo;
 }
 
-/* ── a flat floe: an angular, slightly elongated plate with a snow-domed top,
-   a rounded lip, and an underwater apron that slopes away into deep water (so
-   the turquoise halo the ocean paints round it fades instead of stopping) ── */
+/* ── a flat floe: a slab of sea ice with a FRACTURED outline (a few long
+   straight breaks between sharp corners, the odd notch bitten out of it),
+   a snow blanket lying a little in from the edge on a domed top, a bevelled
+   rim of bare blue ice, a thick vertical edge standing out of the water, and
+   an aquamarine underwater skirt that slopes away into deep water (so the
+   turquoise halo the ocean paints round it fades instead of stopping).
+   Normals are creased: the top, bevel and wall each shade smooth, with a
+   crisp break between them. ── */
+const _floeTop = new THREE.Color(0xdcefff), _floeWall = new THREE.Color(0xa9d8ee), _floeSkirt = new THREE.Color(0x4fc0d8);
 function floeGeo(rng, r, { top = 0.26, snowy = true, sides = 0 } = {}) {
   const big = r > 1.5;
-  const n = sides || (r > 3.2 ? 13 : big ? 10 : 7);
+  // corners of the break, at irregular bearings, joined by straight edges
+  const m = sides || (r > 3.2 ? 9 : big ? 7 : 5) + Math.floor(rng() * 2);
   const el = Math.sqrt(1 + rng() * 0.55), ph = rng() * 6.283;
-  const k1 = 2 + Math.floor(rng() * 3), p1 = rng() * 6.283, k2 = 5 + Math.floor(rng() * 3), p2 = rng() * 6.283;
   const co = Math.cos(ph), si = Math.sin(ph);
+  const cs = [];
+  for (let i = 0; i < m; i++) cs.push((i + 0.15 + rng() * 0.7) / m * 6.283);
+  const corner = cs.map(() => 0.78 + rng() * 0.3);
   const ux = [], uz = [];                          // the outline, at unit scale
-  for (let i = 0; i < n; i++) {
-    const a = (i / n) * 6.283;
-    const k = r * (0.84 + 0.12 * Math.cos(k1 * a + p1) + 0.06 * Math.cos(k2 * a + p2) + (rng() - 0.5) * 0.12);
-    const x = Math.cos(a) * k * el, z = Math.sin(a) * k / el;
-    ux.push(x * co - z * si); uz.push(x * si + z * co);
+  for (let i = 0; i < m; i++) {
+    const a0 = cs[i], a1 = i + 1 < m ? cs[i + 1] : cs[0] + 6.283;
+    const r0 = corner[i], r1 = corner[(i + 1) % m];
+    const x0 = Math.cos(a0) * r0, z0 = Math.sin(a0) * r0, x1 = Math.cos(a1) * r1, z1 = Math.sin(a1) * r1;
+    // a straight break, split once with a small kink (or a bitten notch)
+    const notch = rng() < 0.18;
+    const t = 0.35 + rng() * 0.3, kink = notch ? 0.78 : 0.97 + rng() * 0.06;
+    const pts = [[x0, z0], [(x0 + (x1 - x0) * t) * kink, (z0 + (z1 - z0) * t) * kink]];
+    for (const [x, z] of pts) {
+      const X = x * r * el, Z = z * r / el;
+      ux.push(X * co - Z * si); uz.push(X * si + Z * co);
+    }
   }
-  const topC = _col.copy(snowy ? C.snow : C.bare).multiplyScalar(0.95 + rng() * 0.06).clone();
-  const lipC = snowy ? C.snowShade : C.snow;
-  const pos = [0, top + (big ? 0.07 : 0.03), 0], col = [topC.r, topC.g, topC.b];
-  const rings = [[0.86, top, topC], [1.0, top - 0.1, lipC], [1.04, -0.16, C.aqua], [1.25, -1.3, C.aqua], [1.9, -14, C.aqua]];
-  if (big) rings.unshift([0.52, top + 0.05, topC]);
-  for (const [k, y, c] of rings) {
+  const n = ux.length;
+  const thick = 0.1 + Math.min(0.22, r * 0.05);   // freeboard of the edge above the sea
+  const snowC = _col.copy(snowy ? C.snow : _floeTop).multiplyScalar(0.95 + rng() * 0.06).clone();
+  const rimC = snowy ? C.snowShade.clone().lerp(_floeTop, 0.6) : _floeTop.clone().lerp(C.ice, 0.3);
+  const wallC = _floeWall, skirtC = _floeSkirt;
+  const dome = top * 0.3 + (big ? 0.08 : 0.03);
+  const yt = thick + top * 0.35;                   // the flat of the top at the rim
+  const pos = [0, yt + dome, 0], col = [snowC.r, snowC.g, snowC.b];
+  // [scale, y, colour, wobble] rings from the crown out and down
+  const rings = [
+    [0.55, yt + dome * 0.75, snowC, 0.0],
+    [0.86, yt + 0.02, snowC, 0.05],                // the snow's edge (wobbly)
+    [0.93, yt, rimC, 0.0],                         // bare-ice rim
+    [0.985, yt - 0.04, rimC, 0.0],                 // bevel
+    [1.0, yt - 0.09, wallC, 0.0],                  // top of the wall
+    [1.0, -0.02, wallC, 0.0],                      // waterline
+    [1.06, -0.32, skirtC, 0.0],
+    [1.3, -1.3, C.aqua, 0.0],
+    [1.9, -14, C.aqua, 0.0],
+  ];
+  if (!snowy) for (const rg of rings.slice(0, 2)) rg[2] = _floeTop;
+  for (const [k, y, c, wob] of rings) {
     for (let i = 0; i < n; i++) {
-      pos.push(ux[i] * k, y, uz[i] * k);
+      const kk = k * (1 - wob * rng());
+      pos.push(ux[i] * kk, y, uz[i] * kk);
       col.push(c.r, c.g, c.b);
     }
   }
@@ -189,8 +224,9 @@ function floeGeo(rng, r, { top = 0.26, snowy = true, sides = 0 } = {}) {
   geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
   geo.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
   geo.setIndex(idx);
-  geo.computeVertexNormals();
-  return geo;
+  const out = toCreasedNormals(geo, 0.62);
+  geo.dispose();
+  return out;
 }
 
 /* a pressure ridge: slabs of ice shouldered up along a line across a floe */
@@ -506,16 +542,10 @@ export function iceMooring(node, rng) {
 
 /* ── island dressing: stands of pine, snow-capped boulders, an ice foot ────── */
 function snowBoulder(rng, noise, r) {
-  const ox = rng() * 30, oz = rng() * 30;
-  const sy = 0.6 + rng() * 0.3;
-  const geo = radialGeo(1, (d, out) => {
-    const k = r * (0.78 + 0.5 * noise.fbm(d.x * 1.3 + ox, d.y * 1.3, d.z * 1.3 + oz));
-    out.set(d.x * k, Math.max(-0.25 * r, d.y * k * sy), d.z * k);
-  });
-  return paint(geo, (q, n, c) => {
-    c.copy(C.slateDark).lerp(C.slate, noise(q.x * 1.7 + ox, q.y * 1.7, q.z * 1.7));
-    c.lerp(C.snow, smooth(0.35, 0.7, n.y + (noise(q.x * 2.3, q.y, q.z * 2.3 + ox) - 0.5) * 0.3));
-  });
+  // the kit's craggy rock (fracture planes, creased normals, strata) in
+  // Frostfang slate, snow lying on every ledge that faces the sky
+  return rockGeometry(Math.floor(rng() * 1e9), { r, sy: 0.65 + rng() * 0.3, detail: 2, rough: 0.14,
+    rock: 0x56697e, top: 0xf6faff, cover: 0.95, strata: 0.4, base: -0.3 });
 }
 let _rockMat = null;
 const rockMaterial = () => _rockMat || (_rockMat = new THREE.MeshStandardMaterial({

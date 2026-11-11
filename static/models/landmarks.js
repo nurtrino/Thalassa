@@ -112,7 +112,7 @@ function gable(w, h, d) {
   s.moveTo(-w / 2, 0); s.lineTo(w / 2, 0); s.lineTo(0, h); s.closePath();
   const g = new THREE.ExtrudeGeometry(s, { depth: d, bevelEnabled: false });
   g.translate(0, 0, -d / 2);
-  return g.toNonIndexed();
+  return g;                     // ExtrudeGeometry is already non-indexed
 }
 
 /* a pitched tiled roof over a w × d rectangle (ridge along z), eaves at y */
@@ -1122,85 +1122,224 @@ export function makeLighthouse() {
   return g;
 }
 
-/* one whitewashed house: a cube (or two) with a flat roof parapet, blue door
-   and shutters; sometimes a blue dome. Base sunk well into the slope. */
-function cycladicHouse(wall, trim, x, y, z, ry, w, d, h, rng, domeP) {
+/* one Cycladic house, local +z = its street front, feet sunk into the slope.
+   Soft whitewashed block (rounded lime edges); a roof that READS as a roof
+   from the board camera — a parapeted terrace with a chimney, a white barrel
+   vault, or a blue dome; a framed door up a step with a coloured leaf;
+   windows with open shutters on every face; sometimes an outside stair to
+   the roof, a vine pergola or striped awning over the door, bougainvillea
+   spilling down a corner, a stacked upper room. */
+const DOOR_COLS = [0x2b5fae, 0x2b5fae, 0x2f7f86, 0x3f7f4a, 0xb8462e, 0x2b5fae];
+function cycladicHouse(P, x, y, z, ry, w, d, h, rng, { roof = null, chapel = false } = {}) {
+  const { wall, trim, dome, wood, cloth, leaf } = P;
   const m = M(x, y, z, ry);
+  const at = (xx, yy, zz, rr = 0) => M(xx, yy, zz, rr).premultiply(m);
   const sink = 1.2;
-  wall.add(box(w, h + sink, d, 0.09), (xx, yy, zz, nx, ny, nz, c) => {
-    c.setHex(0xf6f3ec);
-    c.multiplyScalar(0.9 + 0.1 * smooth(-0.5, 0.3, yy + (h + sink) / 2 - sink));
-  }, M(0, (h - sink) / 2, 0).premultiply(m), 0, true);
-  wall.add(box(w + 0.1, 0.16, d + 0.1, 0.05), 0xfbf9f4, M(0, h + 0.08, 0).premultiply(m));
-  // door + two shutters on the +z face
-  trim.add(box(0.5, 1.0, 0.06, 0.02), 0x2b5fae, M((rng() - 0.5) * (w - 0.9), 0.5, d / 2 + 0.02).premultiply(m));
-  for (const s of [-1, 1]) {
-    if (w < 1.4 && s > 0) continue;
-    trim.add(box(0.3, 0.34, 0.05, 0.015), 0x2b5fae, M(s * w * 0.28, h * 0.62, d / 2 + 0.02).premultiply(m));
-  }
-  // windows round the other three sides too (dark panes, blue frames), and a
-  // little outside stair on some — no blank sugar cubes from behind
-  const win = (x, z, ry) => {
-    trim.add(box(0.36, 0.42, 0.05, 0.015), 0x2b5fae, M(x, h * 0.6, z, ry).premultiply(m));
-    trim.add(box(0.24, 0.3, 0.06, 0.01), 0x1b2433, M(x, h * 0.6, z, ry).premultiply(m));
+  const lime = (xx, yy, zz, nx, ny, nz, c) => {
+    c.setHex(0xf7f4ee);
+    c.multiplyScalar(0.88 + 0.12 * smooth(-0.6, 0.4, yy));   // a little grime at the foot
   };
-  win(0, -d / 2 - 0.02, Math.PI);
-  win(w / 2 + 0.02, (rng() - 0.5) * (d - 0.8), Math.PI / 2);
-  win(-w / 2 - 0.02, (rng() - 0.5) * (d - 0.8), -Math.PI / 2);
-  if (rng() < 0.5) {
-    for (let k = 0; k < 4; k++) {
-      wall.add(box(0.55, 0.25 * (k + 1), 0.4, 0.03), 0xf2eee6, M(w / 2 + 0.3, 0.125 * (k + 1) - 0.0, -d / 2 + 0.25 + k * 0.38).premultiply(m));
+  wall.add(box(w, h + sink, d, 0.14), lime, at(0, (h - sink) / 2, 0));
+  // the painted grey-blue skirting the islanders lime round every house
+  trim.add(box(w + 0.04, 0.16, d + 0.04), 0x9aa7b4, at(0, 0.02, 0));
+  const doorC = DOOR_COLS[Math.floor(rng() * DOOR_COLS.length)];
+  // ── roof
+  const kind = roof || (rng() < 0.38 ? 'vault' : 'terrace');
+  if (kind === 'vault') {
+    // a white barrel vault along the long side, gable ends flush
+    const g = new THREE.CylinderGeometry(d / 2, d / 2, w, 14, 1, false, 0, Math.PI);
+    g.rotateZ(Math.PI / 2); g.rotateX(Math.PI / 2);
+    wall.add(g, 0xfbf9f4, at(0, h - 0.02, 0, 0));
+  } else if (kind === 'terrace' || kind === 'dome') {
+    // roof terrace: a soft parapet all round, a chimney with its little cap
+    for (const [px, pz, pw, pd] of [[0, d / 2 - 0.06, w, 0.12], [0, -d / 2 + 0.06, w, 0.12],
+      [w / 2 - 0.06, 0, 0.12, d], [-w / 2 + 0.06, 0, 0.12, d]]) {
+      wall.add(box(pw, 0.24, pd, 0.04), 0xfbf9f4, at(px, h + 0.1, pz));
+    }
+    if (kind === 'terrace') {
+      const cx = (rng() - 0.5) * (w - 0.6), cz = -d / 2 + 0.3;
+      wall.add(box(0.26, 0.5, 0.26, 0.04), 0xf2efe8, at(cx, h + 0.25, cz));
+      wall.add(box(0.36, 0.06, 0.36), 0xfbf9f4, at(cx, h + 0.53, cz));
+      trim.add(box(0.12, 0.08, 0.12), 0x6a5a4a, at(cx, h + 0.6, cz));
     }
   }
-  if (rng() < 0.4) {
-    // a stacked upper room, set back
-    const w2 = w * 0.55, h2 = h * 0.7;
-    wall.add(box(w2, h2, d * 0.6, 0.08), 0xf4f1ea, M(-w * 0.18, h + h2 / 2, -d * 0.15).premultiply(m));
-    trim.add(box(0.28, 0.3, 0.05, 0.015), 0x2b5fae, M(-w * 0.18, h + h2 * 0.55, -d * 0.15 + d * 0.3 + 0.02).premultiply(m));
+  if (kind === 'dome') {
+    const r = Math.min(w, d) * (chapel ? 0.36 : 0.3);
+    dome.add(new THREE.CylinderGeometry(r * 1.04, r * 1.08, r * 0.45, 18), 0xf6f3ec, at(0, h + r * 0.22, 0));
+    dome.add(lathe([[r, 0], [r * 0.99, r * 0.3], [r * 0.82, r * 0.72], [r * 0.46, r * 1.02], [0.0, r * 1.12]], 18),
+      0x2459a8, at(0, h + r * 0.45, 0));
+    trim.add(box(0.06, 0.5, 0.06), 0xc9a24a, at(0, h + r * 1.55 + 0.2, 0));
+    trim.add(box(0.28, 0.06, 0.06), 0xc9a24a, at(0, h + r * 1.55 + 0.3, 0));
   }
-  if (domeP) {
-    domeP.add(lathe([[0.8, 0], [0.79, 0.26], [0.64, 0.6], [0.36, 0.84], [0.0, 0.92]], 16), 0x2459a8, M(0, h + 0.3, 0).premultiply(m));
-    domeP.add(new THREE.CylinderGeometry(0.84, 0.88, 0.3, 16), 0xf6f3ec, M(0, h + 0.15, 0).premultiply(m));
-    trim.add(box(0.07, 0.55, 0.07, 0.01), 0xc9a24a, M(0, h + 1.45, 0).premultiply(m));
-    trim.add(box(0.3, 0.07, 0.07, 0.01), 0xc9a24a, M(0, h + 1.56, 0).premultiply(m));
-    // a bell gable on the front edge
-    wall.add(box(0.7, 0.9, 0.18, 0.04), 0xf6f3ec, M(0, h + 0.45, d / 2 - 0.1).premultiply(m));
-    trim.add(blob(0.13, 1, 1.2), 0xb08a3a, M(0, h + 0.42, d / 2 - 0.1).premultiply(m));
+  // ── the street front: a framed door up a step, flanked by windows
+  const dx = (rng() - 0.5) * Math.max(0, w - 1.2);
+  const dh = Math.min(0.95, h * 0.62);
+  trim.add(box(0.62, dh + 0.1, 0.05), 0xfdfcf8, at(dx, dh / 2 + 0.05, d / 2 + 0.015));  // lime frame
+  trim.add(box(0.44, dh, 0.06), doorC, at(dx, dh / 2 + 0.02, d / 2 + 0.03));
+  trim.add(box(0.7, 0.1, 0.32), 0xd8d2c4, at(dx, 0.05, d / 2 + 0.16));              // the step
+  const win = (wx, wz, rr, wy = h * 0.6) => {
+    // pane, frame, sill, and two shutter leaves folded open against the wall
+    trim.add(box(0.34, 0.4, 0.05), 0x1b2433, at(wx, wy, wz, rr));
+    const o = M(wx, wy, wz, rr).premultiply(m);
+    for (const sx of [-1, 1]) {
+      trim.add(box(0.18, 0.42, 0.03), doorC, M(sx * 0.27, 0, 0.02).premultiply(o));
+    }
+    trim.add(box(0.44, 0.05, 0.12), 0xfdfcf8, M(0, -0.24, 0.04).premultiply(o));
+  };
+  const front = w > 1.9 ? [-1, 1] : [dx > 0 ? -1 : 1];
+  for (const sx of front) {
+    const wx = dx + sx * 0.75;
+    if (Math.abs(wx) < w / 2 - 0.35) win(wx, d / 2 + 0.02, 0);
+  }
+  win((rng() - 0.5) * (w - 0.9), -d / 2 - 0.02, Math.PI);
+  win(w / 2 + 0.02, (rng() - 0.5) * (d - 0.9), Math.PI / 2);
+  win(-w / 2 - 0.02, (rng() - 0.5) * (d - 0.9), -Math.PI / 2);
+  // ── extras
+  const stairSide = rng() < 0.5 ? 1 : -1;
+  if (!chapel && kind !== 'vault' && rng() < 0.55) {
+    // an outside stair climbing the flank to the roof terrace, with its
+    // solid lime balustrade
+    const n = 5, run = Math.min(d - 0.2, 1.7);
+    for (let k = 0; k < n; k++) {
+      const hh = (h / n) * (k + 1);
+      wall.add(box(0.5, hh, run / n + 0.02, 0.02), 0xf2eee6,
+        at(stairSide * (w / 2 + 0.25), hh / 2, d / 2 - 0.15 - (k + 0.5) * run / n));
+    }
+    const bal = box(0.08, 0.32, Math.hypot(run, h) + 0.1, 0.02);
+    bal.rotateX(Math.atan2(h, run));
+    wall.add(bal, 0xfbf9f4, at(stairSide * (w / 2 + 0.47), h / 2 + 0.2, d / 2 - 0.15 - run / 2));
+  }
+  const over = rng();
+  if (!chapel && over < 0.32) {
+    // a vine pergola over the door: posts, beams, a leafy canopy
+    for (const sx of [-1, 1]) wood.add(box(0.07, dh + 0.25, 0.07), 0x7a5a3a, at(dx + sx * 0.55, (dh + 0.25) / 2, d / 2 + 0.85));
+    for (const zz of [0.2, 0.5, 0.8]) wood.add(box(1.3, 0.05, 0.06), 0x7a5a3a, at(dx, dh + 0.27, d / 2 + zz));
+    for (let k = 0; k < 4; k++) {
+      leaf.add(blob(0.3 + rng() * 0.12, 1, 0.45), 0x4f7a32, at(dx + (k - 1.5) * 0.36, dh + 0.36, d / 2 + 0.45 + (rng() - 0.5) * 0.3));
+    }
+  } else if (!chapel && over < 0.55) {
+    // a striped canvas awning on two poles
+    const aw = new THREE.PlaneGeometry(1.2, 0.8, 4, 1);
+    aw.rotateX(-Math.PI / 2 + 0.32);
+    cloth.add(aw, (xx, yy, zz, nx, ny, nz, c) => { c.setHex(Math.floor((xx + 0.6) / 0.3) % 2 ? 0xf2ede2 : doorC); },
+      at(dx, dh + 0.25, d / 2 + 0.4), 0, true);
+    for (const sx of [-1, 1]) wood.add(box(0.05, dh + 0.15, 0.05), 0x6a4a2e, at(dx + sx * 0.55, (dh + 0.15) / 2, d / 2 + 0.78));
+  }
+  if (!chapel && rng() < 0.4) {
+    // bougainvillea spilling down a front corner
+    const cx = (rng() < 0.5 ? -1 : 1) * (w / 2 - 0.05);
+    for (let k = 0; k < 5; k++) {
+      leaf.add(blob(0.16 + rng() * 0.1, 1, 0.9), k % 2 ? 0xc0307a : 0xd8449a,
+        at(cx + (rng() - 0.5) * 0.25, h * (0.35 + k * 0.15), d / 2 + 0.06));
+    }
+  }
+  if (!chapel && kind === 'terrace' && rng() < 0.35) {
+    // a stacked upper room, set back off the terrace
+    const w2 = w * 0.5, h2 = h * 0.62, d2 = d * 0.5;
+    wall.add(box(w2, h2, d2, 0.1), lime, at(-stairSide * w * 0.2, h + h2 / 2, -d * 0.2));
+    trim.add(box(0.28, 0.32, 0.05), 0x1b2433, at(-stairSide * w * 0.2, h + h2 * 0.55, -d * 0.2 + d2 / 2 + 0.02));
+  }
+  if (chapel) {
+    // the bell gable on the front edge, its bell in the arch
+    wall.add(box(0.9, 1.1, 0.2, 0.05), 0xf6f3ec, at(0, h + 0.55, d / 2 - 0.1));
+    trim.add(blob(0.14, 1, 1.2), 0xb08a3a, at(0, h + 0.62, d / 2 - 0.1));
+    trim.add(box(0.06, 0.24, 0.06), 0xc9a24a, at(0, h + 1.25, d / 2 - 0.1));
   }
 }
 
-/* the town is laid out up the slope facing the jetty (terrain angle `dockA`) */
+/* the town is laid out up the slope facing the jetty (terrain angle `dockA`):
+   a stepped lane climbing from the quay, houses jostling either side of it,
+   the blue-domed chapel up top, and a harbour front along the water — a
+   lime-washed quay with bollards, a taverna awning, nets and stores. */
 export function makeHomeTown(g, terrain, R, dockA, seed = 1) {
   const rng = mulberry32(seed);
-  const wall = new Parts(), trim = new Parts(), dome = new Parts();
+  const P = { wall: new Parts(), trim: new Parts(), dome: new Parts(), wood: new Parts(),
+    cloth: new Parts(), leaf: new Parts(), quay: new Parts(), store: new Parts() };
   const spots = [];
-  // houses in two terraces either side of the lane down to the jetty
-  // (a tight cluster, board-scaled like the ships: whitewashed cubes jostling
-  // up the slope either side of the lane down to the jetty)
-  for (let i = 0; i < 22 && spots.length < 10; i++) {
+  // the lane: flagged steps with lime-washed edges, quay → crown
+  {
+    const n = 9;
+    for (let k = 0; k <= n; k++) {
+      const rr = 0.86 - (k / n) * 0.66;
+      const p = terrain.place(dockA, rr);
+      const ry = -dockA + Math.PI / 2;
+      P.quay.add(box(1.2, 0.5, 0.5, 0.04), 0xc9c1b2, M(p.x, p.y - 0.18, p.z, ry));
+      P.trim.add(box(1.22, 0.04, 0.06), 0xfdfcf8, M(p.x, p.y + 0.08, p.z, ry));
+    }
+  }
+  // houses in two terraces either side of the lane
+  for (let i = 0; i < 40 && spots.length < 13; i++) {
     const side = i % 2 ? 1 : -1;
-    const a = dockA + side * (0.26 + rng() * 0.62);
-    const rr = 0.22 + rng() * 0.4;
+    const a = dockA + side * (0.2 + rng() * 0.7);
+    const rr = 0.24 + rng() * 0.46;
     const p = terrain.place(a, rr);
     if (p.y < 0.35) continue;
     let ok = true;
-    for (const q of spots) if (Math.hypot(q.x - p.x, q.z - p.z) < 2.5) { ok = false; break; }
+    for (const q of spots) if (Math.hypot(q.x - p.x, q.z - p.z) < 2.35) { ok = false; break; }
     if (!ok) continue;
     spots.push(p);
-    const w = 1.5 + rng() * 0.8, d = 1.4 + rng() * 0.6, h = 1.2 + rng() * 0.7;
+    const w = 1.7 + rng() * 0.9, d = 1.5 + rng() * 0.7, h = 1.05 + rng() * 0.5;
     // face the harbour: front (+z local) toward the dock direction
-    const ry = Math.atan2(Math.cos(dockA), Math.sin(dockA)) + (rng() - 0.5) * 0.6;
-    cycladicHouse(wall, trim, p.x, p.y - 0.05, p.z, ry, w, d, h, rng, null);
+    const ry = Math.atan2(Math.cos(dockA), Math.sin(dockA)) + (rng() - 0.5) * 0.5;
+    cycladicHouse(P, p.x, p.y - 0.05, p.z, ry, w, d, h, rng, { roof: spots.length === 4 ? 'dome' : null });
   }
   // the chapel: a whitewashed cube under a blue dome with a bell gable
   {
     const p = terrain.place(dockA + Math.PI * 0.62, 0.3);
     const ry = Math.atan2(Math.cos(dockA), Math.sin(dockA));
-    cycladicHouse(wall, trim, p.x, p.y - 0.05, p.z, ry, 2.2, 2.2, 2.0, mulberry32(seed + 9), dome);
+    cycladicHouse(P, p.x, p.y - 0.05, p.z, ry, 2.3, 2.3, 2.0, mulberry32(seed + 9), { roof: 'dome', chapel: true });
   }
-  for (const [p, m] of [[wall, mat.plaster()], [trim, mat.plain()], [dome, mat.plaster()]]) {
+  // the harbour front: a quay of dressed blocks along the shore beside the
+  // jetty, lime-washed lip, bollards, a taverna awning, stores and a net
+  {
+    const a0 = dockA - 0.5, a1 = dockA - 0.08;
+    const n = 9;
+    let prev = null;
+    for (let k = 0; k <= n; k++) {
+      const a = a0 + (a1 - a0) * (k / n);
+      const p = terrain.place(a, 0.9);
+      if (prev) {
+        const mx = (p.x + prev.x) / 2, mz = (p.z + prev.z) / 2;
+        const L = Math.hypot(p.x - prev.x, p.z - prev.z) + 0.15;
+        const ry = -Math.atan2(p.z - prev.z, p.x - prev.x);
+        const top = Math.max(0.28, (p.y + prev.y) / 2 + 0.12);
+        P.quay.add(box(L, top + 1.2, 1.5, 0.06), (xx, yy, zz, nx, ny, nz, c) => {
+          c.setHex(0xb9b0a0); c.multiplyScalar(yy < -0.25 ? 0.6 : 0.9 + 0.1 * Math.sin(xx * 3.1 + zz * 2.3));
+        }, M(mx, (top - 1.2) / 2, mz, ry));
+        P.trim.add(box(L, 0.06, 0.12), 0xfdfcf8, M(mx, top + 0.03, mz, ry).multiply(M(0, 0, 0.7)));
+        if (k % 3 === 0) {
+          P.trim.add(lathe([[0.1, 0], [0.09, 0.18], [0.13, 0.24], [0.0, 0.27]], 8), 0x3a3632,
+            M(mx, top, mz, ry).multiply(M(0, 0, 0.55)));
+        }
+      }
+      prev = p;
+    }
+    // taverna awning + tables on the quay end nearest the jetty
+    const pt = terrain.place(dockA - 0.2, 0.78);
+    const ry = -dockA + Math.PI / 2;
+    const tav = M(pt.x, Math.max(0.3, pt.y), pt.z, ry);
+    const aw = new THREE.PlaneGeometry(2.6, 1.6, 6, 1);
+    aw.rotateX(-Math.PI / 2 + 0.18);
+    P.cloth.add(aw, (xx, yy, zz, nx, ny, nz, c) => { c.setHex(Math.floor((xx + 1.3) / 0.43) % 2 ? 0xf2ede2 : 0x2b5fae); },
+      M(0, 1.35, 0).premultiply(tav), 0, true);
+    for (const sx of [-1.2, 1.2]) for (const sz of [-0.7, 0.7]) {
+      P.wood.add(box(0.06, 1.4, 0.06), 0x6a4a2e, M(sx, 0.7, sz).premultiply(tav));
+    }
+    for (const sx of [-0.6, 0.6]) {
+      P.wood.add(lathe([[0.04, 0], [0.04, 0.42], [0.3, 0.44], [0.3, 0.48], [0, 0.48]], 10), 0x8a6a46, M(sx, 0, 0).premultiply(tav));
+      for (const cz of [-0.4, 0.4]) P.wood.add(box(0.2, 0.3, 0.2), 0x2b5fae, M(sx + cz * 0.2, 0.15, cz).premultiply(tav));
+    }
+    // stores on the quay: crates, amphorae, a heap of net
+    const ps = terrain.place(dockA - 0.36, 0.86);
+    const sto = M(ps.x, Math.max(0.3, ps.y), ps.z, ry);
+    for (let k = 0; k < 3; k++) P.store.add(makeCrate().clone(), null, M((k - 1) * 0.5, 0, (rng() - 0.5) * 0.2, rng()).premultiply(sto));
+    for (let k = 0; k < 3; k++) P.store.add(makeAmphora().clone(), null, M(0.3 + k * 0.3, 0, 0.55, 0, 0.8).premultiply(sto));
+    P.cloth.add(blob(0.42, 1, 0.38), 0x8a7a5a, M(-0.9, 0.1, 0.6).premultiply(sto));
+  }
+  for (const [p, m] of [[P.wall, mat.plaster()], [P.trim, mat.plain()], [P.dome, mat.plaster()],
+    [P.wood, mat.wood()], [P.cloth, mat.cloth()], [P.leaf, mat.plain()], [P.quay, mat.ashlar()], [P.store, mat.plain()]]) {
     const mm = p.mesh(m);
-    if (mm) g.add(mm);
+    if (mm) { if (p === P.quay) onShore(mm); g.add(mm); }
   }
 }
 
@@ -1289,11 +1428,17 @@ export function makeGatePortal(accentHex, seed, rockHex = 0x8a8f98, realm = '') 
       ash.add(box(15 - i * 2.4, 1.15, 27 - i * 3.2, 0.12), weather(i % 2 ? stoneD : stoneC),
         M(qs * (CH + 5.5), -0.3 + i * 0.85, 0));
     }
-    // rubble and boulders at the quay feet
-    for (let k = 0; k < 5; k++) {
-      const r = 1.2 + rng() * 1.6;
-      rocks.add(rockGeometry(seed + qs * 13 + k, { r, sy: 0.6, rock: rockHex, cover: 0, strata: 0.8, detail: 1 }), null,
-        M(qs * (CH + 5.5 + (rng() - 0.5) * 12), -0.6, (rng() < 0.5 ? -1 : 1) * (12 + rng() * 3), rng() * 6));
+    // rubble and boulders round the quay feet — never in the channel itself
+    // (they are the shore-layer pieces: surf breaks on them, not across the
+    // fairway; the quays stay off that layer so the channel under the arch
+    // does not get painted as a sandy shallow)
+    for (let k = 0; k < 9; k++) {
+      const r = 1.0 + rng() * 1.5;
+      const end = k < 6;
+      const x = end ? qs * (CH + 2.5 + rng() * 12.5) : qs * (CH + 13.2 + rng() * 1.5);
+      const z = end ? (rng() < 0.5 ? -1 : 1) * (12.8 + rng() * 2.5) : (rng() - 0.5) * 22;
+      rocks.add(rockGeometry(seed + qs * 13 + k, { r, sy: 0.55 + rng() * 0.3, rock: rockHex, cover: 0, strata: 0.8,
+        detail: r > 1.8 ? 2 : 1, wl: 0.25 }), null, M(x, -0.55, z, rng() * 6));
     }
   }
 
@@ -1324,10 +1469,17 @@ export function makeGatePortal(accentHex, seed, rockHex = 0x8a8f98, realm = '') 
     for (const zz of [-5, 5]) {
       addColumn(cols, side * (CH - 1.2), 0.9, zz, 12.4, stoneC.clone().lerp(new THREE.Color(0xffffff), 0.25));
     }
-    ash.add(box(3.2, 1.5, 13.5, 0.1), stoneC, M(side * (CH - 1.2), 14.2, 0));
-    // a bronze fire bowl on a fluted stand at the fore mouth
-    bronze.add(lathe([[1.4, 0], [1.2, 0.5], [0.8, 1.0], [0.75, 5.2], [1.0, 5.4], [1.0, 5.4], [1.9, 6.2], [2.0, 6.5], [1.85, 6.55], [0.0, 6.3]], 16),
-      (x, y, z, nx, ny, nz, c) => { c.setHex(y > 5.3 ? 0x8a6230 : 0x6a5a48); }, M(side * (CH + 0.8), 0.9, 7));
+    // the entablature: architrave, a frieze of the realm's glyphs, cornice
+    ash.add(box(3.0, 0.75, 13.3, 0.08), stoneC, M(side * (CH - 1.2), 13.85, 0));
+    ash.add(box(2.7, 0.6, 13.0, 0.06), stoneD, M(side * (CH - 1.2), 14.5, 0));
+    ash.add(box(3.6, 0.45, 13.9, 0.1), stoneC, M(side * (CH - 1.2), 15.0, 0));
+    for (const zz of [-4.5, -1.5, 1.5, 4.5]) glyph.add(box(0.12, 0.34, 0.9), 0xffffff, M(side * (CH - 1.2) - side * 1.37, 14.5, zz));
+    // bronze fire bowls on fluted stands at BOTH mouths (the hub-side pair
+    // frames the low astern shot through the arch as the ship enters)
+    for (const zz of [-7, 7]) {
+      bronze.add(lathe([[1.4, 0], [1.2, 0.5], [0.8, 1.0], [0.75, 5.2], [1.0, 5.4], [1.0, 5.4], [1.9, 6.2], [2.0, 6.5], [1.85, 6.55], [0.0, 6.3]], 16),
+        (x, y, z, nx, ny, nz, c) => { c.setHex(y > 5.3 ? 0xa87a3c : 0x8a7454); }, M(side * (CH + 0.8), 0.9, zz));
+    }
   }
 
   // the great arch: a semicircular vault of voussoirs with a keystone
@@ -1345,7 +1497,7 @@ export function makeGatePortal(accentHex, seed, rockHex = 0x8a8f98, realm = '') 
       const geo = new THREE.ExtrudeGeometry(s, { depth, bevelEnabled: true, bevelThickness: 0.12, bevelSize: 0.12, bevelSegments: 1, curveSegments: 1 });
       geo.translate(0, 0, -depth / 2);
       const key = i === (n - 1) / 2;
-      ash.add(geo.toNonIndexed(), weather(key ? stoneC.clone().multiplyScalar(1.1) : (i % 2 ? stoneC : stoneC.clone().multiplyScalar(0.94))),
+      ash.add(geo, weather(key ? stoneC.clone().multiplyScalar(1.1) : (i % 2 ? stoneC : stoneC.clone().multiplyScalar(0.94))),
         M(0, springY, 0, 0, key ? 1.06 : 1), 0.22);
     }
     // the spandrel walls and attic above the arch
@@ -1388,21 +1540,23 @@ export function makeGatePortal(accentHex, seed, rockHex = 0x8a8f98, realm = '') 
 
   for (const [p, m] of [[ash, mat.ashlar()], [cols, columnMat()], [bronze, mat.bronze()], [rocks, mat.rock()], [ban, mat.cloth()]]) {
     const mm = p.mesh(m);
-    if (mm) { if (p === ash || p === rocks) onShore(mm); g.add(mm); }
+    if (mm) { if (p === rocks) onShore(mm); g.add(mm); }
   }
   const gm = glyph.mesh(mat.glow(accent.getHex(), 2.4), { cast: false });
   if (gm) g.add(gm);
 
   // the fire bowls blaze in the accent (bloom carries them; ONE real light)
   for (const side of [-1, 1]) {
-    const f = flame({ w: 2.6, h: 3.8, color: accent.clone().lerp(new THREE.Color(0xffb060), 0.35).getHex(),
-      glow: 1.4, seed: seed + side * 5, halo: 0.55, fog: false });
-    f.position.set(side * (CH + 0.8), 0.9 + 6.4, 7);
-    f.name = 'brazier';
-    g.add(f);
+    for (const zz of [-7, 7]) {
+      const f = flame({ w: 2.6, h: 3.8, color: accent.clone().lerp(new THREE.Color(0xffb060), 0.35).getHex(),
+        glow: 1.4, seed: seed + side * 5 + zz, halo: 0.55, fog: false });
+      f.position.set(side * (CH + 0.8), 0.9 + 6.4, zz);
+      f.name = 'brazier';
+      g.add(f);
+    }
   }
   const light = new THREE.PointLight(accent, 9, 46, 1.8);
-  light.position.set(0, 9, 7);
+  light.position.set(0, 9, 0);
   g.add(light);
 
   // a soft accent haze breathing in the opening

@@ -42,9 +42,17 @@ export const ATMO = {
   // per-frame camera-dependent values (set by updateAtmosphere)
   uAtmoSunView: { value: new THREE.Vector4(0, 1, 0, 0) },    // xyz sun dir in VIEW space
   uAtmoCamY:    { value: new THREE.Vector4(0, 1, 0, 0) },    // row 1 of camera.matrixWorld
+  uAtmoCamX:    { value: new THREE.Vector4(1, 0, 0, 0) },    // row 0 (world X from view pos)
+  uAtmoCamZ:    { value: new THREE.Vector4(0, 0, 1, 0) },    // row 2 (world Z from view pos)
+  // cloud shadows drifting over land and sea
+  // x: strength 0..1, y: world scale (1/units), z: coverage threshold, w: edge softness
+  uCloudShadow: { value: new THREE.Vector4(0, 0.006, 0.5, 0.2) },
+  // xy: drift offset (noise space), zw: sun slope (world xz per unit of height)
+  uCloudDrift:  { value: new THREE.Vector4(0, 0, 0, 0) },
 };
 
-const FOG_UNIFORM_KEYS = ['uFogSunColor', 'uFogParams', 'uAtmoSunView', 'uAtmoCamY'];
+const FOG_UNIFORM_KEYS = ['uFogSunColor', 'uFogParams', 'uAtmoSunView', 'uAtmoCamY',
+                          'uAtmoCamX', 'uAtmoCamZ', 'uCloudShadow', 'uCloudDrift'];
 
 /* inject the shared fog uniforms into any shader about to compile */
 export function bindAtmosphere(shader) {
@@ -84,6 +92,28 @@ float thalassaFogAmount(vec3 viewPos, float fNear, float fFar) {
   return clamp(f * mix(1.0, hAtt, uFogParams.w), 0.0, 1.0);
 }`;
 
+/* Cloud shadows: the fair-weather cumulus overhead throws soft moving shade
+   on everything the sun lights. Cheap value noise in world xz, projected along
+   the sun so the shade sits where the light actually comes from. Unbound (a
+   material that skipped bindAtmosphere) the strength is 0 and it returns 1. */
+export const CLOUD_SHADOW_FUNC = /* glsl */`
+uniform vec4 uCloudShadow;
+uniform vec4 uCloudDrift;
+float thCsHash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
+float thCsNoise(vec2 p) {
+  vec2 i = floor(p), f = fract(p);
+  f = f * f * (3.0 - 2.0 * f);
+  return mix(mix(thCsHash(i), thCsHash(i + vec2(1.0, 0.0)), f.x),
+             mix(thCsHash(i + vec2(0.0, 1.0)), thCsHash(i + vec2(1.0, 1.0)), f.x), f.y);
+}
+float thalassaCloudShadowW(vec3 w) {
+  if (uCloudShadow.x <= 0.001) return 1.0;
+  vec2 p = (w.xz + uCloudDrift.zw * (150.0 - w.y)) * uCloudShadow.y + uCloudDrift.xy;
+  float n = thCsNoise(p) * 0.60 + thCsNoise(p * 2.13 + 7.3) * 0.28 + thCsNoise(p * 4.7 + 19.1) * 0.12;
+  float c = smoothstep(uCloudShadow.z, uCloudShadow.z + uCloudShadow.w, n);
+  return 1.0 - uCloudShadow.x * c;
+}`;
+
 export const FOG_PARS_FRAGMENT = /* glsl */`
 #ifdef USE_FOG
   uniform vec3 fogColor;
@@ -96,6 +126,14 @@ export const FOG_PARS_FRAGMENT = /* glsl */`
     uniform float fogFar;
   #endif
   ${FOG_FUNC}
+  uniform vec4 uAtmoCamX;
+  uniform vec4 uAtmoCamZ;
+  ${CLOUD_SHADOW_FUNC}
+  float thalassaCloudShadow(vec3 viewPos) {
+    return thalassaCloudShadowW(vec3(dot(uAtmoCamX.xyz, viewPos) + uAtmoCamX.w,
+                                     dot(uAtmoCamY.xyz, viewPos) + uAtmoCamY.w,
+                                     dot(uAtmoCamZ.xyz, viewPos) + uAtmoCamZ.w));
+  }
 #endif`;
 
 export const FOG_FRAGMENT = /* glsl */`
@@ -116,6 +154,12 @@ export function installAtmosphere() {
   THREE.ShaderChunk.fog_vertex = FOG_VERTEX;
   THREE.ShaderChunk.fog_pars_fragment = FOG_PARS_FRAGMENT;
   THREE.ShaderChunk.fog_fragment = FOG_FRAGMENT;
+  // the sun's direct light passes through the cloud deck before it lands
+  const SUN_CALL = 'getDirectionalLightInfo( directionalLight, directLight );';
+  if (THREE.ShaderChunk.lights_fragment_begin.includes(SUN_CALL)) {
+    THREE.ShaderChunk.lights_fragment_begin = THREE.ShaderChunk.lights_fragment_begin.replace(SUN_CALL,
+      SUN_CALL + '\n#ifdef USE_FOG\n\t\tdirectLight.color *= thalassaCloudShadow( vFogView );\n#endif');
+  }
   // every material's compile hook hands it the shared uniform objects. A
   // material that sets its own onBeforeCompile must call bindAtmosphere().
   THREE.Material.prototype.onBeforeCompile = function (shader) { bindAtmosphere(shader); };
@@ -266,6 +310,23 @@ export function applyLook(look) {
   ATMO.uFogSunColor.value.set(look.fog.sunColor ?? look.sun.color);
   ATMO.uFogParams.value.set(look.fog.sunGlow ?? 0.6, look.fog.heightFalloff ?? 0.012,
                             look.fog.heightBase ?? 6, look.fog.heightAmount ?? 0.85);
+  // cloud shadows: strength follows the look, coverage follows the sky's own deck
+  const cs = look.cloudShadow || {};
+  const cover = cs.cover ?? cl.cover ?? 0;
+  _drift.strength = cover > 0.02 ? (cs.strength ?? 0) : 0;
+  ATMO.uCloudShadow.value.set(_drift.on ? _drift.strength : 0, 1 / (cs.size ?? 170),
+                              0.74 - cover * 0.62, cs.soft ?? 0.2);
+  _drift.speed = cs.speed ?? 2.2;
+  const sd = ATMO.uSunDir.value, k = 1 / Math.max(sd.y, 0.22);
+  ATMO.uCloudDrift.value.z = sd.x * k;
+  ATMO.uCloudDrift.value.w = sd.z * k;
+}
+const _drift = { speed: 2.2, strength: 0, on: true };
+
+/** the Light quality tier turns the cloud shade off (it costs every lit pixel) */
+export function setCloudShadows(on) {
+  _drift.on = !!on;
+  ATMO.uCloudShadow.value.x = _drift.on ? _drift.strength : 0;
 }
 
 /** per-frame: time + camera-dependent fog terms. Call right before rendering. */
@@ -277,6 +338,12 @@ export function updateAtmosphere(camera, t) {
   ATMO.uAtmoSunView.value.set(_v.x, _v.y, _v.z, 0);
   const e = camera.matrixWorld.elements;
   ATMO.uAtmoCamY.value.set(e[1], e[5], e[9], e[13]);
+  ATMO.uAtmoCamX.value.set(e[0], e[4], e[8], e[12]);
+  ATMO.uAtmoCamZ.value.set(e[2], e[6], e[10], e[14]);
+  // the deck drifts down-wind (world units per second, in noise space)
+  const d = t * _drift.speed * ATMO.uCloudShadow.value.y;
+  ATMO.uCloudDrift.value.x = d;
+  ATMO.uCloudDrift.value.y = d * 0.37;
 }
 
 export { _c as scratchColor };

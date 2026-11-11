@@ -17,7 +17,7 @@ import { makePharos as makePharosTower, dressPharosIsle, makeShrineTemple, makeP
   makeLairAltar as makeTrialAltar, makeRelicBeacon as makeRelicUrn, makeGatePortal as makeRealmGate, boatsAt,
   battleStructure,
 } from './models/landmarks.js';
-import { makeRock as procRock, makeFlotsam as procFlotsam } from './models/props.js';
+import { makeRock as procRock, makeFlotsam as procFlotsam, makeSeaStack as procSeaStack } from './models/props.js';
 import { onShore } from './models/kit.js';
 import { warningStake } from './realms/footkit.js';
 import { makeTerrain, makeNoise2D, makeGroundMaterial, groundGrainTexture, groundReliefTexture, SHORE_LAYER, GROUND_TILE } from './gfx/terrain.js';
@@ -200,7 +200,7 @@ function buoyParts() {
       c[i * 3] = col.r; c[i * 3 + 1] = col.g; c[i * 3 + 2] = col.b;
     }
     geo.setAttribute('color', new THREE.BufferAttribute(c, 3));
-    return geo.toNonIndexed();
+    return geo.index ? geo.toNonIndexed() : geo;
   };
   // float: keel → belly at the waterline (y = 0) → shoulder → collar
   // (paired rings at 0.03/0.07 and 0.29/0.31 keep the paint bands crisp)
@@ -367,7 +367,7 @@ export function makeRealmField(theme, nodes, segs, rng, heightAt = null) {
     propGroup(ids[(rng() * ids.length) | 0], lo + rng() * (hi - lo));
   // (every realm returned above — ice/jungle in realms/ice.js + jungle.js, the
   // two foot realms in realms/desert.js + autumn.js; what is left is open sea)
-  scatter(6, 12, 17, 120, prop(['boulder'], 0.7, 1.2));   // sea stacks
+  scatter(6, 12, 17, 120, () => procSeaStack(rng, 0.7 + rng() * 0.5));   // sea stacks (craggy, tide band)
   // hub / aegean open water: flotsam only — the good stuff is ashore
   scatter(8, 12, 17, 120, prop(['driftwood', 'fishing_net'], 0.7, 1.1));
   return g;

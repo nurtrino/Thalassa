@@ -70,8 +70,9 @@ export function buildMountainWall({ radius = 560, gates = [], theme }) {
     lights.push(li);
 
     // a hint of the realm beyond: tinted haze filling the pass
+    // (soft-edged: a hard-edged quad read as a pale slab hanging in the pass)
     const haze = new THREE.Mesh(new THREE.PlaneGeometry(30, 34),
-      new THREE.MeshBasicMaterial({ color: accent, transparent: true, opacity: 0.15,
+      new THREE.MeshBasicMaterial({ color: accent, map: softDiscTexture(), transparent: true, opacity: 0.15,
         blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide, fog: false }));
     haze.position.set(26, 15, 0);
     haze.rotation.y = Math.PI / 2;

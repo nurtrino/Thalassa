@@ -27,7 +27,7 @@ import { buildMountainWall, buildRealmBackdrop } from './wall.js';
 import { getMonster, animateMonster, preloadMonsters, disposeMonster, BOSS_IDS } from './monsters.js';
 import { createBattleStage } from './battle.js';
 import { createWorldFx } from './worldfx.js';
-import { installAtmosphere, applyLook, updateAtmosphere } from './gfx/atmosphere.js';
+import { installAtmosphere, applyLook, updateAtmosphere, setCloudShadows } from './gfx/atmosphere.js';
 import { lookFor } from './gfx/looks.js';
 import { makeSky, bakeEnvironment } from './gfx/sky.js';
 import { makeLightRig } from './gfx/lighting.js';
@@ -2594,6 +2594,7 @@ export function createWorld(container, handlers = {}) {
     else tickCamera(st, t, dt);
     tickSunShadow(st);
     lightStage(st);
+    setCloudShadows(pipe.quality !== 'low');
     updateAtmosphere(camera, t);
     pipe.render(st.scene, camera, dt);
   });

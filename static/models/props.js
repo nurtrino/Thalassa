@@ -5,6 +5,8 @@
  *
  *   makeRock(rng, r, colorHex, {moss, snow, sea}) → Mesh   one good boulder
  *   makeRockCluster(rng, r, colorHex, opts)       → Mesh   2–4 merged boulders
+ *   makeSeaStack(rng, s, colorHex)                → Group  crag standing in the sea
+ *                                                   (tide band, shore layer)
  *   makeFishingBoat({seed, hull, sail})           → Group  small caique (+x bow)
  *   makeCrate() / makeAmphora() / makeBarrelGeo() → BufferGeometry (cached,
  *                                                   vertex-coloured; clone it)
@@ -17,7 +19,7 @@
  *   makeSeaLane(ax, az, bx, bz, {seed})           → Mesh  soft wake-dash lane
  *   makeFootTrail(ax, az, bx, bz, {hex, seed})    → Mesh  merged flagstone path
  */
-import { THREE, cached, mat, tex, Parts, M, paint, lathe, box, tube, blob, rockGeometry, glowSprite, smooth, mulberry32 } from './kit.js';
+import { THREE, cached, mat, tex, Parts, M, paint, lathe, box, tube, blob, rockGeometry, glowSprite, smooth, mulberry32, SHORE_LAYER } from './kit.js';
 import { softDiscTexture } from '../util.js';
 
 /* ── rocks ──────────────────────────────────────────────────────────────── */
@@ -44,6 +46,30 @@ export function makeRockCluster(rng, r, colorHex = 0x93999e, opts = {}) {
       cover: top ? 0.7 : 0, detail: i === 0 ? 2 : 1, strata: 0.6 }), null, M(Math.cos(a) * d, 0, Math.sin(a) * d, rng() * 6));
   }
   return p.mesh(mat.rock());
+}
+
+/* a sea stack: one tall broken crag (with a smaller fallen block or two)
+   standing in open water, local y = 0 at the placement height (the sea is
+   at y = −0.3), base well under the surface. Dark tide band under a pale
+   salt line; on the shore layer so the ocean draws surf round its foot. */
+export function makeSeaStack(rng, s = 1, colorHex = 0x8f8d86) {
+  const p = new Parts();
+  const n = 1 + Math.floor(rng() * 2.4);
+  for (let i = 0; i < n; i++) {
+    const main = i === 0;
+    const r = s * (main ? 1.25 + rng() * 0.5 : 0.5 + rng() * 0.35);
+    const sy = main ? 1.6 + rng() * 0.7 : 0.8 + rng() * 0.3;
+    const a = rng() * 6.28, d = main ? 0 : s * (1.4 + rng() * 0.8);
+    const y = -0.15 * r * sy;            // sunk: the waterline sits low on it
+    p.add(rockGeometry(Math.floor(rng() * 1e9), { r, sy, detail: main ? 3 : 2, facets: main ? 8 : 6,
+      rough: 0.13, rock: colorHex, strata: 0.75, base: -0.55, wl: -0.3 - y }),
+    null, M(Math.cos(a) * d, y, Math.sin(a) * d, rng() * 6.28, 1, 1, 1, (rng() - 0.5) * 0.25, (rng() - 0.5) * 0.25));
+  }
+  const m = p.mesh(mat.rock());
+  m.layers.enable(SHORE_LAYER);
+  const g = new THREE.Group();
+  g.add(m);
+  return g;
 }
 
 /* ── stores ─────────────────────────────────────────────────────────────── */

@@ -19,7 +19,7 @@
  *   sea.setShoreMap(texture, {x, z, size});     // from shoremap.js
  */
 import * as THREE from 'three';
-import { ATMO, SKY_UNIFORMS_GLSL, SKY_FUNC, FOG_FUNC, skyUniforms } from './atmosphere.js';
+import { ATMO, SKY_UNIFORMS_GLSL, SKY_FUNC, FOG_FUNC, CLOUD_SHADOW_FUNC, skyUniforms } from './atmosphere.js';
 
 export const WATER_Y = -0.3;
 
@@ -207,6 +207,7 @@ varying vec3 vView;
 varying float vCrest;
 ${SKY_FUNC}
 ${FOG_FUNC}
+${CLOUD_SHADOW_FUNC}
 void main() {
   vec2 xz = vBaseXZ;
   vec3 toCam = cameraPosition - vWorld;
@@ -244,7 +245,9 @@ void main() {
   float caustic = smoothstep(0.16, 0.42, ca) * 1.1;
   vec3 bed = uSeabed * (0.62 + caustic * 0.75);
   body = mix(body, bed, clamp(bedVis, 0.0, 0.92));
-  body *= uLight;
+  // cloud shade drifting over the water: the body dims, the glitter goes out
+  float cloudSh = thalassaCloudShadowW(vWorld);
+  body *= uLight * mix(1.0, cloudSh, 0.8);
   // sunlight scattering through the swell crests
   float sunSide = max(dot(normalize(V.xz + 1e-4), -normalize(uSunDir.xz + 1e-4)), 0.0);
   body += uScatter * uLight * smoothstep(0.15, 1.0, vCrest) * (0.25 + 0.75 * sunSide) * 0.55 * shallow;
@@ -264,7 +267,7 @@ void main() {
   float sdot = max(dot(R, uSunDir), 0.0);
   float glint = pow(sdot, 900.0) * 9.0 + pow(sdot, 160.0) * 0.20 + pow(sdot, 22.0) * 0.016;
   float sparkleMask = 0.45 + 1.1 * smoothstep(0.52, 0.62, d2.a) * smoothstep(0.4, 0.7, d1.a + 0.15);
-  col += uSunSpec * glint * sparkleMask * uOpts.x * (0.25 + 0.75 * fres * 4.0);
+  col += uSunSpec * glint * sparkleMask * uOpts.x * (0.25 + 0.75 * fres * 4.0) * cloudSh * cloudSh;
 
   // ── foam ──
   float fn = d1.a * 0.6 + d2.a * 0.4;
@@ -276,7 +279,7 @@ void main() {
   float fine = texture2D(uDetail, xz * 0.33 + vec2(t * 0.03, -t * 0.02)).a;
   float crest = smoothstep(0.78, 1.05, vCrest + (fine - 0.5) * 0.5) * smoothstep(0.52, 0.64, fine) * 0.4 * shallow;
   float foam = clamp((shoreBand * 0.95 + lapBand * 0.7) * step(-0.5, depth) + crest, 0.0, 1.0) * uOpts.y;
-  vec3 foamCol = vec3(0.95, 0.98, 1.0) * (uLight * 0.9 + 0.12);
+  vec3 foamCol = vec3(0.95, 0.98, 1.0) * (uLight * 0.9 * mix(1.0, cloudSh, 0.7) + 0.12);
   col = mix(col, foamCol, foam);
 
   // ── atmosphere ──
@@ -301,6 +304,7 @@ export function makeOcean(theme, look) {
     ...skyUniforms(),
     uFogSunColor: ATMO.uFogSunColor, uFogParams: ATMO.uFogParams,
     uAtmoSunView: ATMO.uAtmoSunView, uAtmoCamY: ATMO.uAtmoCamY,
+    uCloudShadow: ATMO.uCloudShadow, uCloudDrift: ATMO.uCloudDrift,
     uTime: { value: 0 },
     uChop: { value: w.chop ?? 1 },
     uWaterY: { value: WATER_Y },

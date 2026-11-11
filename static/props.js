@@ -13,6 +13,8 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { finishModel, finishOf, setModelColor } from './modelmat.js';
+import { makeRock } from './models/props.js';
+import { mulberry32 } from './util.js';
 
 /* every prop file on disk */
 export const PROP_IDS = [
@@ -174,8 +176,18 @@ export function preloadProps(ids = PROP_IDS) {
    Pass castShadow=false for dense filler (e.g. the Vale's titan trees) whose
    big soft ground shadows would sprawl across the floor like drifting cloud
    shadows — they still RECEIVE shadow, they just don't throw one. */
+let _boulderSeed = 0;
 export function propGroup(id, scale = 1, castShadow = true) {
   const g = new THREE.Group();
+  if (id === 'boulder') {
+    // the boulder GLB was a smooth lump: every boulder is now the kit's
+    // craggy procedural rock (models/kit.js rockGeometry), ~1.4 u tall
+    const rk = makeRock(mulberry32(0x5eed + (_boulderSeed++) * 7919), 1.25 * scale, 0x8e8a82);
+    rk.castShadow = castShadow;
+    rk.position.y = -0.08 * scale;
+    g.add(rk);
+    return g;
+  }
   ensure(id).then((t) => {
     if (!t) return;
     const c = t.clone(true);

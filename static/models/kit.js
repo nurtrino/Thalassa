@@ -24,7 +24,7 @@
  * is drawn, so sharing stays safe.
  */
 import * as THREE from 'three';
-import { mergeGeometries, mergeVertices } from 'three/addons/utils/BufferGeometryUtils.js';
+import { mergeGeometries, mergeVertices, toCreasedNormals } from 'three/addons/utils/BufferGeometryUtils.js';
 import { mulberry32, softDiscTexture } from '../util.js';
 import { makeNoise2D, SHORE_LAYER } from '../gfx/terrain.js';
 
@@ -140,6 +140,33 @@ export const tex = {
       }
     }
   }),
+  /* bedded rock: the stone grain crossed by thin, wavering strata seams
+     (horizontal on side faces under boxUV, where v is height) */
+  strata: () => canvasTex('strata', 256, (c, S) => {
+    grain(c, S, 13, { lo: 0.74, hi: 1.0, blot: 0.8, speck: 0.8 });
+    const n = makeNoise2D(29);
+    const rng = mulberry32(31);
+    for (let k = 0; k < 7; k++) {
+      const y0 = (k + rng() * 0.6) * S / 7, w = 1 + rng() * 2.2, a = 0.07 + rng() * 0.13;
+      c.strokeStyle = `rgba(40,34,28,${a})`; c.lineWidth = w;
+      c.beginPath();
+      for (let x = 0; x <= S; x += 4) {
+        // tileable wobble (sampled on a circle in x)
+        const t = (x / S) * Math.PI * 2;
+        const y = y0 + (n(Math.cos(t) * 1.3 + k * 7, Math.sin(t) * 1.3) - 0.5) * 9;
+        if (x === 0) c.moveTo(x, y); else c.lineTo(x, y);
+      }
+      c.stroke();
+      c.strokeStyle = `rgba(255,250,240,${a * 0.7})`; c.lineWidth = 1;
+      c.beginPath();
+      for (let x = 0; x <= S; x += 4) {
+        const t = (x / S) * Math.PI * 2;
+        const y = y0 + w + 1 + (n(Math.cos(t) * 1.3 + k * 7, Math.sin(t) * 1.3) - 0.5) * 9;
+        if (x === 0) c.moveTo(x, y); else c.lineTo(x, y);
+      }
+      c.stroke();
+    }
+  }),
   /* coursed ashlar: block joints in a running bond */
   ashlar: () => canvasTex('ashlar', 256, (c, S) => {
     grain(c, S, 89, { lo: 0.8, hi: 1.0, blot: 0.8, speck: 0.7 });
@@ -239,7 +266,7 @@ export const mat = {
   gold: () => std('gold', { roughness: 0.28, metalness: 1.0 }),
   wet: () => std('wet', { roughness: 0.35, metalness: 0 }),
   plain: () => std('plain', { roughness: 0.85, metalness: 0 }),
-  rock: () => std('rock', { map: tex.stone(), roughness: 0.92, metalness: 0 }),
+  rock: () => std('rock', { map: tex.strata(), roughness: 0.92, metalness: 0 }),
   /* self-lit HDR colour (blooms when > 1); fogged unless told otherwise */
   glow: (hex, k = 2.5, fog = true) => cached(`glow:${hex}:${k}:${fog}`, () =>
     new THREE.MeshBasicMaterial({ color: new THREE.Color(hex).multiplyScalar(k), fog })),
@@ -470,69 +497,121 @@ export function blob(r, detail = 1, sy = 1) {
 }
 
 /* ── the rock generator ─────────────────────────────────────────────────────
- * One generator for every boulder, sea stack, outcrop and ruin rubble: an
- * icosphere pushed by 3D value noise, flattened against a few fracture planes
- * (so it reads as broken stone, not a potato), squashed onto a base, then
- * painted: darker crevices, horizontal STRATA bands, a sun-bleached top, and
- * optionally moss / snow / lichen on the up-facing surfaces.
+ * One generator for every boulder, sea stack, outcrop and ruin rubble.
+ * Broken stone, not a potato: an icosphere with a gentle noise bulk is CUT
+ * by 5–9 fracture planes (each vertex is projected radially onto any plane
+ * it pokes through), so most of the surface is a handful of flat, slightly
+ * wavy fracture faces meeting the weathered remainder at sharp edges. The
+ * normals are CREASED (smooth within a face, a hard break across an edge
+ * sharper than ~34°), which is what makes it read as craggy rather than
+ * either faceted (flat) or rounded (smooth). Then painted: cool fresh
+ * fracture faces vs warm weathered rind, strata bands warped by noise,
+ * shadowed overhangs, a sun-bleached top, lichen flecks, optional moss /
+ * snow / sand cover, a damp foot and — with `wl` (local y of the sea) — a
+ * dark wet tide band under a pale salt line.
  *   opts: r, sy (height ratio), detail (1–3), facets, rough,
  *         rock (hex), top (hex|null), cover 0..1 (moss/snow amount),
- *         strata 0..1, base (−1..0: how far below its centre it is cut flat) */
+ *         strata 0..1, base (−1..0: how far below its centre it is cut flat),
+ *         wl (local waterline y, or null), crease (radians) */
 const _rockBase = new Map();
 export function rockGeometry(seed, { r = 1, sy = 0.7, detail = 2, facets = 6, rough = 0.16,
-  rock = 0x8f8b84, top = null, cover = 0, strata = 0.5, base = -0.35 } = {}) {
-  let src = _rockBase.get(detail);
+  rock = 0x8f8b84, top = null, cover = 0, strata = 0.5, base = -0.35, wl = null, crease = 0.6 } = {}) {
+  // three's icosahedron detail n has 20·(n+1)² faces: 1 → 80 (rubble),
+  // 2 → 500, 3 → 980 — enough rows for the fracture edges to run straight
+  const sub = detail <= 1 ? 1 : detail === 2 ? 4 : 6;
+  let src = _rockBase.get(sub);
   if (!src) {
-    const g = new THREE.IcosahedronGeometry(1, detail);
-    g.deleteAttribute('normal'); g.deleteAttribute('uv');
-    src = mergeVertices(g, 1e-5);
-    _rockBase.set(detail, src);
+    const g0 = new THREE.IcosahedronGeometry(1, sub);
+    g0.deleteAttribute('normal'); g0.deleteAttribute('uv');
+    src = mergeVertices(g0, 1e-5);
+    _rockBase.set(sub, src);
   }
   const rng = mulberry32(seed >>> 0);
   const n2 = makeNoise2D((seed * 2654435761) >>> 0);
   const n3 = (x, y, z) => (n2(x + 17, y * 1.3 + z * 0.7) + n2(y - 9, z * 1.3 + x * 0.7)
                            + n2(z + 31, x * 1.3 + y * 0.7)) / 3;
+  // fracture planes: a top cut, then side cuts spread round the compass
+  // (never two on the same bearing), a few tilted down to undercut it
+  const nf = Math.max(2, facets + 2);
   const planes = [];
-  for (let k = 0; k < facets; k++) {
-    const a = rng() * Math.PI * 2, e = k === 0 ? 1.2 + rng() * 0.3 : (rng() - 0.3) * 1.1;
-    planes.push([Math.cos(a) * Math.cos(e), Math.sin(e), Math.sin(a) * Math.cos(e), 0.62 + rng() * 0.3]);
+  const a0 = rng() * Math.PI * 2;
+  for (let k = 0; k < nf; k++) {
+    const top0 = k === 0;
+    const a = a0 + (k / nf) * Math.PI * 2 * 1.618 + (rng() - 0.5) * 0.7;
+    const e = top0 ? 1.15 + rng() * 0.4 : (rng() - 0.32) * 1.2;
+    planes.push([Math.cos(a) * Math.cos(e), Math.sin(e), Math.sin(a) * Math.cos(e),
+      0.62 + rng() * 0.26, rng() * 40]);
+  }
+  // chips: small planes that only knock the corners off between the big
+  // faces — the stepped, many-angled break that says "crag"
+  for (let k = 0; k < Math.ceil(nf * 0.8); k++) {
+    const a = rng() * Math.PI * 2, e = (rng() - 0.25) * 1.5;
+    planes.push([Math.cos(a) * Math.cos(e), Math.sin(e), Math.sin(a) * Math.cos(e),
+      0.8 + rng() * 0.14, rng() * 40]);
   }
   const g = src.clone();
   const p = g.attributes.position;
+  const cutA = new Float32Array(p.count);
   const sx = 0.85 + rng() * 0.3, sz = 0.85 + rng() * 0.3;
   for (let i = 0; i < p.count; i++) {
     const x = p.getX(i), y = p.getY(i), z = p.getZ(i);
-    let k = 1;
+    // the weathered bulk: low-frequency swell + a finer pitting
+    let R = 1 + rough * (n3(x * 1.6, y * 1.6, z * 1.6) - 0.5) * 2.2
+              + rough * 0.3 * (n3(x * 4.8 + 3, y * 4.8, z * 4.8) - 0.5) * 2;
+    let cut = 0;
     for (const pl of planes) {
       const d = x * pl[0] + y * pl[1] + z * pl[2];
-      if (d > 0.05) k = Math.min(k, pl[3] / d + (1 - pl[3] / d) * 0.06);
+      if (d <= 0.05) continue;
+      // a fracture face is not a mirror: a faint conchoidal ripple
+      const o = pl[3] * (1 + 0.035 * (n2(x * 3.1 + pl[4], z * 3.1 + y * 2.3) - 0.5));
+      if (d * R > o) { R = o / d; cut = 1; }
     }
-    k *= 1 + rough * (n3(x * 1.8, y * 1.8, z * 1.8) - 0.5) * 2
-           + rough * 0.35 * (n3(x * 4.6 + 3, y * 4.6, z * 4.6) - 0.5) * 2;
-    const yy = Math.max(base, y * k);
-    p.setXYZ(i, x * k * r * sx, yy * r * sy, z * k * r * sz);
+    let yy = y * R;
+    if (yy < base) { yy = base; cut = 1; }
+    cutA[i] = cut;
+    p.setXYZ(i, x * R * r * sx, yy * r * sy, z * R * r * sz);
   }
-  g.computeVertexNormals();
+  g.setAttribute('cut', new THREE.BufferAttribute(cutA, 1));
+  const out = toCreasedNormals(g, crease);
+  g.dispose();
   // paint
-  const nrm = g.attributes.normal;
-  const col = new Float32Array(p.count * 3);
-  const cR = new THREE.Color(rock), cD = cR.clone().multiplyScalar(0.5), cL = cR.clone().lerp(new THREE.Color(0xf2ece0), 0.28);
+  const P = out.attributes.position, nrm = out.attributes.normal, cutN = out.attributes.cut;
+  const col = new Float32Array(P.count * 3);
+  const cR = new THREE.Color(rock);
+  const cD = cR.clone().multiplyScalar(0.48);
+  const cL = cR.clone().lerp(new THREE.Color(0xf2ece0), 0.3);
+  const cFresh = cR.clone().lerp(new THREE.Color(0xc9ccd2), 0.18);   // cool, clean fracture
+  const cRind = cR.clone().lerp(new THREE.Color(0x8a7454), 0.16).multiplyScalar(0.9); // warm weathering
+  const cLich = new THREE.Color(0xb7a46a);
+  const cWet = cR.clone().lerp(new THREE.Color(0x2f3a30), 0.55).multiplyScalar(0.55);
+  const cSalt = new THREE.Color(0xeee9dc);
   const cT = top != null ? new THREE.Color(top) : null;
   const c = new THREE.Color();
-  for (let i = 0; i < p.count; i++) {
-    const x = p.getX(i), y = p.getY(i), z = p.getZ(i), ny = nrm.getY(i);
+  const y0 = base * r * sy;
+  for (let i = 0; i < P.count; i++) {
+    const x = P.getX(i), y = P.getY(i), z = P.getZ(i), ny = nrm.getY(i);
     const f = n3(x * 1.1 / r, y * 1.1 / r, z * 1.1 / r);
-    const band = 0.5 + 0.5 * Math.sin((y / r) * 9 + f * 6);
-    c.copy(cD).lerp(cR, 0.35 + f * 0.65);
-    c.multiplyScalar(1 - strata * 0.16 + strata * band * 0.22);
-    c.lerp(cL, smooth(0.2, 0.9, ny) * 0.5);                          // sun-bleached top
-    c.multiplyScalar(0.72 + 0.28 * smooth(base * r * sy, base * r * sy + 0.35 * r, y));   // damp foot
-    if (cT && cover > 0) c.lerp(cT, smooth(0.45, 0.85, ny + (f - 0.5) * 0.6) * cover);
+    c.copy(cutN.getX(i) > 0.5 ? cFresh : cRind).lerp(cD, (1 - f) * 0.42);
+    // strata: thin dark seams and pale beds, warped by the noise
+    const s = ((y / (r * sy)) * 3.4 + f * 1.3 + 10) % 1;
+    c.multiplyScalar(1 + strata * 0.1 * Math.sin(s * Math.PI * 2));   // broad beds (the seams are in the map)
+    c.multiplyScalar(0.62 + 0.38 * smooth(-0.9, 0.1, ny));               // overhangs in shadow
+    c.lerp(cL, smooth(0.35, 0.95, ny) * 0.42);                           // sun-bleached top
+    const lf = n2(x * 7.3 / r + 5, z * 7.3 / r + y * 4.1 / r);
+    if (lf > 0.66 && ny > -0.2) c.lerp(cLich, (lf - 0.66) * 1.6);       // lichen flecks
+    c.multiplyScalar(0.7 + 0.3 * smooth(y0, y0 + 0.3 * r, y));           // damp foot
+    if (cT && cover > 0) c.lerp(cT, smooth(0.42, 0.8, ny + (f - 0.5) * 0.6) * cover);
+    if (wl != null) {
+      const w = (wl - y) / Math.max(0.15, r * 0.4);
+      if (y < wl + 0.1 * r) c.lerp(cWet, smooth(-0.25, 0.4, w));         // tide-dark, weedy
+      else c.lerp(cSalt, (1 - smooth(0.1 * r, 0.45 * r, y - wl)) * 0.32);  // dry salt line
+    }
     col[i * 3] = c.r; col[i * 3 + 1] = c.g; col[i * 3 + 2] = c.b;
   }
-  g.setAttribute('color', new THREE.BufferAttribute(col, 3));
-  boxUV(g, 0.9 / Math.max(0.3, r));
-  return g;
+  out.setAttribute('color', new THREE.BufferAttribute(col, 3));
+  out.deleteAttribute('cut');
+  boxUV(out, 0.9 / Math.max(0.3, r));
+  return out;
 }
 
 /* ── fire and glow ──────────────────────────────────────────────────────── */
